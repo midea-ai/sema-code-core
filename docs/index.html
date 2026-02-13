@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sema Core Documentation</title>
+  <meta name="description" content="Sema Core - 事件驱动的 AI 助手核心库文档">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-tomorrow.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">Loading...</div>
+  <script>
+    var ARROW_SVG = '<svg class="folder-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+
+    window.$docsify = {
+      name: '<img src="images/semacode-logo.png" alt="SemaCode" class="sidebar-logo">',
+      repo: '',
+      loadSidebar: true,
+      alias: { '/.*/_sidebar.md': '/_sidebar.md' },
+      subMaxLevel: 0,
+      auto2top: true,
+      search: { placeholder: '搜索文档...', noData: '没有找到结果', paths: 'auto', depth: 6 },
+      markdown: {
+        renderer: {
+          code(code, lang) {
+            if (lang === 'mermaid') return '<div class="mermaid">' + code + '</div>';
+            return this.origin.code.apply(this, arguments);
+          }
+        }
+      },
+      pagination: { previousText: '上一节', nextText: '下一节', crossChapter: true, crossChapterText: true },
+      count: { language: 'chinese' },
+      plugins: [mainPlugin]
+    };
+
+    function mainPlugin(hook) {
+      hook.doneEach(function() {
+        initCollapsible();
+        initHomeBtn();
+        buildRightToc();
+        renderMermaid();
+      });
+    }
+
+    // Collapsible sidebar folders
+    function initCollapsible() {
+      var nav = document.querySelector('.sidebar-nav');
+      if (!nav) return;
+
+      var savedState = {};
+      try { savedState = JSON.parse(sessionStorage.getItem('sidebarFolders') || '{}'); } catch(e) {}
+
+      nav.querySelectorAll('li').forEach(function(li) {
+        if (li.classList.contains('has-children') || !Array.from(li.children).some(c => c.tagName === 'UL')) return;
+        li.classList.add('has-children');
+
+        var toggle = Array.from(li.children).find(c => /^(A|STRONG|P|EM)$/.test(c.tagName));
+        if (!toggle) {
+          var textNode = Array.from(li.childNodes).find(n => n.nodeType === 3 && n.nodeValue.trim());
+          if (textNode) {
+            toggle = document.createElement('span');
+            toggle.className = 'folder-label';
+            toggle.textContent = textNode.nodeValue.trim();
+            li.replaceChild(toggle, textNode);
+          }
+        }
+        if (!toggle || toggle.querySelector('.folder-arrow')) return;
+
+        var key = toggle.textContent.trim().substring(0, 30);
+
+        // 非顶层文件夹：恢复保存的状态，默认折叠
+        var parentUl = li.parentElement;
+        var grandParentLi = parentUl ? parentUl.parentElement : null;
+        var isNested = grandParentLi && grandParentLi.tagName === 'LI';
+        if (isNested) {
+          var isCollapsed = key in savedState ? savedState[key] : true;
+          if (isCollapsed) li.classList.add('collapsed');
+        }
+
+        toggle.insertAdjacentHTML('beforeend', ARROW_SVG);
+
+        toggle.addEventListener('click', function(e) {
+          if (toggle.tagName === 'A' && toggle.getAttribute('href') && toggle.getAttribute('href') !== '#') {
+            if (e.clientX < toggle.getBoundingClientRect().right - 30) return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          li.classList.toggle('collapsed');
+          if (isNested) {
+            savedState[key] = li.classList.contains('collapsed');
+            try { sessionStorage.setItem('sidebarFolders', JSON.stringify(savedState)); } catch(e) {}
+          }
+        });
+      });
+    }
+
+    // Home button
+    function initHomeBtn() {
+      if (document.querySelector('.sidebar-home-btn')) return;
+      var btn = document.createElement('button');
+      btn.className = 'sidebar-home-btn';
+      btn.title = '回到主页';
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>';
+      btn.addEventListener('click', function() { window.location.hash = '#/'; });
+      document.body.appendChild(btn);
+    }
+
+    // Right-side TOC
+    function buildRightToc() {
+      var toc = document.querySelector('.right-toc') || document.createElement('div');
+      toc.className = 'right-toc';
+      if (!toc.parentNode) document.body.appendChild(toc);
+
+      var headings = document.querySelectorAll('.markdown-section h2, .markdown-section h3');
+      if (!headings.length) { toc.innerHTML = ''; toc.style.display = 'none'; return; }
+      toc.style.display = '';
+
+      var page = window.location.hash.replace(/\?.*$/, '').replace(/^#/, '') || '/';
+      var html = '<div class="toc-title">目录</div><ul>';
+      headings.forEach(function(h) {
+        var href = h.id ? '#' + page + '?id=' + h.id : '#' + page;
+        var indent = h.tagName === 'H3' ? ' style="padding-left:10px"' : '';
+        html += '<li' + indent + '><a href="' + href + '">' + h.textContent + '</a></li>';
+      });
+      toc.innerHTML = html + '</ul>';
+
+      window.removeEventListener('scroll', window._tocScroll);
+      window._tocScroll = function() {
+        var active = -1;
+        headings.forEach(function(h, i) { if (h.getBoundingClientRect().top <= 80) active = i; });
+        toc.querySelectorAll('li').forEach(function(li, i) { li.classList.toggle('active', i === active); });
+      };
+      window.addEventListener('scroll', window._tocScroll, { passive: true });
+      window._tocScroll();
+    }
+
+    // Mermaid
+    function renderMermaid() {
+      if (typeof mermaid !== 'undefined') {
+        try { mermaid.run({ querySelector: '.mermaid' }); } catch(e) { console.warn('Mermaid render error:', e); }
+      }
+    }
+
+    // Group search results by source document
+    (function() {
+      function getTitle(path) {
+        var a = document.querySelector('.sidebar-nav a[href="#' + path + '"]');
+        if (a) return a.textContent.trim();
+        return (path.replace(/\/$/, '').split('/').pop() || 'Home')
+          .replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      }
+
+      function groupResults(panel) {
+        var posts = panel.querySelectorAll('.matching-post');
+        if (!posts.length || panel.querySelector('.search-group')) return;
+        var groups = {}, order = [];
+        posts.forEach(function(post) {
+          var link = post.querySelector('a');
+          if (!link) return;
+          var p = (link.getAttribute('href') || '').replace(/^#/, '').replace(/\?.*$/, '') || '/';
+          if (!groups[p]) { groups[p] = []; order.push(p); }
+          groups[p].push(post);
+        });
+        panel.innerHTML = '';
+        order.forEach(function(p) {
+          var g = document.createElement('div');
+          g.className = 'search-group';
+          g.innerHTML = '<div class="search-group-title">' + getTitle(p) + '</div>';
+          groups[p].forEach(function(post) { g.appendChild(post); });
+          panel.appendChild(g);
+        });
+      }
+
+      function startObserving() {
+        var el = document.querySelector('.search');
+        if (!el) return setTimeout(startObserving, 500);
+        new MutationObserver(function() {
+          var panel = document.querySelector('.search .results-panel');
+          if (panel && panel.querySelector('.matching-post') && !panel.querySelector('.search-group')) groupResults(panel);
+        }).observe(el, { childList: true, subtree: true });
+      }
+      setTimeout(startObserving, 1000);
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-copy-code@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-pagination/dist/docsify-pagination.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-typescript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        themeVariables: {
+          primaryColor: '#e8f4fd', primaryBorderColor: '#3498db', primaryTextColor: '#2c3e50',
+          lineColor: '#3498db', secondaryColor: '#f8f9fa', tertiaryColor: '#fff'
+        },
+        flowchart: { useMaxWidth: true, htmlLabels: true },
+        sequence: { useMaxWidth: true }
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+{
+  "name": "sema-core",
+  "version": "1.0.4",
+  "description": "Event-driven core library for Sema AI assistant",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/index.js",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./types": {
+      "require": "./dist/types/index.js",
+      "import": "./dist/types/index.js",
+      "types": "./dist/types/index.d.ts"
+    },
+    "./event": {
+      "require": "./dist/events/types.js",
+      "import": "./dist/events/types.js",
+      "types": "./dist/events/types.d.ts"
+    },
+    "./mcp": {
+      "require": "./dist/services/mcp/index.js",
+      "import": "./dist/services/mcp/index.js",
+      "types": "./dist/services/mcp/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src/**/*.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "assistant",
+    "event-driven",
+    "tools",
+    "agents"
+  ],
+  "author": "AIRC Sema Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/midea-ai/sema-code-core.git"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "@vscode/ripgrep": "^1.17.0",
+    "diff": "^7.0.0",
+    "events": "^3.3.0",
+    "glob": "^13.0.0",
+    "gray-matter": "^4.0.3",
+    "lodash-es": "^4.17.21",
+    "lru-cache": "^11.2.4",
+    "nanoid": "^5.1.6",
+    "openai": "^6.9.1",
+    "shell-quote": "^1.8.3",
+    "spawn-rx": "^5.1.2",
+    "undici": "^7.16.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
+  },
+  "devDependencies": {
+    "@types/diff": "^7.0.2",
+    "@types/lodash-es": "^4.17.12",
+    "@types/node": "^20.19.25",
+    "@types/shell-quote": "^1.7.5",
+    "eslint": "^8.0.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

@@ -1,0 +1,59 @@
+- **概述**
+  - [项目概述](wiki/overview/project)
+  - [架构概述](wiki/overview/architecture)
+- **快速开始**
+  - [快速开始](wiki/getting-started/quick-start)
+  - 进阶用法
+    - [新增模型](wiki/getting-started/basic-usage/add-new-model)
+    - [配置基础](wiki/getting-started/basic-usage/configuration-basics)
+    - [基础用法](wiki/getting-started/basic-usage/basic-usage)
+    - [MCP 使用](wiki/getting-started/basic-usage/mcp-usage)
+    - [Skill 使用](wiki/getting-started/basic-usage/skill-usage)
+    - [SubAgent 使用](wiki/getting-started/basic-usage/subagent-usage)
+    - [command 使用](wiki/getting-started/basic-usage/command-usage)
+- **核心概念**
+  - Core 架构
+    - [引言：Agent基础](wiki/core-concepts/core-architecture/introduction)
+    - [SemaCore - 公共API层](wiki/core-concepts/core-architecture/sema-core-public-api)
+    - [SemaEngine - 业务逻辑](wiki/core-concepts/core-architecture/sema-engine-business-logic)
+    - [conversation - 对话系统](wiki/core-concepts/core-architecture/conversation-system)
+    - [managerLayer - 管理器层](wiki/core-concepts/core-architecture/manager-layer)
+  - 工具系统
+    - [工具架构](wiki/core-concepts/tool-system/tool-architecture)
+    - 内置工具
+      - [终端工具 Bash](wiki/core-concepts/tool-system/built-in-tools/bashtool)
+      - [文件搜索工具 Glob](wiki/core-concepts/tool-system/built-in-tools/globtool)
+      - [文本搜索工具 Grep](wiki/core-concepts/tool-system/built-in-tools/greptool)
+      - [文件读取工具 Read](wiki/core-concepts/tool-system/built-in-tools/readtool)
+      - [文件编辑工具 Edit](wiki/core-concepts/tool-system/built-in-tools/edittool)
+      - [文件写入工具 Write](wiki/core-concepts/tool-system/built-in-tools/writetool)
+      - [笔记本编辑工具 NotebookEdit](wiki/core-concepts/tool-system/built-in-tools/notebookedittool)
+      - [规划工具 TodoWrite](wiki/core-concepts/tool-system/built-in-tools/todowritetool)
+      - [子代理工具 Task](wiki/core-concepts/tool-system/built-in-tools/tasktool)
+      - [技能工具 Skill](wiki/core-concepts/tool-system/built-in-tools/skilltool)
+      - [交互工具 AskUserQuestion](wiki/core-concepts/tool-system/built-in-tools/askuserquestiontool)
+      - [退出Plan模式工具 ExitPlanMode](wiki/core-concepts/tool-system/built-in-tools/exitplanmodetool)
+    - [权限系统](wiki/core-concepts/tool-system/permission-system)
+    - [并发与串行执行](wiki/core-concepts/tool-system/concurrent-vs-serial-execution)
+    - [创建自定义工具](wiki/core-concepts/tool-system/creating-custom-tools)
+  - 生态扩展
+    - [MCP 集成](wiki/core-concepts/advanced-topics/mcp-integration)
+    - [Plan 模式](wiki/core-concepts/advanced-topics/plan-mode)
+    - [Skill 支持](wiki/core-concepts/advanced-topics/skill-support)
+    - SubAgent 子代理
+      - [Explore 子代理](wiki/core-concepts/advanced-topics/sub-agent/explore-subagents)
+      - [Plan 子代理](wiki/core-concepts/advanced-topics/sub-agent/plan-subagents)
+      - [创建自定义子代理](wiki/core-concepts/advanced-topics/sub-agent/creating-custom-subagents)
+  - Event 系统
+    - [事件总线架构](wiki/core-concepts/event-system/event-bus)
+    - [事件类型](wiki/core-concepts/event-system/event-catalog)
+  - [持久存储](wiki/core-concepts/persistent-storage/index)
+- **API参考**
+  - [会话管理](wiki/api-reference/session-management)
+  - [事件处理](wiki/api-reference/event-handling)
+  - [其他API](wiki/api-reference/other-apis)
+- **使用场景**
+  - [VSCode插件](wiki/scenarios/vscode-extension)
+  - [Code2Skill](wiki/scenarios/code2skill)
+  - [MiniCLI](wiki/scenarios/minicli)
+

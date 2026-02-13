@@ -2,7 +2,7 @@ const { GlobTool } = require('../../dist/tools/Glob/Glob');
 
 const input = {
     pattern: '*.py',
-    path: '/Users/zhoujie195/sema-demo'
+    path: '/path/to/your/project', // 修改为你的项目路径
 };
 
 async function main() {

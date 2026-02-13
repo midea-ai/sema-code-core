@@ -9,6 +9,7 @@
 [![GitHub License](https://img.shields.io/github/license/midea-ai/sema-code-core?style=flat-square)](https://github.com/midea-ai/sema-code-core/blob/main/LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/midea-ai/sema-code-core)
 [![npm version](https://img.shields.io/npm/v/sema-core?style=flat-square)](https://www.npmjs.com/package/sema-core)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square)](https://midea-ai.github.io/sema-code-core)
 
 
 </div>
@@ -16,6 +17,8 @@
 ## 项目概述
 
 **Sema Code Core** 是一个事件驱动型 AI 编程助手核心引擎，为构建代码助手工具提供可靠、可插拔的智能处理能力。支持多智能体协同、Skill 扩展、Plan 模式任务规划等核心能力，可快速集成到各类 AI 编程工具中。
+
+[查看文档](https://midea-ai.github.io/sema-code-core)
 
 ## 核心特性
 - **自然语言指令** - 通过自然语言直接驱动编程任务
@@ -42,11 +45,11 @@
 
 [Sema Code VSCode Extension](https://github.com/midea-ai/sema-code-vscode-extension) 是基于 Sema Code Core 引擎的VSCode智能编程插件。
 
-<img src="./imgs/sema.gif" alt="Sema Code VSCode Extension" />  
+<img src="./docs/images/sema.gif" alt="Sema Code VSCode Extension" />  
 
 ### Code to Skill: 代码库生成skill
 
-<img src="./imgs/code-to-skill.jpg" alt="Code to Skill" />
+<img src="./docs/images/code-to-skill.jpg" alt="Code to Skill" />
 
 ## 快速开始
 
@@ -56,44 +59,62 @@
 npm install sema-core
 ```
 
-### 开始使用
+### 最简示例
 
-创建实例：
+```javascript
+import { SemaCore } from 'sema-core'
 
-```typescript
-import { SemaCore } from 'sema-core';
-
+// 1. 创建实例
 const sema = new SemaCore({
-  workingDir: '/path/to/your/project'
-});
+  '/path/to/your/project', // 修改为你的项目路径
+})
+
+// 2. 添加模型
+// 配置模型（以 DeepSeek 为例，更多提供商见"新增模型"文档）
+const modelConfig = {
+  provider: 'deepseek',
+  modelName: 'deepseek-chat',
+  baseURL: 'https://api.deepseek.com/anthropic',
+  apiKey: 'sk-your-api-key', // 替换为你的 API Key
+  maxTokens: 8192,
+  contextLength: 128000
+};
+const modelId = `${modelConfig.modelName}[${modelConfig.provider}]`;
+await core.addModel(modelConfig);
+await core.applyTaskModel({ main: modelId, quick: modelId });
+
+// 3. 监听流式文本输出
+sema.on('message:text:chunk', ({ delta }) => {
+  process.stdout.write(delta ?? '')
+})
+
+// 4. 监听工具执行
+sema.on('tool:execution:complete', ({ toolName, summary }) => {
+  console.log(`\n[${toolName}] ${summary}`)
+})
+
+// 5. 处理权限请求
+sema.on('tool:permission:request', ({ toolName }) => {
+  // 自动同意（生产环境请实现交互式确认）
+  sema.respondToToolPermission({ toolName, selected: 'agree' })
+})
+
+// 6. 监听完成信号
+sema.on('state:update', ({ state }) => {
+  if (state === 'idle') console.log('\n--- 完成 ---\n')
+})
+
+// 7. 创建会话并发送消息
+await sema.createSession()
+sema.processUserInput('帮我分析这个项目的代码结构')
 ```
 
-会话管理：
+### 交互式 CLI 示例
 
-```typescript
-await sema.createSession();
-await sema.processUserInput('帮我分析这个项目的结构');
-```
+以下是一个完整的命令行对话示例 [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs)，保存到本地并执行：
 
-事件监听：
-
-```typescript
-// 监听 AI 流式响应
-core.on('message:text:chunk', (data) => {
-  process.stdout.write(data.delta || '');
-});
-
-// 监听工具执行结果
-sema.on('tool:execution:complete', (data) => {
-  console.log('工具执行结果:', data);
-});
-
-// 监听工具权限请求
-sema.on('tool:permission:request', (data) => {
-  console.log('工具权限请求:', data);
-  const selected = 'agree';
-  sema.respondToToolPermission({ toolName: data.toolName, selected });
-});
+```bash
+node quickstart.mjs
 ```
 
 ## 开发

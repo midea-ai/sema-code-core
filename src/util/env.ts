@@ -14,18 +14,6 @@ export const env = {
 }
 
 export const getEnv = memoize(async (): Promise<string> => {
-  // Working directory: C:\Users\username\Projects\sema-core
-  // Is directory a git repo: Yes
-  // Platform: win32
-  // OS Version: Windows_NT 10.0.22621
-  // Today's date: 2025-12-25
-
-  // Working directory: /Users/zhoujie195/PythonProjects/code/sema-core
-  // Is directory a git repo: Yes
-  // Platform: darwin
-  // OS Version: Darwin 24.2.0
-  // Today's date: 2025-12-25
-
   const cwd = getOriginalCwd()
   const isGitRepo = await getIsGit()
   const osVersion = os.release()

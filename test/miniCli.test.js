@@ -2,9 +2,10 @@ const { SemaCore } = require('../dist/core/SemaCore');
 const readline = require('readline');
 
 const core = new SemaCore({
-  workingDir: '/Users/zhoujie195/sema-demo',
+  workingDir: '/path/to/your/project', // 修改为你的项目路径
   logLevel: 'none',
-  thinking: false
+  thinking: false,
+  useTools: ["Bash", "Glob", "Grep", "Read", "Edit", "Write", "Skill", "Task", "TodoWrite", "NotebookEdit"]
 });
 
 let sessionId = null;

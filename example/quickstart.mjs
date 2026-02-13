@@ -1,68 +1,3 @@
-# 快速开始
-
-## 安装
-
-```bash
-npm install sema-core
-```
-
-**前置条件**：Node.js >= 18，以及至少一个 LLM 提供商的 API Key。
-
-## 最简示例
-
-```javascript
-import { SemaCore } from 'sema-core'
-
-// 1. 创建实例
-const sema = new SemaCore({
-  '/path/to/your/project', // 修改为你的项目路径
-})
-
-// 2. 添加模型
-// 配置模型（以 DeepSeek 为例，更多提供商见"新增模型"文档）
-const modelConfig = {
-  provider: 'deepseek',
-  modelName: 'deepseek-chat',
-  baseURL: 'https://api.deepseek.com/anthropic',
-  apiKey: 'sk-your-api-key', // 替换为你的 API Key
-  maxTokens: 8192,
-  contextLength: 128000
-};
-const modelId = `${modelConfig.modelName}[${modelConfig.provider}]`;
-await core.addModel(modelConfig);
-await core.applyTaskModel({ main: modelId, quick: modelId });
-
-// 3. 监听流式文本输出
-sema.on('message:text:chunk', ({ delta }) => {
-  process.stdout.write(delta ?? '')
-})
-
-// 4. 监听工具执行
-sema.on('tool:execution:complete', ({ toolName, summary }) => {
-  console.log(`\n[${toolName}] ${summary}`)
-})
-
-// 5. 处理权限请求
-sema.on('tool:permission:request', ({ toolName }) => {
-  // 自动同意（生产环境请实现交互式确认）
-  sema.respondToToolPermission({ toolName, selected: 'agree' })
-})
-
-// 6. 监听完成信号
-sema.on('state:update', ({ state }) => {
-  if (state === 'idle') console.log('\n--- 完成 ---\n')
-})
-
-// 7. 创建会话并发送消息
-await sema.createSession()
-sema.processUserInput('帮我分析这个项目的代码结构')
-```
-
-## 交互式 CLI 示例
-
-以下是一个完整的命令行对话示例（保存为 `quickstart.mjs` 并执行 `node quickstart.mjs`）：
-
-```javascript
 import { SemaCore } from 'sema-core';
 import readline from 'readline';
 
@@ -91,7 +26,7 @@ let rl = null;
 
 function createRl() {
   if (rl) rl.close();
-  rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: '' });
   return rl;
 }
 
@@ -127,7 +62,7 @@ async function run() {
 
   // 事件日志
   const events = [
-    'tool:execution:start', 'tool:execution:complete', 'tool:execution:error',
+    'tool:execution:start', 'tool:execution:complete', 'tool:execution:error', 'tool:permission:request',
     'task:agent:start', 'task:agent:end', 'todos:update', 'session:interrupted'
   ];
   events.forEach(e => core.on(e, (data) => console.log(gray(`${e}|${JSON.stringify(data)}`))));
@@ -168,25 +103,3 @@ async function run() {
 }
 
 run().catch((err) => { console.error('错误:', err); rl && rl.close(); process.exit(1); });
-```
-
-
-## 关键概念
-
-| 概念 | 说明 | 文档 |
-|------|------|------|
-| **SemaCore** | 公共 API 入口，所有操作都通过它进行 | [SemaCore API](../core-concepts/core-architecture/sema-core-public-api.md) |
-| **事件系统** | 流式输出、状态变化、工具执行均通过事件通知 | [事件总线](../core-concepts/event-system/event-bus.md) |
-| **工具权限** | 写操作（Bash、Edit 等）默认需要用户授权 | [权限系统](../core-concepts/tool-system/permission-system.md) |
-| **MCP** | 通过标准协议为 AI 扩展自定义工具 | [MCP 集成](../core-concepts/advanced-topics/mcp-integration.md) |
-| **Skill** | 可复用的 AI 工作流，存储为 Markdown 文件 | [Skill 支持](../core-concepts/advanced-topics/skill-support.md) |
-| **SubAgent** | 隔离执行的专用子代理 | [SubAgent](../getting-started/basic-usage/subagent-usage.md) |
-
-
-## 下一步
-
-- [基础用法](./basic-usage/basic-usage.md) — 完整配置项说明
-- [配置基础](./basic-usage/configuration-basics.md) — 配置文件详解
-- [新增模型](./basic-usage/add-new-model.md) — 支持更多 LLM 提供商
-- [MCP 使用](./basic-usage/mcp-usage.md) — 扩展 AI 工具能力
-- [Skill 使用](./basic-usage/skill-usage.md) — 创建可复用工作流

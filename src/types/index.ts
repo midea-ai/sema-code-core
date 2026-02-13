@@ -1,17 +1,17 @@
 export interface SemaCoreConfig {
-  workingDir?: string; // 项目绝对路径
+  workingDir?: string;               // 项目绝对路径
   logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'none'; // 默认 'info'
-  stream?: boolean; // 流式输出ai响应，默认 是
-  thinking?: boolean; // 流式输出ai响应，默认 否
-  systemPrompt?: string;  // 系统提示
-  customRules?: string;  // 用户规则
-  skipFileEditPermission?: boolean; // 是否跳过文件编辑权限检查，默认 否
-  skipBashExecPermission?: boolean; // 是否跳过bash执行权限检查，默认 否
-  skipSkillPermission?: boolean; // 是否跳过Skill权限检查，默认 否
-  skipMCPToolPermission?: boolean; // 是否跳过MCP工具权限检查，默认 否
-  enableLLMCache?: boolean; // 是否开启LLM缓存，默认 否 只有测试时使用
-  useTools?: string[] | null; // 限定使用的工具 默认 null 使用所有工具
-  agentMode?: 'Agent' | 'Plan' ; // 默认 'Agent'
+  stream?: boolean;                  // 流式输出ai响应，默认 是
+  thinking?: boolean;                // 流式输出ai响应，默认 否
+  systemPrompt?: string;             // 系统提示
+  customRules?: string;              // 用户规则
+  skipFileEditPermission?: boolean;  // 是否跳过文件编辑权限检查，默认 否
+  skipBashExecPermission?: boolean;  // 是否跳过bash执行权限检查，默认 否
+  skipSkillPermission?: boolean;     // 是否跳过Skill权限检查，默认 否
+  skipMCPToolPermission?: boolean;   // 是否跳过MCP工具权限检查，默认 否
+  enableLLMCache?: boolean;          // 是否开启LLM缓存，默认 否 建议只在重复测试时使用
+  useTools?: string[] | null;        // 限定使用的工具 默认 null 使用所有工具
+  agentMode?: 'Agent' | 'Plan' ;     // 默认 'Agent'
 }
 
 // 支持动态更新的核心配置字段

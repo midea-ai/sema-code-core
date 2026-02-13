@@ -2,7 +2,7 @@ const { GrepTool } = require('../../dist/tools/Grep/Grep');
 
 const input = {
     pattern: 'quicksort',
-    path: '/Users/zhoujie195/sema-demo',
+    path: '/path/to/your/project', // 修改为你的项目路径
     output_mode: 'content'
 };
 

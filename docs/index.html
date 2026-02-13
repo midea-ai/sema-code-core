@@ -94,6 +94,20 @@
           }
         });
       });
+
+      // Expand ancestors of the active page
+      var hash = window.location.hash.replace(/\?.*$/, '');
+      var activeLink = nav.querySelector('li.active > a') ||
+                       (hash ? nav.querySelector('a[href="' + hash + '"]') : null);
+      if (activeLink) {
+        var el = activeLink.parentElement;
+        while (el && el !== nav) {
+          if (el.tagName === 'LI' && el.classList.contains('collapsed')) {
+            el.classList.remove('collapsed');
+          }
+          el = el.parentElement;
+        }
+      }
     }
 
     // Home button
@@ -113,15 +127,17 @@
       toc.className = 'right-toc';
       if (!toc.parentNode) document.body.appendChild(toc);
 
-      var headings = document.querySelectorAll('.markdown-section h2, .markdown-section h3');
+      var headings = document.querySelectorAll('.markdown-section h2, .markdown-section h3, .markdown-section h4, .markdown-section h5');
       if (!headings.length) { toc.innerHTML = ''; toc.style.display = 'none'; return; }
       toc.style.display = '';
 
       var page = window.location.hash.replace(/\?.*$/, '').replace(/^#/, '') || '/';
+      var indentMap = { H2: 0, H3: 10, H4: 20, H5: 30 };
       var html = '<div class="toc-title">目录</div><ul>';
       headings.forEach(function(h) {
         var href = h.id ? '#' + page + '?id=' + h.id : '#' + page;
-        var indent = h.tagName === 'H3' ? ' style="padding-left:10px"' : '';
+        var px = indentMap[h.tagName] || 0;
+        var indent = px ? ' style="padding-left:' + px + 'px"' : '';
         html += '<li' + indent + '><a href="' + href + '">' + h.textContent + '</a></li>';
       });
       toc.innerHTML = html + '</ul>';

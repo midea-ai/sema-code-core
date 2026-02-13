@@ -35,7 +35,7 @@ export const ExitPlanModeTool = {
   },
   inputSchema,
   isReadOnly() {
-    return true
+    return false
   },
   async validateInput(
     { planFilePath }: z.infer<typeof inputSchema>,

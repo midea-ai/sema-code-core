@@ -31,7 +31,7 @@
 - [Code2Skill](wiki/scenarios/code2skill) — 从代码库生成 Skill
 
 ### 核心概念
-- [SemaCore - 公共API层](wiki/core-concepts/core-architecture/sema-core-public-api) - Sema Code Core 对外暴露的唯一入口类
+- [SemaCore](wiki/core-concepts/core-architecture/sema-core-public-api) - Sema Code Core 对外暴露的唯一入口类
 - [工具架构](wiki/core-concepts/tool-system/tool-architecture) — 工具接口与注册
 - [事件类型](wiki/core-concepts/event-system/event-catalog) — 完整事件参考
 - [权限系统](wiki/core-concepts/tool-system/permission-system) — 权限检查流程

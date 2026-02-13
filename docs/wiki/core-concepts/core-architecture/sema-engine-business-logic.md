@@ -115,7 +115,7 @@ updateAgentMode(mode: 'Agent' | 'Plan'): void
 - 若切换到 Plan 模式，重置 Plan 模式信息发送状态（`resetPlanModeInfoSent`）
 - 下次处理用户输入时，自动重建工具列表并在 additionalReminders 中附加 Plan 提醒
 
-如果在对话进行中（AI 调用 ExitPlanMode 工具）切换模式，会触发**上下文重建**（详见 [对话系统](./conversation-system.md)）。
+如果在对话进行中（AI 调用 ExitPlanMode 工具）切换模式，会触发**上下文重建**。
 
 
 ## 中断与资源释放

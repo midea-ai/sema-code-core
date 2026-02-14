@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./imgs/logo.png" alt="Sema Code Core Logo" width="75%"/>
+<img src="./docs/images/semacode-logo.png" alt="Sema Code Core Logo" width="75%"/>
 
 <h3>事件驱动型 AI 编程助手核心引擎</h3>
 
@@ -11,28 +11,15 @@
 [![npm version](https://img.shields.io/npm/v/sema-core?style=flat-square)](https://www.npmjs.com/package/sema-core)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square)](https://midea-ai.github.io/sema-code-core)
 
-<br/>
-
-**简体中文** | [English](./README.md)
+**中文** | [English](./README.md)
 
 </div>
 
----
-
-## 目录
-
-- [核心特性](#-核心特性)
-- [使用案例](#-使用案例)
-- [快速开始](#-快速开始)
-- [开发](#-开发)
-
----
-
-## 项目概述
+## 📖 项目概述
 
 **Sema Code Core** 是一个事件驱动型 AI 编程助手核心引擎，为构建代码助手工具提供可靠、可插拔的智能处理能力。支持多智能体协同、Skill 扩展、Plan 模式任务规划等核心能力，可快速集成到各类 AI 编程工具中。
 
-> **[查看完整文档](https://midea-ai.github.io/sema-code-core)**
+[查看文档](https://midea-ai.github.io/sema-code-core)
 
 ## ✨ 核心特性
 
@@ -56,7 +43,7 @@
 
 - **学术研究与 Agent 原型验证** — 为学术机构与独立研究者提供轻量级 Agent 实验环境，支持灵活组合工具链与智能体策略，让研究者聚焦算法创新。
 
-## 📦 使用案例
+## 💼 使用案例
 
 ### VSCode Extension
 
@@ -76,71 +63,41 @@
 
 ## 🚀 快速开始
 
-### 安装
+### 1. 新建项目并安装依赖
 
 ```bash
+mkdir my-app && cd my-app
+npm init -y
 npm install sema-core
 ```
 
-### 交互式 CLI 示例
+### 2. 下载示例文件
 
-以下是一个完整的命令行对话示例 [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs)，保存到本地并执行：
+将 [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs) 下载到 `my-app` 目录，然后修改以下两处配置：
+
+```js
+const core = new SemaCore({
+  workingDir: '/path/to/your/project', // Agent 将操作的目标代码仓库路径
+  ...
+});
+
+const modelConfig = {
+  apiKey: 'sk-your-api-key', // 替换为你的 API Key
+  ...
+};
+```
+
+更多模型配置参考[模型管理](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/basic-usage/add-new-model)
+
+### 3. 运行
 
 ```bash
 node quickstart.mjs
 ```
 
-### 最简示例
+<img src="./docs/images/mini-cli.png" alt="miniCli" />
 
-```javascript
-import { SemaCore } from 'sema-core'
-
-// 1. 创建实例
-const sema = new SemaCore({
-  '/path/to/your/project', // 修改为你的项目路径
-})
-
-// 2. 添加模型
-// 配置模型（以 DeepSeek 为例，更多提供商见"新增模型"文档）
-const modelConfig = {
-  provider: 'deepseek',
-  modelName: 'deepseek-chat',
-  baseURL: 'https://api.deepseek.com/anthropic',
-  apiKey: 'sk-your-api-key', // 替换为你的 API Key
-  maxTokens: 8192,
-  contextLength: 128000
-};
-const modelId = `${modelConfig.modelName}[${modelConfig.provider}]`;
-await core.addModel(modelConfig);
-await core.applyTaskModel({ main: modelId, quick: modelId });
-
-// 3. 监听流式文本输出
-sema.on('message:text:chunk', ({ delta }) => {
-  process.stdout.write(delta ?? '')
-})
-
-// 4. 监听工具执行
-sema.on('tool:execution:complete', ({ toolName, summary }) => {
-  console.log(`\n[${toolName}] ${summary}`)
-})
-
-// 5. 处理权限请求
-sema.on('tool:permission:request', ({ toolName }) => {
-  // 自动同意（生产环境请实现交互式确认）
-  sema.respondToToolPermission({ toolName, selected: 'agree' })
-})
-
-// 6. 监听完成信号
-sema.on('state:update', ({ state }) => {
-  if (state === 'idle') console.log('\n--- 完成 ---\n')
-})
-
-// 7. 创建会话并发送消息
-await sema.createSession()
-sema.processUserInput('帮我分析这个项目的代码结构')
-```
-
-## 🛠 开发
+## 🛠️ 开发
 
 ```bash
 # 1. 安装依赖
@@ -154,9 +111,6 @@ node test/addModel.test.js
 node test/miniCli.test.js
 ```
 
-<p align="center">
-  <img src="./imgs/mini-cli.png" alt="miniCli" width="80%"/>
-</p>
 
 <details>
 <summary><strong>ripgrep 跨平台打包说明（Mac/Win 兼容）</strong></summary>

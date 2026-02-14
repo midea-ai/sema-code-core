@@ -11,28 +11,15 @@
 [![npm version](https://img.shields.io/npm/v/sema-core?style=flat-square)](https://www.npmjs.com/package/sema-core)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square)](https://midea-ai.github.io/sema-code-core)
 
-<br/>
-
-[简体中文](./README_CN.md) | **English**
+[中文](./README_CN.md) | **English**
 
 </div>
 
----
-
-## Table of Contents
-
-- [Core Features](#-core-features)
-- [Use Cases](#-use-cases)
-- [Quick Start](#-quick-start)
-- [Development](#-development)
-
----
-
-## Project Overview
+## 📖 Project Overview
 
 **Sema Code Core** is an event-driven AI coding assistant core engine that provides reliable and pluggable intelligent processing capabilities for building code assistant tools. It supports core capabilities such as multi-agent collaboration, Skill extension, and Plan mode task planning, and can be quickly integrated into various AI programming tools.
 
-> **[View Full Documentation](https://midea-ai.github.io/sema-code-core)**
+[View Documentation](https://midea-ai.github.io/sema-code-core)
 
 ## ✨ Core Features
 
@@ -56,7 +43,7 @@
 
 - **Academic Research & Agent Prototype Verification** — Provides a lightweight Agent experimental environment for academic institutions and independent researchers, supporting flexible combinations of toolchains and agent strategies, allowing researchers to focus on algorithmic innovation.
 
-## 📦 Use Cases
+## 💼 Use Cases
 
 ### VSCode Extension
 
@@ -76,7 +63,7 @@ A Skill web application based on Sema Code Core, integrating Agent Skill Browser
 
 ## 🚀 Quick Start
 
-### Installation
+### 1. Create a project and install dependencies
 
 ```bash
 mkdir my-app && cd my-app
@@ -84,62 +71,31 @@ npm init -y
 npm install sema-core
 ```
 
-### Interactive CLI Example
+### 2. Download the example file
 
-Here is a complete command-line dialogue example [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs), save it locally and run:
+Download [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs) to the `my-app` directory, then modify the following two configurations:
+
+```js
+const core = new SemaCore({
+  workingDir: '/path/to/your/project', // Target repository path for the Agent to operate on
+  ...
+});
+
+const modelConfig = {
+  apiKey: 'sk-your-api-key', // Replace with your API Key
+  ...
+};
+```
+
+For more model configuration options, see [Model Management](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/basic-usage/add-new-model)
+
+### 3. Run
 
 ```bash
 node quickstart.mjs
 ```
 
-### Minimal Example
-
-将 [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs) 下载到 `my-app` 目录，然后修改以下两处配置：
-
-// 1. Create an instance
-const sema = new SemaCore({
-  '/path/to/your/project', // Change to your project path
-})
-
-// 2. Add Model
-// Configure model (Taking DeepSeek as an example, see "Add Model" documentation for more providers)
-const modelConfig = {
-  provider: 'deepseek',
-  modelName: 'deepseek-chat',
-  baseURL: 'https://api.deepseek.com/anthropic',
-  apiKey: 'sk-your-api-key', // Replace with your API Key
-  maxTokens: 8192,
-  contextLength: 128000
-};
-const modelId = `${modelConfig.modelName}[${modelConfig.provider}]`;
-await core.addModel(modelConfig);
-await core.applyTaskModel({ main: modelId, quick: modelId });
-
-// 3. Listen for streaming text output
-sema.on('message:text:chunk', ({ delta }) => {
-  process.stdout.write(delta ?? '')
-})
-
-// 4. Listen for tool execution
-sema.on('tool:execution:complete', ({ toolName, summary }) => {
-  console.log(`\n[${toolName}] ${summary}`)
-})
-
-// 5. Handle permission requests
-sema.on('tool:permission:request', ({ toolName }) => {
-  // Automatically agree (please implement interactive confirmation for production environment)
-  sema.respondToToolPermission({ toolName, selected: 'agree' })
-})
-
-// 6. Listen for completion signal
-sema.on('state:update', ({ state }) => {
-  if (state === 'idle') console.log('\n--- Completed ---\n')
-})
-
-// 7. Create session and send message
-await sema.createSession()
-sema.processUserInput('Help me analyze the code structure of this project')
-```
+<img src="./docs/images/mini-cli.png" alt="miniCli" />
 
 ## 🛠 Development
 
@@ -155,9 +111,6 @@ node test/addModel.test.js
 node test/miniCli.test.js
 ```
 
-<p align="center">
-  <img src="./imgs/mini-cli.png" alt="miniCli" width="80%"/>
-</p>
 
 <details>
 <summary><strong>ripgrep Cross-Platform Packaging (Mac/Win)</strong></summary>

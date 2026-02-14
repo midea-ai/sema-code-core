@@ -13,6 +13,7 @@ import { secureFileService } from '../../util/secureFile'
 import { getStateManager } from '../../manager/StateManager'
 import { readNotebook, formatNotebookCells } from '../../util/notebook'
 import { NotebookCellData } from '../../types/notebook'
+import { logDebug, logWarn, logInfo } from '../../util/log'
 
 const MAX_LINES_TO_RENDER = 5
 const MAX_OUTPUT_SIZE = 0.25 * 1024 * 1024 // 0.25MB in bytes
@@ -101,10 +102,10 @@ export const FileReadTool = {
           `Temporary directories: /tmp, /var/tmp`
         ]
 
-        console.log('🚫 ReadTool: File access denied')
-        console.log(`📁 Requested path: ${fullFilePath}`)
-        console.log('📋 Currently allowed base paths:')
-        allowedPaths.forEach(path => console.log(`  - ${path}`))
+        logWarn('ReadTool: File access denied')
+        logDebug(`Requested path: ${fullFilePath}`)
+        logDebug('Currently allowed base paths:')
+        allowedPaths.forEach(path => logDebug(`  - ${path}`))
 
         message += '\n\nCurrently allowed base paths:\n' + allowedPaths.map(p => `  - ${p}`).join('\n')
       } else {

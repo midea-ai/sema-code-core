@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./imgs/logo.png" alt="Sema Code Core Logo" width="75%"/>
+<img src="./docs/images/semacode-logo.png" alt="Sema Code Core Logo" width="75%"/>
 
 <h3>An Event-Driven AI Coding Assistant Core Engine</h3>
 
@@ -79,6 +79,8 @@ A Skill web application based on Sema Code Core, integrating Agent Skill Browser
 ### Installation
 
 ```bash
+mkdir my-app && cd my-app
+npm init -y
 npm install sema-core
 ```
 
@@ -92,8 +94,7 @@ node quickstart.mjs
 
 ### Minimal Example
 
-```javascript
-import { SemaCore } from 'sema-core'
+将 [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs) 下载到 `my-app` 目录，然后修改以下两处配置：
 
 // 1. Create an instance
 const sema = new SemaCore({

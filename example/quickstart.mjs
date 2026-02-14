@@ -2,7 +2,7 @@ import { SemaCore } from 'sema-core';
 import readline from 'readline';
 
 const core = new SemaCore({
-  workingDir: '/path/to/your/project', // 修改为你的项目路径
+  workingDir: '/path/to/your/project', // Agent 将操作的目标代码仓库路径
   logLevel: 'none',
   thinking: false
 });

@@ -3,6 +3,7 @@ import { dirname, normalize, resolve, extname, relative, isAbsolute } from 'node
 import { homedir } from 'node:os'
 import { normalizeFilePath } from './file'
 import { getCwd } from './cwd'
+import { logDebug } from './log'
 
 /**
  * 安全文件系统操作服务
@@ -119,11 +120,11 @@ export class SecureFileService {
           return true
         }
         if (rel.startsWith('..')) {
-          console.log(`[SecureFileService] ❌ 向上跳出路径，拒绝访问`)
+          logDebug('[SecureFileService] 向上跳出路径，拒绝访问')
           return false
         }
         if (isAbsolute(rel)) {
-          console.log(`[SecureFileService] ❌ 绝对相对路径，拒绝访问`)
+          logDebug('[SecureFileService] 绝对相对路径，拒绝访问')
           return false
         }
         // console.log(`[SecureFileService] ✅ 子路径，允许访问`)

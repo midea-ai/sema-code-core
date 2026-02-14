@@ -143,7 +143,7 @@ function buildCurlCommand(apiUrl: string, apiKey: string, body: object, config: 
 export async function testApiConnection(params: ApiTestParams): Promise<ApiTestResult> {
   const { provider = 'custom-openai', baseURL, apiKey, modelName } = params;
   const adapter = resolveAdapter(provider, modelName);
-  console.log(`adapter: ${adapter}, ${provider}, ${modelName}`)
+  // console.log(`adapter: ${adapter}, ${provider}, ${modelName}`)
   const config = API_CONFIGS[adapter] || API_CONFIGS.openai;
 
   const apiUrl = buildApiUrl(baseURL, config.endpoint, adapter, provider);
@@ -158,7 +158,7 @@ export async function testApiConnection(params: ApiTestParams): Promise<ApiTestR
       body: JSON.stringify(body)
     });
 
-    console.log('testApiConnection response:', response.statusCode, response.data.substring(0, 500));
+    // console.log('testApiConnection response:', response.statusCode, response.data.substring(0, 500));
 
     let result: ApiTestResult;
 
@@ -174,7 +174,7 @@ export async function testApiConnection(params: ApiTestParams): Promise<ApiTestR
       result = { success: false, message: errorMessage, curlCommand };
     }
 
-    console.log('testApiConnection result:', JSON.stringify(result, null, 2));
+    // console.log('testApiConnection result:', JSON.stringify(result, null, 2));
     return result;
 
   } catch (error) {
@@ -183,7 +183,7 @@ export async function testApiConnection(params: ApiTestParams): Promise<ApiTestR
       message: `✗ ${error instanceof Error ? error.message : String(error)}`,
       curlCommand
     };
-    console.log('testApiConnection result:', JSON.stringify(result, null, 2));
+    // console.log('testApiConnection result:', JSON.stringify(result, null, 2));
     return result;
   }
 }
@@ -223,7 +223,7 @@ export async function fetchModels(params: FetchModelsParams): Promise<FetchModel
   const providerConfig = MODEL_MAP[provider as keyof typeof MODEL_MAP];
   if (providerConfig && baseURL === providerConfig.baseURL) {
     result = { success: true, models: providerConfig.models };
-    console.log('fetchModels result:', JSON.stringify(result, null, 2));
+    // console.log('fetchModels result:', JSON.stringify(result, null, 2));
     return result;
   }
 
@@ -238,7 +238,7 @@ export async function fetchModels(params: FetchModelsParams): Promise<FetchModel
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${apiKey}"`;
 
-  console.log('curlCommand:', curlCommand)
+  // console.log('curlCommand:', curlCommand)
 
   try {
     const response = await httpRequest({ url: apiUrl, method: 'GET', headers });
@@ -247,7 +247,7 @@ export async function fetchModels(params: FetchModelsParams): Promise<FetchModel
       const jsonResponse = JSON.parse(response.data);
       const models = jsonResponse.data || [];
 
-      console.log('models:', models)
+      // console.log('models:', models)
 
       if (models.length === 0) {
         result = { success: false, message: '获取模型列表为空', curlCommand };
@@ -269,6 +269,6 @@ export async function fetchModels(params: FetchModelsParams): Promise<FetchModel
     };
   }
 
-  console.log('fetchModels result:', JSON.stringify(result, null, 2));
+  // console.log('fetchModels result:', JSON.stringify(result, null, 2));
   return result;
 }

@@ -2,9 +2,9 @@
 
 <img src="./imgs/logo.png" alt="Sema Code Core Logo" width="75%"/>
 
-An Event-Driven AI Coding Assistant Core Engine, providing reliable and pluggable intelligent processing capabilities for building code assistant tools.
-</br>
-<em>An Event-Driven AI Coding Assistant Core Engine</em>
+<h3>An Event-Driven AI Coding Assistant Core Engine</h3>
+
+<p>Providing reliable and pluggable intelligent processing capabilities for building code assistant tools.</p>
 
 [![GitHub License](https://img.shields.io/github/license/midea-ai/sema-code-core?style=flat-square)](https://github.com/midea-ai/sema-code-core/blob/main/LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/midea-ai/sema-code-core)
@@ -13,55 +13,81 @@ An Event-Driven AI Coding Assistant Core Engine, providing reliable and pluggabl
 
 <br/>
 
-[简体中文](./README_CN.md) | English
+[简体中文](./README_CN.md) | **English**
 
 </div>
+
+---
+
+## Table of Contents
+
+- [Core Features](#-core-features)
+- [Use Cases](#-use-cases)
+- [Quick Start](#-quick-start)
+- [Development](#-development)
+
+---
 
 ## Project Overview
 
 **Sema Code Core** is an event-driven AI coding assistant core engine that provides reliable and pluggable intelligent processing capabilities for building code assistant tools. It supports core capabilities such as multi-agent collaboration, Skill extension, and Plan mode task planning, and can be quickly integrated into various AI programming tools.
 
-[View Documentation](https://midea-ai.github.io/sema-code-core)
+> **[View Full Documentation](https://midea-ai.github.io/sema-code-core)**
 
-## Core Features
-- **Natural Language Instructions** - Directly drive programming tasks through natural language.
-- **Permission Control** - Fine-grained permission management ensures safe and controllable operations.
-- **Subagent Management** - Supports multi-agent collaboration and can dynamically schedule appropriate sub-agents based on task types.
-- **Skill Extension Mechanism** - Provides a plugin architecture to flexibly extend AI programming capabilities.
-- **Plan Mode Task Planning** - Supports decomposition and execution planning of complex tasks.
-- **MCP Protocol Support** - Built-in Model Context Protocol service to support tool extension.
-- **Multi-Model Support** - Compatible with Anthropic, OpenAI SDK, and supports LLM APIs from major domestic and international vendors.
+## ✨ Core Features
 
-## Scenarios
+| Feature | Description |
+|:--------|:------------|
+| **Natural Language Instructions** | Directly drive programming tasks through natural language |
+| **Permission Control** | Fine-grained permission management ensures safe and controllable operations |
+| **Subagent Management** | Multi-agent collaboration with dynamic sub-agent scheduling based on task types |
+| **Skill Extension Mechanism** | Plugin architecture to flexibly extend AI programming capabilities |
+| **Plan Mode Task Planning** | Decomposition and execution planning of complex tasks |
+| **MCP Protocol Support** | Built-in Model Context Protocol service to support tool extension |
+| **Multi-Model Support** | Compatible with Anthropic, OpenAI SDK, and LLM APIs from major vendors |
 
-**IDE/Editor Plugin Development**: Provides low-level AI capability encapsulation for editors, allowing developers to focus on UI interaction without self-developing complex large model scheduling and tool calling logic.
+## 🎯 Scenarios
 
-**Enterprise Internal R&D Tools**: Private deployment + permission control, adapting to enterprise-owned models and security specifications. Out-of-the-box toolchain avoids building AI programming infrastructure from scratch.
+- **IDE / Editor Plugin Development** — Provides low-level AI capability encapsulation for editors, allowing developers to focus on UI interaction without self-developing complex large model scheduling and tool calling logic.
 
-**Vertical Domain Intelligent Workflow**: Decomposes complex engineering tasks (migration, refactoring, documentation) into automated processes. Multi-agent collaborative execution replaces manual processing of repetitive coding work.
+- **Enterprise Internal R&D Tools** — Private deployment + permission control, adapting to enterprise-owned models and security specifications. Out-of-the-box toolchain avoids building AI programming infrastructure from scratch.
 
-**Academic Research and Agent Prototype Verification**: Provides a lightweight Agent experimental environment for academic institutions and independent researchers, supporting flexible combinations of toolchains and agent strategies, allowing researchers to focus on algorithmic innovation.
+- **Vertical Domain Intelligent Workflow** — Decomposes complex engineering tasks (migration, refactoring, documentation) into automated processes. Multi-agent collaborative execution replaces manual processing of repetitive coding work.
 
-## Use Cases
+- **Academic Research & Agent Prototype Verification** — Provides a lightweight Agent experimental environment for academic institutions and independent researchers, supporting flexible combinations of toolchains and agent strategies, allowing researchers to focus on algorithmic innovation.
+
+## 📦 Use Cases
 
 ### VSCode Extension
 
 [Sema Code VSCode Extension](https://github.com/midea-ai/sema-code-vscode-extension) is a VSCode intelligent programming plugin based on the Sema Code Core engine.
 
-<img src="./docs/images/sema.gif" alt="Sema Code VSCode Extension" />  
+<p align="center">
+  <img src="./docs/images/sema.gif" alt="Sema Code VSCode Extension" width="90%"/>
+</p>
 
-### Skill Web App 
+### Skill Web App
 
-这个案例是基于 Sema Code Core 的 Skill 网页应用：包括 Agent Skill Browser/Creator/Playground 集成演示。
+A Skill web application based on Sema Code Core, integrating Agent Skill Browser / Creator / Playground demo.
 
-<img src="./docs/images/skill-web-app-demo.gif" alt="Code to Skill" />
+<p align="center">
+  <img src="./docs/images/skill-web-app-demo.gif" alt="Skill Web App" width="90%"/>
+</p>
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Installation
 
 ```bash
 npm install sema-core
+```
+
+### Interactive CLI Example
+
+Here is a complete command-line dialogue example [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs), save it locally and run:
+
+```bash
+node quickstart.mjs
 ```
 
 ### Minimal Example
@@ -114,15 +140,7 @@ await sema.createSession()
 sema.processUserInput('Help me analyze the code structure of this project')
 ```
 
-### Interactive CLI Example
-
-Here is a complete command-line dialogue example [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs), save it locally and run:
-
-```bash
-node quickstart.mjs
-```
-
-## Development
+## 🛠 Development
 
 ```bash
 # 1. Install dependencies
@@ -131,16 +149,21 @@ npm install
 # 2. Build
 npm run build
 
-# 3. Run
+# 3. Run tests
 node test/addModel.test.js
 node test/miniCli.test.js
 ```
 
-<img src="./imgs/mini-cli.png" alt="miniCli" />
+<p align="center">
+  <img src="./imgs/mini-cli.png" alt="miniCli" width="80%"/>
+</p>
 
-ripgrep cross-platform packaging instructions (Mac/Win compatible):
+<details>
+<summary><strong>ripgrep Cross-Platform Packaging (Mac/Win)</strong></summary>
 
 ```bash
 # Before the first package, download the dual-platform ripgrep dependency files
 ./download-ripgrep.sh
 ```
+
+</details>

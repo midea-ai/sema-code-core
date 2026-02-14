@@ -1,4 +1,4 @@
 # Code2Skill 场景
 
 
-<img src="images/code-to-skill.jpg" alt="code-to-skill" />  
+<img src="images/skill-web-app-demo.gif" alt="code-to-skill" />  

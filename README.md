@@ -47,9 +47,11 @@
 
 <img src="./docs/images/sema.gif" alt="Sema Code VSCode Extension" />  
 
-### Code to Skill: 代码库生成skill
+### Skill Web App 
 
-<img src="./docs/images/code-to-skill.jpg" alt="Code to Skill" />
+这个案例是基于 Sema Code Core 的 Skill 网页应用：包括 Agent Skill Browser/Creator/Playground 集成演示。
+
+<img src="./docs/images/skill-web-app-demo.gif" alt="Code to Skill" />
 
 ## 快速开始
 

@@ -2,7 +2,7 @@
 
 <img src="./imgs/logo.png" alt="Sema Code Core Logo" width="75%"/>
 
-事件驱动型 AI 编程助手核心引擎，为构建代码助手工具提供可靠、可插拔的智能处理能力
+An Event-Driven AI Coding Assistant Core Engine, providing reliable and pluggable intelligent processing capabilities for building code assistant tools.
 </br>
 <em>An Event-Driven AI Coding Assistant Core Engine</em>
 
@@ -11,39 +11,42 @@
 [![npm version](https://img.shields.io/npm/v/sema-core?style=flat-square)](https://www.npmjs.com/package/sema-core)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square)](https://midea-ai.github.io/sema-code-core)
 
+<br/>
+
+[简体中文](./README_CN.md) | English
 
 </div>
 
-## 项目概述
+## Project Overview
 
-**Sema Code Core** 是一个事件驱动型 AI 编程助手核心引擎，为构建代码助手工具提供可靠、可插拔的智能处理能力。支持多智能体协同、Skill 扩展、Plan 模式任务规划等核心能力，可快速集成到各类 AI 编程工具中。
+**Sema Code Core** is an event-driven AI coding assistant core engine that provides reliable and pluggable intelligent processing capabilities for building code assistant tools. It supports core capabilities such as multi-agent collaboration, Skill extension, and Plan mode task planning, and can be quickly integrated into various AI programming tools.
 
-[查看文档](https://midea-ai.github.io/sema-code-core)
+[View Documentation](https://midea-ai.github.io/sema-code-core)
 
-## 核心特性
-- **自然语言指令** - 通过自然语言直接驱动编程任务
-- **权限控制** - 细粒度的权限管理，确保操作安全可控
-- **Subagent 管理** - 支持多智能体协同工作，可根据任务类型动态调度合适的子代理
-- **Skill 扩展机制** - 提供插件化架构，可灵活扩展 AI 编程能力
-- **Plan 模式任务规划** - 支持复杂任务的分解与执行规划
-- **MCP 协议支持** - 内置 Model Context Protocol 服务，支持工具扩展
-- **多模型支持** - 兼容 Anthropic、OpenAI SDK，支持国内外主流厂商 LLM API
+## Core Features
+- **Natural Language Instructions** - Directly drive programming tasks through natural language.
+- **Permission Control** - Fine-grained permission management ensures safe and controllable operations.
+- **Subagent Management** - Supports multi-agent collaboration and can dynamically schedule appropriate sub-agents based on task types.
+- **Skill Extension Mechanism** - Provides a plugin architecture to flexibly extend AI programming capabilities.
+- **Plan Mode Task Planning** - Supports decomposition and execution planning of complex tasks.
+- **MCP Protocol Support** - Built-in Model Context Protocol service to support tool extension.
+- **Multi-Model Support** - Compatible with Anthropic, OpenAI SDK, and supports LLM APIs from major domestic and international vendors.
 
-## 适用场景
+## Scenarios
 
-**IDE/编辑器插件开发**：为编辑器提供底层AI能力封装，开发者只需专注UI交互，无需自研复杂的大模型调度与工具调用逻辑。
+**IDE/Editor Plugin Development**: Provides low-level AI capability encapsulation for editors, allowing developers to focus on UI interaction without self-developing complex large model scheduling and tool calling logic.
 
-**企业内部研发工具**：私有化部署+权限管控，适配企业自有模型与安全规范。开箱即用的工具链，避免从零构建AI编程基础设施。
+**Enterprise Internal R&D Tools**: Private deployment + permission control, adapting to enterprise-owned models and security specifications. Out-of-the-box toolchain avoids building AI programming infrastructure from scratch.
 
-**垂直领域智能工作流**：将复杂工程任务（迁移、重构、文档）拆解为自动化流程。多智能体协同执行，替代人工处理重复性代码工作。
+**Vertical Domain Intelligent Workflow**: Decomposes complex engineering tasks (migration, refactoring, documentation) into automated processes. Multi-agent collaborative execution replaces manual processing of repetitive coding work.
 
-**学术研究与 Agent 原型验证**：为学术机构与独立研究者提供轻量级 Agent 实验环境，支持灵活组合工具链与智能体策略，让研究者聚焦算法创新。
+**Academic Research and Agent Prototype Verification**: Provides a lightweight Agent experimental environment for academic institutions and independent researchers, supporting flexible combinations of toolchains and agent strategies, allowing researchers to focus on algorithmic innovation.
 
-## 使用案例
+## Use Cases
 
 ### VSCode Extension
 
-[Sema Code VSCode Extension](https://github.com/midea-ai/sema-code-vscode-extension) 是基于 Sema Code Core 引擎的VSCode智能编程插件。
+[Sema Code VSCode Extension](https://github.com/midea-ai/sema-code-vscode-extension) is a VSCode intelligent programming plugin based on the Sema Code Core engine.
 
 <img src="./docs/images/sema.gif" alt="Sema Code VSCode Extension" />  
 
@@ -53,31 +56,31 @@
 
 <img src="./docs/images/skill-web-app-demo.gif" alt="Code to Skill" />
 
-## 快速开始
+## Quick Start
 
-### 安装
+### Installation
 
 ```bash
 npm install sema-core
 ```
 
-### 最简示例
+### Minimal Example
 
 ```javascript
 import { SemaCore } from 'sema-core'
 
-// 1. 创建实例
+// 1. Create an instance
 const sema = new SemaCore({
-  '/path/to/your/project', // 修改为你的项目路径
+  '/path/to/your/project', // Change to your project path
 })
 
-// 2. 添加模型
-// 配置模型（以 DeepSeek 为例，更多提供商见"新增模型"文档）
+// 2. Add Model
+// Configure model (Taking DeepSeek as an example, see "Add Model" documentation for more providers)
 const modelConfig = {
   provider: 'deepseek',
   modelName: 'deepseek-chat',
   baseURL: 'https://api.deepseek.com/anthropic',
-  apiKey: 'sk-your-api-key', // 替换为你的 API Key
+  apiKey: 'sk-your-api-key', // Replace with your API Key
   maxTokens: 8192,
   contextLength: 128000
 };
@@ -85,60 +88,59 @@ const modelId = `${modelConfig.modelName}[${modelConfig.provider}]`;
 await core.addModel(modelConfig);
 await core.applyTaskModel({ main: modelId, quick: modelId });
 
-// 3. 监听流式文本输出
+// 3. Listen for streaming text output
 sema.on('message:text:chunk', ({ delta }) => {
   process.stdout.write(delta ?? '')
 })
 
-// 4. 监听工具执行
+// 4. Listen for tool execution
 sema.on('tool:execution:complete', ({ toolName, summary }) => {
   console.log(`\n[${toolName}] ${summary}`)
 })
 
-// 5. 处理权限请求
+// 5. Handle permission requests
 sema.on('tool:permission:request', ({ toolName }) => {
-  // 自动同意（生产环境请实现交互式确认）
+  // Automatically agree (please implement interactive confirmation for production environment)
   sema.respondToToolPermission({ toolName, selected: 'agree' })
 })
 
-// 6. 监听完成信号
+// 6. Listen for completion signal
 sema.on('state:update', ({ state }) => {
-  if (state === 'idle') console.log('\n--- 完成 ---\n')
+  if (state === 'idle') console.log('\n--- Completed ---\n')
 })
 
-// 7. 创建会话并发送消息
+// 7. Create session and send message
 await sema.createSession()
-sema.processUserInput('帮我分析这个项目的代码结构')
+sema.processUserInput('Help me analyze the code structure of this project')
 ```
 
-### 交互式 CLI 示例
+### Interactive CLI Example
 
-以下是一个完整的命令行对话示例 [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs)，保存到本地并执行：
+Here is a complete command-line dialogue example [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs), save it locally and run:
 
 ```bash
 node quickstart.mjs
 ```
 
-## 开发
+## Development
 
 ```bash
-# 1. 安装依赖
+# 1. Install dependencies
 npm install
 
-# 2. 编译
+# 2. Build
 npm run build
 
-# 3. 运行
+# 3. Run
 node test/addModel.test.js
 node test/miniCli.test.js
 ```
 
 <img src="./imgs/mini-cli.png" alt="miniCli" />
 
-ripgrep 跨平台打包说明（Mac/Win 兼容）：
+ripgrep cross-platform packaging instructions (Mac/Win compatible):
 
 ```bash
-# 首次打包前，下载双平台 ripgrep 依赖文件
+# Before the first package, download the dual-platform ripgrep dependency files
 ./download-ripgrep.sh
 ```
-

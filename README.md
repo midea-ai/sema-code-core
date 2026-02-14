@@ -50,9 +50,11 @@ An Event-Driven AI Coding Assistant Core Engine, providing reliable and pluggabl
 
 <img src="./docs/images/sema.gif" alt="Sema Code VSCode Extension" />  
 
-### Code to Skill: Generate Skill from Codebase
+### Skill Web App 
 
-<img src="./docs/images/code-to-skill.jpg" alt="Code to Skill" />
+这个案例是基于 Sema Code Core 的 Skill 网页应用：包括 Agent Skill Browser/Creator/Playground 集成演示。
+
+<img src="./docs/images/skill-web-app-demo.gif" alt="Code to Skill" />
 
 ## Quick Start
 

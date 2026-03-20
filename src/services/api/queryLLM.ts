@@ -117,9 +117,28 @@ function emitSessionError(error: any, type: SessionErrorData['type'] = 'api_erro
       return // 用户取消的情况不需要触发错误事件
     }
 
+    // 优先检查 error.status 属性（Anthropic/OpenAI SDK 的 APIError）
+    if ('status' in error && typeof error.status === 'number') {
+      const statusCode = error.status
+      errorCode = `API_ERROR_${statusCode}`
+      errorMessage = error.message  // 透传原始错误消息
+      type = 'api_error'
+
+      // 对常见错误提供用户友好的提示
+      if (statusCode === 401) {
+        errorCode = 'AUTH_ERROR'
+        errorMessage = 'API认证失败，请检查API密钥是否正确'
+      } else if (statusCode === 403) {
+        errorCode = 'PERMISSION_DENIED'
+        errorMessage = 'API权限不足，请检查API密钥权限'
+      } else if (statusCode === 429) {
+        errorCode = 'RATE_LIMIT'
+        errorMessage = 'API调用频率超限，请稍后重试'
+      }
+    }
     // 检测 API request failed (xxx) 格式的错误
-    const apiErrorMatch = error.message.match(/API request failed \((\d{3})\)/)
-    if (apiErrorMatch) {
+    else if (error.message.match(/API request failed \((\d{3})\)/)) {
+      const apiErrorMatch = error.message.match(/API request failed \((\d{3})\)/)!
       const statusCode = apiErrorMatch[1]
       errorCode = `API_ERROR_${statusCode}`
       errorMessage = error.message

@@ -166,7 +166,7 @@ export function getEventDir(): string {
 }
 
 /**
- * 获取全局 Agent.md 文件路径
+ * 获取全局 Agent配置文件路径
  * 位于 ~/.claude/CLAUDE.md
  * 跨平台兼容：os.homedir() + path.join() 自动适配 Windows、macOS、Linux
  */

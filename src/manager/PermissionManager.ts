@@ -405,7 +405,7 @@ function buildPermissionOptions(
   if (isFileEditTool(tool)) {
     return {
       agree: '确认',
-      allow: '确认, 本项目不再询问文件编辑',
+      allow: '确认, 本次会话不再询问文件编辑',
       refuse: '拒绝'
     }
   }

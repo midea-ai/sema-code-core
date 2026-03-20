@@ -19,8 +19,7 @@ import { query } from './Conversation';
 import type { AgentContext } from '../types/agent'
 import { getMCPManager } from '../services/mcp/MCPManager';
 import { getStateManager, MAIN_AGENT_ID } from '../manager/StateManager';
-import { handleSystemCommand, tryHandleCustomCommand } from '../services/command/runCommand';
-import { loadCustomCommands } from '../services/command/customCommands';
+import { handleCommand } from '../services/commands/runCommand';
 
 
 /**
@@ -52,9 +51,6 @@ export class SemaEngine {
     logInfo(`[DEBUG] loadHistory - workingDir: ${workingDir}, coreConfig: ${JSON.stringify(coreConfig)}`);
     const historyData = await loadHistory(sessionId, workingDir);
     logInfo(`会话CoreConfig: ${JSON.stringify(coreConfig, null, 2)}`)
-
-    // 加载自定义命令（不阻塞会话创建）
-    this.initializePlugins(coreConfig?.workingDir);
 
     // 将加载的消息历史和 todos 设置到主代理状态
     const mainAgentState = stateManager.forAgent(MAIN_AGENT_ID);
@@ -143,17 +139,14 @@ export class SemaEngine {
       // 将用户输入保存到项目配置的 history
       getConfManager().saveUserInputToHistory(originalInput || input);
 
-      // 处理系统命令（false 表示不继续处理输入到query）
-      const isSystemCommand = await handleSystemCommand(input);
-      if (isSystemCommand) {
-        return ;
+      // 处理命令（系统命令 + 自定义命令）
+      const commandResult = await handleCommand(input);
+      if (commandResult === null) {
+        return;
       }
 
-      // 检测并处理自定义命令
-      const { processedInput } = await tryHandleCustomCommand(input);
-
-      // 处理文件引用以获取补充信息（使用处理后的输入）
-      const fileReferencesResult = await processFileReferences(processedInput, agentContext)
+      // 处理文件引用以获取补充信息（使用处理后的文本）
+      const fileReferencesResult = await processFileReferences(commandResult.processedText, agentContext)
       logInfo(`返回文件引用信息: ${JSON.stringify(fileReferencesResult.supplementaryInfo, null, 2)}`)
 
       if (fileReferencesResult.supplementaryInfo.length > 0) {
@@ -182,7 +175,7 @@ export class SemaEngine {
       )
       const userMessage = createUserMessage([
         ...additionalReminders,
-        { type: 'text' as const, text: processedInput }
+        ...commandResult.blocks
       ])
 
       // 2.3 完整消息 
@@ -312,21 +305,6 @@ export class SemaEngine {
       if (!isInterruptedException(error)) {
         logDebug(`话题检测失败: ${error}`);
       }
-    }
-  }
-
-  /**
-   * 加载自定义命令，不阻塞会话创建
-   */
-  private async initializePlugins(_workingDir?: string): Promise<void> {
-    try {
-      const result = await loadCustomCommands();
-      logDebug(`Loaded ${result.commands.length} custom commands`);
-      if (result.errors.length > 0) {
-        logWarn(`Custom command load errors: ${JSON.stringify(result.errors)}`);
-      }
-    } catch (error) {
-      logWarn(`Failed to load custom commands: ${error}`);
     }
   }
 

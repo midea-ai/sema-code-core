@@ -16,6 +16,7 @@ import { getOriginalCwd } from '../../util/cwd'
 import { parseFile } from '../../util/formatter'
 import { defaultBuiltInAgentsConfs } from './defaultBuiltInAgentsConfs'
 import { getPluginsManager } from '../plugins/pluginsManager'
+import { getConfManager } from '../../manager/ConfManager'
 
 /**
  * Agents 管理器类 - 单例模式
@@ -72,12 +73,18 @@ class AgentsManager {
     // 清空现有配置
     this.agentConfigs.clear()
 
+    const enableClaudeCodeCompat = getConfManager().getCoreConfig()?.enableClaudeCodeCompat !== false
+
     // 按优先级顺序加载（后加载的覆盖先加载的）
     // 1. 用户级(Claude) - 最低优先级
-    await this.loadAgentsFromDir(this.claudeUserAgentsDir, 'user', 'claude')
+    if (enableClaudeCodeCompat) {
+      await this.loadAgentsFromDir(this.claudeUserAgentsDir, 'user', 'claude')
+    }
 
     // 2. 项目级(Claude)
-    await this.loadAgentsFromDir(this.claudeProjectAgentsDir, 'project', 'claude')
+    if (enableClaudeCodeCompat) {
+      await this.loadAgentsFromDir(this.claudeProjectAgentsDir, 'project', 'claude')
+    }
 
     // 3. 内置 agents
     this.loadBuiltInAgents()
@@ -433,16 +440,26 @@ class AgentsManager {
     this.agentConfigs.delete(name)
     this.invalidateCache()
 
-    // 删除文件
+    // 删除 agent 文件
     const targetDir = agentConf.locate === 'user' ? this.semaUserAgentsDir : this.semaProjectAgentsDir
-    const filePath = path.join(targetDir, `${name}.md`)
+    const agentFilePath = agentConf.filePath ?? path.join(targetDir, `${name}.md`)
     try {
-      if (fs.existsSync(filePath)) {
-        await fsPromises.unlink(filePath)
-        logInfo(`Agent 配置文件已删除: ${filePath}`)
+      if (fs.existsSync(agentFilePath)) {
+        await fsPromises.unlink(agentFilePath)
+        logInfo(`Agent 配置文件已删除: ${agentFilePath}`)
+
+        // 如果父目录为空则一并删除
+        const parentDir = path.dirname(agentFilePath)
+        if (parentDir !== targetDir) {
+          const siblings = await fsPromises.readdir(parentDir)
+          if (siblings.length === 0) {
+            await fsPromises.rm(parentDir, { recursive: true })
+            logDebug(`Agent 空目录已删除: ${parentDir}`)
+          }
+        }
       }
     } catch (error) {
-      logError(`删除 Agent 配置文件失败 [${filePath}]: ${error}`)
+      logError(`删除 Agent 配置文件失败 [${agentFilePath}]: ${error}`)
     }
 
     logInfo(`移除 Agent 配置: ${name}`)

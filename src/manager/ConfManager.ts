@@ -83,7 +83,8 @@ export class ConfigManager {
       'skipBashExecPermission',
       'skipSkillPermission',
       'skipMCPToolPermission',
-      'enableLLMCache'
+      'enableLLMCache',
+      'enableClaudeCodeCompat'
     ];
 
     if (!allowedKeys.includes(key)) {

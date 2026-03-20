@@ -1,715 +1,737 @@
+/**
+ * MCP 管理器
+ *
+ * 管理 MCP Server 配置，从多个来源加载
+ * 实现优先级：用户级(Claude) < 本地级(Claude) < 项目级(Claude) < 用户级(Sema) < 项目级(Sema)
+ * 兼容 Claude Code 和 Sema 两套路径（Claude 只读）
+ *
+ * 状态管理：
+ * - Sema 服务启用/禁用：.sema/settings.json -> disabledMcpServers
+ * - 可用工具列表：.sema/settings.json -> enabledMcpServerUseTools
+ * - Claude 服务禁用：~/.claude.json -> projects[cwd].disabledMcpServers
+ */
+
 import * as fs from 'fs'
 import * as path from 'path'
+import * as os from 'os'
 import { MCPClient } from './MCPClient'
 import { createMCPToolAdapter } from './MCPToolAdapter'
 import { Tool } from '../../tools/base/Tool'
-import { MCPServerConfig, MCPScopeType, MCPServerInfo, MCPServerStatus } from '../../types/mcp'
+import { MCPServerConfig, MCPScopeType, MCPServerInfo } from '../../types/mcp'
 import { logDebug, logError, logInfo, logWarn } from '../../util/log'
-import { getGlobalMCPFilePath } from '../../util/savePath'
+import { EventBus } from '../../events/EventSystem'
+import { getSemaRootDir } from '../../util/savePath'
 import { getOriginalCwd } from '../../util/cwd'
+import { getConfManager } from '../../manager/ConfManager'
 
-/**
- * MCP 配置文件格式
- */
-interface MCPConfigFile {
-  mcpServers?: {
-    [serverName: string]: MCPServerConfig
-  }
+/** Sema settings 文件结构（部分） */
+interface SemaSettings {
+  disabledMcpServers?: string[]
+  enabledMcpServerUseTools?: Record<string, string[]>
+  [key: string]: any
 }
 
 /**
- * 工具缓存
- * toolsByServer: 按服务器名称分组存储工具，支持增量更新
- */
-interface ToolsCache {
-  globalMtime: number
-  projectMtime: number
-  toolsByServer: Map<string, Tool[]>
-}
-
-/**
- * MCP 管理器 - 单例模式
- * 管理全局和项目级别的 MCP Server 配置
+ * MCP 管理器类 - 单例模式
  */
 class MCPManager {
-  private globalConfigPath: string
-  private projectConfigPath: string
-  private globalConfigs: Map<string, MCPServerConfig> = new Map()
-  private projectConfigs: Map<string, MCPServerConfig> = new Map()
+  private semaUserConfigPath: string      // ~/.sema/.mcp.json
+  private semaProjectConfigPath: string   // <project>/.sema/.mcp.json
+  private semaProjectSettingsPath: string // <project>/.sema/settings.json
 
-  // 工具缓存
-  private toolsCache: ToolsCache | null = null
-  // 客户端缓存（用于工具调用）
+  private claudeGlobalConfigPath: string  // ~/.claude.json
+  private claudeProjectConfigPath: string // <project>/.mcp.json
+  private claudeSettingsPath: string      // <project>/.claude/settings.local.json
+
+  // Server 信息缓存
+  private serverInfoCache: MCPServerInfo[] | null = null
+  // 后台加载 Promise
+  private loadingPromise: Promise<MCPServerInfo[]> | null = null
+
+  // MCP 客户端（用于工具调用）
   private clients: Map<string, MCPClient> = new Map()
-  // ServerInfo 缓存（避免重复构建）
-  private serverInfoCache: Map<MCPScopeType, MCPServerInfo[]> | null = null
 
-  constructor(globalConfigPath: string, projectConfigPath: string) {
-    this.globalConfigPath = globalConfigPath
-    this.projectConfigPath = projectConfigPath
+  constructor() {
+    const semaRootDir = getSemaRootDir()
+    this.semaUserConfigPath = path.join(semaRootDir, '.mcp.json')
+
+    const cwd = getOriginalCwd()
+    this.semaProjectConfigPath = path.join(cwd, '.sema', '.mcp.json')
+    this.semaProjectSettingsPath = path.join(cwd, '.sema', 'settings.json')
+    this.claudeProjectConfigPath = path.join(cwd, '.mcp.json')
+    this.claudeSettingsPath = path.join(cwd, '.claude', 'settings.local.json')
+
+    this.claudeGlobalConfigPath = path.join(os.homedir(), '.claude.json')
+
+    // 后台静默加载 MCP 配置
+    this.loadingPromise = this.refreshMCPServerConfigs()
+      .catch(err => {
+        logError(`后台加载 MCP 配置失败: ${err}`)
+        return [] as MCPServerInfo[]
+      })
+      .finally(() => { this.loadingPromise = null })
   }
 
   /**
-   * 初始化 MCP 配置
-   * 从全局和项目配置文件读取配置，并连接所有服务加载工具
+   * 清空缓存
    */
-  async init(): Promise<void> {
-    // 加载全局配置
-    this.globalConfigs = this.loadConfigFile(this.globalConfigPath)
-
-    // 加载项目配置
-    this.projectConfigs = this.loadConfigFile(this.projectConfigPath)
-    
-    logInfo(`加载全局 MCP 配置: ${this.globalConfigs.size} 个服务，项目 MCP 配置: ${this.projectConfigs.size} 个服务`)
-
-    // 连接所有服务并缓存工具
-    await this.refreshTools()
+  private invalidateCache(): void {
+    this.serverInfoCache = null
   }
 
-  /**
-   * 从配置文件加载配置
-   * 若文件不存在则创建默认空配置
-   */
-  private loadConfigFile(configPath: string): Map<string, MCPServerConfig> {
-    const configs = new Map<string, MCPServerConfig>()
+  // ==================== 配置文件读取 ====================
 
+  /**
+   * 读取 JSON 文件，失败返回 null
+   */
+  private readJsonFile(filePath: string): any | null {
     try {
-      if (!fs.existsSync(configPath)) {
-        // 文件不存在，创建默认空配置
-        this.ensureConfigFile(configPath)
-        return configs
-      }
-
-      const content = fs.readFileSync(configPath, 'utf8')
-      const configData: MCPConfigFile = JSON.parse(content)
-
-      // 从 mcpServers 字段读取配置
-      const serversData = configData.mcpServers || {}
-
-      // 过滤并加载可用的配置
-      for (const [name, config] of Object.entries(serversData)) {
-        if (this.isValidConfig(config)) {
-          configs.set(name, { ...config, name })
-        } else {
-          logWarn(`MCP Server [${name}] 配置无效，已跳过`)
-        }
-      }
-    } catch (error) {
-      logError(`加载 MCP 配置文件失败 [${configPath}]: ${error}`)
-    }
-
-    return configs
-  }
-
-  /**
-   * 确保配置文件存在，若不存在则创建
-   */
-  private ensureConfigFile(configPath: string): void {
-    try {
-      const configDir = path.dirname(configPath)
-      if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true })
-      }
-      // 创建空配置文件，使用新格式
-      fs.writeFileSync(configPath, JSON.stringify({ mcpServers: {} }, null, 2), 'utf8')
-      logDebug(`创建 MCP 配置文件: ${configPath}`)
-    } catch (error) {
-      logError(`创建 MCP 配置文件失败 [${configPath}]: ${error}`)
-    }
-  }
-
-  /**
-   * 验证配置是否有效
-   */
-  private isValidConfig(config: MCPServerConfig): boolean {
-    // 基本验证
-    if (!config.transport) {
-      return false
-    }
-
-    // 根据传输类型验证必要字段
-    switch (config.transport) {
-      case 'stdio':
-        return !!config.command
-      case 'sse':
-      case 'http':
-        return !!config.url
-      default:
-        return false
-    }
-  }
-
-  /**
-   * 添加或更新 MCP Server 配置
-   */
-  async addOrUpdateServer(config: MCPServerConfig, scope: MCPScopeType): Promise<MCPServerInfo> {
-    const targetConfigs = scope === 'project' ? this.projectConfigs : this.globalConfigs
-    const configPath = scope === 'project' ? this.projectConfigPath : this.globalConfigPath
-
-    const isUpdate = targetConfigs.has(config.name)
-    targetConfigs.set(config.name, config)
-
-    // 保存到配置文件
-    this.saveConfigFile(configPath, targetConfigs)
-
-    logDebug(`${isUpdate ? '更新' : '添加'} MCP Server [${config.name}] 到 ${scope} 配置`)
-
-    // 如果是更新，先断开旧连接并移除旧工具
-    if (isUpdate) {
-      await this.disconnectClient(config.name)
-      if (this.toolsCache) {
-        this.toolsCache.toolsByServer.delete(config.name)
-      }
-    }
-
-    // 如果缓存不存在，初始化一个空缓存
-    if (!this.toolsCache) {
-      this.toolsCache = {
-        globalMtime: this.getFileMtime(this.globalConfigPath),
-        projectMtime: this.getFileMtime(this.projectConfigPath),
-        toolsByServer: new Map()
-      }
-    }
-
-    // 只连接新服务器（增量更新）
-    if (config.enabled !== false) {
-      await this.connectSingleServer(config.name, config)
-    }
-
-    // 更新 ServerInfo 缓存并获取服务器信息
-    const serverInfo = this.updateServerInfoCache(config.name, scope, isUpdate ? 'update' : 'add')
-
-    // 打印工具统计
-    this.logToolStats()
-
-    // 返回该服务器的信息，如果缓存更新失败则重新构建
-    return serverInfo || this.buildServerInfo(config.name, config)
-  }
-
-  /**
-   * 移除 MCP Server 配置
-   */
-  async removeServer(name: string, scope: MCPScopeType): Promise<boolean> {
-    const targetConfigs = scope === 'project' ? this.projectConfigs : this.globalConfigs
-    const configPath = scope === 'project' ? this.projectConfigPath : this.globalConfigPath
-
-    if (!targetConfigs.has(name)) {
-      logWarn(`MCP Server [${name}] 在 ${scope} 配置中不存在`)
-      return false
-    }
-
-    // 断开客户端连接
-    await this.disconnectClient(name)
-
-    // 只移除该服务器的工具（增量删除）
-    if (this.toolsCache) {
-      this.toolsCache.toolsByServer.delete(name)
-    }
-
-    targetConfigs.delete(name)
-    this.saveConfigFile(configPath, targetConfigs)
-
-    logDebug(`移除 MCP Server [${name}] 从 ${scope} 配置`)
-
-    // 更新 ServerInfo 缓存
-    this.updateServerInfoCache(name, scope, 'remove')
-
-    // 打印工具统计
-    this.logToolStats()
-
-    // 返回成功标志
-    return true
-  }
-
-  /**
-   * 打印当前所有 MCP 工具统计（过滤后的工具数）
-   */
-  private logToolStats(): void {
-    if (!this.toolsCache) return
-    const toolStats: Record<string, number> = {}
-    const mergedConfigs = this.getMergedConfigs()
-
-    for (const [serverName, tools] of this.toolsCache.toolsByServer) {
-      const config = mergedConfigs.get(serverName)
-      const filteredTools = this.filterToolsByConfig(tools, config?.useTools)
-      toolStats[serverName] = filteredTools.length
-    }
-
-    logInfo(`MCP 工具统计 (过滤后): ${JSON.stringify(toolStats)}`)
-  }
-
-  /**
-   * 保存配置到文件
-   */
-  private saveConfigFile(configPath: string, configs: Map<string, MCPServerConfig>): void {
-    try {
-      const configDir = path.dirname(configPath)
-      if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true })
-      }
-
-      // 构建 mcpServers 对象
-      const serversData: Record<string, MCPServerConfig> = {}
-      for (const [name, config] of configs) {
-        // 保存时去除 name 字段（因为 key 就是 name）
-        const { name: _, ...configWithoutName } = config
-        serversData[name] = configWithoutName as MCPServerConfig
-      }
-
-      // 包装在 mcpServers 字段中
-      const configData: MCPConfigFile = { mcpServers: serversData }
-
-      fs.writeFileSync(configPath, JSON.stringify(configData, null, 2), 'utf8')
-    } catch (error) {
-      logError(`保存 MCP 配置文件失败 [${configPath}]: ${error}`)
-      throw error
-    }
-  }
-
-  /**
-   * 获取配置文件的修改时间戳
-   */
-  private getFileMtime(filePath: string): number {
-    try {
-      if (fs.existsSync(filePath)) {
-        return fs.statSync(filePath).mtimeMs
-      }
-    } catch {
-      // 忽略错误
-    }
-    return 0
-  }
-
-  /**
-   * 检查缓存是否有效
-   */
-  private isCacheValid(): boolean {
-    if (!this.toolsCache) {
-      return false
-    }
-
-    const globalMtime = this.getFileMtime(this.globalConfigPath)
-    const projectMtime = this.getFileMtime(this.projectConfigPath)
-
-    return (
-      this.toolsCache.globalMtime === globalMtime &&
-      this.toolsCache.projectMtime === projectMtime
-    )
-  }
-
-  /**
-   * 获取合并后的配置（项目级优先）
-   * 过滤掉 enabled === false 的配置
-   */
-  private getMergedConfigs(): Map<string, MCPServerConfig> {
-    const merged = new Map<string, MCPServerConfig>()
-
-    // 先添加全局配置
-    for (const [name, config] of this.globalConfigs) {
-      merged.set(name, config)
-    }
-
-    // 项目配置覆盖全局配置
-    for (const [name, config] of this.projectConfigs) {
-      merged.set(name, config)
-    }
-
-    // 过滤掉 enabled === false 的配置
-    for (const [name, config] of merged) {
-      if (config.enabled === false) {
-        merged.delete(name)
-      }
-    }
-
-    return merged
-  }
-
-  /**
-   * 刷新工具缓存（异步）
-   * 重新加载配置并并行连接所有服务
-   */
-  async refreshTools(): Promise<void> {
-    // 检查缓存是否有效
-    if (this.isCacheValid()) {
-      return
-    }
-
-    // 重新加载配置文件（可能被外部修改）
-    this.globalConfigs = this.loadConfigFile(this.globalConfigPath)
-    this.projectConfigs = this.loadConfigFile(this.projectConfigPath)
-
-    // 获取合并后的配置
-    const mergedConfigs = this.getMergedConfigs()
-
-    // 并行连接所有服务并获取工具
-    const connectionPromises = Array.from(mergedConfigs.entries()).map(
-      async ([name, config]): Promise<{ name: string; tools: Tool[] } | null> => {
-        try {
-          const client = await this.getOrCreateClient(name, config)
-          if (client && client.capabilities?.tools) {
-            const tools = client.capabilities.tools.map(
-              toolDef => createMCPToolAdapter(client, name, toolDef)
-            )
-            return { name, tools }
-          }
-        } catch (error) {
-          logError(`获取 MCP Server [${name}] 工具失败: ${error}`)
-        }
-        return null
-      }
-    )
-
-    const results = await Promise.all(connectionPromises)
-
-    // 构建按服务器分组的工具缓存
-    const toolsByServer = new Map<string, Tool[]>()
-    for (const result of results) {
-      if (result) {
-        toolsByServer.set(result.name, result.tools)
-      }
-    }
-
-    // 更新工具缓存
-    this.toolsCache = {
-      globalMtime: this.getFileMtime(this.globalConfigPath),
-      projectMtime: this.getFileMtime(this.projectConfigPath),
-      toolsByServer
-    }
-
-    // 重建 ServerInfo 缓存（连接状态已更新）
-    this.rebuildServerInfoCache()
-
-    // 打印工具统计
-    this.logToolStats()
-  }
-
-  /**
-   * 根据 useTools 配置过滤工具
-   */
-  private filterToolsByConfig(tools: Tool[], useTools: string[] | null | undefined): Tool[] {
-    // 如果 useTools 为 null 或 undefined，返回所有工具
-    if (!useTools) {
-      return tools
-    }
-
-    // 根据 disabledTools 过滤工具（disabledTools 存储的是原始工具名，不含前缀）
-    return tools.filter(tool => {
-      // tool.name 格式为 mcp__serverName__toolName，需要提取 toolName
-      const parts = tool.name.split('__')
-      const originalToolName = parts.length >= 3 ? parts.slice(2).join('__') : tool.name
-      return useTools.includes(originalToolName)
-    })
-  }
-
-  /**
-   * 获取所有 MCP 工具（同步，返回缓存）
-   * 合并所有服务器的工具列表，并根据每个服务器的 useTools 配置过滤
-   */
-  getMCPTools(): Tool[] {
-    if (!this.toolsCache) return []
-
-    const result: Tool[] = []
-    const mergedConfigs = this.getMergedConfigs()
-
-    for (const [serverName, tools] of this.toolsCache.toolsByServer) {
-      const config = mergedConfigs.get(serverName)
-      const filteredTools = this.filterToolsByConfig(tools, config?.useTools)
-      result.push(...filteredTools)
-    }
-
-    return result
-  }
-
-  /**
-   * 获取或创建客户端连接
-   */
-  private async getOrCreateClient(
-    name: string,
-    config: MCPServerConfig
-  ): Promise<MCPClient | null> {
-    // 检查是否已有连接
-    let client = this.clients.get(name)
-    if (client && client.status === 'connected') {
-      return client
-    }
-
-    // 创建新连接
-    client = new MCPClient(config)
-    try {
-      await client.connect()
-      this.clients.set(name, client)
-      // logDebug(`MCP Server [${name}] 连接成功`)
-      return client
-    } catch (error) {
-      // logError(`MCP Server [${name}] 连接失败: ${error}`)
+      if (!fs.existsSync(filePath)) return null
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    } catch (err) {
+      logError(`读取文件失败 [${filePath}]: ${err}`)
       return null
     }
   }
 
   /**
-   * 断开客户端连接
+   * 读取 mcp 配置文件中的服务器列表
+   * 若存在 mcpServers 字段则取该字段，否则读取整个 json
+   */
+  private readMcpServers(filePath: string): Record<string, any> | null {
+    const data = this.readJsonFile(filePath)
+    if (!data || typeof data !== 'object') return null
+    if (data.mcpServers && typeof data.mcpServers === 'object') {
+      return data.mcpServers
+    }
+    return data
+  }
+
+  /**
+   * 读取 Sema 项目级 settings.json
+   */
+  private readSemaSettings(): SemaSettings {
+    try {
+      if (!fs.existsSync(this.semaProjectSettingsPath)) return {}
+      return JSON.parse(fs.readFileSync(this.semaProjectSettingsPath, 'utf8')) as SemaSettings
+    } catch {
+      return {}
+    }
+  }
+
+  /**
+   * 写入 Sema 项目级 settings.json（合并写入，保留其他字段）
+   */
+  private writeSemaSettings(data: SemaSettings): void {
+    try {
+      const dir = path.dirname(this.semaProjectSettingsPath)
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(this.semaProjectSettingsPath, JSON.stringify(data, null, 2), 'utf8')
+    } catch (err) {
+      logError(`写入 Sema settings 文件失败 [${this.semaProjectSettingsPath}]: ${err}`)
+      throw err
+    }
+  }
+
+  /**
+   * 获取 ~/.claude.json 全局配置
+   */
+  private getClaudeGlobalConfig(): any {
+    return this.readJsonFile(this.claudeGlobalConfigPath)
+  }
+
+  /**
+   * 获取 Claude 中被禁用的 MCP Server 列表
+   * ~/.claude.json -> projects[cwd].disabledMcpServers
+   */
+  private getClaudeDisabledServers(): Set<string> {
+    const globalConfig = this.getClaudeGlobalConfig()
+    if (!globalConfig) return new Set()
+    const cwd = getOriginalCwd()
+    const disabled = globalConfig.projects?.[cwd]?.disabledMcpServers
+    return new Set(Array.isArray(disabled) ? disabled : [])
+  }
+
+  /**
+   * 获取 Claude 项目级 MCP 启用设置
+   * <project>/.claude/settings.local.json
+   */
+  private getClaudeProjectSettings(): { enableAll: boolean; enabled: Set<string> } {
+    const data = this.readJsonFile(this.claudeSettingsPath)
+    if (!data) return { enableAll: false, enabled: new Set() }
+    return {
+      enableAll: data.enableAllProjectMcpServers === true,
+      enabled: new Set(Array.isArray(data.enabledMcpjsonServers) ? data.enabledMcpjsonServers : [])
+    }
+  }
+
+  // ==================== 配置解析 ====================
+
+  /**
+   * 解析 Claude 来源的 MCP Server 配置条目
+   */
+  private parseClaudeEntry(name: string, raw: any, scope: MCPScopeType): MCPServerConfig | null {
+    const transport = raw.type || raw.transport || 'stdio'
+    return {
+      name,
+      transport,
+      description: raw.description,
+      command: raw.command,
+      args: raw.args,
+      env: raw.env,
+      url: raw.url,
+      headers: raw.headers,
+      from: 'claude',
+      scope
+    }
+  }
+
+  /**
+   * 解析 Sema 来源的 MCP Server 配置条目
+   */
+  private parseSemaEntry(name: string, raw: any, scope: MCPScopeType): MCPServerConfig | null {
+    const transport = raw.transport || raw.type || 'stdio'
+    return {
+      name,
+      transport,
+      description: raw.description,
+      command: raw.command,
+      args: raw.args,
+      env: raw.env,
+      url: raw.url,
+      headers: raw.headers,
+      from: 'sema',
+      scope
+    }
+  }
+
+  /**
+   * 创建初始状态的 MCPServerInfo
+   */
+  private newServerInfo(config: MCPServerConfig, status: boolean, useTools?: string[] | null, filePath?: string): MCPServerInfo {
+    return {
+      config: { ...config, useTools },
+      connectStatus: 'disconnected',
+      status,
+      from: config.from,
+      scope: config.scope,
+      filePath
+    }
+  }
+
+  // ==================== 加载逻辑 ====================
+
+  /**
+   * 从已安装且启用的插件中加载 MCP Server 配置
+   * MCP server 名格式：plugin:插件名:server名，scope 为 'plugin'
+   * 状态由 ~/.claude.json -> projects[cwd].disabledMcpServers 决定
+   */
+  private async loadMCPsFromPlugins(
+    serverMap: Map<string, MCPServerInfo>,
+    claudeDisabled: Set<string>,
+    semaDisabled: Set<string>,
+    semaUseToolsMap: Record<string, string[]>
+  ): Promise<void> {
+    try {
+      const { getPluginsManager } = await import('../plugins/pluginsManager')
+      const pluginsInfo = await getPluginsManager().getMarketplacePluginsInfo()
+      const enabledPlugins = pluginsInfo.plugins.filter(p => p.status)
+
+      let loadedCount = 0
+      for (const plugin of enabledPlugins) {
+        const mcpComponents = plugin.components.mcp
+        if (!Array.isArray(mcpComponents) || mcpComponents.length === 0) continue
+
+        for (const mcpEntry of mcpComponents) {
+          const servers = this.readMcpServers(mcpEntry.filePath)
+          logDebug(`插件 [${plugin.name}] MCP 文件: ${mcpEntry.filePath}, 配置: ${JSON.stringify(servers)}`)
+          if (!servers) continue
+
+          for (const [serverName, raw] of Object.entries<any>(servers)) {
+            const pluginServerName = `plugin:${plugin.name}:${serverName}`
+            const transport = raw.type || raw.transport || 'stdio'
+            const config: MCPServerConfig = {
+              name: pluginServerName,
+              transport,
+              description: raw.description,
+              command: raw.command,
+              args: raw.args,
+              env: raw.env,
+              url: raw.url,
+              headers: raw.headers,
+              from: plugin.from,
+              scope: 'plugin'
+            }
+            const status = !claudeDisabled.has(pluginServerName) && !semaDisabled.has(pluginServerName)
+            // claude 来源的插件 MCP，若已被 claude 禁用则跳过
+            if (plugin.from === 'claude' && claudeDisabled.has(pluginServerName)) continue
+            const useTools = pluginServerName in semaUseToolsMap ? semaUseToolsMap[pluginServerName] : undefined
+            serverMap.set(pluginServerName, this.newServerInfo(config, status, useTools, mcpEntry.filePath))
+            loadedCount++
+          }
+        }
+      }
+
+      if (loadedCount > 0) {
+        logDebug(`加载插件 MCP: ${loadedCount} 个`)
+      }
+    } catch (error) {
+      logError(`加载插件 MCP 失败: ${error}`)
+    }
+  }
+
+  /**
+   * 加载所有 MCP Server 配置（内部方法）
+   * 按优先级加载：用户级(Claude) -> 本地级(Claude) -> 项目级(Claude) -> 插件 -> 用户级(Sema) -> 项目级(Sema)
+   * 后加载的覆盖先加载的，优先级从高到低：项目级(Sema) > 用户级(Sema) > 插件 > 项目级(Claude) > 本地级(Claude) > 用户级(Claude)
+   */
+  private async loadServers(): Promise<void> {
+    const serverMap = new Map<string, MCPServerInfo>()
+    const enableClaudeCodeCompat = getConfManager().getCoreConfig()?.enableClaudeCodeCompat !== false
+    const claudeDisabled = enableClaudeCodeCompat ? this.getClaudeDisabledServers() : new Set<string>()
+    const claudeProjectSettings = enableClaudeCodeCompat ? this.getClaudeProjectSettings() : { enableAll: false, enabled: new Set<string>() }
+    const claudeGlobal = enableClaudeCodeCompat ? this.getClaudeGlobalConfig() : null
+    const semaSettings = this.readSemaSettings()
+    const semaDisabled = new Set<string>(semaSettings.disabledMcpServers ?? [])
+    const semaUseToolsMap: Record<string, string[]> = semaSettings.enabledMcpServerUseTools ?? {}
+
+    // 1. Claude 用户级：~/.claude.json -> mcpServers
+    if (enableClaudeCodeCompat && claudeGlobal?.mcpServers && typeof claudeGlobal.mcpServers === 'object') {
+      let count = 0
+      for (const [name, raw] of Object.entries<any>(claudeGlobal.mcpServers)) {
+        const config = this.parseClaudeEntry(name, raw, 'user')
+        if (config) {
+          const useTools = name in semaUseToolsMap ? semaUseToolsMap[name] : undefined
+          serverMap.set(name, this.newServerInfo(config, !claudeDisabled.has(name) && !semaDisabled.has(name), useTools, this.claudeGlobalConfigPath))
+          count++
+        }
+      }
+      if (count > 0) logDebug(`加载 Claude 用户级 MCP: ${count} 个`)
+    }
+
+    // 2. Claude 本地级：~/.claude.json -> projects[cwd].mcpServers
+    const cwd = getOriginalCwd()
+    if (enableClaudeCodeCompat) {
+      const localServers = claudeGlobal?.projects?.[cwd]?.mcpServers
+      if (localServers && typeof localServers === 'object') {
+        let count = 0
+        for (const [name, raw] of Object.entries<any>(localServers)) {
+          const config = this.parseClaudeEntry(name, raw, 'local')
+          if (config) {
+            const useTools = name in semaUseToolsMap ? semaUseToolsMap[name] : undefined
+            serverMap.set(name, this.newServerInfo(config, !claudeDisabled.has(name) && !semaDisabled.has(name), useTools, this.claudeGlobalConfigPath))
+            count++
+          }
+        }
+        if (count > 0) logDebug(`加载 Claude 本地级 MCP: ${count} 个`)
+      }
+    }
+
+    // 3. Claude 项目级：<project>/.mcp.json
+    // 需要 enableAllProjectMcpServers 为 true 且在 enabledMcpjsonServers 中才生效
+    if (enableClaudeCodeCompat) {
+      const claudeProjectServers = this.readMcpServers(this.claudeProjectConfigPath)
+      if (claudeProjectServers) {
+        let count = 0
+        for (const [name, raw] of Object.entries<any>(claudeProjectServers)) {
+          const config = this.parseClaudeEntry(name, raw, 'project')
+          if (config) {
+            const status = !claudeDisabled.has(name)
+              && !semaDisabled.has(name)
+              && claudeProjectSettings.enableAll
+              && claudeProjectSettings.enabled.has(name)
+            const useTools = name in semaUseToolsMap ? semaUseToolsMap[name] : undefined
+            serverMap.set(name, this.newServerInfo(config, status, useTools, this.claudeProjectConfigPath))
+            count++
+          }
+        }
+        if (count > 0) logDebug(`加载 Claude 项目级 MCP: ${count} 个`)
+      }
+    }
+
+    // 4. 插件 MCP：从已安装且启用的插件中加载
+    await this.loadMCPsFromPlugins(serverMap, claudeDisabled, semaDisabled, semaUseToolsMap)
+
+    // 5. Sema 用户级：~/.sema/.mcp.json
+    const semaUserServers = this.readMcpServers(this.semaUserConfigPath)
+    if (semaUserServers) {
+      let count = 0
+      for (const [name, raw] of Object.entries<any>(semaUserServers)) {
+        const config = this.parseSemaEntry(name, raw, 'user')
+        if (config) {
+          const useTools = name in semaUseToolsMap ? semaUseToolsMap[name] : undefined
+          serverMap.set(name, this.newServerInfo(config, !semaDisabled.has(name), useTools, this.semaUserConfigPath))
+          count++
+        }
+      }
+      if (count > 0) logDebug(`加载 Sema 用户级 MCP: ${count} 个`)
+    }
+
+    // 6. Sema 项目级：<project>/.sema/.mcp.json（最高优先级）
+    const semaProjectServers = this.readMcpServers(this.semaProjectConfigPath)
+    if (semaProjectServers) {
+      let count = 0
+      for (const [name, raw] of Object.entries<any>(semaProjectServers)) {
+        const config = this.parseSemaEntry(name, raw, 'project')
+        if (config) {
+          const useTools = name in semaUseToolsMap ? semaUseToolsMap[name] : undefined
+          serverMap.set(name, this.newServerInfo(config, !semaDisabled.has(name), useTools, this.semaProjectConfigPath))
+          count++
+        }
+      }
+      if (count > 0) logDebug(`加载 Sema 项目级 MCP: ${count} 个`)
+    }
+
+    const serverNames = Array.from(serverMap.keys()).join(', ')
+    logInfo(`加载 MCP 配置: ${serverMap.size} 个服务 [${serverNames}]`)
+
+    this.serverInfoCache = Array.from(serverMap.values())
+  }
+
+  /**
+   * 比较两个 MCPServerConfig 的连接相关字段是否相同（不含 useTools）
+   */
+  private isConfigEqual(a: MCPServerConfig, b: MCPServerConfig): boolean {
+    return (
+      a.transport === b.transport &&
+      a.command === b.command &&
+      JSON.stringify(a.args) === JSON.stringify(b.args) &&
+      JSON.stringify(a.env) === JSON.stringify(b.env) &&
+      a.url === b.url &&
+      JSON.stringify(a.headers) === JSON.stringify(b.headers)
+    )
+  }
+
+  /**
+   * 连接单个服务器，更新 serverInfo 的连接状态
+   */
+  private async connectServer(info: MCPServerInfo): Promise<void> {
+    const { name } = info.config
+    const eventBus = EventBus.getInstance()
+    info.connectStatus = 'connecting'
+    eventBus.emit('mcp:server:status', info)
+    try {
+      await this.disconnectClient(name)
+      const client = new MCPClient(info.config)
+      await client.connect()
+      this.clients.set(name, client)
+      info.connectStatus = client.status
+      info.capabilities = client.capabilities ?? undefined
+      info.connectedAt = Date.now()
+      logDebug(`MCP Server [${name}] 连接成功`)
+      eventBus.emit('mcp:server:status', info)
+    } catch (err) {
+      info.connectStatus = 'error'
+      info.error = String(err)
+      logError(`连接 MCP Server [${name}] 失败: ${err}`)
+      eventBus.emit('mcp:server:status', info)
+    }
+  }
+
+  /**
+   * 断开单个客户端连接
    */
   private async disconnectClient(name: string): Promise<void> {
     const client = this.clients.get(name)
     if (client) {
       try {
         await client.disconnect()
-      } catch (error) {
-        // 记录错误但不影响清理流程
-        logError(`断开 MCP Server [${name}] 连接时出错: ${error}`)
+      } catch (err) {
+        logError(`断开 MCP Server [${name}] 连接时出错: ${err}`)
       } finally {
-        // 无论断开是否成功，都要从缓存中移除
         this.clients.delete(name)
       }
     }
   }
 
   /**
-   * 连接单个服务器并更新工具缓存（增量更新）
+   * 断开所有客户端连接
    */
-  private async connectSingleServer(name: string, config: MCPServerConfig): Promise<void> {
+  private async disconnectAll(): Promise<void> {
+    await Promise.all(Array.from(this.clients.keys()).map(name => this.disconnectClient(name)))
+  }
+
+  // ==================== Sema 配置写入 ====================
+
+  /**
+   * 读取 Sema MCP 配置文件中的服务器列表（用于写操作）
+   * 返回服务器列表及原文件是否使用 mcpServers 包裹格式
+   */
+  private readSemaMcpConfigFile(configPath: string): { servers: Record<string, any>; hasMcpServersField: boolean } {
     try {
-      const client = await this.getOrCreateClient(name, config)
-      if (client && client.capabilities?.tools) {
-        const tools: Tool[] = client.capabilities.tools.map(
-          toolDef => createMCPToolAdapter(client, name, toolDef)
-        )
-        // 增量更新工具缓存
-        if (this.toolsCache) {
-          this.toolsCache.toolsByServer.set(name, tools)
+      if (!fs.existsSync(configPath)) return { servers: {}, hasMcpServersField: true }
+      const data = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+      if (data.mcpServers && typeof data.mcpServers === 'object') {
+        return { servers: data.mcpServers, hasMcpServersField: true }
+      }
+      return { servers: typeof data === 'object' ? data : {}, hasMcpServersField: false }
+    } catch {
+      return { servers: {}, hasMcpServersField: true }
+    }
+  }
+
+  /**
+   * 写入 Sema MCP 配置文件
+   * hasMcpServersField 为 true 时使用 { mcpServers: ... } 包裹格式，否则直接写入
+   */
+  private writeSemaMcpConfigFile(configPath: string, servers: Record<string, any>, hasMcpServersField = true): void {
+    try {
+      const dir = path.dirname(configPath)
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+      const content = hasMcpServersField ? { mcpServers: servers } : servers
+      fs.writeFileSync(configPath, JSON.stringify(content, null, 2), 'utf8')
+    } catch (err) {
+      logError(`写入 MCP 配置文件失败 [${configPath}]: ${err}`)
+      throw err
+    }
+  }
+
+  /**
+   * 获取对应 scope 的 Sema MCP 配置文件路径
+   */
+  private getSemaMcpConfigPath(scope: MCPScopeType): string {
+    return scope === 'project' ? this.semaProjectConfigPath : this.semaUserConfigPath
+  }
+
+  // ==================== 公共接口 ====================
+
+  /**
+   * 初始化 MCP Manager（等待首次加载完成）
+   */
+  async init(): Promise<void> {
+    if (this.loadingPromise) {
+      await this.loadingPromise
+    } else if (!this.serverInfoCache) {
+      await this.refreshMCPServerConfigs()
+    }
+  }
+
+  /**
+   * 获取所有 MCP Server 信息（有缓存则直接返回，否则等待后台加载或重新加载）
+   */
+  async getMCPServerConfigs(): Promise<MCPServerInfo[]> {
+    if (this.serverInfoCache) return this.serverInfoCache
+    if (this.loadingPromise) return this.loadingPromise
+    return this.refreshMCPServerConfigs()
+  }
+
+  /**
+   * 刷新 MCP Server 信息
+   * 对比配置变化，仅重连配置有变动或新增的服务器，配置未变且已连接的保留现有连接
+   */
+  async refreshMCPServerConfigs(): Promise<MCPServerInfo[]> {
+    logDebug('刷新 MCP Server 信息...')
+    const oldCache = this.serverInfoCache ? [...this.serverInfoCache] : null
+
+    // 重新加载配置（不触发连接）
+    this.invalidateCache()
+    await this.loadServers()
+
+    const newCache = this.serverInfoCache!
+    const newNames = new Set(newCache.map(s => s.config.name))
+
+    // 断开已移除的服务器
+    const removedNames = Array.from(this.clients.keys()).filter(name => !newNames.has(name))
+    await Promise.all(removedNames.map(name => this.disconnectClient(name)))
+
+    // 对每个新配置，判断是否需要重连
+    const toConnect: MCPServerInfo[] = []
+    for (const newInfo of newCache) {
+      const name = newInfo.config.name
+      const oldInfo = oldCache?.find(s => s.config.name === name)
+      const existingClient = this.clients.get(name)
+
+      if (!newInfo.status) {
+        // 已禁用 → 断开连接
+        if (existingClient) {
+          await this.disconnectClient(name)
+          newInfo.connectStatus = 'disconnected'
+          newInfo.capabilities = undefined
         }
-        logInfo(`MCP Server [${name}] 加载了 ${tools.length} 个工具`)
+        continue
       }
-    } catch (error) {
-      logError(`连接 MCP Server [${name}] 失败: ${error}`)
-    }
-  }
 
-  /**
-   * 构建单个服务器的 ServerInfo
-   */
-  private buildServerInfo(name: string, config: MCPServerConfig): MCPServerInfo {
-    const client = this.clients.get(name)
-    return {
-      config,
-      status: client?.status ?? 'disconnected',
-      capabilities: client?.capabilities ?? undefined,
-      error: undefined,
-      connectedAt: undefined
-    }
-  }
-
-  /**
-   * 重建 ServerInfo 缓存
-   */
-  private rebuildServerInfoCache(): void {
-    const cache = new Map<MCPScopeType, MCPServerInfo[]>()
-
-    // user scope
-    const userServers = Array.from(this.globalConfigs.entries()).map(
-      ([name, config]) => this.buildServerInfo(name, config)
-    )
-    cache.set('user', userServers)
-
-    // project scope
-    const projectServers = Array.from(this.projectConfigs.entries()).map(
-      ([name, config]) => this.buildServerInfo(name, config)
-    )
-    cache.set('project', projectServers)
-
-    this.serverInfoCache = cache
-  }
-
-  /**
-   * 更新单个服务器的 ServerInfo 缓存
-   */
-  private updateServerInfoCache(name: string, scope: MCPScopeType, action: 'add' | 'remove' | 'update'): MCPServerInfo | null {
-    if (!this.serverInfoCache) {
-      this.rebuildServerInfoCache()
-      // 重建后再次尝试获取
-      if (!this.serverInfoCache) return null
-    }
-
-    const scopeKey = scope === 'project' ? 'project' : 'user'
-    const targetConfigs = scope === 'project' ? this.projectConfigs : this.globalConfigs
-    const servers = this.serverInfoCache.get(scopeKey) || []
-
-    if (action === 'remove') {
-      // 移除指定服务器
-      this.serverInfoCache.set(scopeKey, servers.filter(s => s.config.name !== name))
-      return null
-    } else {
-      // add 或 update：先移除旧的，再添加新的
-      const filtered = servers.filter(s => s.config.name !== name)
-      const config = targetConfigs.get(name)
-      if (config) {
-        const serverInfo = this.buildServerInfo(name, config)
-        filtered.push(serverInfo)
-        this.serverInfoCache.set(scopeKey, filtered)
-        return serverInfo
+      if (oldInfo && this.isConfigEqual(oldInfo.config, newInfo.config)) {
+        // 配置未变 → 保留现有连接状态（无论成功/失败/未连接）
+        newInfo.connectStatus = oldInfo.connectStatus
+        newInfo.capabilities = oldInfo.capabilities
+        newInfo.connectedAt = oldInfo.connectedAt
+        logDebug(`MCP Server [${name}] 配置未变更，保持现有连接`)
+      } else {
+        // 新增或配置有变 → 需要重连
+        if (existingClient) await this.disconnectClient(name)
+        toConnect.push(newInfo)
       }
     }
-    return null
-  }
 
-  /**
-   * 获取指定范围的 MCP Server 详细信息
-   */
-  private getServerInfoByScope(scope: MCPScopeType): MCPServerInfo[] {
-    if (!this.serverInfoCache) {
-      this.rebuildServerInfoCache()
+    // 后台连接变更/新增的服务器
+    for (const info of toConnect) {
+      logInfo(`后台连接 MCP Server [${info.config.name}]，原因: ${oldCache?.find(s => s.config.name === info.config.name) ? '配置变更' : '新增'}`)
+      this.connectServer(info).catch(err => {
+        logError(`后台连接 MCP Server [${info.config.name}] 失败: ${err}`)
+      })
     }
-    const scopeKey = scope === 'project' ? 'project' : 'user'
-    return this.serverInfoCache!.get(scopeKey) || []
+
+    logInfo(`MCP Server 信息刷新完成: ${newCache.length} 个服务，${toConnect.length} 个重连，${removedNames.length} 个移除`)
+    return newCache
   }
 
   /**
-   * 获取所有 MCP Server 的详细信息，按范围分组
+   * 获取所有 MCP 工具（同步，基于当前已连接的客户端）
    */
-  getMCPServerConfigs(): Map<MCPScopeType, MCPServerInfo[]> {
-    if (!this.serverInfoCache) {
-      this.rebuildServerInfoCache()
+  getMCPTools(): Tool[] {
+    const tools: Tool[] = []
+    for (const [serverName, client] of this.clients) {
+      if (client.status !== 'connected' || !client.capabilities?.tools) continue
+      const info = this.serverInfoCache?.find(s => s.config.name === serverName)
+      const useTools = info?.config.useTools
+      const serverTools = client.capabilities.tools.map(
+        toolDef => createMCPToolAdapter(client, serverName, toolDef)
+      )
+      if (useTools) {
+        tools.push(...serverTools.filter(tool => {
+          const parts = tool.name.split('__')
+          const origName = parts.length >= 3 ? parts.slice(2).join('__') : tool.name
+          return useTools.includes(origName)
+        }))
+      } else {
+        tools.push(...serverTools)
+      }
     }
-    return this.serverInfoCache!
+    return tools
   }
 
   /**
-   * 获取全局配置
+   * 添加或更新 MCP Server
    */
-  getGlobalConfigs(): MCPServerConfig[] {
-    return Array.from(this.globalConfigs.values())
+  async addMCPServer(config: MCPServerConfig): Promise<MCPServerInfo[]> {
+    const configPath = this.getSemaMcpConfigPath(config.scope)
+    const { servers, hasMcpServersField } = this.readSemaMcpConfigFile(configPath)
+    logDebug(`configPath: ${configPath}, servers: ${servers}, hasMcpServersField: ${hasMcpServersField}`)
+    const { name, from, scope, useTools, ...rest } = config
+    servers[name] = rest
+    this.writeSemaMcpConfigFile(configPath, servers, hasMcpServersField)
+    logInfo(`添加/更新 MCP Server [${config.name}] 到 ${config.scope} 级配置`)
+    return this.refreshMCPServerConfigs()
   }
 
   /**
-   * 获取项目配置
+   * 移除 MCP Server
    */
-  getProjectConfigs(): MCPServerConfig[] {
-    return Array.from(this.projectConfigs.values())
+  async removeMCPServer(name: string): Promise<MCPServerInfo[]> {
+    const info = this.serverInfoCache?.find(s => s.config.name === name)
+    if (!info) {
+      logWarn(`移除 MCP Server 失败: 未找到 [${name}]`)
+      return this.getMCPServerConfigs()
+    }
+    if (info.from === 'claude') {
+      logWarn(`移除 MCP Server 失败: Claude 来源为只读 [${name}]`)
+      return this.getMCPServerConfigs()
+    }
+    const configPath = this.getSemaMcpConfigPath(info.scope!)
+    const { servers, hasMcpServersField } = this.readSemaMcpConfigFile(configPath)
+    delete servers[name]
+    this.writeSemaMcpConfigFile(configPath, servers, hasMcpServersField)
+    await this.disconnectClient(name)
+    logInfo(`移除 MCP Server [${name}]`)
+    return this.refreshMCPServerConfigs()
+  }
+
+  /**
+   * 重新连接指定 MCP Server
+   */
+  async reconnectMCPServer(name: string): Promise<MCPServerInfo[]> {
+    const info = this.serverInfoCache?.find(s => s.config.name === name)
+    if (!info) {
+      logWarn(`重连 MCP Server 失败: 未找到 [${name}]`)
+      return this.getMCPServerConfigs()
+    }
+    await this.connectServer(info)
+    return this.getMCPServerConfigs()
+  }
+
+  /**
+   * 禁用指定 MCP Server
+   * 修改 .sema/settings.json 的 disabledMcpServers 字段
+   */
+  async disableMCPServer(name: string): Promise<MCPServerInfo[]> {
+    const info = this.serverInfoCache?.find(s => s.config.name === name)
+    if (!info) {
+      logWarn(`禁用 MCP Server 失败: 未找到 [${name}]`)
+      return this.getMCPServerConfigs()
+    }
+    // if (info.from === 'claude') {
+    //   logWarn(`禁用 MCP Server 失败: Claude 来源为只读 [${name}]`)
+    //   return this.getMCPServerConfigs()
+    // }
+    const settings = this.readSemaSettings()
+    if (!settings.disabledMcpServers) settings.disabledMcpServers = []
+    if (!settings.disabledMcpServers.includes(name)) {
+      settings.disabledMcpServers.push(name)
+    }
+    this.writeSemaSettings(settings)
+    info.status = false
+    await this.disconnectClient(name)
+    info.connectStatus = 'disconnected'
+    info.capabilities = undefined
+    logInfo(`禁用 MCP Server [${name}]`)
+    return this.getMCPServerConfigs()
+  }
+
+  /**
+   * 启用指定 MCP Server
+   * 修改 .sema/settings.json 的 disabledMcpServers 字段
+   */
+  async enableMCPServer(name: string): Promise<MCPServerInfo[]> {
+    const info = this.serverInfoCache?.find(s => s.config.name === name)
+    if (!info) {
+      logWarn(`启用 MCP Server 失败: 未找到 [${name}]`)
+      return this.getMCPServerConfigs()
+    }
+    // if (info.from === 'claude') {
+    //   logWarn(`启用 MCP Server 失败: Claude 来源为只读 [${name}]`)
+    //   return this.getMCPServerConfigs()
+    // }
+    const settings = this.readSemaSettings()
+    if (settings.disabledMcpServers) {
+      settings.disabledMcpServers = settings.disabledMcpServers.filter(n => n !== name)
+    }
+    this.writeSemaSettings(settings)
+    info.status = true
+    await this.connectServer(info)
+    logInfo(`启用 MCP Server [${name}]`)
+    return this.getMCPServerConfigs()
   }
 
   /**
    * 更新指定 MCP Server 的工具使用列表
+   * 修改 .sema/settings.json 的 enabledMcpServerUseTools 字段
    */
-  updateMCPUseTools(name: string, toolNames: string[] | null): boolean {
-    // 先从项目配置中查找，再从全局配置中查找
-    let config = this.projectConfigs.get(name)
-    let scope: MCPScopeType = 'project'
-    let configPath = this.projectConfigPath
-
-    if (!config) {
-      config = this.globalConfigs.get(name)
-      scope = 'user'
-      configPath = this.globalConfigPath
+  async updateMCPUseTools(name: string, toolNames: string[] | null): Promise<MCPServerInfo[]> {
+    const info = this.serverInfoCache?.find(s => s.config.name === name)
+    if (!info) {
+      logWarn(`更新工具列表失败: 未找到 MCP Server [${name}]`)
+      return this.getMCPServerConfigs()
     }
-
-    if (!config) {
-      logWarn(`MCP Server [${name}] 不存在`)
-      return false
-    }
-
-    // 更新配置
-    const updatedConfig: MCPServerConfig = {
-      ...config,
-      useTools: toolNames
-    }
-
-    // 更新内存中的配置
-    if (scope === 'project') {
-      this.projectConfigs.set(name, updatedConfig)
+    const settings = this.readSemaSettings()
+    if (!settings.enabledMcpServerUseTools) settings.enabledMcpServerUseTools = {}
+    if (toolNames === null) {
+      delete settings.enabledMcpServerUseTools[name]
     } else {
-      this.globalConfigs.set(name, updatedConfig)
+      settings.enabledMcpServerUseTools[name] = toolNames
     }
-
-    // 保存到配置文件
-    const targetConfigs = scope === 'project' ? this.projectConfigs : this.globalConfigs
-    this.saveConfigFile(configPath, targetConfigs)
-
-    // 更新 ServerInfo 缓存
-    this.updateServerInfoCache(name, scope, 'update')
-
-    logInfo(`MCP Server [${name}] 工具列表已更新: ${toolNames ? toolNames.join(', ') : 'null (使用所有工具)'}`)
-
-    return true
-  }
-
-  /**
-   * 连接指定的 MCP Server
-   */
-  async connectMCPServer(name: string): Promise<MCPServerInfo> {
-    // 从合并配置中查找服务器配置
-    const mergedConfigs = this.getMergedConfigs()
-    const config = mergedConfigs.get(name)
-
-    if (!config) {
-      logWarn(`MCP Server [${name}] 不存在或已禁用`)
-      throw new Error(`MCP Server [${name}] 不存在或已禁用`)
-    }
-
-    // 检查当前连接状态
-    const existingClient = this.clients.get(name)
-    if (existingClient && existingClient.status === 'connected') {
-      logInfo(`MCP Server [${name}] 已经连接`)
-      // 获取当前服务器信息并返回
-      const scope: MCPScopeType = this.projectConfigs.has(name) ? 'project' : 'user'
-      const serverInfo = this.updateServerInfoCache(name, scope, 'update')
-      return serverInfo || this.buildServerInfo(name, config)
-    }
-
-    try {
-      // 只有非连接状态才尝试连接
-      const client = await this.getOrCreateClient(name, config)
-
-      if (client && client.status === 'connected') {
-        // 连接成功，更新工具缓存
-        if (client.capabilities?.tools) {
-          const tools: Tool[] = client.capabilities.tools.map(
-            toolDef => createMCPToolAdapter(client, name, toolDef)
-          )
-
-          // 确保工具缓存存在
-          if (!this.toolsCache) {
-            this.toolsCache = {
-              globalMtime: this.getFileMtime(this.globalConfigPath),
-              projectMtime: this.getFileMtime(this.projectConfigPath),
-              toolsByServer: new Map()
-            }
-          }
-
-          // 更新工具缓存
-          this.toolsCache.toolsByServer.set(name, tools)
-          logInfo(`MCP Server [${name}] 连接成功，加载了 ${tools.length} 个工具`)
-        }
-
-        // 更新 ServerInfo 缓存
-        const scope: MCPScopeType = this.projectConfigs.has(name) ? 'project' : 'user'
-        const serverInfo = this.updateServerInfoCache(name, scope, 'update')
-
-        return serverInfo || this.buildServerInfo(name, config)
-      } else {
-        logError(`MCP Server [${name}] 连接失败`)
-        // 返回连接失败的服务器信息
-        return this.buildServerInfo(name, config)
-      }
-    } catch (error) {
-      logError(`连接 MCP Server [${name}] 时出错: ${error}`)
-      // 返回错误状态的服务器信息
-      return this.buildServerInfo(name, config)
-    }
+    this.writeSemaSettings(settings)
+    // 同步更新缓存中的配置
+    info.config.useTools = toolNames
+    logInfo(`更新 MCP Server [${name}] 工具列表: ${toolNames ? toolNames.join(', ') : 'null (使用所有工具)'}`)
+    return this.getMCPServerConfigs()
   }
 
   /**
    * 清理资源
    */
   async dispose(): Promise<void> {
-    // 断开所有客户端连接
-    const disconnectPromises = Array.from(this.clients.keys()).map(name =>
-      this.disconnectClient(name)
-    )
-    await Promise.all(disconnectPromises)
-
-    this.globalConfigs.clear()
-    this.projectConfigs.clear()
-    this.toolsCache = null
+    await this.disconnectAll()
     this.serverInfoCache = null
   }
 }
@@ -723,11 +745,7 @@ let mcpManagerInstance: MCPManager | null = null
  */
 export function getMCPManager(): MCPManager {
   if (!mcpManagerInstance) {
-    const globalConfigPath = getGlobalMCPFilePath()
-    const originalCwd = getOriginalCwd()
-    const projectConfigPath = path.join(originalCwd, '.sema', 'mcp.json')
-
-    mcpManagerInstance = new MCPManager(globalConfigPath, projectConfigPath)
+    mcpManagerInstance = new MCPManager()
   }
   return mcpManagerInstance
 }

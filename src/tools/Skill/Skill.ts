@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { Tool } from '../base/Tool'
 import { DESCRIPTION, TOOL_NAME_FOR_PROMPT } from './prompt'
-import { getSkillsManager } from '../../services/skill/skillsManager'
+import { getSkillsManager } from '../../services/skills/skillsManager'
 
 // 辅助函数：生成显示标题
 function getTitle(input?: { skill?: string; args?: string }) {

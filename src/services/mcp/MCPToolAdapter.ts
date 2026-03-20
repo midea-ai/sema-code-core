@@ -19,7 +19,7 @@ export function createMCPToolAdapter(
   const inputSchema = jsonSchemaToZod(toolDef.inputSchema)
 
   const tool: Tool = {
-    name: `mcp__${serverName}__${toolDef.name}`,
+    name: `mcp__${serverName.replace(/:/g, '_')}__${toolDef.name}`,
     description: toolDef.description || `MCP Tool: ${toolDef.name} from ${serverName}`,
     inputSchema,
 
@@ -27,18 +27,12 @@ export function createMCPToolAdapter(
 
     async *call(input: z.infer<typeof inputSchema>) {
 
-      try {
-        const result = await client.callTool(toolDef.name, input)
+      const result = await client.callTool(toolDef.name, input)
 
-        yield {
-          type: 'result' as const,
-          data: result,
-          resultForAssistant: formatMCPResult(result)
-        }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error)
-
-        throw error
+      yield {
+        type: 'result' as const,
+        data: result,
+        resultForAssistant: formatMCPResult(result)
       }
     },
 
@@ -183,28 +177,3 @@ function formatMCPResult(result: MCPToolResult): string {
     .join('\n')
 }
 
-/**
- * 解析 MCP 工具名称，返回服务器名和原始工具名
- */
-export function parseMCPToolName(fullName: string): { serverName: string; toolName: string } | null {
-  if (!fullName.startsWith('mcp__')) {
-    return null
-  }
-
-  const parts = fullName.split('__')
-  if (parts.length < 3) {
-    return null
-  }
-
-  return {
-    serverName: parts[1],
-    toolName: parts.slice(2).join('__')
-  }
-}
-
-/**
- * 判断是否为 MCP 工具
- */
-export function isMCPTool(toolName: string): boolean {
-  return toolName.startsWith('mcp__')
-}

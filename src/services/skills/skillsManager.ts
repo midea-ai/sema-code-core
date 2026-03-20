@@ -14,6 +14,7 @@ import { getSemaRootDir, getClaudeRootDir } from '../../util/savePath'
 import { getOriginalCwd } from '../../util/cwd'
 import { parseFile } from '../../util/formatter'
 import { getPluginsManager } from '../plugins/pluginsManager'
+import { getConfManager } from '../../manager/ConfManager'
 import { SkillConfig } from '../../types/skill'
 
 
@@ -71,11 +72,17 @@ class SkillsManager {
     // 清空现有配置
     this.skillConfigs.clear()
 
+    const enableClaudeCodeCompat = getConfManager().getCoreConfig()?.enableClaudeCodeCompat !== false
+
     // 1. 用户级(Claude) - 最低优先级
-    await this.loadSkillsFromDir(this.claudeUserSkillsDir, 'user', 'claude')
+    if (enableClaudeCodeCompat) {
+      await this.loadSkillsFromDir(this.claudeUserSkillsDir, 'user', 'claude')
+    }
 
     // 2. 项目级(Claude)
-    await this.loadSkillsFromDir(this.claudeProjectSkillsDir, 'project', 'claude')
+    if (enableClaudeCodeCompat) {
+      await this.loadSkillsFromDir(this.claudeProjectSkillsDir, 'project', 'claude')
+    }
 
     // 3. 插件 skills
     await this.loadSkillsFromPlugins()
@@ -266,6 +273,56 @@ class SkillsManager {
     return skillsConfs
       .map(skill => `- ${skill.name}: ${skill.description}`)
       .join('\n')
+  }
+
+  /**
+   * 移除 Skill 配置
+   * Claude 来源为只读，不可移除；插件 Skill 不可移除
+   */
+  async removeSkillConf(name: string): Promise<SkillConfig[]> {
+    const skillConf = this.skillConfigs.get(name)
+    if (!skillConf) {
+      logWarn(`移除 Skill 失败: 未找到 [${name}]`)
+      return this.getSkillsInfo()
+    }
+
+    if (skillConf.from === 'claude') {
+      logWarn(`移除 Skill 失败: Claude 来源为只读 [${name}]`)
+      return this.getSkillsInfo()
+    }
+
+    if (skillConf.locate === 'plugin') {
+      logWarn(`移除 Skill 失败: 插件 Skill 不可移除 [${name}]`)
+      return this.getSkillsInfo()
+    }
+
+    this.skillConfigs.delete(name)
+    this.invalidateCache()
+
+    // 删除 SKILL.md 所在目录
+    const targetDir = skillConf.locate === 'user' ? this.semaUserSkillsDir : this.semaProjectSkillsDir
+    const skillDirPath = skillConf.filePath ? path.dirname(skillConf.filePath) : path.join(targetDir, name)
+    try {
+      if (fs.existsSync(skillDirPath)) {
+        await fsPromises.rm(skillDirPath, { recursive: true })
+        logInfo(`Skill 目录已删除: ${skillDirPath}`)
+
+        // 如果父目录为空则一并删除
+        const parentDir = path.dirname(skillDirPath)
+        if (parentDir !== targetDir) {
+          const siblings = await fsPromises.readdir(parentDir)
+          if (siblings.length === 0) {
+            await fsPromises.rm(parentDir, { recursive: true })
+            logDebug(`Skill 空目录已删除: ${parentDir}`)
+          }
+        }
+      }
+    } catch (error) {
+      logError(`删除 Skill 目录失败 [${skillDirPath}]: ${error}`)
+    }
+
+    logInfo(`移除 Skill 配置: ${name}`)
+    return this.refreshSkillsInfo()
   }
 
   /**

@@ -353,3 +353,14 @@ export interface TaskAgentEndData {
   status: 'completed' | 'failed' | 'interrupted';  // 执行状态
   content: string;          // 结果描述，如 'Interrupted' 或 'Done(12 tools use · 12.1k tokens · 2m 14s)'
 }
+
+
+// ==================== mcp状态相关事件 ====================
+
+import type { MCPServerInfo } from '../types/mcp';
+
+/**
+ * mcp状态变更事件数据
+ * 事件: `mcp:server:status` 
+ */
+export type MCPServerStatusData = MCPServerInfo;

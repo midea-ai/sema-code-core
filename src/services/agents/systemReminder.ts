@@ -2,10 +2,9 @@ import Anthropic from '@anthropic-ai/sdk'
 import * as fs from 'fs'
 import * as path from 'path'
 import { getOriginalCwd } from '../../util/cwd'
-import { PROJECT_FILE } from '../../constants/product'
 import { getGlobalAgentMdPath } from '../../util/savePath'
 import { getConfManager } from '../../manager/ConfManager'
-import { getSkillTypesDescription } from '../skill/skillsManager'
+import { getSkillTypesDescription } from '../skills/skillsManager'
 
 /**
  * 读取全局 ~/.claude/CLAUDE.md
@@ -47,13 +46,13 @@ function buildCustomRulesSection(): string {
 
 /**
  * 读取当前目录下的项目配置文件
- * 优先读取 AGENT.md，如果不存在则读取 CLAUDE.md
+ * 优先读取 AGENTS.md，如果不存在则读取 CLAUDE.md
  * 返回 { content, filePath } 或 null
  */
 function readProjectConfigFile(): { content: string; filePath: string } | null {
   try {
     const currentDir = getOriginalCwd()
-    const agentPath = path.join(currentDir, PROJECT_FILE)
+    const agentPath = path.join(currentDir, 'AGENTS.md')
     const claudePath = path.join(currentDir, 'CLAUDE.md')
 
     if (fs.existsSync(agentPath)) {
@@ -83,7 +82,7 @@ function buildGlobalAgentSection(globalContent: string): string {
 
 /**
  * 生成项目配置文件的描述段
- * 优先使用 AGENT.md，没有才用 CLAUDE.md；若文件不存在或为空则返回空字符串
+ * 优先使用 AGENTS.md，没有才用 CLAUDE.md；若文件不存在或为空则返回空字符串
  */
 function buildProjectConfigSection(): string {
   const result = readProjectConfigFile()

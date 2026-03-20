@@ -134,7 +134,8 @@ function parseYaml(yamlStr: string): ClaudeFileMetadata {
     }
 
     // 数组格式：["a", "b"] 或 ['a', 'b'] 或 [a, b]
-    if (value.startsWith('[') && value.endsWith(']')) {
+    // 排除多括号组形式如 [pr-number] [priority]（内层含 ]）
+    if (value.startsWith('[') && value.endsWith(']') && !value.slice(1, -1).includes(']')) {
       result[key] = value
         .slice(1, -1)
         .split(',')

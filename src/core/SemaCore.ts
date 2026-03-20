@@ -1,17 +1,17 @@
 import { SemaCoreConfig, ModelConfig, TaskConfig, FetchModelsParams, FetchModelsResult, ApiTestParams, ApiTestResult, ModelUpdateData, UpdatableCoreConfigKeys, UpdatableCoreConfig } from '../types';
 import { ToolInfo } from '../types/index';
-import { MCPServerConfig, MCPScopeType, MCPServerInfo } from '../types/mcp';
 import { ToolPermissionResponse, AskQuestionResponseData, PlanExitResponseData } from '../events/types';
 import { fetchModels, testApiConnection } from '../services/api/apiUtil';
-import { getMCPManager, initMCPManager } from '../services/mcp/MCPManager';
-import { getCachedCustomCommands, reloadCustomCommands as reloadCustomCommandsImpl } from '../services/command/customCommands';
-import { CustomCommand } from '../types/command';
 import { getPluginsManager } from '../services/plugins/pluginsManager';
 import { PluginScope, MarketplacePluginsInfo } from '../types/plugin';
 import { getAgentsManager } from '../services/agents/agentsManager';
 import { AgentConfig } from '../types/agent';
-import { getSkillsManager } from '../services/skill/skillsManager';
+import { getSkillsManager } from '../services/skills/skillsManager';
 import { SkillConfig } from '../types/skill';
+import { getCommandsManager } from '../services/commands/commandsManager';
+import { CommandConfig } from '../types/command';
+import { getMCPManager } from '../services/mcp/MCPManager';
+import { MCPServerConfig, MCPServerInfo } from '../types/mcp';
 import { SemaEngine } from './SemaEngine';
 import { getConfManager } from '../manager/ConfManager';
 import { getModelManager } from '../manager/ModelManager';
@@ -32,9 +32,6 @@ export class SemaCore {
     this.engine = new SemaEngine();
 
     this.configPromise = this.configPromise.then(async () => {
-      await Promise.all([
-        initMCPManager()
-      ]);
       getPluginsManager(); // 触发单例初始化，后台加载市场插件信息
     });
     logInfo(`初始化SemaCore: ${JSON.stringify(config, null, 2)}`)
@@ -79,8 +76,18 @@ export class SemaCore {
 
   // ==================== 配置管理 ====================
   // 更新核心配置
-  updateCoreConfByKey = <K extends UpdatableCoreConfigKeys>(key: K, value: SemaCoreConfig[K]): void => getConfManager().updateCoreConfByKey(key, value);
-  updateCoreConfig = (config: UpdatableCoreConfig): void => getConfManager().updateCoreConfig(config);
+  updateCoreConfByKey = <K extends UpdatableCoreConfigKeys>(key: K, value: SemaCoreConfig[K]): void => {
+    getConfManager().updateCoreConfByKey(key, value);
+    if (key === 'enableClaudeCodeCompat') {
+      getPluginsManager().refreshMarketplacePluginsInfo().catch(() => {});
+    }
+  };
+  updateCoreConfig = (config: UpdatableCoreConfig): void => {
+    getConfManager().updateCoreConfig(config);
+    if ('enableClaudeCodeCompat' in config) {
+      getPluginsManager().refreshMarketplacePluginsInfo().catch(() => {});
+    }
+  };
   updateUseTools = (toolNames: string[] | null): void => getConfManager().updateUseTools(toolNames);
   updateAgentMode = (mode: 'Agent' | 'Plan'): void => this.engine.updateAgentMode(mode);
   getToolInfos = (): ToolInfo[] => getToolInfos();
@@ -90,17 +97,6 @@ export class SemaCore {
   fetchAvailableModels = (params: FetchModelsParams): Promise<FetchModelsResult> => fetchModels(params);
   testApiConnection = (params: ApiTestParams): Promise<ApiTestResult> => testApiConnection(params);
   getModelAdapter = (provider: string, modelName: string) => resolveAdapter(provider, modelName);
-
-  // ==================== MCP 管理 ====================
-  addOrUpdateMCPServer = (config: MCPServerConfig, scope: MCPScopeType): Promise<MCPServerInfo> => getMCPManager().addOrUpdateServer(config, scope);
-  removeMCPServer = (name: string, scope: MCPScopeType): Promise<boolean> => getMCPManager().removeServer(name, scope);
-  getMCPServerConfigs = (): Map<MCPScopeType, MCPServerInfo[]>  => getMCPManager().getMCPServerConfigs();
-  connectMCPServer = (name: string): Promise<MCPServerInfo> => getMCPManager().connectMCPServer(name);
-  updateMCPUseTools = (name: string, toolNames: string[] | null): boolean => getMCPManager().updateMCPUseTools(name, toolNames);
-
-  // ==================== Custom Commands 管理 ====================
-  getCustomCommands = (): Promise<CustomCommand[]> => getCachedCustomCommands();
-  reloadCustomCommands = (): void => reloadCustomCommandsImpl();
 
   // ==================== 插件市场管理 ====================
   addMarketplaceFromGit = (repo: string): Promise<MarketplacePluginsInfo> => getPluginsManager().addMarketplaceFromGit(repo);
@@ -124,10 +120,27 @@ export class SemaCore {
   // ==================== Skills 管理 ====================
   getSkillsInfo = (): Promise<SkillConfig[]> => getSkillsManager().getSkillsInfo();
   refreshSkillsInfo = (): Promise<SkillConfig[]> => getSkillsManager().refreshSkillsInfo();
+  removeSkillConf = (name: string): Promise<SkillConfig[]> => getSkillsManager().removeSkillConf(name);
+
+  // ==================== Commands 管理 ====================
+  getCommandsInfo = (): Promise<CommandConfig[]> => getCommandsManager().getCommandsInfo();
+  refreshCommandsInfo = (): Promise<CommandConfig[]> => getCommandsManager().refreshCommandsInfo();
+  addCommandConf = (commandConf: CommandConfig): Promise<CommandConfig[]> => getCommandsManager().addCommandConf(commandConf);
+  removeCommandConf = (name: string): Promise<CommandConfig[]> => getCommandsManager().removeCommandConf(name);
+
+  // ==================== MCP 管理 ====================
+  getMCPServerInfo = (): Promise<MCPServerInfo[]>  => getMCPManager().getMCPServerConfigs();
+  refreshMCPServerInfo = (): Promise<MCPServerInfo[]> => getMCPManager().refreshMCPServerConfigs();
+  addMCPServer = (mcpConfig: MCPServerConfig): Promise<MCPServerInfo[]> => getMCPManager().addMCPServer(mcpConfig);
+  removeMCPServer = (name: string): Promise<MCPServerInfo[]> => getMCPManager().removeMCPServer(name);
+  reconnectMCPServer = (name: string): Promise<MCPServerInfo[]> => getMCPManager().reconnectMCPServer(name);
+  disableMCPServer = (name: string): Promise<MCPServerInfo[]> => getMCPManager().disableMCPServer(name);
+  enableMCPServer = (name: string): Promise<MCPServerInfo[]> => getMCPManager().enableMCPServer(name);
+  updateMCPUseTools = (name: string, toolNames: string[]): Promise<MCPServerInfo[]> => getMCPManager().updateMCPUseTools(name, toolNames);
+
 
   // ==================== 资源管理 ====================
   dispose = async () => {
-    await getMCPManager().dispose();
     getPluginsManager().dispose();
     this.engine.dispose();
   };

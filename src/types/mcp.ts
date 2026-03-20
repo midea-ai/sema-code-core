@@ -10,7 +10,7 @@ export type MCPTransportType = 'stdio' | 'sse' | 'http'
 /**
  * MCP Server 安装范围类型
  */
-export type MCPScopeType = 'project' | 'user'
+export type MCPScopeType = 'local' | 'project' | 'user' | 'plugin'
 
 /**
  * MCP Server 配置
@@ -42,6 +42,9 @@ export interface MCPServerConfig {
   url?: string
   /** 请求头 */
   headers?: Record<string, string>
+
+  from: string
+  scope: MCPScopeType
 }
 
 /**
@@ -100,10 +103,14 @@ export type MCPServerStatus = 'disconnected' | 'connecting' | 'connected' | 'err
  */
 export interface MCPServerInfo {
   config: MCPServerConfig
-  status: MCPServerStatus
+  connectStatus: MCPServerStatus  // 连接状态
   capabilities?: MCPServerCapabilities
-  error?: string
   connectedAt?: number
+  status: boolean  // 是否生效
+  error?: string
+  from?: string
+  scope?: MCPScopeType
+  filePath?: string
 }
 
 /**

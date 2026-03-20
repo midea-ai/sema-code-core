@@ -11,6 +11,7 @@ import * as path from 'path'
 import { logDebug, logError, logInfo, logWarn } from '../../util/log'
 import { getSemaRootDir, getClaudeRootDir } from '../../util/savePath'
 import { getOriginalCwd } from '../../util/cwd'
+import { getConfManager } from '../../manager/ConfManager'
 import { execFileNoThrow } from '../../util/exec'
 import type {
   PluginScope,
@@ -149,7 +150,7 @@ class PluginsManager {
    * 读取插件目录下的 commands、agents、skills 列表
    */
   private async readPluginComponents(pluginSourcePath: string): Promise<PluginComponents> {
-    const components: PluginComponents = { commands: [], agents: [], skills: [] }
+    const components: PluginComponents = { commands: [], agents: [], skills: [], mcp: [] }
     if (!fs.existsSync(pluginSourcePath)) return components
     try {
       const commandsDir = path.join(pluginSourcePath, 'commands')
@@ -176,6 +177,11 @@ class PluginsManager {
         components.skills = entries
           .filter(e => e.isDirectory() && fs.existsSync(path.join(skillsDir, e.name, 'SKILL.md')))
           .map(e => ({ name: e.name, filePath: path.join(skillsDir, e.name, 'SKILL.md') }))
+      }
+
+      const mcpFile = path.join(pluginSourcePath, '.mcp.json')
+      if (fs.existsSync(mcpFile)) {
+        components.mcp = [{ name: '.mcp.json', filePath: mcpFile }]
       }
     } catch (error) {
       logError(`读取插件组件失败 [${pluginSourcePath}]: ${error}`)
@@ -760,6 +766,8 @@ class PluginsManager {
     logDebug('刷新市场插件信息...')
     this.invalidateCache()
 
+    const enableClaudeCodeCompat = getConfManager().getCoreConfig()?.enableClaudeCodeCompat !== false
+
     const [
       known, installed, enabledPluginsMap,
       claudeKnown, claudeInstalled, claudeEnabledPluginsMap
@@ -767,14 +775,16 @@ class PluginsManager {
       this.readKnownMarketplaces(),
       this.readInstalledPlugins(),
       this.loadAllEnabledPlugins(),
-      this.readClaudeKnownMarketplaces(),
-      this.readClaudeInstalledPlugins(),
-      this.loadClaudeEnabledPlugins()
+      enableClaudeCodeCompat ? this.readClaudeKnownMarketplaces() : Promise.resolve({} as KnownMarketplaces),
+      enableClaudeCodeCompat ? this.readClaudeInstalledPlugins() : Promise.resolve({ plugins: {} } as InstalledPlugins),
+      enableClaudeCodeCompat ? this.loadClaudeEnabledPlugins() : Promise.resolve({ local: {}, project: {}, user: {} } as Record<PluginScope, Record<string, boolean>>)
     ])
 
     const [semaResult, claudeResult] = await Promise.all([
       this.buildMarketplaceResult(known, installed, enabledPluginsMap, 'sema'),
-      this.buildMarketplaceResult(claudeKnown, claudeInstalled, claudeEnabledPluginsMap, 'claude')
+      enableClaudeCodeCompat
+        ? this.buildMarketplaceResult(claudeKnown, claudeInstalled, claudeEnabledPluginsMap, 'claude')
+        : Promise.resolve({ marketplaces: [], plugins: [] })
     ])
 
     const info: MarketplacePluginsInfo = {
@@ -785,13 +795,19 @@ class PluginsManager {
     this.marketplacePluginsInfoCache = info
     logInfo(`市场插件信息刷新完成: ${info.marketplaces.length} 个市场, ${info.plugins.length} 个插件`)
 
-    // 插件变更后后台触发 agents/skills 刷新，不阻塞当前流程（动态 import 避免循环依赖）
+    // 插件变更后后台触发 agents/skills/commands 刷新，不阻塞当前流程（动态 import 避免循环依赖）
     setImmediate(() => {
       import('../agents/agentsManager').then(({ getAgentsManager }) => {
         getAgentsManager().refreshAgentsInfo().catch((err: unknown) => logError(`插件变更后刷新 Agents 失败: ${err}`))
       }).catch(() => {})
-      import('../skill/skillsManager').then(({ getSkillsManager }) => {
+      import('../skills/skillsManager').then(({ getSkillsManager }) => {
         getSkillsManager().refreshSkillsInfo().catch((err: unknown) => logError(`插件变更后刷新 Skills 失败: ${err}`))
+      }).catch(() => {})
+      import('../commands/commandsManager').then(({ getCommandsManager }) => {
+        getCommandsManager().refreshCommandsInfo().catch((err: unknown) => logError(`插件变更后刷新 Commands 失败: ${err}`))
+      }).catch(() => {})
+      import('../mcp/MCPManager').then(({ getMCPManager }) => {
+        getMCPManager().refreshMCPServerConfigs().catch((err: unknown) => logError(`插件变更后刷新 MCP 失败: ${err}`))
       }).catch(() => {})
     })
 

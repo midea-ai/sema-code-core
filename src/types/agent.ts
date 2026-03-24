@@ -24,4 +24,6 @@ export interface AgentContext {
   tools: Tool[]
   /** 模型类型 */
   model?: 'main' | 'quick'
+  /** 当前正在执行的工具调用ID（由 RunTools 注入，供工具内部发送 chunk 事件使用） */
+  currentToolUseID?: string
 }

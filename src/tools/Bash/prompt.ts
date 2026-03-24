@@ -8,29 +8,9 @@ import { TOOL_NAME_FOR_PROMPT as GLOB_TOOL_NAME } from '../Glob/prompt'
 import { TOOL_NAME_FOR_PROMPT as GREP_TOOL_NAME } from '../Grep/prompt'
 import { TOOL_NAME_FOR_PROMPT as TODOS_TOOL_NAME } from '../TodoWrite/prompt'
 
-export const MAX_OUTPUT_LENGTH = 30000
-export const MAX_TIMEOUT_MS = 180000; // 最大超时毫秒数 3分钟
-export const DEFAULT_TIMEOUT_MS = 60000; // 默认超时毫秒数 1分钟
-export const MAX_RENDERED_LINES = 10
-export const BANNED_COMMANDS = [
-  'alias',
-  'curl',
-  'curlie',
-  'wget',
-  'axel',
-  'aria2c',
-  'nc',
-  'telnet',
-  'lynx',
-  'w3m',
-  'links',
-  'httpie',
-  'xh',
-  'http-prompt',
-  'chrome',
-  'firefox',
-  'safari',
-]
+const MAX_OUTPUT_LENGTH = 30000
+export const MAX_TIMEOUT_MS = 600000; // 最大超时毫秒数 10分钟
+export const DEFAULT_TIMEOUT_MS = 120000; // 默认超时毫秒数 2分钟
 
 export const TOOL_NAME_FOR_PROMPT = 'Bash'
 

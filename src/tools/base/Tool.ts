@@ -42,6 +42,11 @@ export interface Tool<
 
   getDisplayTitle?: (input?: z.infer<TInput>) => string
 
+  // 工具是否支持中断并返回部分结果（如 Bash）
+  // 实现此方法且返回 true 的工具，在执行被中断时会保留 genResultForAssistant 的结果
+  // 不实现此方法的工具，中断时返回标准取消消息
+  supportsInterrupt?: () => boolean
+
   // 工具的核心执行方法
   call: (
     input: z.infer<TInput>,

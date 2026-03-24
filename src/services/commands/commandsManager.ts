@@ -381,13 +381,11 @@ class CommandsManager {
    */
   async addCommandConf(commandConf: CommandConfig): Promise<CommandConfig[]> {
     if (!commandConf.name || !commandConf.description || !commandConf.prompt) {
-      logWarn(`添加 Command 失败: 缺少必需字段 name、description 或 prompt`)
-      return this.getCommandsInfo()
+      throw new Error(`添加 Command 失败: 缺少必需字段 name、description 或 prompt`)
     }
 
     if (!commandConf.locate || (commandConf.locate !== 'project' && commandConf.locate !== 'user')) {
-      logWarn(`添加 Command 失败: locate 必须为 'project' 或 'user'`)
-      return this.getCommandsInfo()
+      throw new Error(`添加 Command 失败: locate 必须为 'project' 或 'user'`)
     }
 
     if (this.commandConfigs.has(commandConf.name)) {

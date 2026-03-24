@@ -7,10 +7,33 @@ import { isInDirectory } from '../../util/file'
 import { PersistentShell } from '../../util/shell'
 import { getCwd, getOriginalCwd } from '../../util/cwd'
 import { processHeredocCommand } from '../../util/format'
-import { BANNED_COMMANDS, DESCRIPTION, MAX_RENDERED_LINES, MAX_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, TOOL_NAME_FOR_PROMPT } from './prompt'
+import { DESCRIPTION, TOOL_NAME_FOR_PROMPT, MAX_TIMEOUT_MS, DEFAULT_TIMEOUT_MS } from './prompt'
 import { formatOutput } from './utils'
+import { getEventBus } from '../../events/EventSystem'
+import type { ToolExecutionChunkData } from '../../events/types'
+import { MAIN_AGENT_ID } from '../../manager/StateManager'
+import { INTERRUPT_MESSAGE_FOR_TOOL_USE } from '../../constants/message'
 
-const MAX_COMMAND_TITLE_LENGTH = 300
+
+const BANNED_COMMANDS = [
+  'alias',
+  'curl',
+  'curlie',
+  'wget',
+  'axel',
+  'aria2c',
+  'nc',
+  'telnet',
+  'lynx',
+  'w3m',
+  'links',
+  'httpie',
+  'xh',
+  'http-prompt',
+  'chrome',
+  'firefox',
+  'safari',
+]
 
 // 辅助函数：生成显示标题
 function getTitle(input?: { command?: string }) {
@@ -59,6 +82,9 @@ export const BashTool = {
   isReadOnly() {
     return false
   },
+  supportsInterrupt() {
+    return true
+  },
   inputSchema,
   async validateInput({ command }, agentContext: any): Promise<ValidationResult> {
     const commands = splitCommand(command)
@@ -101,42 +127,22 @@ export const BashTool = {
       content: input.description 
     }
   },
-  genToolResultMessage({ stdout, stdoutLines, stderr, stderrLines, interrupted, command }) {
-
-    function genTruncatedContent(content: string, totalLines: number): string {
-      const allLines = content.split('\n')
-      if (allLines.length <= MAX_RENDERED_LINES) {
-        return allLines.join('\n')
-      }
-
-      const lastLines = allLines.slice(-MAX_RENDERED_LINES)
-      return [
-        `Showing last ${MAX_RENDERED_LINES} lines of ${totalLines} total lines`,
-        ...lastLines,
-      ].join('\n')
-    }
-
+  genToolResultMessage({ stdout, stderr, interrupted, command }) {
     let result = ''
 
     if (stdout !== '') {
-      const formattedContent = genTruncatedContent(stdout.trim(), stdoutLines)
-      result += formattedContent + '\n'
+      result += formatOutput(stdout.trim()).truncatedContent + '\n'
     }
 
     if (stderr !== '') {
-      const formattedContent = genTruncatedContent(stderr.trim(), stderrLines)
-      result += formattedContent + '\n'
+      result += formatOutput(stderr.trim()).truncatedContent + '\n'
     }
 
     if (stdout === '' && stderr === '') {
       result = '(No content)'
     }
 
-    let commandDisplay = command || ''
-    if (commandDisplay.length > MAX_COMMAND_TITLE_LENGTH) {
-      commandDisplay = commandDisplay.substring(0, MAX_COMMAND_TITLE_LENGTH - 3) + '...'
-    }
-    const title = `${commandDisplay}`
+    const title = command || ''
 
     return {
       title,
@@ -148,13 +154,24 @@ export const BashTool = {
     return getTitle(input)
   },
   genResultForAssistant({ interrupted, stdout, stderr }): string {
-    let errorMessage = stderr.trim()
+    const headTailLines = 500
+    const { truncatedContent: stdoutContent } = stdout.trim()
+      ? formatOutput(stdout.trim(), headTailLines)
+      : { truncatedContent: '' }
+    const { truncatedContent: stderrContent } = stderr.trim()
+      ? formatOutput(stderr.trim(), headTailLines)
+      : { truncatedContent: '' }
+
     if (interrupted) {
-      if (stderr) errorMessage += EOL
-      errorMessage += '<error>Command was aborted before completion</error>'
+      const errorMsg = stderrContent
+      return stdoutContent
+        ? `${errorMsg}\n${INTERRUPT_MESSAGE_FOR_TOOL_USE}\n${stdoutContent}`
+        : `${errorMsg}`
     }
-    const hasBoth = stdout.trim() && errorMessage
-    return `${stdout.trim()}${hasBoth ? '\n' : ''}${errorMessage.trim()}`
+
+    const hasBoth = stdoutContent && stderrContent
+    const result = `${stdoutContent}${hasBoth ? '\n' : ''}${stderrContent}`
+    return result || '(no content)'
   },
   async *call(
     { command, timeout = DEFAULT_TIMEOUT_MS },
@@ -182,28 +199,50 @@ export const BashTool = {
       return
     }
 
+    // 确保不超过最大超时限制
+    const effectiveTimeout = Math.min(timeout, MAX_TIMEOUT_MS)
+
+    // 与 genToolResultMessage 保持一致的 title 计算逻辑
+    let commandDisplay = command || ''
+
+    // 流式输出回调：格式与 genToolResultMessage 一致，仅在有内容变化时触发
+    // chunk 的 '' 不需要 转为 (no content)
+    const isMainAgent = agentContext.agentId === MAIN_AGENT_ID
+    const onChunk = isMainAgent ? (chunkStdout: string, chunkStderr: string) => {
+      let content = ''
+      if (chunkStdout.trim()) content += formatOutput(chunkStdout.trim()).truncatedContent
+      if (chunkStderr.trim()) content += (content ? '\n' : '') + formatOutput(chunkStderr.trim()).truncatedContent
+
+      const chunkData: ToolExecutionChunkData = {
+        agentId: agentContext.agentId,
+        toolId: agentContext.currentToolUseID || '',
+        toolName: TOOL_NAME_FOR_PROMPT,
+        title: commandDisplay,
+        summary: '',
+        content: content,
+      }
+      getEventBus().emit('tool:execution:chunk', chunkData)
+    } : undefined
+
     try {
       const result = await PersistentShell.getInstance().exec(
         command,
         abortController?.signal,
-        timeout,
+        effectiveTimeout,
+        onChunk,
       )
       stdout += (result.stdout || '').trim() + EOL
-      stderr += (result.stderr || '').trim() + EOL
       if (result.code !== 0) {
-        stderr += `Exit code ${result.code}`
+        stderr += `Exit code ${result.code}` + EOL
       }
+      stderr += (result.stderr || '').trim() + EOL
 
-      if (!isInDirectory(getCwd(), getOriginalCwd())) {
-        await PersistentShell.getInstance().setCwd(getOriginalCwd())
-        stderr = `${stderr.trim()}${EOL}Shell cwd was reset to ${getOriginalCwd()}`
-
-      }
-
+      const stdoutTrimmed = stdout.trim()
+      const stderrTrimmed = stderr.trim()
       const { totalLines: stdoutLines, truncatedContent: stdoutContent } =
-        formatOutput(stdout.trim())
+        stdoutTrimmed ? formatOutput(stdoutTrimmed) : { totalLines: 0, truncatedContent: '' }
       const { totalLines: stderrLines, truncatedContent: stderrContent } =
-        formatOutput(stderr.trim())
+        stderrTrimmed ? formatOutput(stderrTrimmed) : { totalLines: 0, truncatedContent: '' }
 
       const data: Out = {
         stdout: stdoutContent,
@@ -225,9 +264,10 @@ export const BashTool = {
         ? 'Command was cancelled by user'
         : `Command failed: ${error instanceof Error ? error.message : String(error)}`
 
+      const { totalLines: stdoutLines, truncatedContent: stdoutContent } = formatOutput(stdout.trim())
       const data: Out = {
-        stdout: stdout.trim(),
-        stdoutLines: stdout.split('\n').length,
+        stdout: stdoutContent,
+        stdoutLines,
         stderr: errorMessage,
         stderrLines: 1,
         interrupted: isAborted,

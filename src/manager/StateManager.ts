@@ -1,6 +1,6 @@
 
 /**
- * 子代理不触发 conversation:usage、message:chunk、state:update、todos:update、topic:update
+ * 子代理不触发 conversation:usage、message:chunk、tool:execution:chunk、state:update、todos:update、topic:update
  * 子代理相关事件 message:complete、tool:execution:complete、tool:execution:error、session:interrupted、tool:permission:request 有agentId字段
  */
 

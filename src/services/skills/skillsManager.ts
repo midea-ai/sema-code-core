@@ -194,8 +194,7 @@ class SkillsManager {
       const promptStr = prompt.trim()
 
       if (!name || !description || !promptStr) {
-        logWarn(`Skill 文件格式错误 [${filePath}]: name/description/prompt 必须为非空字符串`)
-        return null
+        throw new Error(`Skill 文件格式错误 [${filePath}]: name/description/prompt 必须为非空字符串`)
       }
 
       return {

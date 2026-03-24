@@ -125,7 +125,12 @@ export async function* runToolUse(
           yield message
           return
         }
-        // 其他原因的中断，返回取消消息
+        // 工具支持中断（如 Bash），已在内部处理中断并返回部分结果，保留该结果
+        if (tool.supportsInterrupt?.()) {
+          yield message
+          return
+        }
+        // 工具不支持中断（如 Edit），返回取消消息
         const resultMessage = createUserMessage([
           createToolResultStopMessage(toolUse.id),
         ])
@@ -256,8 +261,8 @@ export async function* checkPermissionsAndCallTool(
   // 调用工具
   try {
 
-    // 直接执行工具调用，传递 agentContext
-    const generator = tool.call(input as never, agentContext)
+    // 直接执行工具调用，注入 currentToolUseID 供工具内部 chunk 事件使用
+    const generator = tool.call(input as never, { ...agentContext, currentToolUseID: toolUseID })
     for await (const result of generator) {
       switch (result.type) {
         case 'result':
@@ -266,6 +271,7 @@ export async function* checkPermissionsAndCallTool(
 
             const toolCompleteData: ToolExecutionCompleteData = {
               agentId: agentContext.agentId,
+              toolId: toolUseID,
               toolName: tool.name,
               title: toolResult.title,
               summary: toolResult.summary,

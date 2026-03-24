@@ -27,7 +27,7 @@ export function getSemaRootDir(): string {
     _semaRootDir = customRoot
       ? path.resolve(unixDriveToNative(customRoot))
       : expandHome(SEMA_ROOT);
-    console.log('[getSemaRootDir]', _semaRootDir);
+    // console.log('[getSemaRootDir]', _semaRootDir);
   }
   return _semaRootDir;
 }

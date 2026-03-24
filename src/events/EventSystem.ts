@@ -98,6 +98,7 @@ export class EventBus implements EventBusInterface {
   private static readonly SILENT_EVENTS = new Set([
     'message:thinking:chunk',
     'message:text:chunk',
+    'tool:execution:chunk'
   ]);
 
   emit<T>(event: string, data: T): boolean {

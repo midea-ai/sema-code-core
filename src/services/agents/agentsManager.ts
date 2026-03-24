@@ -22,11 +22,9 @@ import { getConfManager } from '../../manager/ConfManager'
  * Agents 管理器类 - 单例模式
  */
 class AgentsManager {
-  private semaRootDir: string           // ~/.sema
   private semaUserAgentsDir: string     // ~/.sema/agents
   private semaProjectAgentsDir: string  // <project>/.sema/agents
 
-  private claudeRootDir: string          // ~/.claude
   private claudeUserAgentsDir: string    // ~/.claude/agents
   private claudeProjectAgentsDir: string // <project>/.claude/agents
 
@@ -37,12 +35,8 @@ class AgentsManager {
   private loadingPromise: Promise<AgentConfig[]> | null = null
 
   constructor() {
-    // 初始化所有路径
-    this.semaRootDir = getSemaRootDir()
-    this.semaUserAgentsDir = path.join(this.semaRootDir, 'agents')
-
-    this.claudeRootDir = getClaudeRootDir()
-    this.claudeUserAgentsDir = path.join(this.claudeRootDir, 'agents')
+    this.semaUserAgentsDir = path.join(getSemaRootDir(), 'agents')
+    this.claudeUserAgentsDir = path.join(getClaudeRootDir(), 'agents')
 
     const cwd = getOriginalCwd()
     this.semaProjectAgentsDir = path.join(cwd, '.sema', 'agents')
@@ -390,13 +384,11 @@ class AgentsManager {
    */
   async addAgentConf(agentConf: AgentConfig): Promise<AgentConfig[]> {
     if (!agentConf.name || !agentConf.description || !agentConf.prompt) {
-      logWarn(`添加 Agent 失败: 缺少必需字段 name、prompt 或 description`)
-      return this.getAgentsInfo()
+      throw new Error(`添加 Agent 失败: 缺少必需字段 name、prompt 或 description`)
     }
 
     if (!agentConf.locate || (agentConf.locate !== 'project' && agentConf.locate !== 'user')) {
-      logWarn(`添加 Agent 失败: locate 必须为 'project' 或 'user'`)
-      return this.getAgentsInfo()
+      throw new Error(`添加 Agent 失败: locate 必须为 'project' 或 'user'`)
     }
 
     // 如果已存在同名 agent，记录覆盖日志

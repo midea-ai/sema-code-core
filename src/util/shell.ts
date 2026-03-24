@@ -9,6 +9,28 @@ import * as iconv from 'iconv-lite'
 import { logError, logInfo, logWarn } from './log'
 import { IS_WIN, nativeToShellPath, splitPathEntries } from './platform'
 
+// 临时文件前缀
+const TEMPFILE_PREFIX = join(os.tmpdir(), 'sema-')
+
+function formatDuration(ms: number): string {
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s}s`
+  const min = Math.floor(s / 60)
+  const rem = s % 60
+  return rem > 0 ? `${min}min${rem}s` : `${min}min`
+}
+// 默认超时时间（2分钟）
+const DEFAULT_TIMEOUT = 120 * 1000
+// SIGTERM信号的标准退出码
+const SIGTERM_CODE = 143
+// 文件后缀定义
+const FILE_SUFFIXES = {
+  STATUS: '-status',    // 状态文件后缀
+  STDOUT: '-stdout',    // 标准输出文件后缀
+  STDERR: '-stderr',    // 标准错误文件后缀
+  CWD: '-cwd',          // 当前工作目录文件后缀
+}
+
 // 执行结果类型定义
 type ExecResult = {
   stdout: string
@@ -61,22 +83,9 @@ type QueuedCommand = {
   command: string
   abortSignal?: AbortSignal
   timeout?: number
+  onChunk?: (stdout: string, stderr: string) => void
   resolve: (result: ExecResult) => void
   reject: (error: Error) => void
-}
-
-// 临时文件前缀
-const TEMPFILE_PREFIX = join(os.tmpdir(), 'sema-')
-// 默认超时时间（30分钟）
-const DEFAULT_TIMEOUT = 30 * 60 * 1000
-// SIGTERM信号的标准退出码
-const SIGTERM_CODE = 143
-// 文件后缀定义
-const FILE_SUFFIXES = {
-  STATUS: '-status',    // 状态文件后缀
-  STDOUT: '-stdout',    // 标准输出文件后缀
-  STDERR: '-stderr',    // 标准错误文件后缀
-  CWD: '-cwd',          // 当前工作目录文件后缀
 }
 
 // Shell配置文件映射
@@ -102,20 +111,23 @@ function fileExists(p: string | undefined): p is string {
   return !!p && existsSync(p)
 }
 
+// testBashAvailability 结果缓存，避免对同一路径重复测试
+const bashTestCache = new Map<string, boolean>()
+
 // 测试 bash 是否可用
 function testBashAvailability(bashPath: string, type: 'msys' | 'wsl' = 'msys'): boolean {
+  const cacheKey = `${bashPath}:${type}`
+  const cached = bashTestCache.get(cacheKey)
+  if (cached !== undefined) return cached
+
+  const saveAndReturn = (result: boolean) => {
+    bashTestCache.set(cacheKey, result)
+    return result
+  }
+
   try {
     logInfo(`测试 bash 可用性: ${bashPath}`)
-
-    let testCommand: string
-    if (type === 'wsl') {
-      // WSL bash 测试（System32\bash.exe 直接支持 -c）
-      testCommand = `"${bashPath}" -c "echo SEMA_TEST_OK"`
-    } else {
-      // 普通 bash 测试
-      testCommand = `"${bashPath}" -c "echo SEMA_TEST_OK"`
-    }
-
+    const testCommand = `"${bashPath}" -c "echo SEMA_TEST_OK"`
     const result = execSync(testCommand, {
       stdio: 'pipe',
       timeout: 3000,
@@ -125,14 +137,14 @@ function testBashAvailability(bashPath: string, type: 'msys' | 'wsl' = 'msys'): 
     const output = result.toString().trim()
     if (output.includes('SEMA_TEST_OK')) {
       logInfo(`✅ bash 测试通过: ${bashPath}`)
-      return true
+      return saveAndReturn(true)
     } else {
       logWarn(`❌ bash 测试失败，输出不符合预期: ${bashPath}, 输出: ${output}`)
-      return false
+      return saveAndReturn(false)
     }
   } catch (error) {
     logWarn(`❌ bash 测试失败: ${bashPath}, 错误: ${error}`)
-    return false
+    return saveAndReturn(false)
   }
 }
 
@@ -142,8 +154,16 @@ function isGitBashPath(p: string): boolean {
   return lower.includes('git') || lower.includes('git for windows')
 }
 
-// 检测可用的Shell
+// 检测可用的Shell（结果缓存，避免重复探测）
+let detectedShellCache: DetectedShell | null = null
+
 function detectShell(): DetectedShell {
+  if (detectedShellCache) return detectedShellCache
+  detectedShellCache = detectShellImpl()
+  return detectedShellCache
+}
+
+function detectShellImpl(): DetectedShell {
   if (!IS_WIN) {
     const bin = process.env.SHELL || '/bin/bash'
     return { bin, args: ['-l'], type: 'posix' }
@@ -431,6 +451,8 @@ export class PersistentShell {
   private stdoutFileBashPath: string          // Bash格式的标准输出文件路径
   private stderrFileBashPath: string          // Bash格式的标准错误文件路径
   private cwdFileBashPath: string             // Bash格式的当前工作目录文件路径
+  private _exitCachedStdout: string = ''      // shell退出时缓存的stdout（防竞态）
+  private _exitCachedStderr: string = ''      // shell退出时缓存的stderr（防竞态）
 
   constructor(cwd: string) {
     // 检测可用的Shell
@@ -460,6 +482,14 @@ export class PersistentShell {
       if (code) {
         // TODO: 最好能通知用户Shell崩溃了
         logError(`Shell exited with code ${code} and signal ${signal}`)
+      }
+      // 在删除文件前缓存内容，防止与 exec_() 的 readOutput() 产生竞态条件
+      try {
+        this._exitCachedStdout = fs.existsSync(this.stdoutFile) ? smartDecode(fs.readFileSync(this.stdoutFile)) : ''
+        this._exitCachedStderr = fs.existsSync(this.stderrFile) ? smartDecode(fs.readFileSync(this.stderrFile)) : ''
+      } catch {
+        this._exitCachedStdout = ''
+        this._exitCachedStderr = ''
       }
       // 清理临时文件
       for (const file of [
@@ -525,7 +555,8 @@ export class PersistentShell {
   // 获取单例实例
   static getInstance(): PersistentShell {
     if (!PersistentShell.instance || !PersistentShell.instance.isAlive) {
-      PersistentShell.instance = new PersistentShell(process.cwd())
+      const cwd = PersistentShell.instance?.cwd || process.cwd()
+      PersistentShell.instance = new PersistentShell(cwd)
     }
     return PersistentShell.instance
   }
@@ -553,20 +584,33 @@ export class PersistentShell {
         }
       } else {
         // Unix: 使用 pgrep 获取子进程
-        const childPids = execSync(`pgrep -P ${parentPid}`)
-          .toString()
-          .trim()
-          .split('\n')
-          .filter(Boolean) // 过滤空字符串
+        try {
+          const childPids = execSync(`pgrep -P ${parentPid}`)
+            .toString()
+            .trim()
+            .split('\n')
+            .filter(Boolean) // 过滤空字符串
 
-        // 杀死所有子进程
-        childPids.forEach(pid => {
-          try {
-            process.kill(Number(pid), 'SIGTERM')
-          } catch (error) {
-            logError(`Failed to kill process ${pid}: ${error}`)
-          }
-        })
+          // 杀死所有子进程
+          childPids.forEach(pid => {
+            try {
+              process.kill(Number(pid), 'SIGTERM')
+            } catch (error) {
+              logError(`Failed to kill process ${pid}: ${error}`)
+            }
+          })
+        } catch {
+          // 没有子进程时是预期的行为
+        }
+
+        // 杀死 bash 进程本身，阻止 for 循环等在 shell 进程内运行的命令继续执行
+        // 设置 isAlive=false，下次 getInstance() 会自动创建新的干净 shell
+        try {
+          this.isAlive = false
+          process.kill(parentPid, 'SIGTERM')
+        } catch (error) {
+          logError(`Failed to kill shell process ${parentPid}: ${error}`)
+        }
       }
     } catch {
       // 当没有找到进程时是预期的行为
@@ -590,7 +634,7 @@ export class PersistentShell {
     if (this.isExecuting || this.commandQueue.length === 0) return
 
     this.isExecuting = true
-    const { command, abortSignal, timeout, resolve, reject } =
+    const { command, abortSignal, timeout, onChunk, resolve, reject } =
       this.commandQueue.shift()!
 
     // 中断处理函数
@@ -600,7 +644,7 @@ export class PersistentShell {
     }
 
     try {
-      const result = await this.exec_(command, timeout)
+      const result = await this.exec_(command, timeout, onChunk)
 
       // 不需要更新cwd - 在exec_中通过CWD文件处理
 
@@ -622,15 +666,20 @@ export class PersistentShell {
     command: string,
     abortSignal?: AbortSignal,
     timeout?: number,
+    onChunk?: (stdout: string, stderr: string) => void,
   ): Promise<ExecResult> {
     return new Promise((resolve, reject) => {
-      this.commandQueue.push({ command, abortSignal, timeout, resolve, reject })
+      this.commandQueue.push({ command, abortSignal, timeout, onChunk, resolve, reject })
       this.processQueue()
     })
   }
 
   // 执行命令（内部实现）
-  private async exec_(command: string, timeout?: number): Promise<ExecResult> {
+  private async exec_(
+    command: string,
+    timeout?: number,
+    onChunk?: (stdout: string, stderr: string) => void,
+  ): Promise<ExecResult> {
     /**
      * 直接执行命令，不经过队列。
      * 并发不变性：
@@ -642,6 +691,11 @@ export class PersistentShell {
      * - 在新命令开始时重置中断状态
      * - 在结果对象中报告中断状态
      *
+     * 超时机制：
+     * - idle timeout: ${IDLE_TIMEOUT_MS/1000}秒无新输出 → kill（每次有输出变化则重置）
+     * - max timeout: min(用户传入 timeout, 3min) → kill（从命令开始倒计时，不重置）
+     * - 谁先触发谁 kill，超时后仍返回已写入临时文件的部分输出
+     *
      * 退出码和CWD处理：
      * - 执行命令并立即将其退出码捕获到Shell变量中
      * - 捕获退出码后更新CWD文件的工作目录
@@ -652,40 +706,49 @@ export class PersistentShell {
 
     // 如果是非 bash Shell，需要特殊处理
     if (this.shellType === 'cmd' || this.shellType === 'powershell') {
-      return this.execNonBashShell(command, timeout)
+      return this.execNonBashShell(command, timeout, onChunk)
     }
 
     const quotedCommand = shellquote.quote([command])
 
-    // 检查命令语法
+    // 检查命令语法（语法错误提前返回，避免污染 shell 状态）
+    // Windows 上 spawn 子进程较慢，使用更长超时
+    const syntaxCheckTimeout = IS_WIN ? 5000 : 1000
     try {
       if (this.shellType === 'wsl') {
         execSync(`wsl.exe -e bash -n -c ${quotedCommand}`, {
           stdio: 'ignore',
-          timeout: 1000,
+          timeout: syntaxCheckTimeout,
         })
       } else {
         const quotedBinShell = IS_WIN ? `"${this.binShell}"` : this.binShell
         execSync(`${quotedBinShell} -n -c ${quotedCommand}`, {
           stdio: 'ignore',
-          timeout: 1000,
+          timeout: syntaxCheckTimeout,
         })
       }
-    } catch (stderr) {
-      // 如果有语法错误，返回错误并记录
-      const errorStr =
-        typeof stderr === 'string' ? stderr : String(stderr || '')
-      return Promise.resolve({
-        stdout: '',
-        stderr: errorStr,
-        code: 128,
-        interrupted: false,
-      })
+    } catch (err) {
+      // 超时（ETIMEDOUT）说明无法完成语法检查，不等于语法错误，继续执行
+      const isTimeout = (err as any)?.code === 'ETIMEDOUT' || (err as any)?.killed === true
+      if (isTimeout) {
+        logWarn(`语法检查超时，跳过并继续执行命令: ${command}`)
+      } else {
+        // 真正的语法错误，提前返回
+        const errorStr =
+          typeof err === 'string' ? err : String(err || '')
+        return Promise.resolve({
+          stdout: '',
+          stderr: errorStr,
+          code: 128,
+          interrupted: false,
+        })
+      }
     }
 
-    const commandTimeout = timeout || DEFAULT_TIMEOUT
+    const maxTimeout = timeout || DEFAULT_TIMEOUT
     // 为新命令重置中断状态
     this.commandInterrupted = false
+
     return new Promise<ExecResult>(resolve => {
       // 清空输出文件
       fs.writeFileSync(this.stdoutFile, '')
@@ -695,7 +758,7 @@ export class PersistentShell {
       // 使用命令数组清晰地分解命令序列
       const commandParts = []
 
-      // 1. 使用重定向执行主命令
+      // 1. 重定向执行主命令，cd/export 等状态变更在命令间持久化
       commandParts.push(
         `eval ${quotedCommand} < /dev/null > ${quoteForBash(this.stdoutFileBashPath)} 2> ${quoteForBash(this.stderrFileBashPath)}`,
       )
@@ -712,53 +775,106 @@ export class PersistentShell {
       // 将组合命令作为单个操作发送以保持原子性
       this.sendToShell(commandParts.join('\n'))
 
-      // 检查命令完成或超时
       const start = Date.now()
-      const checkCompletion = setInterval(() => {
+      let lastOutputSnapshot = ''       // 上次检测到的输出快照，用于判断是否有变化
+      let lastChunkCheckTime = 0        // 上次流式输出检查时间
+      let firstEmptyChunkSent = false   // 是否已发送过首次空 chunk
+      let timer: ReturnType<typeof setTimeout> | null = null
+
+      const finish = (result: ExecResult) => {
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+        resolve(result)
+      }
+
+      const readOutput = (): { stdout: string; stderr: string } => ({
+        stdout: fs.existsSync(this.stdoutFile)
+          ? smartDecode(fs.readFileSync(this.stdoutFile))
+          : this._exitCachedStdout,
+        stderr: fs.existsSync(this.stderrFile)
+          ? smartDecode(fs.readFileSync(this.stderrFile))
+          : this._exitCachedStderr,
+      })
+
+      const check = () => {
         try {
+          const now = Date.now()
+          const elapsed = now - start
+
+          // 自适应轮询间隔：短命令快速响应，长命令降低频率
+          let nextInterval: number
+          if (elapsed < 2000) nextInterval = 10
+          else if (elapsed < 10000) nextInterval = 100
+          else nextInterval = 500
+
+          // 检查状态文件（命令是否完成）
           let statusFileSize = 0
           if (fs.existsSync(this.statusFile)) {
             statusFileSize = fs.statSync(this.statusFile).size
           }
 
-          if (
-            statusFileSize > 0 ||
-            Date.now() - start > commandTimeout ||
-            this.commandInterrupted
-          ) {
-            clearInterval(checkCompletion)
-            const stdout = fs.existsSync(this.stdoutFile)
-              ? smartDecode(fs.readFileSync(this.stdoutFile))
-              : ''
-            let stderr = fs.existsSync(this.stderrFile)
-              ? smartDecode(fs.readFileSync(this.stderrFile))
-              : ''
-            let code: number
-            if (statusFileSize) {
-              code = Number(fs.readFileSync(this.statusFile, 'utf8'))
-            } else {
-              // 发生超时 - 杀死任何正在运行的进程
-              this.killChildren()
-              code = SIGTERM_CODE
-              stderr += (stderr ? '\n' : '') + 'Command execution timed out'
+          // 流式输出检查：每500ms检查一次，有变化才触发 onChunk
+          if (now - lastChunkCheckTime >= 500) {
+            lastChunkCheckTime = now
+            const { stdout, stderr } = readOutput()
+            const snapshot = stdout + stderr
+            if (snapshot !== lastOutputSnapshot) {
+              lastOutputSnapshot = snapshot
+              if (onChunk) {
+                onChunk(stdout, stderr)
+              }
+            } else if (!firstEmptyChunkSent && !snapshot && onChunk) {
+              // 首次检测到输出为空时发送一次空 chunk
+              firstEmptyChunkSent = true
+              onChunk('', '')
             }
-            resolve({
+          }
+
+          if (statusFileSize > 0) {
+            // 命令正常完成
+            const { stdout, stderr } = readOutput()
+            const code = Number(fs.readFileSync(this.statusFile, 'utf8'))
+            finish({ stdout, stderr, code, interrupted: this.commandInterrupted })
+          } else if (this.commandInterrupted) {
+            // 命令被外部中断（如用户取消）
+            const { stdout, stderr } = readOutput()
+            finish({ stdout, stderr, code: SIGTERM_CODE, interrupted: true })
+          } else if (elapsed >= maxTimeout) {
+            // 超过最大执行时间，kill 并返回已有的部分输出
+            this.killChildren()
+            const { stdout, stderr } = readOutput()
+            finish({
               stdout,
-              stderr,
-              code,
+              stderr: (stderr ? stderr + '\n' : '') + `(timeout ${formatDuration(maxTimeout)})`,
+              code: SIGTERM_CODE,
               interrupted: this.commandInterrupted,
             })
+          } else {
+            timer = setTimeout(check, nextInterval)
           }
         } catch {
           // 在轮询期间忽略文件系统错误 - 它们是预期的
-          // 因为我们在文件存在之前检查完成状态
+          const elapsed = Date.now() - start
+          let nextInterval: number
+          if (elapsed < 2000) nextInterval = 10
+          else if (elapsed < 10000) nextInterval = 100
+          else nextInterval = 500
+          timer = setTimeout(check, nextInterval)
         }
-      }, 10) // 增加这个值会引入延迟
+      }
+
+      timer = setTimeout(check, 10)
     })
   }
 
   // 非 Bash Shell 特殊处理 (PowerShell, cmd.exe)
-  private async execNonBashShell(command: string, timeout?: number): Promise<ExecResult> {
+  private async execNonBashShell(
+    command: string,
+    timeout?: number,
+    onChunk?: (stdout: string, stderr: string) => void,
+  ): Promise<ExecResult> {
     const commandTimeout = timeout || DEFAULT_TIMEOUT
     this.commandInterrupted = false
 
@@ -790,16 +906,18 @@ export class PersistentShell {
         let stderr = ''
         let completed = false
 
-        // 收集输出
+        // 收集输出并触发流式 chunk 回调
         if (childProcess.stdout) {
           childProcess.stdout.on('data', (data) => {
             stdout += data.toString()
+            if (onChunk) onChunk(stdout, stderr)
           })
         }
 
         if (childProcess.stderr) {
           childProcess.stderr.on('data', (data) => {
             stderr += data.toString()
+            if (onChunk) onChunk(stdout, stderr)
           })
         }
 
@@ -810,7 +928,7 @@ export class PersistentShell {
             childProcess.kill('SIGTERM')
             resolve({
               stdout,
-              stderr: stderr + '\nCommand execution timed out',
+              stderr: stderr + `\n(timeout ${formatDuration(commandTimeout)})`,
               code: SIGTERM_CODE,
               interrupted: true,
             })

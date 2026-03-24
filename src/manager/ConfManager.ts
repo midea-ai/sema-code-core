@@ -36,7 +36,7 @@ export class ConfigManager {
 
     // 如果 workingDir 未提供，使用当前工作目录
     const workingDir = config.workingDir || getCwd();
-    console.log('[workingDir]', workingDir);
+    // console.log('[workingDir]', workingDir);
     this.projecName = workingDir;
 
     if (config.workingDir) {
@@ -44,7 +44,7 @@ export class ConfigManager {
       setOriginalCwd(workingDir);
       // 设置当前工作目录（动态值，会随着shell目录切换而更新）
       await setCwd(workingDir);
-      console.log(`[getCwd()]: ${getCwd()}`);
+      // console.log(`[getCwd()]: ${getCwd()}`);
     } else {
       logInfo(`使用默认工作目录: ${workingDir}`);
     }

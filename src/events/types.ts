@@ -156,11 +156,20 @@ export interface ToolPermissionRequestData {
  */
 export interface ToolExecutionCompleteData {
   agentId: string;       // 代理ID（主代理为 MAIN_AGENT_ID，子代理为 taskId）
+  toolId: string;        // 工具调用唯一ID（对应 Anthropic ToolUseBlock 的 id）
   toolName: string;      // 工具名称
   title: string;         // 工具执行标题
   summary: string;       // 工具执行摘要
   content: string | Record<string, any>;  // 工具执行结果内容（字符串或JSON对象）
 }
+
+
+/**
+ * 工具执行中间态事件数据
+ * 事件: `tool:execution:chunk`
+ * 说明: 命令执行期间，工具结果的中间态（结构与 ToolExecutionCompleteData 相同）
+ */
+export type ToolExecutionChunkData = ToolExecutionCompleteData
 
 /**
  * 工具执行错误事件数据

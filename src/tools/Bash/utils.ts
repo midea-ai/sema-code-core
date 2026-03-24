@@ -1,22 +1,25 @@
-import { MAX_OUTPUT_LENGTH } from './prompt'
+const HEAD_TAIL_LINES = 100
 
-export function formatOutput(content: string): {
+export function formatOutput(content: string, headTailLines = HEAD_TAIL_LINES): {
   totalLines: number
   truncatedContent: string
 } {
-  if (content.length <= MAX_OUTPUT_LENGTH) {
-    return {
-      totalLines: content.split('\n').length,
-      truncatedContent: content,
-    }
-  }
-  const halfLength = MAX_OUTPUT_LENGTH / 2
-  const start = content.slice(0, halfLength)
-  const end = content.slice(-halfLength)
-  const truncated = `${start}\n\n... [${content.slice(halfLength, -halfLength).split('\n').length} lines truncated] ...\n\n${end}`
+  const lines = content.split('\n')
+  const totalLines = lines.length
 
-  return {
-    totalLines: content.split('\n').length,
-    truncatedContent: truncated,
+  if (totalLines <= headTailLines * 2) {
+    return { totalLines, truncatedContent: content }
   }
+
+  const firstLines = lines.slice(0, headTailLines)
+  const lastLines = lines.slice(-headTailLines)
+  const skippedCount = totalLines - headTailLines * 2
+
+  const truncatedContent = [
+    ...firstLines,
+    `\n... [${skippedCount} lines truncated] ...\n`,
+    ...lastLines,
+  ].join('\n')
+
+  return { totalLines, truncatedContent }
 }

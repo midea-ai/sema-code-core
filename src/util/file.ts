@@ -137,10 +137,12 @@ export function writeTextContent(
   encoding: BufferEncoding,
   endings: LineEndingType,
 ): void {
-  let toWrite = content
-  if (endings === 'CRLF') {
-    toWrite = content.split('\n').join('\r\n')
-  }
+  // Normalize all line endings to LF first to avoid duplicating \r
+  // This handles mixed line endings (CRLF, LF, CR) and prevents \r accumulation
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
+  // Then convert to target format if needed
+  const toWrite = endings === 'CRLF' ? normalized.replace(/\n/g, '\r\n') : normalized
 
   writeFileSync(filePath, toWrite, { encoding, flush: true })
 }

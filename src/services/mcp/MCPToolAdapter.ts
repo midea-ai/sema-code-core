@@ -1,0 +1,179 @@
+/**
+ * MCP 工具适配器 - 将 MCP 工具转换为 SemaCore Tool 接口
+ */
+
+import { z } from 'zod'
+import { Tool } from '../../tools/base/Tool'
+import { MCPClient } from './MCPClient'
+import { MCPToolDefinition, MCPToolResult } from '../../types/mcp'
+
+/**
+ * 将 MCP 工具转换为 SemaCore Tool 接口
+ */
+export function createMCPToolAdapter(
+  client: MCPClient,
+  serverName: string,
+  toolDef: MCPToolDefinition
+): Tool {
+  // 将 JSON Schema 转换为 Zod Schema
+  const toolParams = jsonSchemaToZod(toolDef.toolParams)
+
+  const tool: Tool = {
+    name: `mcp__${serverName.replace(/:/g, '_')}__${toolDef.name}`,
+    description: toolDef.description || `MCP Tool: ${toolDef.name} from ${serverName}`,
+    toolParams,
+
+    isSafe: () => false, 
+
+    async *call(input: z.infer<typeof toolParams>) {
+
+      const result = await client.callTool(toolDef.name, input)
+
+      yield {
+        type: 'result' as const,
+        data: result,
+        resultForAssistant: formatMCPResult(result)
+      }
+    },
+
+    genResultForAssistant(output: MCPToolResult): string {
+      return formatMCPResult(output)
+    },
+
+    getDisplayTitle(_input?: z.infer<typeof toolParams>): string {
+      return `MCP: ${serverName}/${toolDef.name}`
+    },
+
+    genToolResultMessage(output: MCPToolResult, input?: z.infer<typeof toolParams>) {
+      const isError = output.isError === true
+      const inputStr = input
+        ? Object.entries(input)
+            .map(([k, v]) => {
+              const valueStr = typeof v === 'string' ? `"${v}"` : String(v)
+              return `${k}: ${valueStr}`
+            })
+            .join(', ')
+        : ''
+      return {
+        title: inputStr || `MCP: ${toolDef.name}`,
+        summary: '',
+        content: formatMCPResult(output)
+      }
+    },
+
+    genToolPermission(input?: z.infer<typeof toolParams>) {
+      const inputStr = input
+        ? Object.entries(input)
+            .map(([k, v]) => {
+              const valueStr = typeof v === 'string' ? `"${v}"` : String(v)
+              return `${k}: ${valueStr}`
+            })
+            .join(', ')
+        : ''
+      return {
+        title: inputStr || `MCP: ${toolDef.name}`,
+        content: toolDef.description || `MCP Tool: ${toolDef.name} from ${serverName}`
+      }
+    }
+  }
+
+  return tool
+}
+
+/**
+ * JSON Schema 转 Zod Schema
+ */
+function jsonSchemaToZod(schema: MCPToolDefinition['toolParams']): z.ZodObject<any> {
+  const shape: Record<string, z.ZodTypeAny> = {}
+
+  if (schema.properties) {
+    for (const [key, prop] of Object.entries(schema.properties)) {
+      let zodType: z.ZodTypeAny = createZodType(prop)
+
+      // 添加描述
+      if (prop.description) {
+        zodType = zodType.describe(prop.description)
+      }
+
+      // 处理可选字段
+      if (!schema.required?.includes(key)) {
+        zodType = zodType.optional()
+      }
+
+      shape[key] = zodType
+    }
+  }
+
+  return z.object(shape)
+}
+
+/**
+ * 根据 JSON Schema 类型创建对应的 Zod 类型
+ */
+function createZodType(prop: any): z.ZodTypeAny {
+  switch (prop.type) {
+    case 'string':
+      if (prop.enum) {
+        return z.enum(prop.enum as [string, ...string[]])
+      }
+      return z.string()
+
+    case 'number':
+      return z.number()
+
+    case 'integer':
+      return z.number().int()
+
+    case 'boolean':
+      return z.boolean()
+
+    case 'array':
+      if (prop.items) {
+        return z.array(createZodType(prop.items))
+      }
+      return z.array(z.any())
+
+    case 'object':
+      if (prop.properties) {
+        return jsonSchemaToZod(prop as MCPToolDefinition['toolParams'])
+      }
+      return z.record(z.any())
+
+    case 'null':
+      return z.null()
+
+    default:
+      // 处理联合类型
+      if (Array.isArray(prop.type)) {
+        const types = prop.type.map((t: string) => createZodType({ type: t }))
+        return z.union(types as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]])
+      }
+      return z.any()
+  }
+}
+
+/**
+ * 格式化 MCP 结果
+ */
+function formatMCPResult(result: MCPToolResult): string {
+  if (!result.content || result.content.length === 0) {
+    return result.isError ? '[Error: No content returned]' : '[No content]'
+  }
+
+  return result.content
+    .map(item => {
+      switch (item.type) {
+        case 'text':
+          return item.text || ''
+        case 'image':
+          return `[Image: ${item.mimeType || 'unknown'}]`
+        case 'resource':
+          return `[Resource: ${item.mimeType || 'unknown'}]`
+        default:
+          return ''
+      }
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+

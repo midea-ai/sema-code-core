@@ -1,0 +1,329 @@
+import Anthropic from '@anthropic-ai/sdk'
+import type { Tool } from '../tools/base/Tool'
+import type { AgentContext } from '../types/agent'
+import { Message, AiMessage, UserMsg, ToolControlSignal } from '../types/message'
+import {
+  buildUserMsg,
+  CANCEL_MSG,
+} from '../util/message'
+import { logError } from '../util/log'
+import { ToolExecutionCompleteData, ToolExecutionErrorData } from '../events/types'
+import { checkToolPermission } from '../manager/PermissionManager'
+import { getEventBus } from '../events/EventSystem'
+
+
+// 并发运行工具
+export async function* runToolsConcurrently(
+  toolUseMessages: Anthropic.ToolUseBlock[],
+  assistantMessage: AiMessage,
+  agentContext: AgentContext,
+): AsyncGenerator<Message, void> {
+  // 简化版并发执行 - 实际项目中可能需要更复杂的并发控制
+  const results = await Promise.all(
+    toolUseMessages.map(async (toolUse) => {
+      const messages: Message[] = []
+      for await (const message of runToolUse(
+        toolUse,
+        assistantMessage,
+        agentContext,
+      )) {
+        messages.push(message)
+      }
+      return messages
+    })
+  )
+
+  // 按顺序输出结果
+  for (const messageGroup of results) {
+    for (const message of messageGroup) {
+      yield message
+    }
+  }
+}
+
+// 串行运行工具
+export async function* runToolsSerially(
+  toolUseMessages: Anthropic.ToolUseBlock[],
+  assistantMessage: AiMessage,
+  agentContext: AgentContext,
+): AsyncGenerator<Message, void> {
+  // 按顺序逐个执行工具
+  for (const toolUse of toolUseMessages) {
+    yield* runToolUse(
+      toolUse,
+      assistantMessage,
+      agentContext,
+    )
+  }
+}
+
+// 执行单个工具使用
+export async function* runToolUse(
+  toolUse: Anthropic.ToolUseBlock,
+  assistantMessage: AiMessage,
+  agentContext: AgentContext,
+): AsyncGenerator<Message, void> {
+
+  const { abortController, tools } = agentContext
+  const toolName = toolUse.name
+  // 查找对应的工具实例
+  const tool = tools.find(t => t.name === toolName)
+
+  // 检查工具是否存在
+  if (!tool) {
+    // 发送工具出错事件 但不会阻塞agent继续执行
+    const toolErrorData: ToolExecutionErrorData = {
+      agentId: agentContext.agentId,
+      toolId: toolUse.id,
+      toolName: toolName,
+      title: toolName,
+      content: `Error: Tool "${toolName}" not found`,
+      input: toolUse.input as Record<string, any>,
+    }
+    getEventBus().emit('tool:execution:error', toolErrorData)
+
+    // 返回工具不存在的错误消息
+    yield buildUserMsg([
+      {
+        type: 'tool_result',
+        content: `Error: Tool "${toolName}" not found`,
+        is_error: true,
+        tool_use_id: toolUse.id,
+      },
+    ])
+    return
+  }
+
+  const toolInput = toolUse.input as { [key: string]: any }
+
+  try {
+
+    // 单个工具开始前
+    if (abortController.signal.aborted) {
+      // 在工具开始前就已经中断，说明是因为前面的工具被拒绝/取消导致的
+      // 这种情况应该返回 CANCEL_MSG
+      yield buildUserMsg([{ type: 'tool_result', content: CANCEL_MSG, is_error: true, tool_use_id: toolUse.id }])
+      return
+    }
+
+    // 检查权限并调用工具
+    for await (const message of checkPermissionsAndCallTool(
+      tool,
+      toolUse.id,
+      toolInput,
+      agentContext,
+      assistantMessage,
+    )) {
+      // 工具执行期间
+      if (abortController.signal.aborted) {
+        // 如果是因为用户点击"拒绝"导致的中断，消息已由 checkPermissionsAndCallTool 正确生成
+        // 直接 yield 原消息（包含 REJECT_MSG），不需要覆盖
+        const abortReason = (abortController.signal as any).reason
+        if (abortReason === 'refuse') {
+          yield message
+          return
+        }
+        // 工具支持中断（如 Bash），已在内部处理中断并返回部分结果，保留该结果
+        if (tool.supportsInterrupt?.()) {
+          yield message
+          return
+        }
+        // 工具不支持中断（如 Edit），返回取消消息
+        yield buildUserMsg([{ type: 'tool_result', content: CANCEL_MSG, is_error: true, tool_use_id: toolUse.id }])
+        return
+      }
+
+      yield message // 生成消息
+    }
+  } catch (e) {
+    logError(e) // 记录错误
+
+    // 即使在错误情况下，也要确保生成工具结果以清除状态
+    const errorContent = `Tool execution failed: ${e instanceof Error ? e.message : String(e)}`
+    const errorMessage = buildUserMsg([
+      {
+        type: 'tool_result',
+        content: errorContent,
+        is_error: true,
+        tool_use_id: toolUse.id,
+      },
+    ])
+    yield errorMessage
+  }
+}
+
+// 检查权限并调用工具
+export async function* checkPermissionsAndCallTool(
+  tool: Tool,
+  toolUseID: string,
+  input: { [key: string]: any },
+  agentContext: AgentContext,
+  assistantMessage: AiMessage,
+): AsyncGenerator<UserMsg, void> {
+
+  const { abortController } = agentContext
+
+  // 使用 zod 验证输入类型
+  const isValidInput = tool.toolParams.safeParse(input)
+  if (!isValidInput.success) {
+    // 为常见情况创建更有帮助的错误消息
+    let errorMessage = `InputValidationError: ${isValidInput.error.message}`
+
+    // 发送工具出错事件 但不会阻塞agent继续执行
+    const toolErrorData: ToolExecutionErrorData = {
+      agentId: agentContext.agentId,
+      toolId: toolUseID,
+      toolName: tool.name,
+      title: tool.getDisplayTitle?.(input as never) || tool.name,
+      content: errorMessage,
+      input,
+    }
+    getEventBus().emit('tool:execution:error', toolErrorData)
+
+    // 返回输入验证错误
+    yield buildUserMsg([
+      {
+        type: 'tool_result',
+        content: errorMessage,
+        is_error: true,
+        tool_use_id: toolUseID,
+      },
+    ])
+    return
+  }
+
+  // 验证输入值。每个工具都有自己的验证逻辑
+  const isValidCall = await tool.validateInput?.(
+    input as never,
+    agentContext
+  )
+  if (isValidCall?.result === false) {
+
+    // 发送工具出错事件 但不会阻塞agent继续执行
+    const errorMessage = isValidCall!.message || '工具调用验证失败'
+    const toolErrorData: ToolExecutionErrorData = {
+      agentId: agentContext.agentId,
+      toolId: toolUseID,
+      toolName: tool.name,
+      title: tool.getDisplayTitle?.(input as never) || tool.name,
+      content: errorMessage,
+      input,
+    }
+    getEventBus().emit('tool:execution:error', toolErrorData)
+
+    // 返回验证失败消息
+    yield buildUserMsg([
+      {
+        type: 'tool_result',
+        content: errorMessage,
+        is_error: true,
+        tool_use_id: toolUseID,
+      },
+    ])
+    return
+  }
+
+  // 权限检查
+  if (!tool.isSafe?.()) {
+    // 在权限检查前，先检查是否已经被中断
+    // 如果已经中断，说明是因为前面的工具被拒绝/取消，后续工具应该返回 CANCEL_MSG
+    if (abortController.signal.aborted) {
+      yield buildUserMsg([{ type: 'tool_result', content: CANCEL_MSG, is_error: true, tool_use_id: toolUseID }])
+      return
+    }
+
+    const permissionResult = await checkToolPermission(
+      tool,
+      input as never,
+      abortController,
+      assistantMessage,
+      agentContext.agentId,
+      toolUseID,
+    )
+    if (!permissionResult.result) {
+      // 权限被拒绝，返回拒绝消息
+      // 注意：这里的 permissionResult.message 可能是 REJECT_MSG 或 CANCEL_MSG
+      // 取决于 PermissionManager 中的处理逻辑
+      yield buildUserMsg([
+        {
+          type: 'tool_result',
+          content: permissionResult.message,
+          is_error: true,
+          tool_use_id: toolUseID,
+        },
+      ])
+      return
+    }
+  }
+
+  // 调用工具
+  try {
+
+    // 直接执行工具调用，注入 currentToolUseID 供工具内部 chunk 事件使用
+    const generator = tool.call(input as never, { ...agentContext, currentToolUseID: toolUseID })
+    for await (const result of generator) {
+      switch (result.type) {
+        case 'result':
+          if (tool.genToolResultMessage) {
+            const toolResult = tool.genToolResultMessage(result.data, input)
+
+            const toolCompleteData: ToolExecutionCompleteData = {
+              agentId: agentContext.agentId,
+              toolId: toolUseID,
+              toolName: tool.name,
+              title: toolResult.title,
+              summary: toolResult.summary,
+              content: toolResult.content,
+            }
+            getEventBus().emit('tool:execution:complete', toolCompleteData)
+          }
+
+          // 提取控制信号（如果存在）
+          const controlSignal = (result.data as any)?.controlSignal as ToolControlSignal | undefined
+
+          // 生成工具结果消息
+          const additionalBlocks = result.additionalBlocks ?? []
+          yield buildUserMsg(
+            [
+              {
+                type: 'tool_result',
+                content: result.resultForAssistant || String(result.data),
+                tool_use_id: toolUseID,
+              },
+              ...additionalBlocks,
+            ],
+            {
+              data: result.data,
+              resultForAssistant: result.resultForAssistant || String(result.data),
+            },
+            controlSignal,  // 传递控制信号
+          )
+          return // 工具执行完成，返回
+      }
+    }
+  } catch (error) {
+    const content = error instanceof Error ? error.message : String(error)
+    logError(error) // 记录错误
+
+    // 发送工具出错事件 但不会阻塞agent继续执行
+    const toolErrorData: ToolExecutionErrorData = {
+      agentId: agentContext.agentId,
+      toolId: toolUseID,
+      toolName: tool.name,
+      title: tool.getDisplayTitle?.(input as never) || tool.name,
+      content: content,
+      input,
+    }
+    getEventBus().emit('tool:execution:error', toolErrorData)
+
+    // 返回工具执行错误消息
+    yield buildUserMsg([
+      {
+        type: 'tool_result',
+        content,
+        is_error: true,
+        tool_use_id: toolUseID,
+      },
+    ])
+  }
+}

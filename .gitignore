@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+lib/
+*.tsbuildinfo
+
+# Environment & credentials
+.env
+.env.local
+*.key
+*.pem
+credentials.json
+config.local.*
+
+# Sema specific
+.sema.conf
+.sema/
+
+# IDE
+.idea/
+.vscode-test
+.vscode/
+
+# OS
+.DS_Store
+
+# Misc
+*.log
+*.tgz
+/wiki
+.claude/
+
+my-app
+
+# Temp/test files
+test-*.ts
+demo-*.ts
+temp-*
+
+remotion/
+test/

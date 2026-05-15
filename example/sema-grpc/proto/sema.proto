@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package sema;
+
+service SemaBridge {
+  // 双向流：客户端发送指令，服务端推送事件
+  rpc Connect(stream BridgeCommand) returns (stream BridgeEvent);
+}
+
+// 宿主 → Node.js（指令帧）
+message BridgeCommand {
+  string id      = 1;  // 请求 ID，用于匹配响应
+  string action  = 2;  // 操作名
+  string payload = 3;  // JSON 序列化的 payload（可为空字符串）
+}
+
+// Node.js → 宿主（事件帧）
+message BridgeEvent {
+  string event  = 1;  // 事件名
+  string data   = 2;  // JSON 序列化的 data（可为空字符串）
+  string cmd_id = 3;  // 对应指令的 ID（仅响应类消息携带）
+}

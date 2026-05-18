@@ -158,7 +158,7 @@ Rules:
 - To recommend a default, put that option first and append " (Recommended)" to its label.
 - Each question must have a unique 'id' (lowercase snake_case).
 - Do NOT restate UI affordances in the label. The frontend automatically appends type/constraint hints — for example, a checkbox question with maxSelections: 3 is rendered as "<label> (multi-select, max 3)". Writing labels like "Core modules (select multiple, max 3)" produces duplicated hints. Just write the bare question, e.g. "Core modules".
-- Do NOT add an "Other" / "Skip" / "None" option yourself — the UI handles per-question skipping.
+- Do NOT add an "Other" / "Skip" / "None" option yourself — the UI automatically provides an "Other" free-text fallback for radio/select/checkbox and per-question skipping. Because every choice question already has an "Other" escape hatch, prefer radio even when you cannot enumerate every possible answer.
 - CRITICAL: Never re-ask a question the user has already answered OR skipped in this session, and never issue a rephrased version of it. Treat answered or skipped questions as final and proceed with reasonable defaults based on existing context.`
   },
   toolParams,

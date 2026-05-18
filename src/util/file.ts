@@ -172,8 +172,19 @@ const BINARY_FILE_EXTS = new Set([
   '.exe', '.dll', '.so', '.dylib',
 ])
 
-function isBinaryFile(filePath: string): boolean {
+const INLINE_READABLE_BINARY_EXTS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp',
+  '.pdf',
+  '.svg',
+])
+
+export function isBinaryFile(filePath: string): boolean {
   return BINARY_FILE_EXTS.has(extname(filePath).toLowerCase())
+}
+
+export function isUnsupportedBinaryFileType(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase()
+  return BINARY_FILE_EXTS.has(ext) && !INLINE_READABLE_BINARY_EXTS.has(ext)
 }
 
 export function inferFileEncoding(filePath: string): BufferEncoding {

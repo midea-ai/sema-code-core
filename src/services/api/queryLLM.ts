@@ -18,16 +18,35 @@ import { queryAnthropic } from './adapt/anthropic'
 // 主入口函数
 // ============================================================================
 
+/** queryLLM 的可选项：模型选择与事件路由上下文 */
+export interface QueryLLMOptions {
+  /** 模型指针，默认 'main' */
+  modelPointer?: ModelPointerType
+  /** 禁用流式 chunk 事件 */
+  disableChunkEvents?: boolean
+  /** 禁用错误事件 */
+  disableErrorEvents?: boolean
+  /** 禁用 thinking */
+  disableThinking?: boolean
+  /** 会话 ID，用于多会话事件隔离 */
+  sessionId?: string
+}
+
 export async function queryLLM(
   messages: (UserMsg | AiMessage)[],
   systemPromptContent: Array<{ type: 'text', text: string }>,
   signal: AbortSignal,
   tools: Tool[],
-  modelPointer: ModelPointerType = 'main',
-  disableChunkEvents: boolean = false,
-  disableErrorEvents: boolean = false,
-  disableThinking: boolean = false
+  options: QueryLLMOptions = {}
 ): Promise<AiMessage> {
+  const {
+    modelPointer = 'main',
+    disableChunkEvents = false,
+    disableErrorEvents = false,
+    disableThinking = false,
+    sessionId,
+  } = options
+
   const modelProfile = getModelManager().getModel(modelPointer)
 
   if (!modelProfile) {
@@ -49,7 +68,8 @@ export async function queryLLM(
         shouldStream,
         enableThinking,
         emitChunkEvents,
-        signal
+        signal,
+        sessionId
       )
       if (cachedResponse) {
         // 缓存命中时也记录请求和响应
@@ -64,11 +84,11 @@ export async function queryLLM(
 
     switch (modelProfile.adapt) {
       case 'anthropic':
-        result = await queryAnthropic(messages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents)
+        result = await queryAnthropic(messages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents, sessionId)
         break
       case 'openai':
       default:
-        result = await queryOpenAI(messages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents)
+        result = await queryOpenAI(messages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents, sessionId)
         break
     }
 
@@ -95,7 +115,7 @@ export async function queryLLM(
     return result
   } catch (error) {
     if (!disableErrorEvents && error instanceof Error && error.name !== 'InterruptedException') {
-      emitSessionError(error)
+      emitSessionError(error, 'api_error', sessionId)
     }
     throw error
   }
@@ -105,7 +125,7 @@ export async function queryLLM(
 // 错误处理辅助函数
 // ============================================================================
 
-function emitSessionError(error: any, type: SessionErrorData['type'] = 'api_error') {
+function emitSessionError(error: any, type: SessionErrorData['type'] = 'api_error', sessionId?: string) {
   const eventBus = getEventBus()
 
   let errorCode = 'UNKNOWN_ERROR'
@@ -177,7 +197,7 @@ function emitSessionError(error: any, type: SessionErrorData['type'] = 'api_erro
     }
   }
 
-  eventBus.emit('session:error', sessionError)
+  eventBus.emit('session:error', sessionError, sessionId)
   logError(`会话错误 [${errorCode}]: ${errorMessage}`)
 }
 
@@ -211,9 +231,11 @@ export async function queryQuick({
     systemPrompt,
     signal || new AbortController().signal,
     [],
-    'quick',
-    true, // 禁用流式事件
-    true, // 禁用错误事件
-    true  // 禁用thinking
+    {
+      modelPointer: 'quick',
+      disableChunkEvents: true,
+      disableErrorEvents: true,
+      disableThinking: true,
+    }
   )
 }

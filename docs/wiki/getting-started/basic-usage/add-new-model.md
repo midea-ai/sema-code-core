@@ -93,7 +93,7 @@ await sema.delModel('deepseek-reasoner[deepseek]')
 
 系统支持两个模型指针：
 - `main`：主任务模型，用于复杂的代码生成、分析等任务
-- `quick`：快速任务模型，用于 bash 前缀提取、话题检测、Explore 子代理等轻量任务
+- `quick`：快速任务模型，用于 bash 前缀提取、话题检测、探索子代理等轻量任务
 
 ```javascript
 await sema.applyTaskModel({

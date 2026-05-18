@@ -11,9 +11,9 @@ import { QUICKCHAT_SYSTEM_REMINDER_PROMPT } from '../prompt/quickchat'
  * 处理 quickchat 旁路问题
  * 读取现有消息历史，使用快速模型回答，不影响主流程状态
  */
-export async function handlequickchat(question: string): Promise<void> {
-  const stateManager = getStateManager()
-  const mainAgentState = stateManager.forAgent(MAIN_AGENT_ID)
+export async function handlequickchat(question: string, sessionId: string): Promise<void> {
+  const runtime = getStateManager().session(sessionId)
+  const mainAgentState = runtime.forAgent(MAIN_AGENT_ID)
 
   // 读取现有消息历史
   const history = mainAgentState.getMessageHistory()
@@ -28,7 +28,7 @@ export async function handlequickchat(question: string): Promise<void> {
 
   // 创建独立的 AbortController，联动主会话中断
   const abortController = new AbortController()
-  const mainAbort = stateManager.currentAbortController
+  const mainAbort = runtime.currentAbortController
   let abortListener: (() => void) | null = null
   if (mainAbort) {
     abortListener = () => abortController.abort()
@@ -43,10 +43,13 @@ export async function handlequickchat(question: string): Promise<void> {
       [],     // 无独立系统提示
       abortController.signal,
       [NULL_TOOL], // 占位工具，避免历史含 tool 块时部分 provider 报错
-      'quick', // 快速模型
-      true,   // 禁用 chunk 事件
-      true,   // 禁用错误事件
-      true    // 禁用 thinking
+      {
+        modelPointer: 'quick',
+        disableChunkEvents: true,
+        disableErrorEvents: true,
+        disableThinking: true,
+        sessionId,
+      }
     )
 
     const content = response.message.content
@@ -55,7 +58,7 @@ export async function handlequickchat(question: string): Promise<void> {
       .join('\n')
 
     logDebug(`[quickchat] 回答完成，长度: ${content.length}`)
-    getEventBus().emit('quickchat:response', { question, content })
+    getEventBus().emit('quickchat:response', { question, content }, sessionId)
   } catch (error) {
     if (!isInterruptedException(error)) {
       logDebug(`[quickchat] 处理失败: ${error}`)

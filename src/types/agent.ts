@@ -17,6 +17,8 @@ export interface AgentConfig {
  * 包含代理执行所需的所有上下文信息
  */
 export interface AgentContext {
+  /** 会话 ID（贯穿状态访问与事件发射，用于多会话隔离） */
+  sessionId: string
   /** 代理 ID（主代理为 MAIN_AGENT_ID，子代理为 taskId） */
   agentId: string
   abortController: AbortController

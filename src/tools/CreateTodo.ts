@@ -35,7 +35,7 @@ export const CreateTodo = {
     agentContext: any,
   ) {
     const stateManager = getStateManager()
-    const agentState = stateManager.forAgent(agentContext.agentId)
+    const agentState = stateManager.forAgent(agentContext)
 
     const id = agentState.createTodoTask({
       title,

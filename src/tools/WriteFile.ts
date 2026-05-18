@@ -71,7 +71,7 @@ Rules:
   },
   async validateInput({ file_path }, agentContext: any) {
     const stateManager = getStateManager()
-    const agentState = stateManager.forAgent(agentContext.agentId)
+    const agentState = stateManager.forAgent(agentContext)
     const fullFilePath = canonicalizeFilePath(file_path)
 
     if (!existsSync(fullFilePath)) {
@@ -99,7 +99,7 @@ Rules:
   },
   async *call({ file_path, file_content }, agentContext: any) {
     const stateManager = getStateManager()
-    const agentState = stateManager.forAgent(agentContext.agentId)
+    const agentState = stateManager.forAgent(agentContext)
     const fullFilePath = canonicalizeFilePath(file_path)
     const dir = dirname(fullFilePath)
     const oldFileExists = existsSync(fullFilePath)

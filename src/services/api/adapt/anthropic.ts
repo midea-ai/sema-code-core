@@ -26,6 +26,7 @@ async function streamChat(
   params: StreamParams,
   signal?: AbortSignal,
   emitChunkEvents: boolean = false,
+  sessionId?: string,
 ): Promise<Anthropic.Message> {
   const { url, headers = {}, body } = params;
 
@@ -96,12 +97,12 @@ async function streamChat(
           if (delta.type === 'thinking_delta') {
             accumulatedThinking += delta.thinking;
             if (eventBus) {
-              emitChunkEvent(eventBus, 'thinking', messageId, delta.thinking);
+              emitChunkEvent(eventBus, 'thinking', messageId, delta.thinking, sessionId);
             }
           } else if (delta.type === 'text_delta') {
             accumulatedText += delta.text;
             if (eventBus) {
-              emitChunkEvent(eventBus, 'text', messageId, delta.text);
+              emitChunkEvent(eventBus, 'text', messageId, delta.text, sessionId);
             }
           } else if (delta.type === 'input_json_delta') {
             const block = contentBlocks[event.index] as any;
@@ -209,6 +210,7 @@ export async function queryAnthropic(
   modelProfile: ModelProfile,
   enableThinking: boolean,
   emitChunkEvents: boolean,
+  sessionId?: string,
 ): Promise<AiMessage> {
   const start = Date.now()
   const baseURL = modelProfile.baseURL || 'https://api.anthropic.com'
@@ -256,14 +258,14 @@ export async function queryAnthropic(
   logLLMRequest(requestBody)
 
   // 统一使用 streamChat 处理请求（合并超时信号，最长等待 5 分钟）
-  const { signal: streamSignal, cleanup } = withStreamTimeout(signal)
+  const { signal: streamSignal, cleanup } = withStreamTimeout(signal, sessionId)
   let parsedMessage: Anthropic.Message
   try {
     parsedMessage = await streamChat({
       url: baseURL,
       headers,
       body: requestBody,
-    }, streamSignal, emitChunkEvents)
+    }, streamSignal, emitChunkEvents, sessionId)
   } finally {
     cleanup()
   }

@@ -38,7 +38,7 @@ Prefer working tasks in ID order — earlier tasks often set up context for late
   },
   async *call(_input: z.infer<typeof toolParams>, agentContext: any) {
     const stateManager = getStateManager()
-    const agentState = stateManager.forAgent(agentContext.agentId)
+    const agentState = stateManager.forAgent(agentContext)
     const allTasks = agentState.listTodoTasks()
 
     // 构建已完成任务 ID 集合，用于过滤已解除的阻塞

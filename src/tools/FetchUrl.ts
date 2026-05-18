@@ -87,7 +87,7 @@ export const FetchUrl = {
         summary: '',
         content,
       }
-      getEventBus().emit('tool:execution:chunk', chunkData)
+      getEventBus().emit('tool:execution:chunk', chunkData, agentContext.sessionId)
     } : undefined
 
     emitChunk?.(`${getTimeTag()}Retrieving content...\n`)

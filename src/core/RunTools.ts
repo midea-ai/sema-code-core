@@ -80,7 +80,7 @@ export async function* runToolUse(
       content: `Error: Tool "${toolName}" not found`,
       input: toolUse.input as Record<string, any>,
     }
-    getEventBus().emit('tool:execution:error', toolErrorData)
+    getEventBus().emit('tool:execution:error', toolErrorData, agentContext.sessionId)
 
     // 返回工具不存在的错误消息
     yield buildUserMsg([
@@ -178,7 +178,7 @@ export async function* checkPermissionsAndCallTool(
       content: errorMessage,
       input,
     }
-    getEventBus().emit('tool:execution:error', toolErrorData)
+    getEventBus().emit('tool:execution:error', toolErrorData, agentContext.sessionId)
 
     // 返回输入验证错误
     yield buildUserMsg([
@@ -209,7 +209,7 @@ export async function* checkPermissionsAndCallTool(
       content: errorMessage,
       input,
     }
-    getEventBus().emit('tool:execution:error', toolErrorData)
+    getEventBus().emit('tool:execution:error', toolErrorData, agentContext.sessionId)
 
     // 返回验证失败消息
     yield buildUserMsg([
@@ -238,6 +238,7 @@ export async function* checkPermissionsAndCallTool(
       abortController,
       assistantMessage,
       agentContext.agentId,
+      agentContext.sessionId,
       toolUseID,
     )
     if (!permissionResult.result) {
@@ -275,7 +276,7 @@ export async function* checkPermissionsAndCallTool(
               summary: toolResult.summary,
               content: toolResult.content,
             }
-            getEventBus().emit('tool:execution:complete', toolCompleteData)
+            getEventBus().emit('tool:execution:complete', toolCompleteData, agentContext.sessionId)
           }
 
           // 提取控制信号（如果存在）
@@ -314,7 +315,7 @@ export async function* checkPermissionsAndCallTool(
       content: content,
       input,
     }
-    getEventBus().emit('tool:execution:error', toolErrorData)
+    getEventBus().emit('tool:execution:error', toolErrorData, agentContext.sessionId)
 
     // 返回工具执行错误消息
     yield buildUserMsg([

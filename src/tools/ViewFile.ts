@@ -234,7 +234,7 @@ export const ViewFile = {
   ) {
     const fullFilePath = canonicalizeFilePath(file_path)
     const stateManager = getStateManager()
-    const agentState = stateManager.forAgent(agentContext.agentId)
+    const agentState = stateManager.forAgent(agentContext)
 
     agentState.setReadFileTimestamp(fullFilePath, Date.now())
 

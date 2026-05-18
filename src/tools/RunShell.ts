@@ -259,7 +259,7 @@ export const RunShell = {
         summary: '',
         content: content,
       }
-      getEventBus().emit('tool:execution:chunk', chunkData)
+      getEventBus().emit('tool:execution:chunk', chunkData, agentContext.sessionId)
     } : undefined
 
     // ② 超时接管回调（子代理不接管，超时直接 kill；禁用后台任务时同样直接 kill）

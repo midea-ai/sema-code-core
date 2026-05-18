@@ -8,10 +8,17 @@ import { getHistoryFilePath } from './savePath';
  */
 
 /**
+ * 生成 8 位十六进制短 ID
+ */
+export function generateShortId(): string {
+  return crypto.randomUUID().replace(/-/g, '').substring(0, 8);
+}
+
+/**
  * 生成新的 sessionId
  */
 export function generateSessionId(): string {
-  return crypto.randomUUID().replace(/-/g, '').substring(0, 8);
+  return generateShortId();
 }
 
 /**

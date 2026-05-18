@@ -51,6 +51,7 @@ export function buildAdditionalReminders(
   systemReminders: Anthropic.ContentBlockParam[],
   messageHistory: Message[],
   agentMode: AgentMode,
+  sessionId: string,
   hasSkillTool: boolean = false,
 ): Anthropic.ContentBlockParam[] {
   // 文件引用 每次输入均添加
@@ -68,16 +69,16 @@ export function buildAdditionalReminders(
   }
 
   // 判断是否为首次 Plan 模式查询，添加 Plan 模式信息
-  const stateManager = getStateManager()
-  if (agentMode === 'Plan' && !stateManager.isPlanModeInfoSent()) {
+  const runtime = getStateManager().session(sessionId)
+  if (agentMode === 'Plan' && !runtime.isPlanModeInfoSent()) {
     reminders.push(...generatePlanReminders())
-    stateManager.markPlanModeInfoSent()
+    runtime.markPlanModeInfoSent()
   }
 
   // 判断是否为首次 Design 模式查询，添加 Design 模式信息
-  if (agentMode === 'Design' && !stateManager.isDesignModeInfoSent()) {
+  if (agentMode === 'Design' && !runtime.isDesignModeInfoSent()) {
     reminders.push(...generateDesignReminders())
-    stateManager.markDesignModeInfoSent()
+    runtime.markDesignModeInfoSent()
   }
 
   return reminders

@@ -225,7 +225,7 @@ Rules:
       intro: input.intro,
     }
 
-    eventBus.emit('pick:option:request', requestData)
+    eventBus.emit('pick:option:request', requestData, agentContext.sessionId)
 
     const answers = await new Promise<string | null>((resolve, reject) => {
       const handleResponse = (response: PickOptionResponseData) => {
@@ -245,7 +245,7 @@ Rules:
         })
       }
 
-      eventBus.on('pick:option:response', handleResponse)
+      eventBus.on('pick:option:response', handleResponse, agentContext.sessionId)
     })
 
     checkAbortSignal(abortController)

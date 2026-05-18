@@ -4,6 +4,7 @@
 
 export interface CronTask {
   id: string
+  sessionId?: string        // 创建该任务的会话 ID（触发时优先注入该会话）
   schedule: string          // 5字段 cron 表达式（本地时间）
   task: string              // 触发时执行的提示词/指令
   repeat: boolean           // true=周期执行, false=一次性触发后删除

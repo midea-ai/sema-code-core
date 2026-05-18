@@ -10,7 +10,7 @@ const STREAM_TIMEOUT_MS = 5 * 60 * 1000 // 5 分钟
  * 将外部 AbortSignal 与流式超时合并，返回合并后的 signal 和清理函数。
  * 超时或外部中断任意一个触发时，合并 signal 都会 abort。
  */
-export function withStreamTimeout(signal?: AbortSignal): {
+export function withStreamTimeout(signal?: AbortSignal, sessionId?: string): {
   signal: AbortSignal
   cleanup: () => void
 } {
@@ -26,7 +26,7 @@ export function withStreamTimeout(signal?: AbortSignal): {
           message: 'LLM流式请求超时(5min)',
         },
       }
-      getEventBus().emit('session:error', sessionError)
+      getEventBus().emit('session:error', sessionError, sessionId)
       logError(`会话错误 [STREAM_TIMEOUT]: LLM流式请求超时(5min)`)
       controller.abort()
     }
@@ -47,11 +47,12 @@ export function emitChunkEvent(
   eventBus: any,
   type: 'text' | 'thinking',
   id: string,
-  delta: string
+  delta: string,
+  sessionId?: string,
 ) {
   const chunkData: ThinkingChunkData | TextChunkData = { id, delta }
   const eventName = type === 'thinking' ? 'message:thinking:chunk' : 'message:text:chunk'
-  eventBus.emit(eventName, chunkData)
+  eventBus.emit(eventName, chunkData, sessionId)
 }
 
 /**

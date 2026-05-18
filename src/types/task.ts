@@ -13,6 +13,8 @@ export type CronTaskStatus = 'running' | 'completed' | 'failed' | 'killed'
 export interface TaskRecord {
   /** 任务唯一 ID（随机 4 字节 hex） */
   taskId: string
+  /** 归属会话 ID（用于多会话隔离与通知路由） */
+  sessionId?: string
   /** 进程 ID，用于确认进程是否已终止 */
   pid?: number
   /** 任务类型，RunShell SubAgent */

@@ -20,6 +20,7 @@ export async function tryGetCachedResponse(
   enableThinking: boolean,
   emitChunkEvents: boolean,
   signal?: AbortSignal,
+  sessionId?: string,
 ): Promise<AiMessage | null> {
   const cachedResponse = llmCache.get(messages, systemPromptContent, modelName, enableThinking)
   if (!cachedResponse) {
@@ -54,7 +55,7 @@ export async function tryGetCachedResponse(
     await simulateCachedStreamResponse(
       cachedResponse.message.id,
       textContent, thinkingContent, toolUseContent,
-      enableThinking, emitChunkEvents, signal
+      enableThinking, emitChunkEvents, signal, sessionId
     )
   } else {
     await simulateCachedNonStreamDelay(textContent, thinkingContent, toolUseContent, enableThinking, signal)
@@ -75,12 +76,13 @@ async function simulateCachedStreamResponse(
   enableThinking: boolean,
   emitChunkEvents: boolean,
   signal?: AbortSignal,
+  sessionId?: string,
 ): Promise<void> {
   const eventBus = getEventBus()
 
   // 先模拟 thinking 流（仅在启用思考时）
   if (thinkingContent && emitChunkEvents && enableThinking) {
-    await simulateContentStream('thinking', messageId, thinkingContent, eventBus, signal)
+    await simulateContentStream('thinking', messageId, thinkingContent, eventBus, signal, sessionId)
   }
 
   // 检查中断
@@ -88,7 +90,7 @@ async function simulateCachedStreamResponse(
 
   // 再模拟 text 流
   if (textContent && emitChunkEvents) {
-    await simulateContentStream('text', messageId, textContent, eventBus, signal)
+    await simulateContentStream('text', messageId, textContent, eventBus, signal, sessionId)
   }
 
   // 检查中断
@@ -128,6 +130,7 @@ async function simulateContentStream(
   content: string,
   eventBus: any,
   signal?: AbortSignal,
+  sessionId?: string,
 ): Promise<void> {
   const eventName = type === 'thinking' ? 'message:thinking:chunk' : 'message:text:chunk'
 
@@ -138,7 +141,7 @@ async function simulateContentStream(
     const chunk = content.slice(i, i + CACHE_STREAM_CHUNK_SIZE)
 
     const chunkData: ThinkingChunkData | TextChunkData = { id: messageId, delta: chunk }
-    eventBus.emit(eventName, chunkData)
+    eventBus.emit(eventName, chunkData, sessionId)
 
     if (i + CACHE_STREAM_CHUNK_SIZE < content.length) {
       await new Promise<void>((resolve) => {

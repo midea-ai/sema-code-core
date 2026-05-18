@@ -135,7 +135,7 @@ command=insert: add new cell at index. command=delete: remove cell at index.`
 
     // 时间戳校验：确保文件已被读取且未被意外修改
     const stateManager = getStateManager()
-    const agentState = stateManager.forAgent(agentContext.agentId)
+    const agentState = stateManager.forAgent(agentContext)
     const readTimestamp = agentState.getReadFileTimestamp(fullPath)
     if (!readTimestamp) {
       return {
@@ -241,7 +241,7 @@ command=insert: add new cell at index. command=delete: remove cell at index.`
       }
 
       // 权限确认后二次校验时间戳，防止用户在权限对话框期间修改文件
-      const agentState = getStateManager().forAgent(agentContext.agentId)
+      const agentState = getStateManager().forAgent(agentContext)
       const readTimestamp = agentState.getReadFileTimestamp(fullPath)
       if (readTimestamp && statSync(fullPath).mtimeMs > readTimestamp) {
         throw new Error('The file changed while awaiting permission. Please re-read it before editing.')

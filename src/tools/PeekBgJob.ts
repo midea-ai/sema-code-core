@@ -87,7 +87,7 @@ ${data.output}`
         summary: '',
         content: delta,
       }
-      getEventBus().emit('tool:execution:chunk', chunkData)
+      getEventBus().emit('tool:execution:chunk', chunkData, agentContext.sessionId)
     } : undefined
 
     const abortSignal = agentContext?.abortController?.signal

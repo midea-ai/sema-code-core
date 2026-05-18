@@ -62,7 +62,7 @@ export async function formatSystemPrompt(): Promise<TextBlock[]> {
 }
 
 /**
- * 子代理系统提示（Explore/Plan 等）
+ * 子代理系统提示
  */
 export async function buildAgentSystemPrompt(agentPrompt: string): Promise<TextBlock[]> {
   return buildPromptBlocks({

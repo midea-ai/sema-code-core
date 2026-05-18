@@ -229,17 +229,6 @@ LLM 调用:
   └─ search_content("pattern", "src/")          → 并行
 ```
 
-**示例 2**：LLM 同时启动多个子代理
-
-```
-LLM 调用:
-  ├─ sub_agent(subagent_type="Explore", …)   → 并行
-  └─ sub_agent(subagent_type="Plan", …)      → 并行
-```
-
-`sub_agent` 工具虽然 `isSafe === false`（子代理可能写文件），但因实例间状态完全隔离，声明了 `canRunConcurrently === true`，因此可与其他可并发工具并行调度。
-
-
 ### 串行执行
 
 **条件**：本轮存在任意一个 `isSafe() === false` 且未声明 `canRunConcurrently()` 的工具。

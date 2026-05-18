@@ -17,7 +17,6 @@ import { getEventBus } from '../events/EventSystem'
 import { getTaskManager } from '../manager/TaskManager'
 import { getAvailableTools } from '../tools/base/tools'
 import { getConfManager } from '../manager/ConfManager'
-import { formatSystemPrompt } from '../services/agents/genSystemPrompt'
 import { generateRulesReminders, generateSkillsReminder } from '../services/agents/genSystemReminder'
 import { runToolsConcurrently, runToolsSerially } from './RunTools'
 import { processFileReferences } from '../util/fileReference'
@@ -34,17 +33,17 @@ export async function* ReAct(
   agentContext: AgentContext,
 ): AsyncGenerator<Message, void> {
 
-  const { agentId, abortController, tools } = agentContext
+  const { sessionId, agentId, abortController, tools } = agentContext
   const stateManager = getStateManager()
-  const agentState = stateManager.forAgent(agentId)
+  const agentState = stateManager.forAgent(agentContext)
 
   const isSubagent = agentId != MAIN_AGENT_ID
 
   // 自动压缩检查（子代理不进行压缩）
   // 在处理新消息前检查，如果需要压缩，会分离出最新的用户消息
   if (!isSubagent && await needsAutoCompact(messages)) {
-    getTaskManager().dispose();
-    messages = await autoCompact(messages, abortController)
+    getTaskManager().disposeSession(sessionId);
+    messages = await autoCompact(messages, abortController, sessionId)
     agentState.updateTodosIntelligently([]);
     agentState.setReadFileTimestamps({});
   }
@@ -57,8 +56,11 @@ export async function* ReAct(
       systemPromptContent,
       abortController.signal,
       tools,
-      agentContext.model,
-      isSubagent // 根据上下文决定是否发送 chunk 事件
+      {
+        modelPointer: agentContext.model,
+        disableChunkEvents: isSubagent, // 根据上下文决定是否发送 chunk 事件
+        sessionId,
+      }
     )
   } catch (error) {
     // 至少保存用户消息，避免本轮对话历史全部丢失
@@ -66,7 +68,7 @@ export async function* ReAct(
       // 用户中断：追加中断提示后保存
       const interruptMessage = buildUserMsg([{ type: 'text', text: REQ_INTERRUPT_MSG }])
       agentState.finalizeMessages([...messages, interruptMessage])
-      getEventBus().emit('session:interrupted', { agentId, content: REQ_INTERRUPT_MSG })
+      getEventBus().emit('session:interrupted', { agentId, content: REQ_INTERRUPT_MSG }, sessionId)
     } else {
       // API 错误：仅保存用户消息，不追加中断提示
       agentState.setMessageHistory(messages)
@@ -79,7 +81,7 @@ export async function* ReAct(
   // AI响应完成后工具执行前
   if (abortController.signal.aborted) {
     // 中断信息
-    getEventBus().emit('session:interrupted', { agentId, content: REQ_INTERRUPT_MSG })
+    getEventBus().emit('session:interrupted', { agentId, content: REQ_INTERRUPT_MSG }, sessionId)
 
     // 同步消息历史并更新状态（添加中断消息到历史）
     const interruptMessage = buildUserMsg([{ type: 'text', text: REQ_INTERRUPT_MSG }])
@@ -107,7 +109,7 @@ export async function* ReAct(
     getEventBus().emit('session:error', {
       type: 'api_error',
       error: { code: 'API_RESPONSE_ERROR', message: errorMsg, details: {} }
-    })
+    }, sessionId)
     if (hasToolCallsInContent) {
       // 不保存包含不完整工具调用的assistantMessage，避免破坏消息历史的完整性
       const truncationNotice = buildUserMsg([{
@@ -147,13 +149,13 @@ export async function* ReAct(
   }
 
   // 使用 EventBus 发送事件
-  getEventBus().emit('message:complete', messageCompleteData)
+  getEventBus().emit('message:complete', messageCompleteData, sessionId)
 
   // 在每次 message:complete 事件后立即发送完整的 conversation:usage 事件（子代理不触发）
   const updatedMessages = [...messages, assistantMessage]
   if (!isSubagent) {
     const usage = getTokens(updatedMessages)
-    getEventBus().emit('conversation:usage', { usage })
+    getEventBus().emit('conversation:usage', { usage }, sessionId)
   }
 
   // 如果没有工具调用，直接结束对话
@@ -185,7 +187,7 @@ export async function* ReAct(
     logWarn('所有工具执行完成后递归查询前')
 
     // 中断信息
-    getEventBus().emit('session:interrupted', { agentId, content: TOOL_INTERRUPT_MSG })
+    getEventBus().emit('session:interrupted', { agentId, content: TOOL_INTERRUPT_MSG }, sessionId)
 
     // 在最后一个工具结果消息中追加中断文本
     if (toolResults.length > 0) {
@@ -199,7 +201,7 @@ export async function* ReAct(
     const fullMessages = [...messages, assistantMessage, ...toolResults]
     if (!isSubagent) {
       const usage = getTokens(fullMessages)
-      getEventBus().emit('conversation:usage', { usage })
+      getEventBus().emit('conversation:usage', { usage }, sessionId)
     }
 
     // 同步消息历史并更新状态
@@ -277,7 +279,7 @@ async function handleControlSignalRebuild(
 
   logInfo(`检测到模式切换信号，重建上下文: ${rebuildSignal.newMode}`)
 
-  // 重新获取工具集
+  // 重新获取工具集（按核心级 useTools 黑名单过滤）
   const newTools = getAvailableTools()
 
   // 更新代理上下文
@@ -286,8 +288,7 @@ async function handleControlSignalRebuild(
     tools: newTools,
   }
 
-  // 重新生成系统提示
-  const newSystemPromptContent = await formatSystemPrompt()
+  // 系统提示为会话级快照，整会话不变，模式切换时直接复用
 
   // 根据 rebuildMessage 决定消息历史
   // 如果有 rebuildMessage，说明需要清理上下文，保留新的用户消息并添加首次查询的额外信息
@@ -319,7 +320,7 @@ async function handleControlSignalRebuild(
   logInfo(`上下文重建完成，工具数量: ${newTools.length}`)
 
   return {
-    systemPromptContent: newSystemPromptContent,
+    systemPromptContent: currentSystemPrompt,
     agentContext: newAgentContext,
     nextMessages,
   }
@@ -333,8 +334,7 @@ async function injectPendingInputsIntoToolResult(
   orderedToolResults: UserMsg[],
   agentContext: AgentContext,
 ): Promise<void> {
-  const stateManager = getStateManager()
-  const injectItems = stateManager.consumeInjectInputsBeforeNextCommand()
+  const injectItems = getStateManager().session(agentContext.sessionId).consumeInjectInputsBeforeNextCommand()
   if (injectItems.length === 0) return
 
   const lastResult = orderedToolResults[orderedToolResults.length - 1]
@@ -346,7 +346,7 @@ async function injectPendingInputsIntoToolResult(
         inputId: item.inputId,
         input: item.input,
         originalInput: item.originalInput,
-      })
+      }, agentContext.sessionId)
       getConfManager().saveUserInputToHistory(item.originalInput || item.input)
     }
 
@@ -355,7 +355,7 @@ async function injectPendingInputsIntoToolResult(
     if (fileRefResult.supplementaryInfo.length > 0) {
       getEventBus().emit('file:reference', {
         references: fileRefResult.supplementaryInfo,
-      })
+      }, agentContext.sessionId)
     }
 
     // 构建注入文本（含文件引用 systemReminders）

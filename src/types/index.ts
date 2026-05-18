@@ -20,6 +20,7 @@ export interface SemaCoreConfig {
   agentMode?: AgentMode;             // 默认 'Agent'
   disableTopicDetection?: boolean;   // 是否禁用话题检测，默认 否
   disableBackgroundTasks?: boolean;  // 是否禁止后台任务（Bash后台/Agent后台/超时转后台），默认 否
+  maxSessions?: number;              // 同时存在的会话上限，不传则不限制
 }
 
 // 支持动态更新的核心配置字段
@@ -212,4 +213,6 @@ export {
   TOOL_NAME_WRITE_FILE,
   TOOL_NAME_PATCH_FILE,
 } from '../prompt/tool';
+
+export type { CreateSessionOptions, CreateSessionResult } from './session';
 

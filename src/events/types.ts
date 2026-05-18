@@ -17,14 +17,14 @@ export interface EventListener<T = any> {
  * 提供事件的发布/订阅功能，实现核心与UI/业务逻辑的解耦
  */
 export interface EventBusInterface {
-  /** 触发指定事件 */
-  emit<T>(event: string, data: T): boolean;
-  /** 监听指定事件 */
-  on<T>(event: string, listener: EventListener<T>): this;
+  /** 触发指定事件，sessionId 为路由元数据 */
+  emit<T>(event: string, data: T, sessionId?: string | null): boolean;
+  /** 监听指定事件，sessionId 限定只接收该会话的事件 */
+  on<T>(event: string, listener: EventListener<T>, sessionId?: string | null): this;
   /** 取消监听指定事件 */
   off<T>(event: string, listener: EventListener<T>): this;
   /** 一次性监听指定事件 */
-  once<T>(event: string, listener: EventListener<T>): this;
+  once<T>(event: string, listener: EventListener<T>, sessionId?: string | null): this;
   /** 移除指定事件的所有监听器，如不指定事件则移除所有 */
   removeAllListeners(event?: string): this;
   /** 检查指定事件是否有监听器 */

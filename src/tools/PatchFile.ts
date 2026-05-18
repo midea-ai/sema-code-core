@@ -88,7 +88,7 @@ Always edit existing files rather than creating new ones. Never add emojis unles
   ) {
     // 通过 agentContext 访问隔离状态
     const stateManager = getStateManager()
-    const agentState = stateManager.forAgent(agentContext.agentId)
+    const agentState = stateManager.forAgent(agentContext)
     const readFileTimestamps = agentState.getReadFileTimestamps()
     if (search_text === replacement) {
       return {
@@ -196,7 +196,7 @@ Always edit existing files rather than creating new ones. Never add emojis unles
   async *call({ file_path, search_text, replacement, global_replace }, agentContext: any) {
     const { patch, updatedFile } = applyEdit(file_path, search_text, replacement, global_replace)
     const stateManager = getStateManager()
-    const agentState = stateManager.forAgent(agentContext.agentId)
+    const agentState = stateManager.forAgent(agentContext)
 
     const fullFilePath = canonicalizeFilePath(file_path)
     const dir = dirname(fullFilePath)

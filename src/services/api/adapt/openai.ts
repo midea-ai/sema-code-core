@@ -28,6 +28,7 @@ async function streamChat(
   params: StreamParams,
   signal?: AbortSignal,
   emitChunkEvents: boolean = false,
+  sessionId?: string,
 ): Promise<OpenAI.ChatCompletion> {
   const { url, headers = {}, body } = params;
 
@@ -92,7 +93,7 @@ async function streamChat(
         }
         accumulatedContent += delta.content;
         if (eventBus) {
-          emitChunkEvent(eventBus, 'text', messageId, delta.content);
+          emitChunkEvent(eventBus, 'text', messageId, delta.content, sessionId);
         }
       }
 
@@ -100,7 +101,7 @@ async function streamChat(
       if ("reasoning_content" in delta && delta.reasoning_content) {
         accumulatedReasoning += delta.reasoning_content as string;
         if (eventBus) {
-          emitChunkEvent(eventBus, 'thinking', messageId, delta.reasoning_content as string);
+          emitChunkEvent(eventBus, 'thinking', messageId, delta.reasoning_content as string, sessionId);
         }
       }
 
@@ -216,6 +217,7 @@ export async function queryOpenAI(
   modelProfile: ModelProfile,
   enableThinking: boolean,
   emitChunkEvents: boolean,
+  sessionId?: string,
 ): Promise<AiMessage> {
   const start = Date.now()
   let baseURL = modelProfile.baseURL || 'https://api.openai.com/v1'
@@ -262,14 +264,14 @@ export async function queryOpenAI(
   logLLMRequest(requestBody)
 
   // 统一使用 streamChat 处理请求（合并超时信号，最长等待 5 分钟）
-  const { signal: streamSignal, cleanup } = withStreamTimeout(signal)
+  const { signal: streamSignal, cleanup } = withStreamTimeout(signal, sessionId)
   let chatCompletion: OpenAI.ChatCompletion
   try {
     chatCompletion = await streamChat({
       url: baseURL,
       headers,
       body: requestBody,
-    }, streamSignal, emitChunkEvents)
+    }, streamSignal, emitChunkEvents, sessionId)
   } finally {
     cleanup()
   }

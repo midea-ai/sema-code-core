@@ -1,5 +1,15 @@
 
 /**
+ * 多会话状态管理
+ *
+ * 两层隔离：sessionId → agentId
+ * - StateManager 是单例注册表，持有 Map<sessionId, SessionRuntime>
+ * - SessionRuntime 持有单个会话的全部状态：
+ *   - 按 agentId 隔离：statesMap / messageHistoryMap / readFileTimestampsMap / todosMap / todoTasksMap
+ *     （agentId='main' 为该会话主代理，子代理为各自 taskId）
+ *   - 会话级：abortController / 输入队列 / 编辑权限 / Plan&Design 模式标记 / 前台 agent 集合
+ *   - 会话级配置：agentMode / useTools
+ *
  * 子代理不触发 conversation:usage、message:chunk、tool:execution:chunk、state:update、todos:update、topic:update
  * 子代理相关事件 message:complete、tool:execution:complete、tool:execution:error、session:interrupted、tool:permission:request 有agentId字段
  */
@@ -13,6 +23,8 @@ import { Message } from '../types/message';
 import { getConfManager } from './ConfManager';
 import { TodoTask, TodoTaskStatus } from '../types/todoTask';
 import { LineEndingKind } from '../util/file';
+import type { AgentContext } from '../types/agent';
+import type { AgentMode } from '../types';
 
 
 // 待处理用户输入项
@@ -35,7 +47,7 @@ export const MAIN_AGENT_ID = 'main';
 
 /**
  * 代理状态访问接口
- * 封装对特定 agentId 的所有状态访问
+ * 封装对特定 (sessionId, agentId) 的所有状态访问
  */
 export interface AgentStateAccessor {
   // Todos 管理
@@ -79,24 +91,11 @@ export interface AgentStateAccessor {
 }
 
 /**
- * 全局状态管理器
- * 负责管理会话状态并发送状态更新事件
- *
- * 隔离状态（按 agentId）：
- * - statesMap: 代理状态 (currentState/previousState)
- * - messageHistoryMap: 消息历史
- * - readFileTimestampsMap: 文件读取时间戳
- * - todosMap: todos 列表
- *
- * 共享状态：
- * - sessionId: 会话ID
- * - globalEditPermissionGranted: 全局编辑权限
- * - currentAbortController: 中断控制器
+ * 单个会话的运行时状态
+ * 由 StateManager 按 sessionId 持有
  */
-export class StateManager {
-  private static instance: StateManager | null = null;
-
-  // === 隔离状态（按 agentId） ===
+export class SessionRuntime {
+  // === 按 agentId 隔离 ===
   private statesMap: Map<string, AgentState> = new Map();
   private messageHistoryMap: Map<string, Message[]> = new Map();
   private readFileTimestampsMap: Map<string, Record<string, number>> = new Map();
@@ -104,68 +103,38 @@ export class StateManager {
   private todoTasksMap: Map<string, TodoTask[]> = new Map();
   private fileLineEndingsMap: Map<string, Record<string, LineEndingKind>> = new Map();
 
-  // === 共享状态 ===
-  private sessionId: string | null = null;
+  // === 会话级状态 ===
+  public currentAbortController: AbortController | null = null;
   private globalEditPermissionGranted = false;
   private planModeInfoSent = false;
   private designModeInfoSent = false;
-  public currentAbortController: AbortController | null = null;
 
   // 当前正在运行的前台 agent taskId 集合
   private foregroundAgents = new Set<string>();
 
-  // 待处理用户输入队列（共享状态）
+  // 待处理用户输入队列
   private pendingUserInputs: PendingUserInput[] = [];
 
-  private constructor() {
-    // 私有构造函数，确保单例模式
-  }
+  // === 会话级配置（从全局 coreConfig 下沉到会话级）===
+  public agentMode: AgentMode = 'Agent';
 
-  /**
-   * 获取StateManager实例（单例模式）
-   */
-  static getInstance(): StateManager {
-    if (!StateManager.instance) {
-      StateManager.instance = new StateManager();
-    }
-    return StateManager.instance;
-  }
+  // 会话级系统提示快照：首次构建后冻结，整个会话不再变化
+  private systemPromptContent: Array<{ type: 'text'; text: string }> | null = null;
 
-  /**
-   * 获取当前会话ID
-   */
-  getSessionId(): string | null {
-    return this.sessionId;
-  }
-
-  /**
-   * 设置会话ID
-   */
-  setSessionId(sessionId: string | null): void {
-    this.sessionId = sessionId;
-    // 新建会话时重置全局编辑权限
-    this.globalEditPermissionGranted = false;
-    logInfo(`会话ID已设置: ${sessionId}，全局编辑权限已重置`);
-  }
+  constructor(public readonly sessionId: string) {}
 
   // ============================================================
   // 消息历史管理（按代理隔离）
   // ============================================================
 
-  /**
-   * 设置消息历史
-   */
   setMessageHistory(messages: Message[], agentId: string = MAIN_AGENT_ID, skipAutoSave = false): void {
     this.messageHistoryMap.set(agentId, messages);
     // 主代理设置消息历史时自动保存
-    if (!skipAutoSave && agentId === MAIN_AGENT_ID && this.sessionId && messages.length > 0) {
+    if (!skipAutoSave && agentId === MAIN_AGENT_ID && messages.length > 0) {
       this.saveSessionHistory();
     }
   }
 
-  /**
-   * 获取消息历史
-   */
   getMessageHistory(agentId: string = MAIN_AGENT_ID): Message[] {
     return this.messageHistoryMap.get(agentId) || [];
   }
@@ -174,9 +143,6 @@ export class StateManager {
   // 文件读取时间戳管理（按代理隔离）
   // ============================================================
 
-  /**
-   * 获取文件读取时间戳
-   */
   getReadFileTimestamps(agentId: string = MAIN_AGENT_ID): Record<string, number> {
     let timestamps = this.readFileTimestampsMap.get(agentId);
     if (!timestamps) {
@@ -186,24 +152,15 @@ export class StateManager {
     return timestamps;
   }
 
-  /**
-   * 设置单个文件的读取时间戳
-   */
   setReadFileTimestamp(filePath: string, timestamp: number, agentId: string = MAIN_AGENT_ID): void {
     const timestamps = this.getReadFileTimestamps(agentId);
     timestamps[filePath] = timestamp;
   }
 
-  /**
-   * 批量设置文件读取时间戳（覆盖）
-   */
   setReadFileTimestamps(timestamps: Record<string, number>, agentId: string = MAIN_AGENT_ID): void {
     this.readFileTimestampsMap.set(agentId, { ...timestamps });
   }
 
-  /**
-   * 获取单个文件的读取时间戳
-   */
   getReadFileTimestamp(filePath: string, agentId: string = MAIN_AGENT_ID): number | undefined {
     return this.getReadFileTimestamps(agentId)[filePath];
   }
@@ -212,16 +169,10 @@ export class StateManager {
   // 文件换行符缓存（按代理隔离）
   // ============================================================
 
-  /**
-   * 获取缓存的文件换行符类型
-   */
   getFileLineEnding(filePath: string, agentId: string = MAIN_AGENT_ID): LineEndingKind | undefined {
     return this.fileLineEndingsMap.get(agentId)?.[filePath];
   }
 
-  /**
-   * 缓存文件的换行符类型
-   */
   setFileLineEnding(filePath: string, ending: LineEndingKind, agentId: string = MAIN_AGENT_ID): void {
     let endings = this.fileLineEndingsMap.get(agentId);
     if (!endings) {
@@ -235,23 +186,14 @@ export class StateManager {
   // todos 管理（按代理隔离）
   // ============================================================
 
-  /**
-   * 获取 todos 列表
-   */
   getTodos(agentId: string = MAIN_AGENT_ID): TodoItem[] {
     return this.todosMap.get(agentId) || [];
   }
 
-  /**
-   * 设置 todos 列表
-   */
   setTodos(todos: TodoItem[], agentId: string = MAIN_AGENT_ID): void {
     this.todosMap.set(agentId, todos);
   }
 
-  /**
-   * 清理指定代理的 todos
-   */
   clearAgentTodos(agentId: string): void {
     if (agentId !== MAIN_AGENT_ID) {
       this.todosMap.delete(agentId);
@@ -259,58 +201,43 @@ export class StateManager {
     }
   }
 
-  /**
-   * 智能更新 todos 列表
-   * 如果传入的 todos 都有 id 且是现有 todos 的子集，则进行子集更新，否则进行完全替换
-   */
   updateTodosIntelligently(newTodos: TodoItem[], agentId: string = MAIN_AGENT_ID): void {
     const currentTodos = this.todosMap.get(agentId) || [];
 
     if (newTodos.length === 0) {
-      // 空数组直接替换
       this.todosMap.set(agentId, newTodos);
       logInfo(`[${agentId}] todos完全替换: ${newTodos.length} 项`);
-      // 只有主代理才发送事件
       if (agentId === MAIN_AGENT_ID) {
         this.emitTodosUpdateEvent(newTodos);
       }
       return;
     }
 
-    // 检查是否为子集更新
     const isSubsetUpdate = newTodos.every(todo =>
       todo.id && currentTodos.some(existing => existing.id === todo.id)
     );
 
     if (isSubsetUpdate && currentTodos.length > 0) {
-      // 子集更新：更新现有 todos 中匹配的项
       const updatedTodos = currentTodos.map(existing => {
         const update = newTodos.find(todo => todo.id === existing.id);
         return update || existing;
       });
       this.todosMap.set(agentId, updatedTodos);
       logInfo(`[${agentId}] todos子集更新: ${newTodos.length} 项更新，总共 ${updatedTodos.length} 项`);
-      // 只有主代理才发送事件
       if (agentId === MAIN_AGENT_ID) {
         this.emitTodosUpdateEvent(newTodos);
       }
     } else {
-      // 完全替换：有新的 id 或没有 id 的情况
       this.todosMap.set(agentId, newTodos);
       logInfo(`[${agentId}] todos完全替换: ${newTodos.length} 项`);
-      // 只有主代理才发送事件
       if (agentId === MAIN_AGENT_ID) {
         this.emitTodosUpdateEvent(newTodos);
       }
     }
   }
 
-  /**
-   * 发送 todos 更新事件
-   */
   private emitTodosUpdateEvent(todos: TodoItem[]): void {
-    const eventBus = getEventBus();
-    eventBus.emit('todos:update', todos);
+    getEventBus().emit('todos:update', todos, this.sessionId);
   }
 
   // ============================================================
@@ -328,7 +255,6 @@ export class StateManager {
 
   createTodoTask(agentId: string, task: Omit<TodoTask, 'id' | 'createdAt' | 'updatedAt'>): string {
     const tasks = this.getTodoTasks(agentId);
-    // 递增数字编号：取当前最大 id + 1
     const maxId = tasks.reduce((max, t) => Math.max(max, parseInt(t.id, 10) || 0), 0);
     const id = String(maxId + 1);
     const now = Date.now();
@@ -378,7 +304,6 @@ export class StateManager {
     const idx = tasks.findIndex(t => t.id === taskId);
     if (idx === -1) return false;
     tasks.splice(idx, 1);
-    // 清理其他任务中对被删任务的引用
     for (const t of tasks) {
       t.blocks = t.blocks.filter(id => id !== taskId);
       t.blockedBy = t.blockedBy.filter(id => id !== taskId);
@@ -388,17 +313,12 @@ export class StateManager {
     return true;
   }
 
-  /**
-   * 建立阻塞关系：fromId 阻塞 toId（toId 需等待 fromId 完成）
-   * 双向写入保持一致性
-   */
   blockTask(agentId: string, fromId: string, toId: string): boolean {
     const tasks = this.getTodoTasks(agentId);
     const fromTask = tasks.find(t => t.id === fromId);
     const toTask = tasks.find(t => t.id === toId);
     if (!fromTask || !toTask) return false;
 
-    // 去重追加
     if (!fromTask.blocks.includes(toId)) {
       fromTask.blocks.push(toId);
       fromTask.updatedAt = Date.now();
@@ -412,11 +332,7 @@ export class StateManager {
     return true;
   }
 
-  /**
-   * 从持久化数据恢复 TodoTask 列表（主代理）
-   */
   restoreTodoTasks(tasks: TodoTask[]): void {
-    // 兼容旧数据：补充 blocks/blockedBy 默认值
     const normalized = tasks.map(t => ({
       ...t,
       blocks: t.blocks ?? [],
@@ -426,12 +342,9 @@ export class StateManager {
     logInfo(`TodoTasks restored: ${tasks.length} 项`);
   }
 
-  /**
-   * 从旧版 TodoItem 格式恢复为 TodoTask（兼容旧历史数据）
-   */
   restoreTodoTasksFromLegacy(todos: TodoItem[]): void {
     const now = Date.now();
-    const tasks: TodoTask[] = todos.map((todo, index) => ({
+    const tasks: TodoTask[] = todos.map((todo) => ({
       id: todo.id || crypto.randomBytes(4).toString('hex'),
       title: todo.title,
       description: todo.title,
@@ -446,13 +359,9 @@ export class StateManager {
     logInfo(`TodoTasks restored from legacy todos: ${tasks.length} 项`);
   }
 
-  /**
-   * 将 TodoTask 列表同步到 todosMap 并触发 UI 更新事件
-   */
   private syncTodoTasksToTodos(agentId: string): void {
     const tasks = this.getTodoTasks(agentId);
 
-    // 排序：completed > in_progress > pending；pending 中被阻塞的排最后
     const statusOrder: Record<string, number> = { completed: 0, in_progress: 1, pending: 2 };
     const completedIds = new Set(tasks.filter(t => t.status === 'completed').map(t => t.id));
 
@@ -460,7 +369,6 @@ export class StateManager {
       const oa = statusOrder[a.status] ?? 3;
       const ob = statusOrder[b.status] ?? 3;
       if (oa !== ob) return oa - ob;
-      // 同为 pending 时，被阻塞（且阻塞者未完成）的排后面
       if (a.status === 'pending' && b.status === 'pending') {
         const aBlocked = a.blockedBy.some(id => !completedIds.has(id));
         const bBlocked = b.blockedBy.some(id => !completedIds.has(id));
@@ -485,9 +393,6 @@ export class StateManager {
   // 代理状态管理（按代理隔离）
   // ============================================================
 
-  /**
-   * 获取代理状态
-   */
   private getAgentState(agentId: string): AgentState {
     let state = this.statesMap.get(agentId);
     if (!state) {
@@ -504,21 +409,15 @@ export class StateManager {
   updateState(newState: AppSessionState, agentId: string = MAIN_AGENT_ID): void {
     const agentState = this.getAgentState(agentId);
 
-    // 添加调试日志
-    logInfo(`updateState: agentId=${agentId}, current=${agentState.currentState}, new=${newState}, sessionId=${this.sessionId}`);
+    logInfo(`updateState: sessionId=${this.sessionId}, agentId=${agentId}, current=${agentState.currentState}, new=${newState}`);
 
     if (agentState.currentState !== newState) {
       agentState.previousState = agentState.currentState;
       agentState.currentState = newState;
 
-      // 只有主代理才发送全局状态更新事件（直接使用 eventBus，参见方法注释）
       if (agentId === MAIN_AGENT_ID) {
-        const eventBus = getEventBus();
-        const stateData: StateUpdateData = {
-          state: newState
-        };
-        eventBus.emit('state:update', stateData);
-
+        const stateData: StateUpdateData = { state: newState };
+        getEventBus().emit('state:update', stateData, this.sessionId);
         logInfo(`状态更新: ${agentState.previousState} → ${newState}`);
       } else {
         logInfo(`[${agentId}] 状态更新: ${agentState.previousState} → ${newState}`);
@@ -528,15 +427,12 @@ export class StateManager {
     }
   }
 
-  /**
-   * 获取当前状态
-   */
   getCurrentState(agentId: string = MAIN_AGENT_ID): AppSessionState {
     return this.getAgentState(agentId).currentState;
   }
 
   // ============================================================
-  // 前台 Agent 管理（共享状态）
+  // 前台 Agent 管理（会话级）
   // ============================================================
 
   addForegroundAgent(taskId: string): void {
@@ -556,27 +452,17 @@ export class StateManager {
   }
 
   // ============================================================
-  // 待处理用户输入队列管理（共享状态）
+  // 待处理用户输入队列管理（会话级）
   // ============================================================
 
-  /**
-   * 添加待处理输入到队列末尾
-   */
   addPendingUserInput(item: PendingUserInput): void {
     this.pendingUserInputs.push(item);
   }
 
-  /**
-   * 获取待处理输入队列长度
-   */
   getPendingUserInputsLength(): number {
     return this.pendingUserInputs.length;
   }
 
-  /**
-   * 从队头连续取 inject 类型，遇到 command 停止
-   * 取出的从队列移除，command 及之后保留
-   */
   consumeInjectInputsBeforeNextCommand(): PendingUserInput[] {
     const result: PendingUserInput[] = [];
     while (
@@ -588,44 +474,42 @@ export class StateManager {
     return result;
   }
 
-  /**
-   * 消费全部剩余输入并清空队列
-   */
   consumeAllPendingInputs(): PendingUserInput[] {
     return this.pendingUserInputs.splice(0);
   }
 
-  /**
-   * 清空待处理输入队列
-   */
   clearPendingUserInputs(): void {
     this.pendingUserInputs = [];
   }
 
+  // ============================================================
+  // 清理
+  // ============================================================
+
   /**
-   * 清空所有状态数据
+   * 清空本会话所有状态数据
    */
   clearAllState(): void {
-    // 清空所有隔离状态的 Map
     this.statesMap.clear();
     this.messageHistoryMap.clear();
     this.readFileTimestampsMap.clear();
     this.todosMap.clear();
     this.todoTasksMap.clear();
+    this.fileLineEndingsMap.clear();
 
-    // 重置共享状态
     this.currentAbortController = null;
+    this.systemPromptContent = null;
     this.globalEditPermissionGranted = false;
     this.planModeInfoSent = false;
     this.designModeInfoSent = false;
     this.foregroundAgents.clear();
     this.clearPendingUserInputs();
 
-    logInfo(`所有状态数据已清空`);
+    logInfo(`[${this.sessionId}] 所有状态数据已清空`);
   }
 
   /**
-   * 清理指定代理的所有隔离状态
+   * 清理指定子代理的所有隔离状态
    */
   clearAgentState(agentId: string): void {
     if (agentId !== MAIN_AGENT_ID) {
@@ -634,6 +518,7 @@ export class StateManager {
       this.readFileTimestampsMap.delete(agentId);
       this.todosMap.delete(agentId);
       this.todoTasksMap.delete(agentId);
+      this.fileLineEndingsMap.delete(agentId);
       logInfo(`[${agentId}] 所有隔离状态已清理`);
     }
   }
@@ -648,10 +533,8 @@ export class StateManager {
       const todoTasks = this.listTodoTasks(MAIN_AGENT_ID);
       const readFileTimestamps = this.getReadFileTimestamps(MAIN_AGENT_ID);
       const workingDir = getConfManager().getCoreConfig()?.workingDir;
-      if (this.sessionId && messageHistory.length > 0) {
+      if (messageHistory.length > 0) {
         await saveHistory(this.sessionId, messageHistory, todos, workingDir, readFileTimestamps, todoTasks);
-        // logInfo(`saveHistory: ${JSON.stringify(messageHistory, null, 2)}`)
-
         logInfo(`会话历史已保存: ${this.sessionId}`);
       }
     } catch (error) {
@@ -659,20 +542,18 @@ export class StateManager {
     }
   }
 
-  /**
-   * 获取全局编辑权限状态
-   */
+  // ============================================================
+  // 全局编辑权限（会话级）
+  // ============================================================
+
   hasGlobalEditPermission(): boolean {
     return this.globalEditPermissionGranted;
   }
 
-  /**
-   * 授予全局编辑权限
-   */
   grantGlobalEditPermission(): void {
     if (this.globalEditPermissionGranted) return;
     this.globalEditPermissionGranted = true;
-    logInfo('全局编辑权限已授予');
+    logInfo(`[${this.sessionId}] 全局编辑权限已授予`);
     this.emitAutoEditUpdate(true);
   }
 
@@ -684,73 +565,66 @@ export class StateManager {
     if (coreConfig?.skipFileEditPermission) return;
     if (this.globalEditPermissionGranted === enable) return;
     this.globalEditPermissionGranted = enable;
-    logInfo(`自动编辑已${enable ? '开启' : '关闭'}`);
+    logInfo(`[${this.sessionId}] 自动编辑已${enable ? '开启' : '关闭'}`);
     this.emitAutoEditUpdate(enable);
   }
 
-  /**
-   * 发送自动编辑状态更新事件
-   */
   private emitAutoEditUpdate(enable: boolean): void {
     const data: AutoEditUpdateData = { enable };
-    getEventBus().emit('autoEdit:update', data);
+    getEventBus().emit('autoEdit:update', data, this.sessionId);
   }
 
-  /**
-   * 检查 Plan 模式信息是否已发送
-   */
+  // ============================================================
+  // Plan / Design 模式信息发送标记（会话级）
+  // ============================================================
+
   isPlanModeInfoSent(): boolean {
     return this.planModeInfoSent;
   }
 
-  /**
-   * 标记 Plan 模式信息已发送
-   */
   markPlanModeInfoSent(): void {
     this.planModeInfoSent = true;
-    logInfo('Plan 模式信息已标记为已发送');
+    logInfo(`[${this.sessionId}] Plan 模式信息已标记为已发送`);
   }
 
-  /**
-   * 重置 Plan 模式信息发送状态
-   */
   resetPlanModeInfoSent(): void {
     this.planModeInfoSent = false;
-    logInfo('Plan 模式信息发送状态已重置');
+    logInfo(`[${this.sessionId}] Plan 模式信息发送状态已重置`);
   }
 
-  /**
-   * 检查 Design 模式信息是否已发送
-   */
   isDesignModeInfoSent(): boolean {
     return this.designModeInfoSent;
   }
 
-  /**
-   * 标记 Design 模式信息已发送
-   */
   markDesignModeInfoSent(): void {
     this.designModeInfoSent = true;
-    logInfo('Design 模式信息已标记为已发送');
+    logInfo(`[${this.sessionId}] Design 模式信息已标记为已发送`);
   }
 
-  /**
-   * 重置 Design 模式信息发送状态
-   */
   resetDesignModeInfoSent(): void {
     this.designModeInfoSent = false;
-    logInfo('Design 模式信息发送状态已重置');
+    logInfo(`[${this.sessionId}] Design 模式信息发送状态已重置`);
+  }
+
+  // ============================================================
+  // 系统提示快照（会话级，整会话不变）
+  // ============================================================
+
+  getSystemPromptContent(): Array<{ type: 'text'; text: string }> | null {
+    return this.systemPromptContent;
+  }
+
+  setSystemPromptContent(content: Array<{ type: 'text'; text: string }>): void {
+    this.systemPromptContent = content;
   }
 
   /**
    * 为指定 agentId 创建状态访问代理对象
-   * 返回一个封装了该 agentId 所有状态操作的对象
    */
   forAgent(agentId: string): AgentStateAccessor {
     const isSubagent = agentId !== MAIN_AGENT_ID;
 
     return {
-      // Todos 管理
       getTodos: () => this.getTodos(agentId),
       setTodos: (todos: TodoItem[]) => this.setTodos(todos, agentId),
       updateTodosIntelligently: (todos: TodoItem[]) => this.updateTodosIntelligently(todos, agentId),
@@ -760,7 +634,6 @@ export class StateManager {
         }
       },
 
-      // 消息历史管理
       getMessageHistory: () => this.getMessageHistory(agentId),
       setMessageHistory: (messages: Message[], skipAutoSave?: boolean) => this.setMessageHistory(messages, agentId, skipAutoSave),
       finalizeMessages: (messages: Message[]) => {
@@ -769,21 +642,17 @@ export class StateManager {
       },
       flushHistory: () => this.saveSessionHistory(),
 
-      // 文件读取时间戳管理
       getReadFileTimestamps: () => this.getReadFileTimestamps(agentId),
       getReadFileTimestamp: (filePath: string) => this.getReadFileTimestamp(filePath, agentId),
       setReadFileTimestamp: (filePath: string, timestamp: number) => this.setReadFileTimestamp(filePath, timestamp, agentId),
       setReadFileTimestamps: (timestamps: Record<string, number>) => this.setReadFileTimestamps(timestamps, agentId),
 
-      // 文件换行符缓存
       getFileLineEnding: (filePath: string) => this.getFileLineEnding(filePath, agentId),
       setFileLineEnding: (filePath: string, ending: LineEndingKind) => this.setFileLineEnding(filePath, ending, agentId),
 
-      // 状态管理
       getCurrentState: () => this.getCurrentState(agentId),
       updateState: (state: AppSessionState) => this.updateState(state, agentId),
 
-      // TodoTask CRUD
       createTodoTask: (task) => this.createTodoTask(agentId, task),
       getTodoTask: (taskId) => this.getTodoTask(agentId, taskId),
       listTodoTasks: () => this.listTodoTasks(agentId),
@@ -791,7 +660,6 @@ export class StateManager {
       deleteTodoTask: (taskId) => this.deleteTodoTask(agentId, taskId),
       blockTask: (fromId, toId) => this.blockTask(agentId, fromId, toId),
 
-      // 清理
       clearAllState: () => {
         if (isSubagent) {
           this.clearAgentState(agentId);
@@ -799,7 +667,94 @@ export class StateManager {
       },
     };
   }
+}
 
+/**
+ * 全局状态管理器（单例注册表）
+ * 按 sessionId 持有多个 SessionRuntime
+ */
+export class StateManager {
+  private static instance: StateManager | null = null;
+
+  private sessions: Map<string, SessionRuntime> = new Map();
+
+  /** UI 层当前打开的活跃会话（多会话共存时由 UI 指定，用于通知兜底投递） */
+  private activeSessionId: string | null = null;
+
+  private constructor() {}
+
+  static getInstance(): StateManager {
+    if (!StateManager.instance) {
+      StateManager.instance = new StateManager();
+    }
+    return StateManager.instance;
+  }
+
+  /**
+   * 获取（不存在则创建）指定会话的运行时
+   */
+  session(sessionId: string): SessionRuntime {
+    let runtime = this.sessions.get(sessionId);
+    if (!runtime) {
+      runtime = new SessionRuntime(sessionId);
+      this.sessions.set(sessionId, runtime);
+      logInfo(`SessionRuntime 已创建: ${sessionId}`);
+    }
+    return runtime;
+  }
+
+  /**
+   * 从 AgentContext 直接取得代理状态访问器
+   */
+  forAgent(ctx: AgentContext): AgentStateAccessor {
+    return this.session(ctx.sessionId).forAgent(ctx.agentId);
+  }
+
+  hasSession(sessionId: string): boolean {
+    return this.sessions.has(sessionId);
+  }
+
+  /** 设置 UI 层当前活跃会话 */
+  setActiveSession(sessionId: string): void {
+    this.activeSessionId = sessionId;
+  }
+
+  /** 获取 UI 层当前活跃会话（未设置或已关闭则为 null） */
+  getActiveSessionId(): string | null {
+    return this.activeSessionId;
+  }
+
+  /**
+   * 移除单个会话的全部状态（会话级 dispose）
+   */
+  removeSession(sessionId: string): void {
+    const runtime = this.sessions.get(sessionId);
+    if (runtime) {
+      runtime.clearAllState();
+      this.sessions.delete(sessionId);
+      logInfo(`SessionRuntime 已移除: ${sessionId}`);
+    }
+    // 活跃会话被关闭：清空，等待 UI 指定新的活跃会话
+    if (this.activeSessionId === sessionId) {
+      this.activeSessionId = null;
+    }
+  }
+
+  /**
+   * 清空所有会话（进程级 dispose）
+   */
+  clearAll(): void {
+    for (const runtime of this.sessions.values()) {
+      runtime.clearAllState();
+    }
+    this.sessions.clear();
+    this.activeSessionId = null;
+    logInfo(`所有会话状态数据已清空`);
+  }
+
+  getSessionIds(): string[] {
+    return Array.from(this.sessions.keys());
+  }
 }
 
 /**

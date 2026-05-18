@@ -54,7 +54,7 @@ Only mark completed when fully done — if blocked or failing, keep in_progress 
     agentContext: any,
   ) {
     const stateManager = getStateManager()
-    const agentState = stateManager.forAgent(agentContext.agentId)
+    const agentState = stateManager.forAgent(agentContext)
 
     // 查找任务
     const existing = agentState.getTodoTask(id)

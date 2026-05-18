@@ -7,16 +7,22 @@ import { logInfo, logError, logWarn } from '../util/log'
 import { getEventBus } from '../events/EventSystem'
 import { TaskRecord, TaskListItem, TimeoutTransferContext } from '../types/task'
 import { MAX_OUTPUT_BYTES, TASK_OUTPUT_DIR, ensureTaskDir, getShellForSpawn, killProcess } from '../util/process'
+import { SessionNotifyRegistry, NotifyCallback } from '../util/notifyRegistry'
 
 export class TaskManager {
   private static MAX_FINISHED_TASKS = 10
   private static MAX_RUNNING_TASKS = 5
   private tasks = new Map<string, TaskRecord>()
   private watchers = new Map<string, Set<(delta: string) => void>>()
-  private notifyCallback: ((msg: string) => void) | null = null
+  /** 按 sessionId 注册的通知回调，后台任务完成时通知归属会话 */
+  private notifyRegistry = new SessionNotifyRegistry()
 
-  setNotifyCallback(cb: (msg: string) => void) {
-    this.notifyCallback = cb
+  setNotifyCallback(sessionId: string, cb: NotifyCallback) {
+    this.notifyRegistry.set(sessionId, cb)
+  }
+
+  removeNotifyCallback(sessionId: string) {
+    this.notifyRegistry.remove(sessionId)
   }
 
   getTask(taskId: string): TaskRecord | undefined {
@@ -27,9 +33,10 @@ export class TaskManager {
     return Array.from(this.tasks.values())
   }
 
-  getTaskList(): TaskListItem[] {
+  getTaskList(sessionId?: string): TaskListItem[] {
     return Array.from(this.tasks.values())
       .filter(t => !t.foreground)
+      .filter(t => !sessionId || t.sessionId === sessionId)
       .map(t => ({
         taskId: t.taskId,
         pid: t.pid,
@@ -90,6 +97,7 @@ export class TaskManager {
 
     const record: TaskRecord = {
       taskId,
+      sessionId: agentContext?.sessionId,
       type: 'RunShell',
       command,
       toolUseId,
@@ -113,7 +121,7 @@ export class TaskManager {
     logInfo(`[TaskManager] spawnRunShellTask taskId=${taskId} pid=${childProcess.pid} command=${command}`)
 
     // emit task:start
-    getEventBus().emit('task:start', { taskId, pid: childProcess.pid, command, filepath, status: record.status, type: 'RunShell' })
+    getEventBus().emit('task:start', { taskId, pid: childProcess.pid, command, filepath, status: record.status, type: 'RunShell' }, record.sessionId)
 
     const appendChunk = (chunk: string) => {
       record.output += chunk
@@ -170,6 +178,7 @@ export class TaskManager {
 
     const record: TaskRecord = {
       taskId,
+      sessionId: agentContext?.sessionId,
       type: 'RunShell',
       command,
       toolUseId,
@@ -185,7 +194,7 @@ export class TaskManager {
     record.pid = takeoverPid
 
     logInfo(`[TaskManager] takeoverTask taskId=${taskId} pid=${takeoverPid} command=${command}`)
-    getEventBus().emit('task:start', { taskId, pid: takeoverPid, command, filepath, status: record.status, type: 'RunShell' })
+    getEventBus().emit('task:start', { taskId, pid: takeoverPid, command, filepath, status: record.status, type: 'RunShell' }, record.sessionId)
 
     // 记录已读取的文件偏移量
     let stdoutOffset = ctx.partialOutput.length
@@ -289,6 +298,7 @@ export class TaskManager {
    */
   registerForegroundAgent(
     taskId: string,
+    sessionId: string,
     description: string,
     toolUseId: string,
     abortController: AbortController,
@@ -301,6 +311,7 @@ export class TaskManager {
 
     const record: TaskRecord = {
       taskId,
+      sessionId,
       type: 'SubAgent',
       command: description,
       toolUseId,
@@ -362,17 +373,18 @@ export class TaskManager {
       status: record.status,
       type: record.type as 'RunShell' | 'SubAgent',
       agentType: record.agentType,
-    })
+    }, record.sessionId)
 
     return true
   }
 
   /**
-   * 将所有前台 agent 转为后台
+   * 将所有前台 agent 转为后台（可按会话过滤）
    */
-  transferAllForeground(): string[] {
+  transferAllForeground(sessionId?: string): string[] {
     const transferred: string[] = []
     for (const record of this.tasks.values()) {
+      if (sessionId && record.sessionId !== sessionId) continue
       if (record.foreground && record.status === 'running') {
         if (this.transferToBackground(record.taskId)) {
           transferred.push(record.taskId)
@@ -403,6 +415,7 @@ export class TaskManager {
    */
   spawnAgentTask(
     taskId: string,
+    sessionId: string,
     description: string,
     toolUseId: string,
     executeFn: (abortController: AbortController) => Promise<string | { result: string; usage?: { totalTokens: number; toolUses: number; durationMs: number } }>,
@@ -420,6 +433,7 @@ export class TaskManager {
 
     const record: TaskRecord = {
       taskId,
+      sessionId,
       type: 'SubAgent',
       command: description,
       toolUseId,
@@ -433,7 +447,7 @@ export class TaskManager {
     this.tasks.set(taskId, record)
 
     logInfo(`[TaskManager] spawnAgentTask taskId=${taskId} description=${description}`)
-    getEventBus().emit('task:start', { taskId, command: description, filepath: '', status: record.status, type: 'SubAgent', agentType })
+    getEventBus().emit('task:start', { taskId, command: description, filepath: '', status: record.status, type: 'SubAgent', agentType }, sessionId)
 
     const promise = executeFn(abortController).then((raw) => {
       const result = typeof raw === 'string' ? raw : raw.result
@@ -460,12 +474,13 @@ export class TaskManager {
   }
 
   /**
-   * 停止所有正在运行的任务
+   * 停止所有正在运行的任务（可按会话过滤）
    */
-  stopAllTasks(): number {
+  stopAllTasks(sessionId?: string): number {
     const running = this.getRunningTasks()
     let count = 0
     for (const record of running) {
+      if (sessionId && record.sessionId !== sessionId) continue
       if (this.stopTask(record.taskId)) {
         count++
       }
@@ -514,7 +529,7 @@ export class TaskManager {
         taskId,
         status: 'killed',
         summary: this._formatTaskSummary(record, 'killed'),
-      })
+      }, record.sessionId)
       if (record.type === 'SubAgent') {
         this._notify(record)
       }
@@ -582,6 +597,20 @@ export class TaskManager {
   }
 
   /**
+   * 清理指定会话的后台任务（会话级 dispose）
+   */
+  disposeSession(sessionId: string): void {
+    for (const record of Array.from(this.tasks.values())) {
+      if (record.sessionId !== sessionId) continue
+      if (record.status === 'running') {
+        this.stopTask(record.taskId)
+      }
+      this.tasks.delete(record.taskId)
+      this.watchers.delete(record.taskId)
+    }
+  }
+
+  /**
    * 清理所有资源
    */
   dispose(): void {
@@ -613,7 +642,7 @@ export class TaskManager {
             taskId: record.taskId,
             status: 'killed',
             summary: this._formatTaskSummary(record, 'killed'),
-          })
+          }, record.sessionId)
         }
       } catch (error) {
         logError(`[TaskManager] dispose: error cleaning up taskId=${record.taskId}: ${error}`)
@@ -654,7 +683,7 @@ export class TaskManager {
         taskId: record.taskId,
         status: record.status,
         summary: this._formatTaskSummary(record, record.status),
-      })
+      }, record.sessionId)
       this._notify(record)
     }
     this._pruneFinishedTasks()
@@ -675,7 +704,8 @@ export class TaskManager {
   }
 
   private _notify(record: TaskRecord) {
-    if (!this.notifyCallback) return
+    const cb = record.sessionId ? this.notifyRegistry.get(record.sessionId) : undefined
+    if (!cb) return
     let msg: string
     if (record.type === 'SubAgent') {
       const usageLine = record.usage
@@ -691,7 +721,7 @@ ${record.output}`
 - output_file: ${record.filepath}
 To retrieve the result, read the output file: ${record.filepath}`
     }
-    this.notifyCallback(msg)
+    cb(msg)
   }
 }
 

@@ -51,8 +51,11 @@ export const SUBAGENT_EXCLUDED_TOOLS = new Set([
 const asTool = (tool: any): Tool => tool
 
 // 获取全部内置工具信息（含启用/禁用状态）
-export const getAllBuiltinToolInfos = (): ToolInfo[] => {
-  const useTools = getConfManager().getCoreConfig()?.useTools
+// useTools 不传时回退到全局默认配置
+export const getAllBuiltinToolInfos = (useTools?: string[] | null): ToolInfo[] => {
+  if (useTools === undefined) {
+    useTools = getConfManager().getCoreConfig()?.useTools
+  }
   return getBuiltinTools().map(tool => ({
     name: tool.name,
     description: getToolDescription(tool),
@@ -110,8 +113,11 @@ export const getAvailableBuiltinTools = memoize(
 )
 
 // 获取可用内置工具 + MCP 工具
-export function getAvailableTools(): Tool[] {
-  const useTools = getConfManager().getCoreConfig()?.useTools
+// useTools 不传时回退到全局默认配置
+export function getAvailableTools(useTools?: string[] | null): Tool[] {
+  if (useTools === undefined) {
+    useTools = getConfManager().getCoreConfig()?.useTools
+  }
   const builtinTools = getAvailableBuiltinTools(useTools)
   const mcpTools = getMCPManager().getMCPTools()
   const tools: Tool[] = [...builtinTools, ...mcpTools]

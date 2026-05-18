@@ -163,7 +163,8 @@ export function needsAutoCompact(messages: Message[]): boolean {
  */
 export async function compactMessages(
   messages: Message[],
-  abortController: AbortController
+  abortController: AbortController,
+  sessionId?: string
 ): Promise<Message[]> {
   if (messages.length < 2) {
     return messages
@@ -205,9 +206,9 @@ export async function compactMessages(
     tokenCompact: usage.useTokens,
     compactRate: calculateCompactRate(tokenBefore, usage.useTokens)
   };
-  eventBus.emit('compact:exec', compactExecData);
+  eventBus.emit('compact:exec', compactExecData, sessionId);
   // 自动压缩后发送更新的 usage 事件
-  eventBus.emit('conversation:usage', { usage })
+  eventBus.emit('conversation:usage', { usage }, sessionId)
 
   return compactedMessages
 }
@@ -226,7 +227,8 @@ export async function compactMessages(
  */
 export async function autoCompact(
   messages: Message[],
-  abortController: AbortController
+  abortController: AbortController,
+  sessionId?: string
 ): Promise<Message[]> {
   // 从后往前找最后一条真实用户消息（非 tool_result）的索引
   let lastRealUserIdx = -1
@@ -259,7 +261,7 @@ export async function autoCompact(
   }
 
   try {
-    const compactedHistory = await compactMessages(messagesToCompact, abortController)
+    const compactedHistory = await compactMessages(messagesToCompact, abortController, sessionId)
 
     // 组合结果示例（工具调用场景）：
     //   [compactNotice(user), summaryMsg(assistant), lastRealUserMsg(user), assistantMsg(assistant), toolResult(user)]
@@ -327,8 +329,7 @@ async function executeAutoCompact(
     ],
     abortController.signal,
     tools,
-    'main',
-    true // 禁用流式事件
+    { modelPointer: 'main', disableChunkEvents: true }
   )
 
   // 解析 summary 结果，兼容 Anthropic 和 OpenAI 两种格式

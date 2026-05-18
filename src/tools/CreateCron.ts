@@ -70,9 +70,9 @@ export const CreateCron = {
 
   async *call(
     { schedule, task, repeat = true, persist = false }: z.infer<typeof toolParams>,
-    _agentContext: any,
+    agentContext: any,
   ) {
-    const id = getCronManager().createTask(schedule, task, repeat, persist)
+    const id = getCronManager().createTask(schedule, task, repeat, persist, agentContext?.sessionId)
     const humanSchedule = describeCronExpression(schedule)
     const data: ToolOut = { id, schedule, task, humanSchedule, repeat, persist }
 

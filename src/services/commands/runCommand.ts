@@ -20,8 +20,8 @@ type SystemCommandHandleResult = false | true | CustomCommandResult;
 
 // ─── 主入口 ──────────────────────────────────────────────────────────────────
 
-export async function handleCommand(input: string): Promise<CustomCommandResult | null> {
-  const systemResult = await handleSystemCommand(input);
+export async function handleCommand(input: string, sessionId: string): Promise<CustomCommandResult | null> {
+  const systemResult = await handleSystemCommand(input, sessionId);
   if (systemResult === true) return null;
   if (systemResult !== false) return systemResult;
   return handleCustomCommand(input);
@@ -29,50 +29,50 @@ export async function handleCommand(input: string): Promise<CustomCommandResult 
 
 // ─── 系统命令 ────────────────────────────────────────────────────────────────
 
-async function handleSystemCommand(input: string): Promise<SystemCommandHandleResult> {
+async function handleSystemCommand(input: string, sessionId: string): Promise<SystemCommandHandleResult> {
   if (input === '/compact') {
-    await handleCompactCommand();
+    await handleCompactCommand(sessionId);
     return true;
   }
 
   if (input === '/clear' || input.startsWith('/clear ')) {
-    await handleClearCommand(input.slice('/clear'.length).trim());
+    await handleClearCommand(sessionId);
     return true;
   }
 
   return false;
 }
 
-async function handleClearCommand(_argsStr?: string): Promise<void> {
+async function handleClearCommand(sessionId: string): Promise<void> {
   logInfo('执行清空命令...');
 
-  // 关闭所有后台进程
-  getTaskManager().dispose();
+  // 关闭本会话的后台进程
+  getTaskManager().disposeSession(sessionId);
 
   const eventBus = EventBus.getInstance();
-  const stateManager = getStateManager();
-  const mainAgentState = stateManager.forAgent(MAIN_AGENT_ID);
+  const runtime = getStateManager().session(sessionId);
+  const mainAgentState = runtime.forAgent(MAIN_AGENT_ID);
 
   // 先清空 todos 和 readFileTimestamps，确保保存到文件时也是空的
   mainAgentState.updateTodosIntelligently([]);
   mainAgentState.setReadFileTimestamps({});
 
-  stateManager.setMessageHistory([]);
-  stateManager.updateState('idle');
-  eventBus.emit('session:cleared', { sessionId: stateManager.getSessionId() });
-  eventBus.emit('conversation:usage', { usage: getTokens([]) });
-  stateManager.clearAllState();
+  mainAgentState.setMessageHistory([]);
+  mainAgentState.updateState('idle');
+  eventBus.emit('session:cleared', { sessionId }, sessionId);
+  eventBus.emit('conversation:usage', { usage: getTokens([]) }, sessionId);
+  runtime.clearAllState();
 }
 
-async function handleCompactCommand(): Promise<void> {
+async function handleCompactCommand(sessionId: string): Promise<void> {
   logInfo('执行压缩命令...');
 
-  // 关闭所有后台进程
-  getTaskManager().dispose();
+  // 关闭本会话的后台进程
+  getTaskManager().disposeSession(sessionId);
 
   const eventBus = EventBus.getInstance();
-  const stateManager = getStateManager();
-  const mainAgentState = stateManager.forAgent(MAIN_AGENT_ID);
+  const runtime = getStateManager().session(sessionId);
+  const mainAgentState = runtime.forAgent(MAIN_AGENT_ID);
   const messages = mainAgentState.getMessageHistory();
 
   if (messages.length === 0) {
@@ -83,18 +83,18 @@ async function handleCompactCommand(): Promise<void> {
       tokenBefore: 0,
       tokenCompact: 0,
       compactRate: 0,
-    } satisfies CompactExecData);
-    stateManager.currentAbortController = null;
+    } satisfies CompactExecData, sessionId);
+    runtime.currentAbortController = null;
     mainAgentState.updateState('idle');
     return;
   }
 
-  stateManager.currentAbortController = new AbortController();
+  runtime.currentAbortController = new AbortController();
 
   try {
     logDebug(`开始手动压缩，当前消息数: ${messages.length}`);
 
-    const compactedMessages = await compactMessages(messages, stateManager.currentAbortController);
+    const compactedMessages = await compactMessages(messages, runtime.currentAbortController, sessionId);
 
     const summaryContent = compactedMessages[1]?.message?.content;
     const summaryText =
@@ -126,9 +126,9 @@ async function handleCompactCommand(): Promise<void> {
     eventBus.emit('session:error', {
       type: 'compact_error',
       error: { code: 'COMPACT_FAILED', message: errorMsg, details: { error } },
-    });
+    }, sessionId);
   } finally {
-    stateManager.currentAbortController = null;
+    runtime.currentAbortController = null;
     mainAgentState.updateState('idle');
   }
 

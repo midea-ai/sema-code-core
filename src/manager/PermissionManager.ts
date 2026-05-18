@@ -86,6 +86,7 @@ export const checkToolPermission = async (
   abortController: AbortController,
   _assistantMessage: unknown,
   agentId: string,
+  sessionId: string,
   toolId: string
 ): Promise<PermissionCheckResult> => {
   checkAbortSignal(abortController)
@@ -101,8 +102,8 @@ export const checkToolPermission = async (
       return {result: true }
     }
 
-    const stateManager = getStateManager()
-    if (stateManager.hasGlobalEditPermission()) {
+    const runtime = getStateManager().session(sessionId)
+    if (runtime.hasGlobalEditPermission()) {
       logDebug(`[Permission]${tool.name} hasGlobalEditPermission: True`)
       // 项目内直接读取，项目外需要请求权限
       const filePath = getFilePath(input)
@@ -117,7 +118,7 @@ export const checkToolPermission = async (
 
     logDebug(`[Permission]${tool.name} hasGlobalEditPermission: False`)
 
-    return requestPermissionViaEvent(tool, input, null, abortController, agentId, toolId)
+    return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId)
   }
 
   // run_shell 工具权限检查
@@ -126,7 +127,7 @@ export const checkToolPermission = async (
 
     const allowedTools = projectConfig?.allowedTools || []
     const { command } = toolParams.parse(input)
-    return await checkRunShellPermission(tool, command, abortController, allowedTools, agentId, toolId)
+    return await checkRunShellPermission(tool, command, abortController, allowedTools, agentId, sessionId, toolId)
   }
 
   // Skill 工具权限检查
@@ -143,7 +144,7 @@ export const checkToolPermission = async (
       return { result: true }
     }
 
-    return requestPermissionViaEvent(tool, input, null, abortController, agentId, toolId)
+    return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId)
   }
 
   // MCP 工具权限检查
@@ -157,7 +158,7 @@ export const checkToolPermission = async (
       return { result: true }
     }
 
-    return requestPermissionViaEvent(tool, input, null, abortController, agentId, toolId)
+    return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId)
   }
 
   // fetch_url 工具权限检查
@@ -176,7 +177,7 @@ export const checkToolPermission = async (
       }
     }
 
-    return requestPermissionViaEvent(tool, input, null, abortController, agentId, toolId)
+    return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId)
   }
 
   logDebug(`[Permission]${tool.name} 非编辑、run_shell、skill、mcp或webfetch工具默认允许`)
@@ -228,6 +229,7 @@ async function checkRunShellPermission(
   abortController: AbortController,
   allowedTools: string[],
   agentId: string,
+  sessionId: string,
   toolId: string
 ): Promise<PermissionCheckResult> {
   // 移除当前工作目录前缀 
@@ -248,13 +250,13 @@ async function checkRunShellPermission(
   if (!commandInfo || commandInfo.commandInjectionDetected) {
     return runShellToolHasExactMatch(tool, command, allowedTools)
       ? { result: true }
-      : requestPermissionViaEvent(tool, { command }, null, abortController, agentId, toolId, false)
+      : requestPermissionViaEvent(tool, { command }, null, abortController, agentId, sessionId, toolId, false)
   }
 
   if (subCommands.length < 2) {
     return isRunShellCommandPermitted(tool, command, commandInfo.commandPrefix, allowedTools)
       ? { result: true }
-      : requestPermissionViaEvent(tool, { command }, commandInfo.commandPrefix, abortController, agentId, toolId)
+      : requestPermissionViaEvent(tool, { command }, commandInfo.commandPrefix, abortController, agentId, sessionId, toolId)
   }
 
   const allSubCommandsAllowed = subCommands.every(subCmd => {
@@ -266,7 +268,7 @@ async function checkRunShellPermission(
   // 如果不是所有子命令都被允许，请求权限时使用主命令的前缀
   return allSubCommandsAllowed
     ? { result: true }
-    : requestPermissionViaEvent(tool, { command }, commandInfo.commandPrefix, abortController, agentId, toolId)
+    : requestPermissionViaEvent(tool, { command }, commandInfo.commandPrefix, abortController, agentId, sessionId, toolId)
 }
 
 // ==================== 权限保存 ====================
@@ -274,12 +276,12 @@ async function checkRunShellPermission(
 export async function savePermission(
   tool: Tool,
   input: ToolInvocationArgs,
-  prefix: string | null
+  prefix: string | null,
+  sessionId: string
 ): Promise<void> {
   // 文件编辑 会话内生效
   if (isFileEditTool(tool)) {
-    const stateManager = getStateManager()
-    stateManager.grantGlobalEditPermission()
+    getStateManager().session(sessionId).grantGlobalEditPermission()
     return
   }
 
@@ -333,6 +335,7 @@ async function requestPermissionViaEvent(
   prefix: string | null,
   abortController: AbortController,
   agentId: string,
+  sessionId: string,
   toolId: string,
   showAllow = true
 ): Promise<PermissionCheckResult> {
@@ -350,7 +353,7 @@ async function requestPermissionViaEvent(
   }
 
   const eventBus = getEventBus()
-  eventBus.emit('tool:permission:request', requestData)
+  eventBus.emit('tool:permission:request', requestData, sessionId)
 
   return new Promise<PermissionCheckResult>((resolve) => {
     // 清理函数：移除所有监听器
@@ -372,7 +375,7 @@ async function requestPermissionViaEvent(
           break
 
         case 'allow':
-          savePermission(tool, input, prefix)
+          savePermission(tool, input, prefix, sessionId)
             .then(() => resolve({ result: true }))
             .catch(error => {
               logError(`保存权限失败:${error}`)
@@ -412,7 +415,7 @@ async function requestPermissionViaEvent(
       return
     }
 
-    eventBus.on('tool:permission:response', handleResponse)
+    eventBus.on('tool:permission:response', handleResponse, sessionId)
     abortController.signal.addEventListener('abort', onAbortRequested)
   })
 }

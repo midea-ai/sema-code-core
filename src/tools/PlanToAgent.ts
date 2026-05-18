@@ -6,7 +6,6 @@ import { TOOL_NAME_PLAN_TO_AGENT } from '../prompt/tool'
 import { canonicalizeFilePath, readTextContent } from '../util/file'
 import { readInitialCwd } from '../util/cwd'
 import { safeGetFileInfo } from '../util/secureFile'
-import { getConfManager } from '../manager/ConfManager'
 import { ToolControlSignal } from '../types/message'
 import { getEventBus } from '../events/EventSystem'
 import { PlanExitRequestData, PlanExitResponseData } from '../events/types'
@@ -88,7 +87,7 @@ export const PlanToAgent = {
       },
     }
 
-    eventBus.emit('plan:exit:request', requestData)
+    eventBus.emit('plan:exit:request', requestData, agentContext.sessionId)
 
     // 等待用户响应
     const selected = await new Promise<'startEditing' | 'clearContextAndStart'>(
@@ -112,26 +111,26 @@ export const PlanToAgent = {
           })
         }
 
-        eventBus.on('plan:exit:response', handleResponse)
+        eventBus.on('plan:exit:response', handleResponse, agentContext.sessionId)
       },
     )
 
     // 检查是否被中断
     checkAbortSignal(abortController)
 
-    // 退出Plan模式，切换回Agent模式
-    getConfManager().updateAgentMode('Agent')
+    const runtime = getStateManager().session(agentContext.sessionId)
+
+    // 退出Plan模式，切换回Agent模式（会话级）
+    runtime.agentMode = 'Agent'
 
     // 如果选择清理上下文
     if (selected === 'clearContextAndStart') {
-      const stateManager = getStateManager()
-
       // 清空 plan 阶段所有上下文
-      stateManager.clearAllState()
+      runtime.clearAllState()
       // clearAllState 会把生命周期状态和当前请求的 abort 句柄一并清掉，
       // 但工具仍在执行中，需立刻还原回 processing 态
-      stateManager.updateState('processing')
-      stateManager.currentAbortController = abortController
+      runtime.updateState('processing')
+      runtime.currentAbortController = abortController
 
       // 设置新的用户消息
       const newUserMessage = buildUserMsg([
@@ -140,13 +139,13 @@ export const PlanToAgent = {
           text: `按照以下计划进行实现：\n\n${content}`,
         },
       ])
-      stateManager.setMessageHistory([newUserMessage], MAIN_AGENT_ID)
+      runtime.setMessageHistory([newUserMessage], MAIN_AGENT_ID)
 
       // 触发 plan:implement 事件
       eventBus.emit('plan:implement', {
         planFilePath: relativePath,
         planContent: content,
-      })
+      }, agentContext.sessionId)
     }
 
     const data: PlanToAgentOutput = {

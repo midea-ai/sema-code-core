@@ -5,7 +5,6 @@ import { LLM_LOG_FILES_RETAIN_COUNT, TRACKS_FILES_RETAIN_COUNT, LLM_LOG_CLEANUP_
 import { getLLMLogsDir, getTracksDir, getEventDir } from './savePath';
 import { logError } from './log';
 import { getConfManager } from '../manager/ConfManager';
-import { getStateManager } from '../manager/StateManager';
 
 // 清理LLM日志文件的时间间隔（毫秒）
 let lastLLMCleanupTime: number = 0;
@@ -39,12 +38,8 @@ const getLLMLogFilePath = (): string => {
     fs.mkdirSync(llmLogsDir, { recursive: true });
   }
 
-  // 获取sessionId（通过 StateManager）
-  const stateManager = getStateManager();
-  const sessionId = stateManager.getSessionId();
-
-  // 如果有sessionId，则在文件名中包含它
-  const filename = sessionId ? `${dateStr}_${sessionId}.log` : `${dateStr}.log`;
+  // 多会话场景下不再按 sessionId 拆分日志文件
+  const filename = `${dateStr}.log`;
   return path.join(llmLogsDir, filename);
 };
 
@@ -344,10 +339,7 @@ const getEventLogFilePath = (): string => {
     fs.mkdirSync(eventDir, { recursive: true });
   }
 
-  const stateManager = getStateManager();
-  const sessionId = stateManager.getSessionId();
-
-  const filename = sessionId ? `${dateStr}_${sessionId}.log` : `${dateStr}.log`;
+  const filename = `${dateStr}.log`;
   return path.join(eventDir, filename);
 };
 

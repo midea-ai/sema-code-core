@@ -67,7 +67,8 @@ export const SubAgent = {
     const start = Date.now()
     const taskId = nanoid()
     const eventBus = getEventBus()
-    const stateManager = getStateManager()
+    const sessionId: string = agentContext.sessionId
+    const runtime = getStateManager().session(sessionId)
 
     try {
       // 1. 查找对应的 AgentConfig
@@ -135,10 +136,11 @@ export const SubAgent = {
         const toolUseId = agentContext?.currentToolUseID || ''
         const agentModel: 'quick' | 'main' = agentConfig.model === 'quick' ? 'quick' : 'main'
 
-        eventBus.emit('task:agent:start', { taskId, agent_type: agentConfig.name, title, instructions, background: true } satisfies TaskAgentStartData)
+        eventBus.emit('task:agent:start', { taskId, agent_type: agentConfig.name, title, instructions, background: true } satisfies TaskAgentStartData, sessionId)
 
-        taskManager.spawnAgentTask(taskId, title, toolUseId, async (bgAbortController) => {
+        taskManager.spawnAgentTask(taskId, sessionId, title, toolUseId, async (bgAbortController) => {
           const bgContext: AgentContext = {
+            sessionId,
             agentId: taskId,
             abortController: bgAbortController,
             tools: subagentTools,
@@ -156,7 +158,7 @@ export const SubAgent = {
               taskId,
               status: isInterrupted ? 'interrupted' : 'completed',
               content: summary,
-            } satisfies TaskAgentEndData)
+            } satisfies TaskAgentEndData, sessionId)
             return {
               result: pickResultText(bgResultMessages),
               usage: {
@@ -175,10 +177,10 @@ export const SubAgent = {
               taskId,
               status: isInterrupted ? 'interrupted' : 'failed',
               content: summary,
-            } satisfies TaskAgentEndData)
+            } satisfies TaskAgentEndData, sessionId)
             throw error
           } finally {
-            stateManager.forAgent(taskId).clearAllState()
+            runtime.forAgent(taskId).clearAllState()
           }
         }, agentConfig.name)
 
@@ -192,7 +194,7 @@ export const SubAgent = {
       }
 
       // 7. 创建独立 AbortController，联动主 AC
-      const sharedAbortController = stateManager.currentAbortController
+      const sharedAbortController = runtime.currentAbortController
 
       if (!sharedAbortController) {
         const errorMsg = 'No active AbortController found — unable to start subagent.'
@@ -218,8 +220,9 @@ export const SubAgent = {
         subAbortController.abort()
       }
 
-      // 8. 构建子代理上下文（使用独立AC）
+      // 8. 构建子代理上下文（使用独立AC，继承父会话 sessionId）
       const subagentContext: AgentContext = {
+        sessionId,
         agentId: taskId,
         abortController: subAbortController,
         tools: subagentTools,
@@ -229,11 +232,11 @@ export const SubAgent = {
       // 9. 注册前台任务到 TaskManager 和 StateManager
       const taskManager = getTaskManager()
       const toolUseId = agentContext?.currentToolUseID || ''
-      taskManager.registerForegroundAgent(taskId, title, toolUseId, subAbortController, unlinkAbort, agentConfig.name)
-      stateManager.addForegroundAgent(taskId)
+      taskManager.registerForegroundAgent(taskId, sessionId, title, toolUseId, subAbortController, unlinkAbort, agentConfig.name)
+      runtime.addForegroundAgent(taskId)
 
       // 10. 发送 task:agent:start 事件
-      eventBus.emit('task:agent:start', { taskId, agent_type: agentConfig.name, title, instructions, background: false } satisfies TaskAgentStartData)
+      eventBus.emit('task:agent:start', { taskId, agent_type: agentConfig.name, title, instructions, background: false } satisfies TaskAgentStartData, sessionId)
 
       // 11. 将 generator 消费放入独立 async 函数
       const resultMessages: any[] = []
@@ -252,7 +255,7 @@ export const SubAgent = {
             taskId,
             status: isInterrupted ? 'interrupted' : 'completed',
             content: summary,
-          } satisfies TaskAgentEndData)
+          } satisfies TaskAgentEndData, sessionId)
 
           return {
             result: pickResultText(resultMessages),
@@ -273,12 +276,12 @@ export const SubAgent = {
             taskId,
             status: isInterrupted ? 'interrupted' : 'failed',
             content: summary,
-          } satisfies TaskAgentEndData)
+          } satisfies TaskAgentEndData, sessionId)
 
           throw error
         } finally {
-          stateManager.forAgent(taskId).clearAllState()
-          stateManager.removeForegroundAgent(taskId)
+          runtime.forAgent(taskId).clearAllState()
+          runtime.removeForegroundAgent(taskId)
         }
       })()
 
@@ -374,7 +377,7 @@ export const SubAgent = {
       logError(errorMsg)
 
       // 清理子代理状态（防止内存泄漏）
-      const subagentState = stateManager.forAgent(taskId)
+      const subagentState = runtime.forAgent(taskId)
       subagentState.clearAllState()
 
       // 发送失败事件
@@ -383,7 +386,7 @@ export const SubAgent = {
         status: 'failed',
         content: errorMsg,
       }
-      eventBus.emit('task:agent:end', endEventData)
+      eventBus.emit('task:agent:end', endEventData, sessionId)
 
       yield {
         type: 'result',

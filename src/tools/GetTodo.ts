@@ -45,7 +45,7 @@ A task with non-empty blocked_by cannot be started — resolve blockers first.`
   },
   async *call({ id }: z.infer<typeof toolParams>, agentContext: any) {
     const stateManager = getStateManager()
-    const agentState = stateManager.forAgent(agentContext.agentId)
+    const agentState = stateManager.forAgent(agentContext)
     const task = agentState.getTodoTask(id) ?? null
 
     const data: ToolOut = { task }

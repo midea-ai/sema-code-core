@@ -8,16 +8,18 @@ import { CronTask, CronTaskFile } from '../types/cron'
 import { calcNextFireAts, describeCronExpression } from '../util/cron'
 import { findJsonObjectLineRange } from '../util/file'
 import { getConfManager } from './ConfManager'
-import { getStateManager, MAIN_AGENT_ID } from './StateManager'
+import { getStateManager } from './StateManager'
 import { getEventBus } from '../events/EventSystem'
 import { logInfo, logWarn } from '../util/log'
+import { SessionNotifyRegistry, NotifyCallback } from '../util/notifyRegistry'
 
 export const CRON_TASKS_FILE = '.sema/scheduled_tasks.json'
 
 export class CronManager {
   private tasks = new Map<string, CronTask>()
   private timer: ReturnType<typeof setInterval> | null = null
-  private notifyCallback: ((msg: string) => void) | null = null
+  /** 按 sessionId 注册的通知回调 */
+  private notifyRegistry = new SessionNotifyRegistry()
   private loadingPromise: Promise<void> | null = null
   private loaded = false
 
@@ -44,13 +46,17 @@ export class CronManager {
 
   // ============ 回调 ============
 
-  setNotifyCallback(cb: (msg: string) => void): void {
-    this.notifyCallback = cb
+  setNotifyCallback(sessionId: string, cb: NotifyCallback): void {
+    this.notifyRegistry.set(sessionId, cb)
+  }
+
+  removeNotifyCallback(sessionId: string): void {
+    this.notifyRegistry.remove(sessionId)
   }
 
   // ============ CRUD ============
 
-  createTask(schedule: string, task: string, repeat: boolean, persist: boolean): string {
+  createTask(schedule: string, task: string, repeat: boolean, persist: boolean, sessionId?: string): string {
     if (this.tasks.size >= CronManager.MAX_TASKS) {
       throw new Error(`Maximum number of cron tasks (${CronManager.MAX_TASKS}) reached`)
     }
@@ -64,6 +70,7 @@ export class CronManager {
 
     const cronTask: CronTask = {
       id,
+      sessionId,
       schedule,
       task,
       repeat,
@@ -304,13 +311,14 @@ export class CronManager {
   }
 
   /**
-   * 清空非持久化任务（createSession 时调用）
+   * 清空非持久化任务（会话关闭时调用）
+   * 传入 sessionId 时只清理该会话创建的非持久任务
    */
-  clearNonDurableTasks(): void {
+  clearNonDurableTasks(sessionId?: string): void {
     for (const [id, task] of this.tasks) {
-      if (!task.persist) {
-        this.tasks.delete(id)
-      }
+      if (task.persist) continue
+      if (sessionId && task.sessionId !== sessionId) continue
+      this.tasks.delete(id)
     }
 
     if (this.tasks.size === 0) {
@@ -338,10 +346,28 @@ export class CronManager {
     }
   }
 
-  private tick(): void {
-    const mainState = getStateManager().forAgent(MAIN_AGENT_ID)
-    if (mainState.getCurrentState() !== 'idle') return
+  /**
+   * 解析定时任务应注入的目标会话（来源优先，活跃兜底）
+   * 1. 任务有 sessionId 且该会话仍注册了回调 → 用来源会话
+   * 2. 否则（持久化任务/来源会话已关闭）→ 投 UI 当前活跃会话
+   * 3. 再否则 → 取任意一个已注册会话兜底
+   */
+  private resolveTarget(task: CronTask): { sessionId: string; cb: NotifyCallback } | null {
+    if (task.sessionId) {
+      const cb = this.notifyRegistry.get(task.sessionId)
+      if (cb) return { sessionId: task.sessionId, cb }
+    }
 
+    const activeId = getStateManager().getActiveSessionId()
+    if (activeId) {
+      const cb = this.notifyRegistry.get(activeId)
+      if (cb) return { sessionId: activeId, cb }
+    }
+
+    return this.notifyRegistry.getAny()
+  }
+
+  private tick(): void {
     const now = Date.now()
     const toDelete: string[] = []
 
@@ -357,7 +383,12 @@ export class CronManager {
       if (task.nextFireAt.length === 0 || task.nextFireAt[0] > now) continue
       if (task.lastFiredAt != null && task.lastFiredAt >= task.nextFireAt[0]) continue
 
-      this.fire(task)
+      // 解析目标会话；无目标则本轮跳过，下轮重试
+      // 会话忙时由 processUserInput 自动入队，无需在此判断空闲
+      const target = this.resolveTarget(task)
+      if (!target) continue
+
+      this.fire(task, target.cb)
       task.lastFiredAt = now
 
       if (task.repeat) {
@@ -397,19 +428,14 @@ export class CronManager {
     return false
   }
 
-  private fire(task: CronTask): void {
-    if (!this.notifyCallback) {
-      logWarn(`[CronManager] No notify callback set, cannot fire task ${task.id}`)
-      return
-    }
-
+  private fire(task: CronTask, cb: (msg: string) => void): void {
     const msg = `[cron-notification] task_id=${task.id} schedule=${task.schedule} repeat=${task.repeat}
 - schedule: ${task.describeCronExpression}
 - task: ${task.task}
 The above scheduled task has been triggered. Please execute the prompt.`
 
     logInfo(`[CronManager] Firing task ${task.id}: ${task.task.slice(0, 100)}`)
-    this.notifyCallback(msg)
+    cb(msg)
   }
 
   // ============ 生命周期 ============

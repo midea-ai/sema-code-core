@@ -29,7 +29,7 @@ const getProjectName = (): string => {
 /**
  * 获取LLM日志文件路径
  */
-const getLLMLogFilePath = (): string => {
+const getLLMLogFilePath = (sessionId?: string): string => {
   const dateStr = getDayTimeString(); // 只取日期部分 YYYY-MM-DD
   const llmLogsDir = getLLMLogsDir();
 
@@ -38,8 +38,8 @@ const getLLMLogFilePath = (): string => {
     fs.mkdirSync(llmLogsDir, { recursive: true });
   }
 
-  // 多会话场景下不再按 sessionId 拆分日志文件
-  const filename = `${dateStr}.log`;
+  // 有 sessionId 时按会话拆分日志文件
+  const filename = sessionId ? `${dateStr}_${sessionId}.log` : `${dateStr}.log`;
   return path.join(llmLogsDir, filename);
 };
 
@@ -47,14 +47,14 @@ const getLLMLogFilePath = (): string => {
  * 记录LLM请求body到专门的日志文件
  * 格式: [HH:MM:SS]${body}
  */
-export const logLLMRequest = (body: any): void => {
+export const logLLMRequest = (body: any, sessionId?: string): void => {
   try {
     const timeStr = getTimeString(); // 使用时分秒格式
 
     const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
     const logLine = `[${timeStr}]${bodyStr}`;
 
-    const logFilePath = getLLMLogFilePath();
+    const logFilePath = getLLMLogFilePath(sessionId);
     fs.appendFileSync(logFilePath, logLine + '\n', 'utf8');
 
     // 定时清理LLM日志文件（每小时最多执行一次）
@@ -75,7 +75,7 @@ export const logLLMRequest = (body: any): void => {
  * 记录LLM响应到专门的日志文件
  * 格式: [HH:MM:SS]${response}
  */
-export const logLLMResponse = (assistantMessage: any): void => {
+export const logLLMResponse = (assistantMessage: any, sessionId?: string): void => {
   try {
     const timeStr = getTimeString(); // 使用时分秒格式
 
@@ -107,7 +107,7 @@ export const logLLMResponse = (assistantMessage: any): void => {
 
     const logLine = `[${timeStr}]${JSON.stringify(responseData)}`;
 
-    const logFilePath = getLLMLogFilePath();
+    const logFilePath = getLLMLogFilePath(sessionId);
     fs.appendFileSync(logFilePath, logLine + '\n', 'utf8');
 
     // 定时清理LLM日志文件（每小时最多执行一次）
@@ -331,7 +331,7 @@ const cleanupLLMLogFiles = (): void => {
 /**
  * 获取事件日志文件路径
  */
-const getEventLogFilePath = (): string => {
+const getEventLogFilePath = (sessionId?: string): string => {
   const dateStr = getDayTimeString();
   const eventDir = getEventDir();
 
@@ -339,7 +339,8 @@ const getEventLogFilePath = (): string => {
     fs.mkdirSync(eventDir, { recursive: true });
   }
 
-  const filename = `${dateStr}.log`;
+  // 有 sessionId 时按会话拆分日志文件
+  const filename = sessionId ? `${dateStr}_${sessionId}.log` : `${dateStr}.log`;
   return path.join(eventDir, filename);
 };
 
@@ -347,13 +348,13 @@ const getEventLogFilePath = (): string => {
  * 记录事件到日志文件
  * 格式: [HH:MM:SS]${event}|${data}
  */
-export const logEvent = (event: string, data: any): void => {
+export const logEvent = (event: string, data: any, sessionId?: string): void => {
   try {
     const timeStr = getTimeString();
     const dataStr = data !== undefined ? JSON.stringify(data) : '';
     const logLine = `[${timeStr}]${event}|${dataStr}`;
 
-    const logFilePath = getEventLogFilePath();
+    const logFilePath = getEventLogFilePath(sessionId);
     fs.appendFileSync(logFilePath, logLine + '\n', 'utf8');
 
     // 定时清理事件日志文件

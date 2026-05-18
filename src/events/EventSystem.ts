@@ -134,7 +134,7 @@ export class EventBus implements EventBusInterface {
       const shouldLog = event !== 'tool:execution:chunk'
         || (data as any)?.toolName === TOOL_NAME_FETCH_URL;
       if (shouldLog) {
-        logEvent(event, data);
+        logEvent(event, data, sessionId ?? undefined);
       }
     }
     return this.emitter.emit(event, data, sessionId);

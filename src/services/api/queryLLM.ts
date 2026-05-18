@@ -73,8 +73,8 @@ export async function queryLLM(
       )
       if (cachedResponse) {
         // 缓存命中时也记录请求和响应
-        logLLMRequest({ cached: true, model: modelProfile.modelName, messages })
-        logLLMResponse(cachedResponse)
+        logLLMRequest({ cached: true, model: modelProfile.modelName, messages }, sessionId)
+        logLLMResponse(cachedResponse, sessionId)
         return cachedResponse
       }
     }
@@ -92,7 +92,7 @@ export async function queryLLM(
         break
     }
 
-    logLLMResponse(result)
+    logLLMResponse(result, sessionId)
 
     // 检测空响应：既没有文本内容，也没有工具调用（统一在这里处理）
     if (!signal.aborted && result.message.content.length === 0) {

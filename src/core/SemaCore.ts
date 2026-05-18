@@ -26,6 +26,8 @@ import { getConfManager } from '../manager/ConfManager';
 import { getModelManager } from '../manager/ModelManager';
 import { getAllBuiltinToolInfos } from '../tools/base/tools';
 import { inferAdapter } from '../util/adapter';
+import { getEventBus } from '../events/EventSystem';
+import { ProcessEvent } from '../events/types';
 import { logInfo } from '../util/log';
 
 /**
@@ -34,6 +36,8 @@ import { logInfo } from '../util/log';
  */
 export class SemaCore {
   private configPromise: Promise<void> | null = null;
+  /** 本 Core 注册的进程级事件监听器，dispose 时统一摘除 */
+  private procListeners: Array<{ event: ProcessEvent; fn: Function }> = [];
 
   constructor(config?: SemaCoreConfig) {
     this.configPromise = getConfManager().setCoreConfig(config || {});
@@ -60,6 +64,30 @@ export class SemaCore {
   listSessions = (): string[] => getSessionPool().listSessions();
   setActiveSession = (sessionId: string): boolean => getSessionPool().setActiveSession(sessionId);
   closeSession = (sessionId: string): boolean => getSessionPool().closeSession(sessionId);
+
+  // ==================== 进程级事件（MCP / Cron 等全局事件）====================
+  /**
+   * 订阅进程级事件（如 `cron:update` / `mcp:server:status`）。
+   * 注册为全局监听器（不绑定 sessionId），生命周期跟随 Core，dispose 时自动摘除。
+   * 会话级对话事件请使用 SemaSession.on。
+   */
+  on = <T>(event: ProcessEvent, listener: (data: T) => void): this => {
+    getEventBus().on(event, listener, null);
+    this.procListeners.push({ event, fn: listener });
+    return this;
+  };
+  once = <T>(event: ProcessEvent, listener: (data: T) => void): this => {
+    const wrapper = (data: T) => {
+      this.off(event, wrapper);
+      listener(data);
+    };
+    return this.on(event, wrapper);
+  };
+  off = <T>(event: ProcessEvent, listener: (data: T) => void): this => {
+    getEventBus().off(event, listener);
+    this.procListeners = this.procListeners.filter(e => e.fn !== listener);
+    return this;
+  };
 
   // ==================== 模型管理 ====================
   addModel = (config: ModelConfig, skipValidation?: boolean): Promise<ModelUpdateData> => getModelManager().addNewModel(config, skipValidation);
@@ -143,6 +171,10 @@ export class SemaCore {
 
   // ==================== 资源管理（进程级） ====================
   dispose = async () => {
+    // 摘除进程级事件监听器
+    this.procListeners.forEach(({ event, fn }) => getEventBus().off(event, fn as any));
+    this.procListeners = [];
+
     // 关闭所有会话
     getSessionPool().disposeAll();
 

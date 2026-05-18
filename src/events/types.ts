@@ -501,6 +501,15 @@ import type { MCPServerInfo } from '../types/mcp';
 
 /**
  * mcp状态变更事件数据
- * 事件: `mcp:server:status` 
+ * 事件: `mcp:server:status`
  */
 export type MCPServerStatusData = MCPServerInfo;
+
+// ==================== 进程级事件白名单 ====================
+
+/**
+ * 进程级事件名
+ * 这些事件描述全局资源状态变化，与具体会话无关，应通过 SemaCore.on 订阅。
+ * 新增进程级事件时同步往这里补充。
+ */
+export type ProcessEvent = 'cron:update' | 'mcp:server:status';

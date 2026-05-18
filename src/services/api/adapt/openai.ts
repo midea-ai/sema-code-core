@@ -261,7 +261,7 @@ export async function queryOpenAI(
     ),
   } as any
 
-  logLLMRequest(requestBody)
+  logLLMRequest(requestBody, sessionId)
 
   // 统一使用 streamChat 处理请求（合并超时信号，最长等待 5 分钟）
   const { signal: streamSignal, cleanup } = withStreamTimeout(signal, sessionId)

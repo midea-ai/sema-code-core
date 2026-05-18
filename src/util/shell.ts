@@ -8,6 +8,7 @@ import * as crypto from 'crypto'
 import * as iconv from 'iconv-lite'
 import { logError, logInfo, logWarn } from './log'
 import { IS_WIN, nativeToShellPath, splitPathEntries } from './platform'
+import { readInitialCwd } from './cwd'
 
 // 临时文件前缀
 const TEMPFILE_PREFIX = join(os.tmpdir(), 'sema-')
@@ -486,7 +487,7 @@ export class PersistentShell {
   // 获取单例实例
   static getInstance(): PersistentShell {
     if (!PersistentShell.instance || !PersistentShell.instance.isAlive) {
-      const cwd = PersistentShell.instance?.cwd || process.cwd()
+      const cwd = PersistentShell.instance?.cwd || readInitialCwd()
       PersistentShell.instance = new PersistentShell(cwd)
     }
     return PersistentShell.instance

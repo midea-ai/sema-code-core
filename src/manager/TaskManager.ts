@@ -10,7 +10,7 @@ import { MAX_OUTPUT_BYTES, TASK_OUTPUT_DIR, ensureTaskDir, getShellForSpawn, kil
 import { SessionNotifyRegistry, NotifyCallback } from '../util/notifyRegistry'
 
 export class TaskManager {
-  private static MAX_FINISHED_TASKS = 10
+  private static MAX_FINISHED_TASKS = 50
   private static MAX_RUNNING_TASKS = 5
   private tasks = new Map<string, TaskRecord>()
   private watchers = new Map<string, Set<(delta: string) => void>>()
@@ -56,6 +56,33 @@ export class TaskManager {
   }
 
   /**
+   * 统计指定会话正在运行的任务数
+   * 后台任务限额按会话独立计算，避免某个会话占满名额导致其他会话无法启动任务
+   */
+  private _countRunning(sessionId?: string): number {
+    let count = 0
+    for (const t of this.tasks.values()) {
+      if (t.status === 'running' && t.sessionId === sessionId) count++
+    }
+    return count
+  }
+
+  /**
+   * 获取任务输出：运行中任务返回内存缓存，已结束任务从输出文件读取
+   * 任务结束后内存中的 output 会被清空（已落盘），由此释放内存
+   */
+  getTaskOutput(taskId: string): string {
+    const record = this.tasks.get(taskId)
+    if (!record) return ''
+    if (record.output) return record.output
+    try {
+      return fs.readFileSync(record.filepath, 'utf8')
+    } catch {
+      return ''
+    }
+  }
+
+  /**
    * 订阅任务的流式输出（UI 打开任务详情面板时调用）
    * 立即补发已有输出，后续增量实时推送
    */
@@ -65,10 +92,10 @@ export class TaskManager {
     }
     this.watchers.get(taskId)!.add(onDelta)
 
-    // 补发已有输出
-    const record = this.tasks.get(taskId)
-    if (record?.output) {
-      onDelta(record.output)
+    // 补发已有输出（运行中走内存，已结束从输出文件读取）
+    const existing = this.getTaskOutput(taskId)
+    if (existing) {
+      onDelta(existing)
     }
 
     return () => {
@@ -84,9 +111,8 @@ export class TaskManager {
     toolUseId: string,
     agentContext: any,
   ): { taskId: string; filepath: string } {
-    const running = this.getRunningTasks()
-    if (running.length >= TaskManager.MAX_RUNNING_TASKS) {
-      throw new Error(`Maximum number of running background tasks (${TaskManager.MAX_RUNNING_TASKS}) reached. Stop or wait for existing tasks to complete before starting new ones.`)
+    if (this._countRunning(agentContext?.sessionId) >= TaskManager.MAX_RUNNING_TASKS) {
+      throw new Error(`Maximum number of running background tasks (${TaskManager.MAX_RUNNING_TASKS}) reached for this session. Stop or wait for existing tasks to complete before starting new ones.`)
     }
     ensureTaskDir()
     const taskId = crypto.randomBytes(4).toString('hex')
@@ -164,10 +190,9 @@ export class TaskManager {
     toolUseId: string,
     agentContext: any,
   ): { taskId: string; filepath: string } {
-    const running = this.getRunningTasks()
-    if (running.length >= TaskManager.MAX_RUNNING_TASKS) {
+    if (this._countRunning(agentContext?.sessionId) >= TaskManager.MAX_RUNNING_TASKS) {
       killProcess(ctx.shellProcess)
-      throw new Error(`Maximum number of running background tasks (${TaskManager.MAX_RUNNING_TASKS}) reached. Cannot transfer timed-out command to background.`)
+      throw new Error(`Maximum number of running background tasks (${TaskManager.MAX_RUNNING_TASKS}) reached for this session. Cannot transfer timed-out command to background.`)
     }
     ensureTaskDir()
     const taskId = crypto.randomBytes(4).toString('hex')
@@ -421,9 +446,8 @@ export class TaskManager {
     executeFn: (abortController: AbortController) => Promise<string | { result: string; usage?: { totalTokens: number; toolUses: number; durationMs: number } }>,
     agentType?: string,
   ): { taskId: string; filepath: string } {
-    const running = this.getRunningTasks()
-    if (running.length >= TaskManager.MAX_RUNNING_TASKS) {
-      throw new Error(`Maximum number of running background tasks (${TaskManager.MAX_RUNNING_TASKS}) reached. Stop or wait for existing tasks to complete before starting new ones.`)
+    if (this._countRunning(sessionId) >= TaskManager.MAX_RUNNING_TASKS) {
+      throw new Error(`Maximum number of running background tasks (${TaskManager.MAX_RUNNING_TASKS}) reached for this session. Stop or wait for existing tasks to complete before starting new ones.`)
     }
     ensureTaskDir()
     const filepath = path.join(TASK_OUTPUT_DIR, `${taskId}.output`)
@@ -535,7 +559,9 @@ export class TaskManager {
       }
     }
 
-    this._pruneFinishedTasks()
+    // 输出已落盘到 filepath，清空内存缓存释放内存
+    record.output = ''
+    this._pruneFinishedTasks(record.sessionId)
     return true
   }
 
@@ -686,15 +712,18 @@ export class TaskManager {
       }, record.sessionId)
       this._notify(record)
     }
-    this._pruneFinishedTasks()
+    // 输出已落盘到 filepath，清空内存缓存释放内存（后续读取走 getTaskOutput → 文件）
+    record.output = ''
+    this._pruneFinishedTasks(record.sessionId)
   }
 
   /**
-   * 清理已结束的任务，只保留最新的 MAX_FINISHED_TASKS 个
+   * 清理已结束的任务，按会话独立保留最新的 MAX_FINISHED_TASKS 个
+   * 按 sessionId 分组裁剪，避免某个会话频繁产出任务挤掉其他会话的历史记录
    */
-  private _pruneFinishedTasks() {
+  private _pruneFinishedTasks(sessionId?: string) {
     const finished = Array.from(this.tasks.values())
-      .filter(t => t.status !== 'running')
+      .filter(t => t.status !== 'running' && t.sessionId === sessionId)
     if (finished.length <= TaskManager.MAX_FINISHED_TASKS) return
     const toRemove = finished.slice(0, finished.length - TaskManager.MAX_FINISHED_TASKS)
     for (const t of toRemove) {

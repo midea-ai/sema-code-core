@@ -68,8 +68,9 @@ ${data.output}`
     }
 
     // wait=false 或任务已完成，直接返回当前快照
+    // 已结束任务的 output 已被清空，getTaskOutput 会回退读取输出文件
     if (!wait || record.status !== 'running') {
-      const output = truncateOutput(record.output)
+      const output = truncateOutput(manager.getTaskOutput(job_id))
       const data: ToolOut = { taskId: job_id, retrievalStatus: record.status, taskStatus: record.status, taskType: record.type, output }
       yield { type: 'result', data, resultForAssistant: this.genResultForAssistant(data) }
       return
@@ -93,7 +94,7 @@ ${data.output}`
     const abortSignal = agentContext?.abortController?.signal
     const finalRecord = await manager.waitForTask(job_id, wait_timeout, onChunk, abortSignal)
     const interrupted = abortSignal?.aborted ?? false
-    const output = truncateOutput(finalRecord.output)
+    const output = truncateOutput(manager.getTaskOutput(job_id))
     const retrievalStatus = interrupted ? 'not_ready' : (finalRecord.status === 'running' ? 'timeout' : 'completed')
     const data: ToolOut = { taskId: job_id, retrievalStatus, taskStatus: finalRecord.status, taskType: finalRecord.type, output }
     yield { type: 'result', data, resultForAssistant: this.genResultForAssistant(data) }

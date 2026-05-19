@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { canonicalizeFilePath } from './file'
+import { canonicalizeFilePath, isUnsupportedBinaryFileType } from './file'
 import { logWarn, logInfo } from './log'
 import { VIEW_FILE_MAX_LINES as READ_MAX_LINES } from '../prompt/tools/viewFile'
 import { DOC_NOT_SUPPORTED_MESSAGE } from '../tools/ViewFile'
@@ -177,6 +177,11 @@ async function processSingleReference(
     // 检查是否为目录引用
     if (parsed.isDirectory) {
       return await processDirectoryReference(fullPath, agentContext)
+    }
+
+    if (isUnsupportedBinaryFileType(fullPath)) {
+      logInfo(`Skipping unsupported binary file reference: ${fullReference} -> ${fullPath}`)
+      return { systemReminders, supplementaryInfo }
     }
 
     // 检查是否为 PDF 文件

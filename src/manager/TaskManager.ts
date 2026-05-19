@@ -8,6 +8,7 @@ import { getEventBus } from '../events/EventSystem'
 import { TaskRecord, TaskListItem, TimeoutTransferContext } from '../types/task'
 import { MAX_OUTPUT_BYTES, TASK_OUTPUT_DIR, ensureTaskDir, getShellForSpawn, killProcess } from '../util/process'
 import { SessionNotifyRegistry, NotifyCallback } from '../util/notifyRegistry'
+import { readInitialCwd } from '../util/cwd'
 
 export class TaskManager {
   private static MAX_FINISHED_TASKS = 50
@@ -136,7 +137,7 @@ export class TaskManager {
 
     const { bin, args } = getShellForSpawn()
     const childProcess = spawn(bin, [...args, command], {
-      cwd: process.cwd(),
+      cwd: readInitialCwd(),
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
       ...(IS_WIN ? { windowsHide: true } : {}),

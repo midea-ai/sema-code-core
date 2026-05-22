@@ -126,7 +126,7 @@ export class SemaEngine {
 
     // quickchat 旁路：不影响状态和队列，异步处理后直接返回
     if (trimmedInput === '/quickchat' || trimmedInput.startsWith('/quickchat ')) {
-      const question = trimmedInput.startsWith('/quickchat ') ? trimmedInput.slice(5).trim() : ''
+      const question = trimmedInput.startsWith('/quickchat ') ? trimmedInput.slice('/quickchat '.length).trim() : ''
       getConfManager().saveUserInputToHistory(originalInput || trimmedInput)
       if (question) {
         handlequickchat(question, this.sessionId).catch(err => logWarn(`[quickchat] 未捕获异常: ${err instanceof Error ? err.message : String(err)}`))

@@ -19,13 +19,19 @@ interface SemaCoreConfig {
   skipFetchUrlPermission?: boolean;  // 是否跳过 fetch_url 权限检查，默认 否
   enableLLMCache?: boolean;          // 是否开启 LLM 缓存，默认 否（建议只在重复测试时使用）
   useTools?: string[] | null;        // 限定使用的工具，默认 null（使用所有工具）
-  agentMode?: 'Agent' | 'Plan';      // 默认 'Agent'
+  disabledTools?: string[] | null;   // 禁用工具黑名单，默认 null；与 useTools 同时传时优先生效
+  agentMode?: 'Agent' | 'Plan' | 'Design'; // 会话默认模式，默认 'Agent'
   disableTopicDetection?: boolean;   // 是否禁用话题检测，默认 否
   disableBackgroundTasks?: boolean;  // 是否禁止后台任务（RunShell 后台 / SubAgent 后台 / 超时转后台），默认 否
+  maxSessions?: number;              // 同时存在的会话上限，不传则不限制
 }
 ```
 
-> 可通过 `sema.updateCoreConfByKey(key, value)` 或 `sema.updateCoreConfig(partial)` 在运行时更新这些字段（除 `workingDir`、`logLevel`、`useTools`、`agentMode`、`disableTopicDetection` 外，其余可更新字段在 `UpdatableCoreConfigKeys` 中定义）。`useTools` 通过 `updateUseTools()` 更新；`agentMode` 通过 `updateAgentMode()` 更新。
+> 可通过 `sema.updateCoreConfByKey(key, value)` 或 `sema.updateCoreConfig(partial)` 在运行时更新 `UpdatableCoreConfigKeys` 中定义的字段。`disabledTools` 通过 `sema.updateDisabledTools()` 更新；`agentMode` 是会话级配置，创建会话时通过 `createSession({ agentMode })` 指定，运行中通过 `session.updateAgentMode()` 更新。
+
+## 输出约定
+
+系统提示会要求模型使用 KaTeX 分隔符输出数学公式：行内公式使用 `$...$`，块级公式使用 `$$...$$`。不要使用 `\(...\)` 或 `\[...\]`，需要输出字面量美元符号时写作 `\$`。
 
 <figure align="center">
   <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/system-conf.png" alt="model-list">
@@ -35,7 +41,7 @@ interface SemaCoreConfig {
 ## 会话生命周期
 
 ```
-创建实例 → 添加模型（可跳过） → 创建会话 → 处理输入 → [中断/继续] → 释放资源
+创建实例 → 添加模型（可跳过） → 创建会话 → 处理输入 → [中断/继续] → 关闭会话/释放资源
 ```
 
 ### 1. 创建实例
@@ -54,16 +60,19 @@ const sema = new SemaCore({
 
 ```javascript
 // 新建会话
-await sema.createSession()
+const result = await sema.createSession()
 
-// 或恢复已有会话（保留历史消息）
-await sema.createSession('existing-session-id')
+// 恢复已有会话（保留历史消息）时：
+// const result = await sema.createSession({ sessionId: 'existing-session-id' })
+
+if (!result.ok) throw new Error(result.error)
+const session = result.session
 ```
 
 `createSession` 完成后会触发 `session:ready` 事件：
 
 ```javascript
-sema.on('session:ready', ({ pid, workingDir, sessionId, historyLoaded, usage, todos, projectInputHistory, readFileTimestamps }) => {
+session.on('session:ready', ({ pid, workingDir, sessionId, historyLoaded, usage, todos, projectInputHistory, readFileTimestamps }) => {
   console.log('会话已就绪:', sessionId)
   console.log('已恢复历史:', historyLoaded)
   console.log('当前 token:', usage.useTokens, '/', usage.maxTokens)
@@ -82,16 +91,16 @@ sema.on('session:ready', ({ pid, workingDir, sessionId, historyLoaded, usage, to
 - `todos`: 待办事项列表
 - `readFileTimestamps`: 文件读取时间戳
 
-> 若当前正在处理消息时再次调用 `createSession`，引擎会先中断当前请求并等待旧会话结束（最多 10 秒），再切换到新会话。
+> 多个会话可以同时存在。`maxSessions` 可限制会话池大小；超过限制时 `createSession()` 返回 `{ ok: false, error }`。重复传入同一个 `sessionId` 会复用已有会话。
 
 ### 4. 处理用户输入
 
 ```javascript
 // 非阻塞：立即返回，异步执行
-sema.processUserInput('帮我优化这个函数的性能')
+session.processUserInput('帮我优化这个函数的性能')
 
 // 监听完成
-sema.on('state:update', ({ state }) => {
+session.on('state:update', ({ state }) => {
   if (state === 'idle') console.log('执行完毕')
 })
 ```
@@ -102,7 +111,7 @@ sema.on('state:update', ({ state }) => {
 
 ```javascript
 // 可在任意时刻调用
-sema.interruptSession()
+session.interrupt()
 ```
 
 触发 `session:interrupted` 事件，当前工具调用链被取消，AI 停止响应。
@@ -125,24 +134,28 @@ async function main() {
     workingDir: process.cwd(),
   })
 
+  const result = await sema.createSession()
+  if (!result.ok) throw new Error(result.error)
+  const session = result.session
+
   // 注册事件监听
-  sema.on('message:text:chunk', ({ delta }) => {
+  session.on('message:text:chunk', ({ delta }) => {
     process.stdout.write(delta ?? '')
   })
 
-  sema.on('state:update', ({ state }) => {
+  session.on('state:update', ({ state }) => {
     if (state === 'idle') process.stdout.write('\n\n')
   })
 
-  sema.on('tool:execution:complete', ({ toolName, summary }) => {
+  session.on('tool:execution:complete', ({ toolName, summary }) => {
     console.log(`\n  ✓ [${toolName}] ${summary}`)
   })
 
-  sema.on('tool:permission:request', ({ toolId, toolName, title }) => {
+  session.on('tool:permission:request', ({ toolId, toolName, title }) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
     rl.question(`\n允许执行 "${title}"? (y/n): `, (answer) => {
       rl.close()
-      sema.respondToToolPermission({
+      session.respondToToolPermission({
         toolId,    // 必传：与请求事件中的 toolId 对应，用于精确匹配
         toolName,
         selected: answer.toLowerCase() === 'y' ? 'agree' : 'refuse',
@@ -150,11 +163,9 @@ async function main() {
     })
   })
 
-  sema.on('session:error', ({ type, error }) => {
+  session.on('session:error', ({ type, error }) => {
     console.error(`\n错误 [${type}]:`, error)
   })
-
-  await sema.createSession()
 
   // REPL
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
@@ -163,8 +174,8 @@ async function main() {
       if (input === '/exit') {
         sema.dispose().then(() => process.exit(0))
       } else {
-        sema.processUserInput(input)
-        sema.once('state:update', ({ state }) => {
+        session.processUserInput(input)
+        session.once('state:update', ({ state }) => {
           if (state === 'idle') askQuestion()
         })
       }
@@ -200,29 +211,29 @@ const sema = new SemaCore({
 ```javascript
 const sema = new SemaCore({
   workingDir: '/path/to/project',
-  disableBackgroundTasks: true,  // run_shell/sub_agent 工具的 run_in_background 字段会从 schema 中过滤
+  disableBackgroundTasks: true,  // run_shell/sub_agent 工具的 background 字段会从 schema 中过滤
 })
 ```
 
 ### 只允许只读操作
 
 ```javascript
-// 限制可用工具，只允许读取和搜索
-sema.updateUseTools(['view_file', 'search_files', 'search_content', 'run_shell', 'create_todo', 'get_todo', 'update_todo', 'list_todos'])
+// 限制可用工具，只允许读取、搜索和列表查询
+const sema = new SemaCore({
+  workingDir: '/path/to/project',
+  useTools: ['view_file', 'search_files', 'search_content', 'get_todo', 'list_todos', 'list_crons'],
+})
 ```
 
 ### Plan 模式（只分析不修改）
 
 ```javascript
-const sema = new SemaCore({
-  workingDir: '/path/to/your/project',
-  agentMode: 'Plan'
-})
+const result = await sema.createSession({ agentMode: 'Plan' })
 ```
 
-或者启动后切换至Plan模式：
+或者启动后切换至 Plan 模式：
 
 ```javascript
-sema.updateAgentMode('Plan')
-// AI 只能使用只读工具，需要通过 PlanToAgent 切换到执行模式
+session.updateAgentMode('Plan')
+// Plan 模式提醒会要求不修改代码，需要通过 PlanToAgent 切换到执行模式
 ```

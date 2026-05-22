@@ -1,6 +1,6 @@
 # SemaCore — 公共 API 层
 
-`SemaCore` 是 Sema Core 对外暴露的唯一入口类，采用外观（Facade）模式封装内部复杂度，内部委托给 `SemaEngine` 处理业务逻辑。
+`SemaCore` 是 Sema Core 的进程级入口类，采用外观（Facade）模式封装全局资源、配置、模型、插件、MCP、Cron 和会话池。会话内交互由 `SemaSession` 承载。
 
 ## 初始化
 
@@ -10,96 +10,74 @@ import { SemaCore } from 'sema-core'
 const sema = new SemaCore(config?: SemaCoreConfig)
 ```
 
-构造函数会异步完成核心配置写入，并触发 `PluginsManager`、`MemoryManager`、`RuleManager` 等单例的后台初始化（市场插件信息、Memory、Rule）。`createSession()` 会等待该初始化完成。
+构造函数会异步完成核心配置写入，并触发 `PluginsManager`、`MemoryManager`、`RuleManager` 等单例的后台初始化（市场插件信息、Memory、Rule）。首次 `createSession()` 会等待该初始化完成。
 
 `SemaCoreConfig` 详见 [基础用法](wiki/getting-started/basic-usage/basic-usage)。
 
 ## 事件系统
 
+`SemaCore` 支持两类事件监听：
+
+- **会话级事件**：由 `SemaSession.on` 提供，绑定到特定会话生命周期
+- **进程级事件**：由 `SemaCore.on/once/off` 提供，描述全局资源状态变化（如定时任务更新、MCP 服务器状态变更），与具体会话无关
+
 ```javascript
 // 持续监听
-sema.on<T>(event: string, listener: (data: T) => void): SemaCore
+sema.on<T>(event: ProcessEvent, listener: (data: T) => void): SemaCore
 
 // 监听一次后自动移除
-sema.once<T>(event: string, listener: (data: T) => void): SemaCore
+sema.once<T>(event: ProcessEvent, listener: (data: T) => void): SemaCore
 
 // 取消监听
-sema.off<T>(event: string, listener: (data: T) => void): SemaCore
+sema.off<T>(event: ProcessEvent, listener: (data: T) => void): SemaCore
 ```
 
 所有方法返回 `SemaCore` 实例，支持链式调用：
 
 ```javascript
 sema
-  .on('message:text:chunk', handleChunk)
-  .on('state:update', handleState)
-  .on('tool:execution:complete', handleTool)
+  .on('cron:update', handleCronUpdate)
+  .on('mcp:server:status', handleMcpStatus)
 ```
 
-完整事件列表见 [事件类型](wiki/core-concepts/event-system/event-catalog)。
-
-## 响应处理器
-
-AI 执行过程中会通过事件请求用户响应，需调用对应方法回应：
-
-### 工具权限响应
-
-```javascript
-sema.respondToToolPermission(response: ToolPermissionResponse): void
-
-interface ToolPermissionResponse {
-  toolId: string    // 工具调用唯一 ID（与请求事件中的 toolId 对应）
-  toolName: string  // 工具名称
-  selected:
-    | 'agree'   // 同意本次执行
-    | 'allow'   // 同意并记住（写入项目配置）
-    | 'refuse'  // 拒绝执行
-    | string    // 自定义反馈文本（返回给 LLM 作为提示）
-}
-```
-
-> `toolId` 用于精确匹配同时存在多个权限请求的场景。
-
-### 提问响应
-
-```javascript
-sema.respondToPickOption(response: PickOptionResponseData): void
-
-interface PickOptionResponseData {
-  agentId: string                  // 代理 ID（主代理为 MAIN_AGENT_ID，子代理为 taskId）
-  answers: string | null           // 表单答案纯文本；null 表示用户取消整个表单
-}
-```
-
-### Plan 退出响应
-
-```javascript
-sema.respondToPlanExit(response: PlanExitResponseData): void
-
-interface PlanExitResponseData {
-  agentId: string
-  selected:
-    | 'startEditing'          // 切换到 Agent 模式，保留历史
-    | 'clearContextAndStart'  // 切换到 Agent 模式，清空历史
-}
-```
+> 进程级事件（如 `cron:update`、`mcp:server:status`）由 `SemaCore.on/once/off` 订阅，生命周期跟随 Core 实例，`dispose()` 时自动摘除。完整事件列表见 [事件类型](wiki/core-concepts/event-system/event-catalog)。
 
 ## 会话管理
 
 ```javascript
-// 创建或恢复会话（异步等待初始化完成）
-createSession(sessionId?: string): Promise<void>
+// 创建或恢复会话
+createSession(opts?: CreateSessionOptions): Promise<CreateSessionResult>
 
-// 处理用户输入（非阻塞）
-// 处理中收到的输入会按 command/inject 类型自动入队
-// /quickchat 旁路问答会绕过状态机直接处理
-processUserInput(input: string, originalInput?: string): void
+interface CreateSessionOptions {
+  sessionId?: string             // 可选：恢复指定历史会话；不传则新建
+  agentMode?: 'Agent' | 'Plan' | 'Design'
+}
 
-// 中断当前执行（队列中的待处理输入不受影响）
-interruptSession(): void
+type CreateSessionResult =
+  | { ok: true, session: SemaSession }
+  | { ok: false, error: string }
+
+// 查询/切换/关闭会话
+getSession(sessionId: string): SemaSession | undefined
+listSessions(): string[]
+setActiveSession(sessionId: string): boolean
+closeSession(sessionId: string): boolean
 ```
 
-> 当处于 `processing` 状态时再次调用 `createSession`，引擎会先中断当前请求并等待旧会话结束（最多 10 秒），再切换到新会话。
+`createSession()` 成功时返回 `SemaSession`，所有会话级能力都在 session 上：
+
+```javascript
+const result = await sema.createSession()
+if (result.ok) {
+  const session = result.session
+  session.on('message:text:chunk', handleChunk)
+  session.processUserInput('帮我分析这个项目')
+}
+```
+
+> `maxSessions` 可限制同时存在的会话数量。超过限制时返回 `{ ok: false, error }`，不会抛异常。`setActiveSession()` 主要用于 UI 指定当前打开会话，Cron 等全局通知在来源会话不可用时会投递到活跃会话。
+
+会话级事件、权限响应、用户输入、中断、Agent 模式切换、自动编辑和后台任务 API 见 [SemaSession - 会话级 API](wiki/core-concepts/core-architecture/sema-session-api)。
 
 ## 模型管理
 
@@ -129,8 +107,8 @@ fetchAvailableModels(params: FetchModelsParams): Promise<FetchModelsResult>
 // 测试 API 连接
 testApiConnection(params: ApiTestParams): Promise<ApiTestResult>
 
-// 解析提供商 + 模型名对应的适配器
-getModelAdapter(provider: string, modelName: string)
+// 解析提供商 + 模型名 + baseURL 对应的适配器
+getModelAdapter(provider: string, modelName: string, baseURL: string)
 ```
 
 ## 配置管理
@@ -142,20 +120,14 @@ updateCoreConfByKey<K extends UpdatableCoreConfigKeys>(key: K, value: SemaCoreCo
 // 批量更新核心配置
 updateCoreConfig(config: UpdatableCoreConfig): void
 
-// 过滤可用工具（null 表示恢复全部）
-updateUseTools(toolNames: string[] | null): void  // 使用 snake_case 工具名，如 'run_shell', 'view_file'
-
-// 切换 Agent / Plan 模式
-updateAgentMode(mode: 'Agent' | 'Plan'): void
+// 更新全局禁用工具（黑名单；内部转换为 useTools 白名单）
+updateDisabledTools(toolNames: string[] | null): void
 
 // 获取当前所有内置工具信息（含启用状态）
 getToolInfos(): ToolInfo[]
-
-// 启用/禁用自动编辑模式
-updateAutoEdit(enable: boolean): void
 ```
 
-> `updateCoreConfByKey` 仅支持以下字段的运行时更新：`stream`、`thinking`、`systemPrompt`、`customRules`、`skipFileEditPermission`、`skipShellExecPermission`、`skipSkillPermission`、`skipMCPToolPermission`、`skipFetchUrlPermission`、`enableLLMCache`、`disableBackgroundTasks`。
+> `updateCoreConfByKey` 仅支持以下字段的运行时更新：`stream`、`thinking`、`systemPrompt`、`customRules`、`skipFileEditPermission`、`skipShellExecPermission`、`skipSkillPermission`、`skipMCPToolPermission`、`skipFetchUrlPermission`、`enableLLMCache`、`disableBackgroundTasks`。Agent 模式和自动编辑属于会话级配置，请使用 `SemaSession.updateAgentMode()` / `SemaSession.updateAutoEdit()`。
 
 ## 插件市场管理
 
@@ -250,29 +222,19 @@ getMemoryInfo(refresh?: boolean): Promise<MemoryConfig | null>
 getRuleInfo(refresh?: boolean): Promise<RuleConfig | null>
 ```
 
-## 后台任务管理
+## Design 管理
 
 ```javascript
-// 获取所有后台任务列表（不含前台任务）
-getTaskList(): TaskListItem[]
+// 获取设计技能信息；传 refresh=true 强制刷新
+getDesignSkillsInfo(refresh?: boolean): Promise<DesignSkillInfo[]>
 
-// 订阅指定任务的输出增量，返回取消订阅函数
-watchTask(taskId: string, onDelta: (delta: string) => void): () => void
-
-// 停止指定任务
-stopTask(taskId: string): boolean
-
-// 停止所有任务
-stopAllTasks(): number
-
-// 将运行中的前台 Agent 转为后台执行
-transferAgentToBackground(taskId: string): boolean
-
-// 将所有运行中的前台 Agent 批量转为后台执行
-transferAllForegroundAgents(): string[]
+// 获取设计系统信息；传 refresh=true 强制刷新
+getDesignSystemsInfo(refresh?: boolean): Promise<DesignSystemInfo[]>
 ```
 
-> 后台任务包含 `run_shell` 与 `sub_agent` 两种类型，由 `TaskManager` 统一管理。后台任务完成后会通过内部回调把通知作为 `silent` 输入注入主对话队列。
+## 后台任务管理
+
+后台任务包含 `run_shell` 与 `sub_agent` 两种类型，由 `TaskManager` 统一管理，但对外 API 已下沉到 `SemaSession`。每个会话只能看到和停止自己的后台任务，运行中任务限额也按会话独立计算。详见 [SemaSession - 会话级 API](wiki/core-concepts/core-architecture/sema-session-api) 与 [后台任务概述](wiki/core-concepts/task-management/overview)。
 
 ## 定时任务管理
 
@@ -290,11 +252,11 @@ enableCronTask(id: string): boolean
 disableCronTask(id: string): boolean
 ```
 
-> 定时任务由 `CronManager` 统一管理，支持一次性任务和循环任务。持久化任务存储在项目目录 `.sema/scheduled_tasks.json` 中。
+> 定时任务由 `CronManager` 统一管理，支持一次性任务和循环任务。`persist=true` 的任务存储在项目目录 `.sema/scheduled_tasks.json` 中；禁用状态存储在 `.sema/settings.json` 的 `disabledCronTasks` 中。
 
 ## 清理
 
 ```javascript
-// 释放所有资源（后台任务、插件、Memory、Rule、引擎、事件监听器等）
+// 释放所有资源（后台任务、插件、Memory、Rule、引擎、进程级事件监听器等）
 dispose(): Promise<void>
 ```

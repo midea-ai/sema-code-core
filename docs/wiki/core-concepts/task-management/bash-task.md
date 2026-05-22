@@ -14,7 +14,7 @@ RunShell 后台任务由 `run_shell` 工具（`src/tools/RunShell.ts`）与 `Tas
   - `buildTools` 会从 `run_shell` 的 schema 中过滤 `background` 字段
   - 即便 LLM 强行传入也会被忽略（子代理 / disableBackground 分支直接跳过）
   - 超时处理 `onTimeout` 回调不再注册，超时直接 kill
-- `MAX_RUNNING_TASKS = 5` 限流：超出时 `spawnRunShellTask` / `takeoverTask` 抛错
+- `MAX_RUNNING_TASKS = 5` 限流：按会话独立计算，超出时 `spawnRunShellTask` / `takeoverTask` 抛错
 
 ## 路径一：主动后台 spawnRunShellTask
 
@@ -26,14 +26,15 @@ run_shell 工具 (background: true)
    ▼
 TaskManager.spawnRunShellTask(command, toolUseId, agentContext)
    │
-   ├─ 检查 MAX_RUNNING_TASKS
+   ├─ 检查当前会话的 MAX_RUNNING_TASKS
    ├─ ensureTaskDir() + 生成 taskId（4 字节 hex）
    ├─ 初始化输出文件 <tmpdir>/sema-tasks/<taskId>.output
-   ├─ 创建 TaskRecord（type: 'RunShell', status: 'running'）
-   ├─ spawn 子进程（getShellForSpawn 返回的 shell + 命令字符串）
+   ├─ 创建 TaskRecord（type: 'RunShell', sessionId, status: 'running'）
+   ├─ spawn 子进程（getShellForSpawn 返回的一次性 shell + 命令字符串）
+   │     cwd: readInitialCwd()
    │     stdio: ['ignore', 'pipe', 'pipe']
    │     Windows: windowsHide: true
-   ├─ emit task:start { taskId, pid, command, filepath, status, type: 'RunShell' }
+   ├─ emit task:start { taskId, pid, command, filepath, status, type: 'RunShell' }（按 sessionId 路由）
    │
    ├─ stdout/stderr 'data' 监听 → appendChunk
    │     ├─ 累加到 record.output（受 MAX_OUTPUT_BYTES 滚动限制）
@@ -78,10 +79,10 @@ const onTimeout = (isSubAgent || disableBackground) ? undefined : (ctx: TimeoutT
 `takeoverTask` 的执行流程：
 
 ```
-1. 检查 MAX_RUNNING_TASKS（超出 → killProcess(shellProcess) 后抛错）
+1. 检查当前会话的 MAX_RUNNING_TASKS（超出 → killProcess(shellProcess) 后抛错）
 2. 生成 taskId / filepath，把 partialOutput 写入新输出文件
-3. 创建 TaskRecord（type: 'RunShell', _shellProcess: ctx.shellProcess）
-4. emit task:start { taskId, pid, command, filepath, status, type: 'RunShell' }
+3. 创建 TaskRecord（type: 'RunShell', sessionId, _shellProcess: ctx.shellProcess）
+4. emit task:start { taskId, pid, command, filepath, status, type: 'RunShell' }（按 sessionId 路由）
 5. setInterval 200ms 轮询：
    ├─ 增量读取 stdoutFile / stderrFile（按 stdoutOffset / stderrOffset 偏移）
    │     → 追加到 record.output + 输出文件 + 通知 watchers
@@ -110,9 +111,10 @@ Output: <bgFilepath>
 1. 状态从 `running` 切到 `completed`（exit=0）或 `failed`（其它）
 2. 记录 `exitCode` / `endTime`
 3. 删除该任务的 watchers（避免后续无用回调）
-4. emit `task:end { taskId, status, summary }`
+4. emit `task:end { taskId, status, summary }`（按 sessionId 路由）
 5. `if (!record.foreground)` → 调用 `_notify(record)`（RunShell 任务的 `foreground` 始终为 undefined/falsy，故总会通知）
-6. `_pruneFinishedTasks` 把已结束任务裁剪到 `MAX_FINISHED_TASKS`
+6. 清空 `record.output` 释放内存，后续读取通过 `getTaskOutput(taskId)` 回退到输出文件
+7. `_pruneFinishedTasks(record.sessionId)` 按会话分组裁剪已结束任务到 `MAX_FINISHED_TASKS`
 
 `stopTask(taskId)`：
 
@@ -138,23 +140,23 @@ LLM 看到通知后，通常会主动调用 `read` 或 `peek_bg_job` 工具去�
 
 ```javascript
 // 列表（仅含非前台任务）
-sema.getTaskList()
+session.getTaskList()
 
 // 流式订阅输出（UI 打开任务详情面板时）
-const unwatch = sema.watchTask(taskId, delta => panel.append(delta))
+const unwatch = session.watchTask(taskId, delta => panel.append(delta))
 // 关闭面板时
 unwatch()
 
 // 停止
-sema.stopTask(taskId)
-sema.stopAllTasks()
+session.stopTask(taskId)
+session.stopAllTasks()
 ```
 
 ## 与 peek_bg_job / stop_bg_job 内置工具的关系
 
 LLM 自身可以通过两个工具与后台任务交互：
 
-- **peek_bg_job**：读取指定任务的 `filepath` 获取完整输出
+- **peek_bg_job**：通过 `TaskManager.getTaskOutput(taskId)` 获取输出；运行中读取内存缓存，已结束任务读取输出文件
 - **stop_bg_job**：调用 `stopTask(taskId)` 主动停止后台任务
 
 它们封装的就是 `TaskManager` 的同名能力，因此 LLM 不需要直接 `read` 输出文件。

@@ -36,7 +36,7 @@ skipXxxPermission = true？
                                    └─ 否 → emit tool:permission:request
                                              │
                                              ▼
-                                         等待 respondToToolPermission()
+                                         等待 session.respondToToolPermission()
                                              │
                                          selected = ?
                                          ├─ 'agree'      → 本次执行 ✓
@@ -47,7 +47,7 @@ skipXxxPermission = true？
                                          └─ 其他字符串  → 返回反馈文本给 LLM（不中断）
 ```
 
-**文件编辑权限说明**：用户选择 `'allow'` 后，`hasGlobalEditPermission` 置为 `true`，整个会话内项目目录下的文件编辑不再询问；项目目录外的文件仍会再次请求权限。新会话（`setSessionId`）会自动重置该权限。
+**文件编辑权限说明**：用户选择 `'allow'` 后，当前 `SemaSession` 的 `hasGlobalEditPermission` 置为 `true`，该会话内项目目录下的文件编辑不再询问；项目目录外的文件仍会再次请求权限。关闭会话或新建会话后，该授权不会继承。
 
 
 ## `run_shell` 安全命令白名单
@@ -86,7 +86,7 @@ ls, find, grep, head, tail, cat, du, wc, echo, env, printenv
 
 ### AskForm — 向用户提问
 
-AI 调用 `ask_form` 工具时，Core 会触发 `pick:option:request` 事件，UI 层需展示表单并通过 `respondToPickOption()` 回传答案。
+AI 调用 `ask_form` 工具时，当前会话会触发 `pick:option:request` 事件，UI 层需展示表单并通过 `session.respondToPickOption()` 回传答案。
 
 **事件流程：**
 
@@ -96,7 +96,7 @@ AI 调用 ask_form
         ▼
 emit pick:option:request
         │
-    等待 respondToPickOption()
+    等待 session.respondToPickOption()
         │
     answers = "- 问题标签: 答案\n..."
         │  （取消整个表单时 answers 为 null）
@@ -136,7 +136,7 @@ interface PickOptionResponseData {
 
 ### PlanToAgent — 退出 Plan 模式
 
-AI 在 Plan 模式下完成规划后调用 `PlanToAgent` 工具，Core 会触发 `plan:exit:request` 事件，UI 层需展示计划内容并让用户选择如何继续，然后通过 `respondToPlanExit()` 回传选择。
+AI 在 Plan 模式下完成规划后调用 `PlanToAgent` 工具，当前会话会触发 `plan:exit:request` 事件，UI 层需展示计划内容并让用户选择如何继续，然后通过 `session.respondToPlanExit()` 回传选择。
 
 **事件流程：**
 
@@ -146,7 +146,7 @@ AI 调用 PlanToAgent（含 planFilePath）
         ▼
 emit plan:exit:request（含计划文件内容）
         │
-    等待 respondToPlanExit()
+    等待 session.respondToPlanExit()
         │
     selected = ?
     ├─ 'startEditing'         → 退出 Plan 模式，保留上下文，继续编码
@@ -192,15 +192,15 @@ interface PlanImplementData {
 
 ## 响应接口汇总
 
-SemaCore 提供三个响应方法，分别对应三类等待用户交互的场景：
+`SemaSession` 提供三个响应方法，分别对应三类等待用户交互的场景：
 
 | 方法 | 对应事件 | 说明 |
 |------|---------|------|
-| `respondToToolPermission(response)` | `tool:permission:request` | 回传工具权限选择 |
-| `respondToPickOption(response)` | `pick:option:request` | 回传用户问题答案 |
-| `respondToPlanExit(response)` | `plan:exit:request` | 回传 Plan 模式退出选择 |
+| `session.respondToToolPermission(response)` | `tool:permission:request` | 回传工具权限选择 |
+| `session.respondToPickOption(response)` | `pick:option:request` | 回传用户问题答案 |
+| `session.respondToPlanExit(response)` | `plan:exit:request` | 回传 Plan 模式退出选择 |
 
-> 三类事件均包含 `agentId` 字段，响应时须原样回传，以确保 Core 正确路由到发起请求的代理实例。
+> 响应必须在发起请求的 `SemaSession` 上发送。`pick` 和 `plan` 响应需原样回传 `agentId`；工具权限响应需回传 `toolId` 和 `toolName`，以精确匹配同时存在的请求。
 
 
 ## 代码示例
@@ -208,7 +208,7 @@ SemaCore 提供三个响应方法，分别对应三类等待用户交互的场�
 ### 实现权限处理器
 
 ```javascript
-sema.on('tool:permission:request', ({ toolName, title, content, options }) => {
+session.on('tool:permission:request', ({ toolId, toolName, title, content, options }) => {
   // 显示权限请求 UI
   console.log(`\n⚠️  权限请求: ${title}`)
 
@@ -220,7 +220,8 @@ sema.on('tool:permission:request', ({ toolName, title, content, options }) => {
   // 获取用户选择
   const choice = await promptUser(options)
 
-  sema.respondToToolPermission({
+  session.respondToToolPermission({
+    toolId,
     toolName,
     selected: choice,  // 'agree' | 'allow' | 'refuse'
   })
@@ -230,30 +231,30 @@ sema.on('tool:permission:request', ({ toolName, title, content, options }) => {
 ### 实现问答处理器
 
 ```javascript
-sema.on('pick:option:request', ({ agentId, questions, estimatedTime, intro }) => {
+session.on('pick:option:request', ({ agentId, questions, estimatedTime, intro }) => {
   // 展示表单，等待用户提交或取消
   const answers = await showFormUI({ questions, estimatedTime, intro })
   // answers 示例: "- Framework: React\n- Features: Auth; Billing"
   // 用户取消整个表单时返回 null
 
-  sema.respondToPickOption({ agentId, answers })
+  session.respondToPickOption({ agentId, answers })
 })
 ```
 
 ### 实现 Plan 模式退出处理器
 
 ```javascript
-sema.on('plan:exit:request', ({ agentId, planContent, options }) => {
+session.on('plan:exit:request', ({ agentId, planContent, options }) => {
   // 展示计划内容，让用户选择操作
   showPlanPreview(planContent)
   const selected = await promptUser(options)
   // selected: 'startEditing' | 'clearContextAndStart'
 
-  sema.respondToPlanExit({ agentId, selected })
+  session.respondToPlanExit({ agentId, selected })
 })
 
 // 监听 plan:implement（选择清空上下文时触发）
-sema.on('plan:implement', ({ planContent }) => {
+session.on('plan:implement', ({ planContent }) => {
   clearChatHistory()
 })
 ```
@@ -261,25 +262,26 @@ sema.on('plan:implement', ({ planContent }) => {
 ### 自动同意所有权限请求（开发/测试用）
 
 ```javascript
-sema.on('tool:permission:request', ({ toolName }) => {
-  sema.respondToToolPermission({ toolName, selected: 'allow' })
+session.on('tool:permission:request', ({ toolId, toolName }) => {
+  session.respondToToolPermission({ toolId, toolName, selected: 'allow' })
 })
 ```
 
 ### 按工具类型差异化处理
 
 ```javascript
-sema.on('tool:permission:request', ({ toolName, title }) => {
+session.on('tool:permission:request', ({ toolId, toolName, title }) => {
   // 文件编辑：自动允许
   if (toolName === 'patch_file' || toolName === 'write_file') {
-    sema.respondToToolPermission({ toolName, selected: 'allow' })
+    session.respondToToolPermission({ toolId, toolName, selected: 'allow' })
     return
   }
 
   // RunShell 命令：需要用户确认
   if (toolName === 'run_shell') {
     const confirmed = await confirm(`执行命令: ${title}?`)
-    sema.respondToToolPermission({
+    session.respondToToolPermission({
+      toolId,
       toolName,
       selected: confirmed ? 'allow' : 'refuse',
     })
@@ -287,6 +289,6 @@ sema.on('tool:permission:request', ({ toolName, title }) => {
   }
 
   // 其他：默认同意本次
-  sema.respondToToolPermission({ toolName, selected: 'agree' })
+  session.respondToToolPermission({ toolId, toolName, selected: 'agree' })
 })
 ```

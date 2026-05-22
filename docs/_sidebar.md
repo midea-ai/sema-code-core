@@ -19,6 +19,7 @@
   - Core 架构
     - [引言：Agent 基础](wiki/core-concepts/core-architecture/introduction)
     - [SemaCore - 公共 API 层](wiki/core-concepts/core-architecture/sema-core-public-api)
+    - [SemaSession - 会话级 API](wiki/core-concepts/core-architecture/sema-session-api)
     - [SemaEngine - 业务逻辑](wiki/core-concepts/core-architecture/sema-engine-business-logic)
     - [Conversation - 对话系统](wiki/core-concepts/core-architecture/conversation-system)
     - [Manager Layer - 管理器层](wiki/core-concepts/core-architecture/manager-layer)

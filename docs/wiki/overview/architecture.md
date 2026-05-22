@@ -4,23 +4,24 @@
 
 Sema Core 采用以下核心设计原则：
 
-- **事件驱动**：所有状态变化通过事件总线传播，消费方只需订阅感兴趣的事件
-- **模块化分层**：清晰的层次划分，各层职责单一、边界明确
-- **可插拔扩展**：工具、模型、Skill、SubAgent、MCP、Plugin、Memory、Rule 均支持动态注册与替换
-- **状态隔离**：主 Agent 与 SubAgent 各自维护独立的消息历史和运行状态
-- **可中断**：所有耗时操作通过 `AbortController` 与多检查点配合，支持随时中断
-
+- **多会话隔离**：一个进程可同时持有多个 `SemaSession`，每个会话有独立状态、事件、输入队列和后台任务视图
+- **事件驱动**：所有会话级状态变化通过带 `sessionId` 路由的事件总线传播，进程级资源变化通过 `SemaCore` 订阅
+- **模块化分层**：公共 API、会话引擎、对话循环、管理器、工具和服务层职责分离
+- **可插拔扩展**：模型、MCP、SubAgent、Command、Plugin 等支持 API 或配置文件管理；Skill、Memory、Rule 通过约定文件加载并可刷新
+- **可中断**：耗时操作通过 `AbortController` 与多检查点配合，支持按会话中断
 
 ## 整体架构
 
 ```mermaid
 graph TB
     subgraph PublicAPI["公共 API 层"]
-        SC["SemaCore\n公共 API 入口（门面）"]
+        SC["SemaCore\n进程级入口 · 配置 · 全局资源 · 会话池"]
+        SP["SessionPool\n创建/查找/关闭 SemaSession"]
+        SS["SemaSession\n会话级 API · 输入 · 事件 · 权限响应"]
     end
 
     subgraph BusinessLogic["业务逻辑层"]
-        SE["SemaEngine\n会话管理 · 输入队列 · 模式控制"]
+        SE["SemaEngine\n单会话引擎 · 输入队列 · 模式控制"]
     end
 
     subgraph ConversationLayer["对话处理层"]
@@ -28,18 +29,18 @@ graph TB
         RT["RunTools\n并发/串行工具执行 · 权限检查"]
     end
 
-    subgraph ManagerLayer["管理器层（单例）"]
-        SM["StateManager\n多 Agent 状态隔离"]
+    subgraph ManagerLayer["管理器层（单例注册表）"]
+        SM["StateManager\nsessionId -> SessionRuntime"]
         CFM["ConfManager\n运行时 & 项目配置"]
         MM["ModelManager\n多模型管理 & 切换"]
-        PM["PermissionManager\n工具执行权限"]
-        TM["TaskManager\n后台任务调度"]
+        PM["PermissionManager\n会话级权限检查"]
+        TM["TaskManager\n会话级后台任务调度"]
         CRM["CronManager\n定时任务管理"]
-        EB["EventBus\n事件总线（Pub/Sub）"]
+        EB["EventBus\n按 sessionId 路由"]
     end
 
-    subgraph ToolSystem["工具系统（21 个内置工具）"]
-        BT["RunShell · ViewFile · WriteFile · PatchFile\nSearchFiles · SearchContent · FetchUrl\nSubAgent · PeekBgJob · StopBgJob\nSkill · EditNotebook · AskForm · PlanToAgent\nCreateTodo · GetTodo · ListTodos · UpdateTodo\nCreateCron · DelCron · ListCrons"]
+    subgraph ToolSystem["工具系统"]
+        BT["内置工具\nRunShell · ViewFile · PatchFile · SubAgent\nTodo · Cron · Skill 等"]
         MCP["MCP 工具\n动态扩展工具"]
     end
 
@@ -58,11 +59,17 @@ graph TB
         UI["UI 层\nVSCode 插件 / CLI / 自定义客户端"]
         LLMAPI["LLM API\nClaude / GPT / 其他模型"]
         FS["文件系统 / 项目代码库"]
-        BG["后台进程\nBash / Agent 子进程"]
+        BG["后台进程\nShell / Agent 子任务"]
     end
 
-    UI -->|"createSession\nprocessUserInput\non/once/off"| SC
-    SC -->|委托| SE
+    UI -->|"new SemaCore()"| SC
+    UI -->|"core.createSession()"| SC
+    SC --> SP
+    SP --> SS
+    SS --> SE
+    UI -->|"session.processUserInput()\nsession.on()"| SS
+    UI -->|"core.on()\n进程级事件"| SC
+
     SE -->|"processQuery()"| CQ
     CQ -->|"runTools()"| RT
     RT -->|"tool.call()"| BT
@@ -72,7 +79,8 @@ graph TB
     BT -->|"文件操作 / 命令执行"| FS
     BT -->|"spawn"| BG
     TM -->|"管理"| BG
-    TM -->|"完成通知回调"| SE
+    TM -->|"完成通知回调(sessionId)"| SE
+    CRM -->|"触发通知(sessionId/active)"| SE
 
     SE --- SM
     SE --- CFM
@@ -87,11 +95,12 @@ graph TB
     SE --- RUL
     MCP --- MCPS
 
-    CQ -->|"emit events"| EB
-    RT -->|"emit events"| EB
-    SE -->|"emit events"| EB
-    TM -->|"emit events"| EB
-    EB -->|"订阅回调"| UI
+    CQ -->|"emit session events"| EB
+    RT -->|"emit session events"| EB
+    SE -->|"emit session events"| EB
+    TM -->|"emit session events"| EB
+    CRM -->|"emit process events"| EB
+    EB -->|"按 sessionId/全局监听器投递"| UI
 
     style PublicAPI fill:#dbeafe,stroke:#3b82f6
     style BusinessLogic fill:#ede9fe,stroke:#7c3aed
@@ -102,8 +111,6 @@ graph TB
     style External fill:#f3f4f6,stroke:#6b7280
 ```
 
-
-
 ## 数据流
 
 用户输入到响应输出的完整数据流：
@@ -112,21 +119,22 @@ graph TB
 用户输入
    │
    ▼
-SemaCore.processUserInput(input)
+SemaSession.processUserInput(input)
    │
    ▼
 SemaEngine.processUserInput()
    ├─ /quickchat 旁路：异步处理后直接返回
-   ├─ 若状态为 processing → 入队（command / inject 类型）
+   ├─ 若本会话 state=processing → 入队（command / inject）
    └─ 否则 → startQuery() → processQuery()
           ├─ 解析系统/自定义命令、后台话题检测、解析 @文件引用
-          ├─ 构建提示词
-          └─ 触发 Conversation会话循环
+          ├─ 读取会话级系统提示快照
+          └─ 触发 Conversation 会话循环
                  │
                  ▼
               调用 LLM API（流式）
-                 ├─ emit message:thinking:chunk
-                 ├─ emit message:text:chunk
+                 ├─ emit message:thinking:chunk（sessionId 路由）
+                 ├─ emit message:text:chunk（sessionId 路由）
+                 ├─ emit message:complete（每次 LLM 响应完成）
                  └─ 收集 tool_use 块
                         │
                         ▼
@@ -134,8 +142,8 @@ SemaEngine.processUserInput()
                   ├─ 只读工具 → 并发执行
                   └─ 写入工具 → 串行执行
                         │
-                        ├─ emit tool:permission:request（需授权时）
-                        ├─ emit tool:execution:chunk（流式中间态）
+                        ├─ emit tool:permission:request（当前会话）
+                        ├─ emit tool:execution:chunk
                         ├─ emit tool:execution:complete
                         └─ 工具结果 → 返回 LLM
                                │
@@ -143,41 +151,53 @@ SemaEngine.processUserInput()
                           继续会话循环...
                                │
                                ▼（无工具调用时结束）
-                          emit message:complete
                           emit state:update { state: 'idle' }
    │
    ▼
 processQuery.finally()
-   ├─ 优先处理 pendingSession（会话切换）
-   └─ 否则消费输入队列中的下一批（takeNextBatch）
+   ├─ 消费当前会话输入队列中的下一批（takeNextBatch）
+   └─ 无剩余输入则设为 idle
 ```
 
 ## 核心模块说明
 
-### SemaCore — 公共 API 层
+### SemaCore — 进程级入口
 
-对外暴露的唯一入口，采用外观（Facade）模式：
-- 封装内部复杂度，提供简洁的 API
-- 代理事件系统（on / once / off）
-- 处理用户响应（工具权限、提问、Plan 退出）
-- 提供模型、配置、MCP、Skill、Agent、Command、Memory、Rule、插件市场、后台任务等管理 API
-- `dispose()` 统一清理所有单例资源
+对外暴露的进程级门面：
 
-### SemaEngine — 引擎层
+- 管理 `SessionPool`，提供 `createSession` / `getSession` / `listSessions` / `closeSession`
+- 管理模型、配置、MCP、Skill、Agent、Command、Memory、Rule、插件市场等全局资源
+- 订阅进程级事件：`cron:update`、`mcp:server:status`
+- `dispose()` 关闭所有会话并释放全局单例资源
+
+### SemaSession — 会话级入口
+
+单个会话的外部 API：
+
+- 处理用户输入与中断
+- 订阅会话级事件
+- 响应工具权限、提问表单和 Plan 退出
+- 切换当前会话的 Agent/Plan/Design 模式
+- 管理当前会话的后台任务
+
+### SemaEngine — 单会话引擎
 
 核心业务逻辑的调度中心：
-- 维护 `pendingSession` 与 `currentProcessingPromise`，实现会话切换的等待与覆盖
-- 维护 `PendingUserInput` 队列：处理中收到的输入按 `command`/`inject` 类型入队，处理完成后由 finally 自动消费
-- `/quickchat` 旁路问答：不影响主流程状态
-- 注入 `TaskManager` 后台通知回调，将后台任务完成通知作为 `silent` 输入注入主对话
-- 注入 `CronManager` 定时任务通知回调
-- 根据 `agentMode`（Agent / Plan）动态组装工具集
-- 处理文件引用、系统提示词构建
+
+- 绑定固定 `sessionId`
+- 使用 `SessionRuntime` 保存该会话状态
+- 维护该会话的 `PendingUserInput` 队列
+- `/quickchat` 旁路问答不影响主流程状态
+- 注入 Task/Cron 通知回调，将通知作为 `silent` 输入注入目标会话
+- 使用会话创建时冻结的系统提示快照
+- 根据会话级 `agentMode` 注入模式提醒
 
 ### Conversation — 对话系统
 
 基于异步生成器的 AI 对话循环：
+
 - 流式接收 LLM 响应
+- 每次 LLM 响应完成后发送 `message:complete`；若包含工具调用，再进入工具执行流程
 - 智能选择工具执行策略（并发 / 串行）
 - 多检查点的中断机制（基于 `AbortController.signal`）
 - 自动压缩超长上下文（compact）
@@ -185,24 +205,22 @@ processQuery.finally()
 
 ### Manager Layer — 管理器层
 
-六个单例管理器，负责不同维度的状态：
-
 | 管理器 | 职责 | 持久化路径 |
 |--------|------|-----------|
-| StateManager | 会话状态、消息历史、Todos、输入队列 | `~/.sema/history/<project>/` |
-| ConfManager | 核心配置、项目配置 | `~/.sema/projects.conf` |
-| ModelManager | 模型配置与切换 | `~/.sema/model.conf` |
-| PermissionManager | 工具执行权限检查 | 项目配置中的 `allowedTools` |
-| TaskManager | 后台任务调度（RunShell/SubAgent） | 临时目录（`os.tmpdir()/sema-tasks/`） |
-| CronManager | 定时任务管理（Cron 调度） | 项目级 `.sema/scheduled_tasks.json` |
+| StateManager | `sessionId -> SessionRuntime` 注册表；每个 Runtime 再按 `agentId` 隔离消息、Todos 和状态 | `~/.sema/history/<project>/` |
+| ConfManager | 核心配置、按工作目录隔离的项目配置 | `~/.sema/projects.conf` |
+| ModelManager | 模型配置与 main/quick 指针 | `~/.sema/model.conf` |
+| PermissionManager | 工具执行权限检查；文件编辑 allow 权限按会话生效 | 项目配置中的 `allowedTools` |
+| TaskManager | RunShell/SubAgent 后台任务；按会话过滤、限流、通知 | 临时目录 `os.tmpdir()/sema-tasks/` |
+| CronManager | 定时任务创建、执行、持久化；触发时优先投递来源会话，兜底投递活跃会话 | 项目级 `.sema/scheduled_tasks.json` |
 
 ### Event System — 事件系统
 
-基于发布-订阅模式的单例事件总线：
-- 解耦各模块间的依赖
-- 支持流式 UI 更新
-- 所有外部状态变化均通过事件通知
-- 涵盖会话生命周期、AI 消息、工具执行、子代理、后台任务、Plan 模式、提问交互、上下文统计、旁路问答、定时任务、MCP 状态等
+- `EventBus` 是进程内单例传输层
+- `SessionEventBus` 包装 `EventBus`，emit/on/once 自动带上 `sessionId`
+- `SessionEventBus` 注册的会话级监听器只接收同会话事件
+- `SemaCore.on` 仅暴露进程级事件（`cron:update` / `mcp:server:status`）；底层 `EventBus` 的全局监听器可接收同名事件的所有会话投递
+- 事件日志在有 `sessionId` 时按 `YYYY-MM-DD_[sessionId].log` 分文件记录
 
 ## 扩展机制
 
@@ -214,15 +232,16 @@ processQuery.finally()
 | 自定义命令 | 创建命令 `.md` | 用户级 `~/.sema/commands/` / 项目级 `.sema/commands/` |
 | 自定义模型 | `addModel()` API | `~/.sema/model.conf` |
 | 插件市场 | `addMarketplaceFromGit()` / `addMarketplaceFromDirectory()` API | 由 PluginsManager 管理 |
-| Memory | Memory.md 等记忆文件 | 由 MemoryManager 自动加载 |
-| Rule | 项目规则文件 | 由 RuleManager 自动加载 |
+| Memory | 创建 `MEMORY.md` | 项目级 `.sema/memory/MEMORY.md` |
+| Rule | 创建规则文件 `AGENTS.md` | 用户级 `~/.sema/AGENTS.md` / 项目根 `AGENTS.md` |
 
 ## 关键运行时特性
 
-- **可中断**：`AbortController` 在 `processQuery` 多个检查点验证（AI 响应后、工具执行前/中/后），确保会话切换或用户中断后立即返回
-- **会话切换**：新 `createSession` 在处理中时会等待旧会话结束（最多 10 秒），由 `pendingSession` + finally 链路完成切换
-- **输入队列**：`command` 类输入立即单独成批，`inject` 类输入合并成批，由 `takeNextBatch` 控制
+- **多会话并存**：`SessionPool` 持有多个 `SemaSession`，不会因新建会话自动中断或销毁旧会话
+- **事件隔离**：消息流、状态、权限请求、工具执行和后台任务事件按 `sessionId` 投递
+- **会话级权限**：文件编辑 allow 权限保存在 `SessionRuntime`，只影响当前会话
+- **会话级系统提示快照**：创建会话时冻结提示词，后续轮次复用
+- **输入队列**：`command` 类输入单独成批，`inject` 类输入合并成批，由 `takeNextBatch` 控制
+- **后台任务隔离**：运行中任务上限和已结束任务归档按会话独立计算
 - **旁路问答**：`/quickchat` 命令异步处理，不影响主流程状态和队列
-- **后台任务**：`run_shell` 与 `sub_agent` 通过 `run_in_background` 进入后台，由 `TaskManager` 管理；可通过 `disableBackgroundTasks` 配置在 schema 层面禁用
-- **前后台转换**：`transferAgentToBackground` 支持将运行中的前台 Agent 转为后台执行
 - **自动压缩**：当上下文超长时自动触发 `compact` 压缩，子代理不执行压缩

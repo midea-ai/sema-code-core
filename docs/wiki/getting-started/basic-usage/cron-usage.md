@@ -1,6 +1,6 @@
 # 定时任务使用
 
-Sema Core 内置定时任务（Cron）系统，支持周期性任务和一次性提醒。LLM 通过 `create_cron`、`list_crons`、`del_cron` 三个工具自主调度，到点后自动将任务指令注入主对话。
+Sema Core 内置定时任务（Cron）系统，支持周期性任务和一次性提醒。LLM 通过 `create_cron`、`list_crons`、`del_cron` 三个工具自主调度，到点后自动将任务指令注入目标会话。
 
 ## 两种模式
 
@@ -13,7 +13,7 @@ Sema Core 内置定时任务（Cron）系统，支持周期性任务和一次性
 
 | `persist` | 存储位置 | 生命周期 |
 |-----------|---------|---------|
-| `false`（默认） | 仅内存 | 会话结束即清除 |
+| `false`（默认） | 仅内存 | 创建它的会话关闭时清除 |
 | `true` | `.sema/scheduled_tasks.json` | 跨会话保留，下次启动自动恢复 |
 
 > **使用建议**：只有用户明确要求"永久保留"、"每天都跑"时才使用 `persist: true`；临时提醒保持默认即可。
@@ -84,6 +84,7 @@ Sema Core 内置定时任务（Cron）系统，支持周期性任务和一次性
 | `task` | `string` | 触发时执行的提示词 |
 | `repeat` | `boolean` | 是否为周期性任务 |
 | `persist` | `boolean` | 是否持久化 |
+| `sessionId` | `string` | 创建任务的会话 ID（可选，主要用于触发投递路由） |
 | `status` | `boolean` | 启用/禁用状态 |
 | `describeCronExpression` | `string` | 人类可读的 cron 描述 |
 | `nextFireAt` | `number[]` | 接下来最多 4 次触发时间戳 |
@@ -124,7 +125,7 @@ sema.on('cron:update', () => {
 
 ## 触发机制
 
-定时任务的检查间隔为 60 秒（与 cron 最小粒度一致）。当任务到达触发时间时，系统会构造一条 `<cron-notification>` 消息注入主对话队列，主代理在下一轮 idle 时执行对应任务指令。
+定时任务的检查间隔为 60 秒（与 cron 最小粒度一致）。当任务到达触发时间时，系统会构造一条 `<cron-notification>` 消息注入目标会话队列：优先投递到创建该任务的来源会话；若来源会话已关闭，则投递到 UI 当前活跃会话；仍无目标时取任意已注册会话兜底。
 
 **通知消息格式**：
 
@@ -135,7 +136,7 @@ sema.on('cron:update', () => {
 The above scheduled task has been triggered. Please execute the prompt.
 ```
 
-> **注意**：只有主代理处于 idle 状态时才会检查和触发任务，确保不会打断正在进行的对话。
+> **注意**：会话忙时，Cron 通知会通过 `processUserInput(..., silent=true)` 进入该会话输入队列，等待当前轮次结束后处理，不会打断正在进行的对话。
 
 ## 主要限制
 
@@ -144,7 +145,7 @@ The above scheduled task has been triggered. Please execute the prompt.
 | **最大任务数** | 20 个 |
 | **循环任务过期** | 单次会话中持续 10 天后自动停止调度（不删除持久化文件，下次启动重新计算） |
 | **仅主代理可操作** | 子代理（SubAgent）内部不允许创建或管理定时任务 |
-| **会话切换清空临时任务** | `createSession` 时非持久化任务会被清除 |
+| **关闭会话清空临时任务** | `core.closeSession(sessionId)` 会清除该会话创建的非持久化任务；创建新会话不会清空其它会话任务 |
 | **cron 验证** | 至少在 31 天内有一次匹配，否则拒绝创建 |
 
 ## 典型场景

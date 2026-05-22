@@ -31,7 +31,7 @@ description: 按照项目规范创建 Git 提交
 | `name` | `string` | Skill 唯一名称，调用时使用（必填） |
 | `description` | `string` | Skill 功能描述，AI 据此决定何时使用（必填） |
 
-> Sema 的 Skill 解析器（`parseFile`）只读取 `name` / `description` / `prompt`（frontmatter 后的 Markdown 正文）。其它 Skills 常见字段（`allowed-tools`、`when-to-use`、`model`、`max-thinking-tokens` 等）不会被解析为运行时约束。如需类似能力，请用 [SubAgent](wiki/getting-started/basic-usage/subagent-usage)。
+> Sema 的 Skill 解析器（`parseFile`）只读取 `name` / `description` / `prompt`（frontmatter 后的 Markdown 正文）。其它 Skills 常见字段（`allowed-tools`、`when-to-use`、`model`、`max-thinking-tokens` 等）不会被解析为运行时约束。如需类似能力，请用 [SubAgent](wiki/core-concepts/task-management/agent-task)。
 
 
 ## 存放位置与优先级
@@ -146,6 +146,4 @@ description: 对指定文件进行代码审查，覆盖正确性、性能、安�
 ```
 
 
-## 进一步了解
 
-更深入的 Skill 系统设计、加载流程、与 SubAgent 的对比，参考 [Skill 支持](wiki/core-concepts/advanced-topics/skill-support)。

@@ -1,6 +1,6 @@
 # 后台任务使用
 
-Sema Core 支持将耗时的 Shell 命令和 SubAgent 任务放到后台运行，主代理不被阻塞。后台任务完成后，主代理在下一轮对话中自动收到通知。
+Sema Core 支持将耗时的 Shell 命令和 SubAgent 任务放到后台运行，当前会话主代理不被阻塞。后台任务完成后，通知会注入任务归属会话，主代理在后续轮次中自动收到。
 
 ## 三种后台任务路径
 
@@ -10,15 +10,15 @@ Sema Core 支持将耗时的 Shell 命令和 SubAgent 任务放到后台运行�
 | **超时接管** | `run_shell` 同步命令超时后自动接管 | `<task-notification>` 含输出文件路径 |
 | **前台转后台** | 用户调用 `transferAgentToBackground()` | `<task-notification>` 含完整结果与 token/tool_uses 统计 |
 
-> 任务结束后，TaskManager 通过 `setNotifyCallback` 注册的回调将通知作为 silent 输入注入主对话队列。
+> 任务结束后，TaskManager 通过 `setNotifyCallback(sessionId, cb)` 注册的回调将通知作为 silent 输入注入任务归属会话的输入队列。
 
 ## 限流与配置
 
 | 参数 | 默认值 | 含义 |
 |------|--------|------|
-| `MAX_RUNNING_TASKS` | 5 | 同时运行的任务上限（含前台 Agent） |
-| `MAX_FINISHED_TASKS` | 10 | 已结束任务在内存中的归档上限 |
-| `MAX_OUTPUT_BYTES` | 2 MB（即 `2 * 1024 * 1024`） | 单任务在内存中的滚动输出上限，超出截断保留末尾 |
+| `MAX_RUNNING_TASKS` | 5 | 每个会话同时运行的任务上限（含前台 Agent） |
+| `MAX_FINISHED_TASKS` | 50 | 每个会话已结束任务的归档上限 |
+| `MAX_OUTPUT_BYTES` | 2 MB（即 `2 * 1024 * 1024`） | 单任务运行中在内存里的滚动输出上限，任务结束后释放内存 |
 | 输出目录 | `os.tmpdir()/sema-tasks/` | 每个任务一个 `<taskId>.output` 文件 |
 
 ### 关闭后台任务
@@ -64,7 +64,7 @@ agentId: <taskId>
 It will continue running independently. You will be notified when it finishes.
 ```
 
-主代理可继续处理其它请求；任务完成后下一轮自动看到通知。
+当前会话主代理可继续处理其它请求；任务完成后后续轮次会自动看到通知。
 
 > 想引导 LLM 多用后台任务，可以在 `customRules` 或 `AGENTS.md` 中加一句："对于预计超过 30 秒的命令优先放到后台运行"。
 
@@ -94,7 +94,7 @@ It will continue running independently. You will be notified when it finishes.
 
 - `wait=true`（默认）：阻塞等待任务完成，RunShell 任务会流式推送增量输出
 - `wait=false`：立即返回当前已捕获的输出快照
-- 等待可被主代理的中断信号（AbortSignal）中止，此时 `retrievalStatus` 为 `'not_ready'`
+- 等待可被当前会话主代理的中断信号（AbortSignal）中止，此时 `retrievalStatus` 为 `'not_ready'`
 
 ### stop_bg_job — 停止后台任务
 
@@ -119,8 +119,8 @@ It will continue running independently. You will be notified when it finishes.
 ## 用户操作 API
 
 ```javascript
-// 列出所有后台任务（不含前台 Agent）
-const list = sema.getTaskList()
+// 列出当前会话的后台任务（不含前台 Agent）
+const list = session.getTaskList()
 // 返回 TaskListItem[]：{ taskId, pid?, filepath, status, type, command, agentType?, foreground?, startTime, endTime? }
 list.forEach(t => {
   console.log(`[${t.taskId}] ${t.type} ${t.status} ${t.command}`)
@@ -128,19 +128,19 @@ list.forEach(t => {
 
 // 流式订阅某个任务的输出（UI 打开任务面板时）
 // 调用时立即补发已有输出，后续增量实时推送
-const unwatch = sema.watchTask(taskId, (delta) => {
+const unwatch = session.watchTask(taskId, (delta) => {
   process.stdout.write(delta)
 })
 // 关闭面板时取消订阅
 unwatch()
 
 // 停止任务
-sema.stopTask(taskId)       // 返回 boolean：是否成功
-sema.stopAllTasks()          // 返回 number：停止的任务数
+session.stopTask(taskId)       // 返回 boolean：是否成功
+session.stopAllTasks()         // 返回 number：停止的任务数
 
 // 把运行中的前台 Agent 转为后台
-sema.transferAgentToBackground(taskId)  // 返回 boolean
-sema.transferAllForegroundAgents()       // 返回 string[]：被转移的任务 ID 列表
+session.transferAgentToBackground(taskId)   // 返回 boolean
+session.transferAllForegroundAgents()       // 返回 string[]：被转移的任务 ID 列表
 ```
 
 ### transferToBackground 内部流程
@@ -154,25 +154,25 @@ sema.transferAllForegroundAgents()       // 返回 string[]：被转移的任务
 
 ```javascript
 // 任务启动
-sema.on('task:start', ({ taskId, pid, command, filepath, status, type, agentType }) => {
+session.on('task:start', ({ taskId, pid, command, filepath, status, type, agentType }) => {
   console.log(`后台任务启动: ${taskId} (${type})`)
   // RunShell 类型含 pid，SubAgent 类型含 agentType
 })
 
 // 任务结束
-sema.on('task:end', ({ taskId, status, summary }) => {
+session.on('task:end', ({ taskId, status, summary }) => {
   // status: 'completed' | 'failed' | 'killed'
   console.log(`后台任务结束: ${taskId} → ${status}: ${summary}`)
 })
 
 // 前台转后台
-sema.on('task:transfer', ({ taskId, from, to }) => {
+session.on('task:transfer', ({ taskId, from, to }) => {
   // from: 'foreground', to: 'background'
   console.log(`任务转移: ${taskId} ${from} → ${to}`)
 })
 
 // SubAgent 任务启动（含 background 字段标识前后台）
-sema.on('task:agent:start', ({ taskId, agent_type, title, instructions, background }) => {
+session.on('task:agent:start', ({ taskId, agent_type, title, instructions, background }) => {
   console.log(`Agent 启动: ${taskId} (${agent_type}) background=${background}`)
 })
 ```
@@ -183,8 +183,8 @@ sema.on('task:agent:start', ({ taskId, agent_type, title, instructions, backgrou
 
 ```javascript
 // 用户点击 UI 上的"转后台"按钮
-sema.transferAgentToBackground(currentForegroundTaskId)
-// → 主对话立刻回到 idle，可继续接收用户输入
+session.transferAgentToBackground(currentForegroundTaskId)
+// → 当前会话主对话立刻回到 idle，可继续接收用户输入
 // → 子代理在后台继续执行，完成后自动注入 task-notification
 ```
 
@@ -192,7 +192,7 @@ sema.transferAgentToBackground(currentForegroundTaskId)
 
 ```javascript
 function renderTaskPanel() {
-  const tasks = sema.getTaskList()
+  const tasks = session.getTaskList()
   return tasks.map(t => ({
     id: t.taskId,
     type: t.type,
@@ -204,25 +204,25 @@ function renderTaskPanel() {
   }))
 }
 
-sema.on('task:start', renderTaskPanel)
-sema.on('task:end',   renderTaskPanel)
+session.on('task:start', renderTaskPanel)
+session.on('task:end',   renderTaskPanel)
 ```
 
 ### 3. 流式查看长跑命令
 
 ```javascript
 const taskId = 'xxxx'   // 来自 task:start 事件
-const unwatch = sema.watchTask(taskId, delta => panel.append(delta))
+const unwatch = session.watchTask(taskId, delta => panel.append(delta))
 
 // 任务结束时取消订阅
-sema.once('task:end', (e) => {
+session.once('task:end', (e) => {
   if (e.taskId === taskId) unwatch()
 })
 ```
 
 ## 任务通知格式
 
-后台任务完成后，TaskManager 通过 `notifyCallback` 生成通知消息注入对话：
+后台任务完成后，TaskManager 通过当前任务 `sessionId` 对应的通知回调生成通知消息并注入该会话：
 
 **RunShell 任务通知：**
 ```
@@ -248,9 +248,9 @@ To retrieve the result, read the output file: <filepath>
 ## 主要限制
 
 - **子代理不允许嵌套后台任务**：SubAgent 内部调用 `run_shell` 时，`background` 字段被 `.omit({ background: true })` 移除，LLM 不可见；超时命令也不接管，直接 kill
-- **会话切换会清空所有后台任务**：`createSession` → `SemaEngine.dispose()` → `TaskManager.dispose()` 会 kill 所有运行中任务并清空
-- **前台 Agent 不在 `getTaskList()` 中**：前台 Agent 仍占用一个 `MAX_RUNNING_TASKS` 名额，但 `getTaskList()` 中 `filter(t => !t.foreground)` 将其过滤，避免 UI 误以为有"游离"任务
-- **后台任务数上限**：达到 `MAX_RUNNING_TASKS` (5) 时，新后台任务会抛出 Error；超时接管场景会 kill 超时进程并抛错
+- **关闭会话会清理本会话任务**：`core.closeSession(sessionId)` / `session.dispose()` 会停止并清理该会话的任务；创建新会话不会自动清空其它会话任务
+- **前台 Agent 不在 `getTaskList()` 中**：前台 Agent 仍占用当前会话一个 `MAX_RUNNING_TASKS` 名额，但 `getTaskList()` 中 `filter(t => !t.foreground)` 将其过滤，避免 UI 误以为有"游离"任务
+- **后台任务数上限**：当前会话达到 `MAX_RUNNING_TASKS` (5) 时，新后台任务会抛出 Error；超时接管场景会 kill 超时进程并抛错
 
 ## 进一步了解
 

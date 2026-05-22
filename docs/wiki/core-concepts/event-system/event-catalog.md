@@ -2,6 +2,8 @@
 
 本文档列出 Sema Core 中所有可监听事件的名称、数据结构和使用说明。
 
+> **进程级事件**：`cron:update` 和 `mcp:server:status` 属于进程级事件，描述全局资源状态变化，与具体会话无关，应通过 `SemaCore.on` 订阅。进程级事件监听器生命周期跟随 Core 实例，`dispose()` 时自动摘除。其余事件均为会话级事件，通过 `SemaSession.on` 订阅。
+
 ## 会话生命周期
 
 ### `session:ready`
@@ -11,7 +13,7 @@
 ```typescript
 {
   pid: number                      // Core 进程 ID
-  workingDir: string               // 工作目录路径
+  workingDir?: string              // 工作目录路径；未显式配置 workingDir 时可能为空
   sessionId: string                // 会话唯一标识
   historyLoaded: boolean           // 是否加载了历史记录
   usage: {
@@ -27,7 +29,7 @@
 
 ### `session:interrupted`
 
-用户调用 `interruptSession()` 中断了执行。
+用户调用 `session.interrupt()` 中断了当前会话执行。
 
 ```typescript
 {
@@ -151,7 +153,7 @@ AI 完成本轮响应（可能还有后续工具调用）。
 
 ### `tool:permission:request`
 
-工具需要用户授权才能执行。必须调用 `respondToToolPermission()` 回应，否则执行将一直等待。
+工具需要用户授权才能执行。必须在当前 `SemaSession` 上调用 `respondToToolPermission()` 回应，否则执行将一直等待。
 
 ```typescript
 {
@@ -167,7 +169,7 @@ AI 完成本轮响应（可能还有后续工具调用）。
 **回应方法**：
 
 ```javascript
-sema.respondToToolPermission({
+session.respondToToolPermission({
   toolId: data.toolId,
   toolName: data.toolName,
   selected: 'agree',   // 或 'allow' / 'refuse' / 其他自定义选项
@@ -176,7 +178,7 @@ sema.respondToToolPermission({
 
 ### `tool:permission:response`
 
-用户通过 `respondToToolPermission()` 发送的权限响应（内部事件）。
+用户通过 `session.respondToToolPermission()` 发送的权限响应（内部事件）。
 
 ```typescript
 {
@@ -188,7 +190,7 @@ sema.respondToToolPermission({
 
 ### `tool:execution:chunk`
 
-命令执行期间，工具结果的中间态推送。结构与 `tool:execution:complete` 相同，`content` 仅包含本次新增的 delta。
+工具执行期间，工具结果的中间态推送。结构与 `tool:execution:complete` 相同，`content` 仅包含本次新增的 delta。
 
 ```typescript
 {
@@ -252,7 +254,7 @@ interface TodoItem {
 
 ### `pick:option:request`
 
-AI 请求向用户展示表单（`ask_form` 工具调用）。必须调用 `respondToPickOption()` 回应，否则执行将一直等待。
+AI 请求向用户展示表单（`ask_form` 工具调用）。必须在当前 `SemaSession` 上调用 `respondToPickOption()` 回应，否则执行将一直等待。
 
 ```typescript
 {
@@ -272,7 +274,7 @@ AI 请求向用户展示表单（`ask_form` 工具调用）。必须调用 `resp
 **回应方法**：
 
 ```javascript
-sema.respondToPickOption({
+session.respondToPickOption({
   agentId: data.agentId,
   answers: '- Framework: React\n- Features: Auth; Billing',
 })
@@ -280,7 +282,7 @@ sema.respondToPickOption({
 
 ### `pick:option:response`
 
-用户通过 `respondToPickOption()` 发送的问答响应（内部事件）。
+用户通过 `session.respondToPickOption()` 发送的问答响应（内部事件）。
 
 ```typescript
 {
@@ -293,7 +295,7 @@ sema.respondToPickOption({
 
 ### `plan:exit:request`
 
-AI 请求退出 Plan 模式（调用了 plan_to_agent 工具）。必须调用 `respondToPlanExit()` 回应。
+AI 请求退出 Plan 模式（调用了 plan_to_agent 工具）。必须在当前 `SemaSession` 上调用 `respondToPlanExit()` 回应。
 
 ```typescript
 {
@@ -310,7 +312,7 @@ AI 请求退出 Plan 模式（调用了 plan_to_agent 工具）。必须调用 `
 **回应方法**：
 
 ```javascript
-sema.respondToPlanExit({
+session.respondToPlanExit({
   agentId: data.agentId,
   selected: 'startEditing',  // 或 'clearContextAndStart'
 })
@@ -318,7 +320,7 @@ sema.respondToPlanExit({
 
 ### `plan:exit:response`
 
-用户通过 `respondToPlanExit()` 发送的 Plan 退出响应（内部事件）。
+用户通过 `session.respondToPlanExit()` 发送的 Plan 退出响应（内部事件）。
 
 ```typescript
 {
@@ -398,13 +400,17 @@ SubAgent 执行结束。
 
 ### `task:transfer`
 
-前台 Agent 通过 `transferToBackground()` 转为后台运行时触发。
+前台 Agent 通过 `transferToBackground()` 转为后台运行时触发。数据格式与 `task:start` 一致，便于 UI 层统一处理。
 
 ```typescript
 {
   taskId: string
-  from: 'foreground'
-  to: 'background'
+  pid?: number
+  command: string
+  filepath: string
+  status: 'running' | 'completed' | 'failed' | 'killed'
+  type: 'RunShell' | 'SubAgent'
+  agentType?: string   // SubAgent 任务专用：代理类型（对应 agent_type）
 }
 ```
 
@@ -430,6 +436,8 @@ SubAgent 执行结束。
 {}   // 无数据负载
 ```
 
+> 进程级事件，通过 `SemaCore.on` 订阅。
+
 ## 旁路问答
 
 ### `quickchat:response`
@@ -448,6 +456,8 @@ SubAgent 执行结束。
 ### `file:reference`
 
 解析到用户输入中的 `@文件引用`。
+
+只有成功解析并生成补充信息的引用会进入该事件。图片会以图片内容块注入；PDF 由 `view_file` 处理，未指定范围时小 PDF 会读取，大 PDF 会提示使用分页参数；压缩包、可执行文件等不支持内联读取的二进制文件会被跳过。
 
 ```typescript
 {
@@ -500,6 +510,8 @@ SubAgent 执行结束。
 ### `mcp:server:status`
 
 MCP 服务器状态变更。事件数据为 `MCPServerInfo` 对象（详见 `src/types/mcp.ts`）。
+
+> 进程级事件，通过 `SemaCore.on` 订阅。
 
 ### `config:no_models`
 

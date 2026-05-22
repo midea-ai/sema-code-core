@@ -4,12 +4,13 @@ Sema Core 通过事件总线实现各模块间的解耦通信。所有外部可�
 
 ## 架构设计
 
-事件总线由两层组成：
+事件总线由三层组成：
 
 | 层 | 类 | 职责 |
 |---|-----|------|
-| 底层 | `EventEmitter` | 基础发布-订阅，`Map<string, Function[]>` 存储监听器，同步执行 |
-| 上层 | `EventBus` | 单例封装，增加静默事件过滤和调试日志 |
+| 底层 | `EventEmitter` | 基础发布-订阅，监听器携带 `sessionId` 路由标签，同步执行 |
+| 上层 | `EventBus` | 进程内单例传输层，增加静默事件过滤、调试日志和 sessionId 路由 |
+| 会话层 | `SessionEventBus` | 包装 `EventBus`，让 `SemaSession` 的 emit/on/once 自动绑定当前 `sessionId` |
 
 ```javascript
 // src/events/EventSystem.ts
@@ -17,11 +18,15 @@ Sema Core 通过事件总线实现各模块间的解耦通信。所有外部可�
 // EventBus 是单例
 const eventBus = EventBus.getInstance()
 
-// SemaCore 对外暴露四个方法：
-sema.on(event, listener)    // 持续监听
-sema.once(event, listener)  // 一次性监听
-sema.off(event, listener)   // 取消监听
-sema.respondToXxx(response)  // 发送权限响应（见下方）
+// SemaCore 订阅进程级事件：
+core.on<CronUpdateData>('cron:update', listener)
+core.once<MCPServerStatusData>('mcp:server:status', listener)
+core.off('cron:update', listener)
+
+// SemaSession 订阅会话级事件：
+session.on(event, listener)
+session.once(event, listener)
+session.off(event, listener)
 ```
 
 底层 `EventEmitter` 的实现要点：
@@ -32,20 +37,25 @@ sema.respondToXxx(response)  // 发送权限响应（见下方）
 
 ## API 参考
 
-### 监听方法（通过 SemaCore 实例访问）
+### 监听方法
+
+进程级事件通过 `SemaCore` 订阅：
 
 ```typescript
-// 持续监听
-sema.on<T>(event: string, listener: (data: T) => void): SemaCore
-
-// 只监听一次，触发后自动移除
-sema.once<T>(event: string, listener: (data: T) => void): SemaCore
-
-// 取消监听
-sema.off<T>(event: string, listener: (data: T) => void): SemaCore
+core.on<T>(event: ProcessEvent, listener: (data: T) => void): SemaCore
+core.once<T>(event: ProcessEvent, listener: (data: T) => void): SemaCore
+core.off<T>(event: ProcessEvent, listener: (data: T) => void): SemaCore
 ```
 
-所有方法返回 `SemaCore` 实例，支持链式调用。泛型 `<T>` 建议明确指定数据类型：
+会话级事件通过 `SemaSession` 订阅：
+
+```typescript
+session.on<T>(event: string, listener: (data: T) => void): SemaSession
+session.once<T>(event: string, listener: (data: T) => void): SemaSession
+session.off<T>(event: string, listener: (data: T) => void): SemaSession
+```
+
+所有方法返回自身实例，支持链式调用。泛型 `<T>` 建议明确指定数据类型：
 
 ```typescript
 interface TextChunkData {
@@ -53,24 +63,19 @@ interface TextChunkData {
   delta: string  // 本次新增的文本片段
 }
 
-sema.on<TextChunkData>('message:text:chunk', ({ delta }) => {
+session.on<TextChunkData>('message:text:chunk', ({ delta }) => {
   process.stdout.write(delta)
 })
 ```
 
 ### 响应发送方法
 
-SemaCore 对外暴露三个权限响应方法，用户通过这些方法向内核返回选择：
+会话级交互响应通过 `SemaSession` 发送：
 
 ```typescript
-// 工具权限响应
-sema.respondToToolPermission(response: ToolPermissionResponse): void
-
-// 问答选项响应
-sema.respondToPickOption(response: PickOptionResponseData): void
-
-// 退出 Plan 模式响应
-sema.respondToPlanExit(response: PlanExitResponseData): void
+session.respondToToolPermission(response: ToolPermissionResponse): void
+session.respondToPickOption(response: PickOptionResponseData): void
+session.respondToPlanExit(response: PlanExitResponseData): void
 ```
 
 ### EventBus 完整方法
@@ -79,6 +84,7 @@ sema.respondToPlanExit(response: PlanExitResponseData): void
 
 ```typescript
 eventBus.removeAllListeners(event?: string): this   // 移除指定/所有监听器
+eventBus.removeSessionListeners(sessionId: string): this // 移除指定会话注册的监听器
 eventBus.hasListeners(event: string): boolean        // 检查是否有监听器
 eventBus.listenerCount(event: string): number        // 获取监听器数量
 eventBus.eventNames(): string[]                      // 获取所有已注册事件名
@@ -105,8 +111,8 @@ eventBus.eventNames(): string[]                      // 获取所有已注册事
 | `plan` | Plan 模式 | `plan:exit:request`, `plan:exit:response`, `plan:implement` |
 | `task` | 任务/子代理 | `task:agent:start`, `task:agent:end`, `task:start`, `task:end`, `task:transfer` |
 | `quickchat` | 旁路问答 | `quickchat:response` |
-| `cron` | 定时任务 | `cron:update` |
-| `mcp` | MCP 协议 | `mcp:server:status` |
+| `cron` | 定时任务（进程级） | `cron:update` |
+| `mcp` | MCP 协议（进程级） | `mcp:server:status` |
 | `config` | 配置 | `config:no_models` |
 
 ## 典型使用模式
@@ -116,12 +122,12 @@ eventBus.eventNames(): string[]                      // 获取所有已注册事
 ```typescript
 let fullText = ''
 
-sema.on<TextChunkData>('message:text:chunk', ({ delta }) => {
+session.on<TextChunkData>('message:text:chunk', ({ delta }) => {
   process.stdout.write(delta)
   fullText += delta
 })
 
-sema.on<MessageCompleteData>('message:complete', ({ content, reasoning }) => {
+session.on<MessageCompleteData>('message:complete', ({ content, reasoning }) => {
   if (reasoning) {
     console.log('\n\n思考过程:', reasoning)
   }
@@ -132,7 +138,7 @@ sema.on<MessageCompleteData>('message:complete', ({ content, reasoning }) => {
 ### 状态监听
 
 ```typescript
-sema.on<StateUpdateData>('state:update', ({ state }) => {
+session.on<StateUpdateData>('state:update', ({ state }) => {
   if (state === 'processing') showSpinner()
   else if (state === 'idle') hideSpinner()
 })
@@ -145,11 +151,11 @@ function waitForIdle(): Promise<void> {
   return new Promise(resolve => {
     const handler = ({ state }: StateUpdateData) => {
       if (state === 'idle') {
-        sema.off('state:update', handler)
+        session.off('state:update', handler)
         resolve()
       }
     }
-    sema.on('state:update', handler)
+    session.on('state:update', handler)
   })
 }
 ```
@@ -157,12 +163,12 @@ function waitForIdle(): Promise<void> {
 ### 工具执行监控
 
 ```typescript
-sema.on<ToolExecutionCompleteData>('tool:execution:complete', ({ agentId, toolName, summary }) => {
+session.on<ToolExecutionCompleteData>('tool:execution:complete', ({ agentId, toolName, summary }) => {
   const prefix = agentId === 'main' ? '' : `[SubAgent ${agentId}] `
   console.log(`${prefix}✓ ${toolName}: ${summary}`)
 })
 
-sema.on<ToolExecutionErrorData>('tool:execution:error', ({ toolName, content }) => {
+session.on<ToolExecutionErrorData>('tool:execution:error', ({ toolName, content }) => {
   console.error(`✗ ${toolName}: ${content}`)
 })
 ```
@@ -171,11 +177,11 @@ sema.on<ToolExecutionErrorData>('tool:execution:error', ({ toolName, content }) 
 
 ```typescript
 // 监听工具权限请求
-sema.on<ToolPermissionRequestData>('tool:permission:request', (data) => {
+session.on<ToolPermissionRequestData>('tool:permission:request', (data) => {
   // 自动批准只读工具
   const readOnlyTools = ['read', 'grep', 'glob', 'list_crons']
   if (readOnlyTools.includes(data.toolName)) {
-    sema.respondToToolPermission({
+    session.respondToToolPermission({
       toolId: data.toolId,
       toolName: data.toolName,
       selected: 'agree'
@@ -190,3 +196,4 @@ sema.on<ToolPermissionRequestData>('tool:permission:request', (data) => {
 - **静默事件**：`message:thinking:chunk` 和 `message:text:chunk` 在高频流式输出时不记录调试日志，避免日志噪音影响性能
 - **tool:execution:chunk**：仅 `fetch_url` 工具记录日志，其他工具不记录
 - **同步执行**：所有监听器同步调用，流式事件中的监听器应尽量轻量，避免阻塞消息管道
+- **日志按会话拆分**：事件日志和 LLM 日志在提供 sessionId 时会按会话拆分存储，文件名格式为 `YYYY-MM-DD_[sessionId].log`，便于多会话场景下的日志隔离与排查

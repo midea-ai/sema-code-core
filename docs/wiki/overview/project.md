@@ -17,7 +17,7 @@
 | MCP 协议 | `@modelcontextprotocol/sdk` |
 | 文件搜索 | `@vscode/ripgrep`、`glob` |
 | Schema 校验 | `zod`、`zod-to-json-schema` |
-| 事件系统 | 自定义 EventBus（基于 Node.js `events`） |
+| 事件系统 | 自定义 EventBus（进程内单例，支持 `sessionId` 路由） |
 | 构建工具 | `tsc`（纯 TypeScript 编译，无打包器） |
 | 运行时 | Node.js >= 16.0.0 |
 
@@ -26,13 +26,15 @@
 ```
 sema-core/
 ├── src/                        # TypeScript 源码
-│   ├── index.ts                # 公共入口：仅导出 SemaCore
+│   ├── index.ts                # 公共入口：导出 SemaCore / SemaSession
 │   ├── conf/                   # 配置常量定义
 │   │   ├── config.ts           # 默认路径、保留数等配置常量
 │   │   └── define.ts           # 类型定义
 │   ├── core/                   # 核心引擎层
-│   │   ├── SemaCore.ts         # 对外 API 门面类
-│   │   ├── SemaEngine.ts       # 内部业务逻辑引擎
+│   │   ├── SemaCore.ts         # 进程级 API 门面类
+│   │   ├── SemaSession.ts      # 会话级 API
+│   │   ├── SessionPool.ts      # 多会话池
+│   │   ├── SemaEngine.ts       # 单会话业务逻辑引擎
 │   │   ├── Conversation.ts     # 递归 LLM 查询/工具调用循环（异步生成器）
 │   │   └── RunTools.ts         # 工具执行：串行 & 并发策略
 │   ├── events/                 # 事件系统
@@ -43,7 +45,7 @@ sema-core/
 │   │   ├── ModelManager.ts     # LLM 模型配置管理（CRUD + 文件持久化）
 │   │   ├── PermissionManager.ts# 工具权限检查 & 提示
 │   │   ├── StateManager.ts     # 会话状态、消息历史、待办（按 Agent 隔离）
-│   │   ├── TaskManager.ts      # 后台任务（RunShell/SubAgent）管理与转发台
+│   │   ├── TaskManager.ts      # 后台任务（RunShell/SubAgent）管理与转后台
 │   │   └── CronManager.ts      # 定时任务管理
 │   ├── services/               # 领域服务
 │   │   ├── agents/             # 子 Agent 系统：AgentsManager、提示词、内置配置
@@ -53,6 +55,7 @@ sema-core/
 │   │   │   ├── cache.ts
 │   │   │   └── apiUtil.ts      # API 工具函数
 │   │   ├── commands/           # 系统命令 & 自定义命令分发
+│   │   ├── design/             # 设计资源管理
 │   │   ├── mcp/                # MCP 协议：MCPClient、MCPManager、MCPToolAdapter
 │   │   ├── memory/             # Memory 记忆文件加载与管理
 │   │   ├── plugins/            # 插件 & 插件市场（marketplace）管理
@@ -63,9 +66,9 @@ sema-core/
 │   │   └── [21 个工具文件]
 │   ├── prompt/                 # 提示词
 │   ├── types/                  # TypeScript 类型定义
-│   └── util/                   # 工具模块（37 个）
+│   └── util/                   # 工具模块
 ├── dist/                       # 编译输出（CommonJS）
-├── test/                       # 测试脚本
+├── tests/                      # 测试脚本
 ├── docs/                       # Docsify 文档站点
 ├── package.json
 └── tsconfig.json
@@ -77,21 +80,23 @@ sema-core/
 
 | 模块 | 职责 |
 |---|---|
-| **SemaCore** | 公共入口门面，对外暴露：会话管理（`createSession`/`processUserInput`/`interruptSession`）、事件订阅（`on`/`once`/`off`）、用户响应（`respondToToolPermission`/`respondToPickOption`/`respondToPlanExit`），以及模型、配置、MCP、Skill、Agent、Command、Memory、Rule、插件市场、后台任务等管理 API |
-| **SemaEngine** | 核心业务逻辑引擎。初始化会话、维护用户输入队列与 `pendingSession` 切换、处理用户输入并调用 `query()` 运行主循环；管理 `AbortController` 实现可中断；注入 `TaskManager` 和 `CronManager` 后台通知回调 |
+| **SemaCore** | 进程级入口门面，对外暴露：会话池（`createSession`/`getSession`/`listSessions`/`closeSession`）、进程级事件订阅（`cron:update`/`mcp:server:status`），以及模型、配置、MCP、Skill、Agent、Command、Memory、Rule、Design、插件市场等全局管理 API |
+| **SemaSession** | 会话级入口。处理用户输入、中断、会话级事件订阅、权限/表单/Plan 响应、Agent 模式切换和后台任务管理 |
+| **SessionPool** | 管理多个 `SemaSession` 的创建、复用、查找、活跃会话设置和关闭 |
+| **SemaEngine** | 单会话业务逻辑引擎。绑定固定 `sessionId`，维护该会话输入队列，处理用户输入并调用 `query()` 运行主循环；管理 `AbortController` 实现可中断；注入该会话的 `TaskManager` 和 `CronManager` 通知回调 |
 | **Conversation** | 异步生成器实现递归 LLM Agentic 循环：调用 LLM → 解析工具调用 → 执行工具 → 递归调用自身，支持 Agent/Plan 模式切换时重建上下文，支持上下文自动压缩（compact） |
-| **RunTools** | 工具执行策略：只读工具（SearchFiles/SearchContent/ViewFile 等）并发执行，写入工具串行执行；包含 Zod schema 校验、输入验证、权限检查、异步生成器流式输出 |
+| **RunTools** | 工具执行策略：当本轮所有工具都 `isSafe()` 或 `canRunConcurrently()` 时整批并发，否则整批串行；包含 Zod schema 校验、输入验证、权限检查、异步生成器流式输出 |
 
 ### Manager 层（`src/manager/`）
 
 | 模块 | 职责 |
 |---|---|
-| **StateManager** | 全局状态管理，按 Agent 隔离：会话状态、消息历史、文件读取时间戳、待办事项、待处理用户输入队列；支持历史持久化到磁盘 |
-| **ConfManager** | 配置管理：维护 `SemaCoreConfig`（工作目录、日志级别、流式输出、Agent 模式、`useTools`、`disableBackgroundTasks` 等），持久化项目配置到 `~/.sema/projects.conf` |
+| **StateManager** | 多会话状态注册表：`sessionId -> SessionRuntime`；会话内再按 Agent 隔离消息历史、文件读取时间戳、待办事项和状态 |
+| **ConfManager** | 配置管理：维护 `SemaCoreConfig`（工作目录、日志级别、流式输出、默认 Agent 模式、`useTools`/`disabledTools`、`maxSessions`、`disableBackgroundTasks` 等），持久化项目配置到 `~/.sema/projects.conf` |
 | **ModelManager** | 模型配置管理：持久化到 `~/.sema/model.conf`，支持双模型指针（`main` 主模型 + `quick` 轻量模型），CRUD 操作及任务模型应用 |
 | **PermissionManager** | 分层权限系统：文件编辑（会话级）、RunShell 命令（白名单 + LLM 分析 + 项目持久化）、Skill/MCP 工具（按工具持久化） |
-| **TaskManager** | 后台任务调度：管理 RunShell 与 SubAgent 的后台进程，支持 watch / stop / 列表 / 转后台、完成后通过回调将通知注入主对话队列 |
-| **CronManager** | 定时任务管理：基于 cron 表达式的定时任务调度，支持创建、删除、列表查询等操作 |
+| **TaskManager** | 后台任务调度：管理 RunShell 与 SubAgent 后台进程，按会话限流、过滤列表、停止任务和投递完成通知 |
+| **CronManager** | 定时任务管理：基于 cron 表达式调度，触发时优先投递来源会话，兜底投递 UI 活跃会话 |
 
 ### Services 层（`src/services/`）
 
@@ -102,6 +107,7 @@ sema-core/
 | **agents/** | 子 Agent 系统，从 `.md` 文件加载 Agent 配置（用户级 `~/.sema/agents/` + 项目级 `.sema/agents/`），支持内置 + 自定义 Agent，并提供 `genSystemPrompt`、systemReminder 注入 |
 | **skills/** | Skill 插件系统，基于带 YAML frontmatter 的 Markdown 文件，项目级覆盖用户级 |
 | **commands/** | 系统命令（`/clear`、`/compact`、`/quickchat` 等）和自定义命令分发 |
+| **design/** | 设计资源管理，加载 Design Skill 与 Design System 信息 |
 | **plugins/** | 插件与插件市场（marketplace）管理：从 git 仓库或本地目录添加、安装、启用、更新、卸载插件 |
 | **memory/** | 记忆文件加载与刷新，参与系统提示词构建 |
 | **rules/** | 项目规则文件加载与刷新，参与系统提示词构建 |
@@ -112,7 +118,7 @@ sema-core/
 
 | 工具 | 用途 |
 |---|---|
-| RunShell | 终端命令执行（支持 `run_in_background` 后台任务） |
+| RunShell | 终端命令执行（支持 `background` 后台任务） |
 | SearchFiles / SearchContent | 文件 / 文本搜索 |
 | ViewFile / WriteFile / PatchFile | 文件读取、写入、补丁编辑 |
 | EditNotebook | Jupyter Notebook 编辑 |
@@ -128,14 +134,15 @@ sema-core/
 
 ## 架构模式
 
-- **门面模式** — `SemaCore` 作为统一 API 门面，外部使用方仅与之交互
-- **单例模式** — EventBus、StateManager、ConfManager、ModelManager、PermissionManager、TaskManager、CronManager、MCPManager、AgentsManager、SkillsManager、CommandsManager、PluginsManager、MemoryManager、RuleManager 均通过 `getXxx()` / `getInstance()` 访问
-- **事件驱动架构** — 所有异步操作（工具权限、流式输出、会话状态、后台任务）通过 EventBus 发布/订阅，完全解耦核心引擎与 UI/宿主逻辑
+- **门面模式** — `SemaCore` 作为进程级门面，`SemaSession` 作为会话级门面
+- **单例模式** — EventBus、StateManager、ConfManager、ModelManager、PermissionManager、TaskManager、CronManager、MCPManager、AgentsManager、SkillsManager、CommandsManager、PluginsManager、MemoryManager、RuleManager、DesignManager 均通过 `getXxx()` / `getInstance()` 访问
+- **事件驱动架构** — 会话级事件通过 `sessionId` 路由，进程级事件通过全局监听器订阅，完全解耦核心引擎与 UI/宿主逻辑
 - **异步生成器模式** — `Conversation.query()`、`RunTools.runToolsSerially()`、`tool.call()` 均使用 `AsyncGenerator` 实现增量流式输出
 - **递归 Agentic 循环** — `query()` 在每轮工具调用后递归调用自身，实现标准 ReAct/tool-use 模式
 - **可插拔工具** — 内置工具和 MCP 工具统一实现 `Tool<TInput, TOutput>` 接口
 - **优先级覆盖** — Agent、Skill、Command、MCP 配置遵循：项目级 > 用户级 > 内置默认
-- **输入队列** — 处理中收到的用户输入会按 `command` / `inject` 类型入队，处理结束后由 `processQuery` 的 finally 自动消费
+- **多会话池** — `SessionPool` 支持多个 `SemaSession` 并存，创建新会话不会自动中断旧会话
+- **输入队列** — 处理中收到的用户输入会按 `command` / `inject` 类型进入当前会话队列，处理结束后由 `processQuery` 的 finally 自动消费
 
 ## 事件系统
 
@@ -161,17 +168,20 @@ EventBus 是全局单例发布/订阅系统，所有模块间通信通过事件�
 ## 入口与导出
 
 ```javascript
-// 库入口（仅导出 SemaCore 门面类）
+// 库入口
 import { SemaCore } from 'sema-core'
 
 const sema = new SemaCore({ workingDir: '/path/to/project' })
-sema.on('message:text:chunk', data => process.stdout.write(data.delta))
-await sema.createSession()
-sema.processUserInput('帮我读取 README.md')
+const result = await sema.createSession()
+if (!result.ok) throw new Error(result.error)
+
+const session = result.session
+session.on('message:text:chunk', data => process.stdout.write(data.delta))
+session.processUserInput('帮我读取 README.md')
 ```
 
 package.json 提供了多个导出入口：
-- `.` - 主入口，导出 SemaCore
+- `.` - 主入口，导出 SemaCore / SemaSession
 - `./types` - 类型定义
 - `./event` - 事件类型
 - `./mcp` - MCP 相关模块
@@ -197,4 +207,3 @@ package.json 提供了多个导出入口：
 |---|---|
 | `npm install` | 安装依赖 |
 | `npm run build` | 编译 TypeScript 到 `dist/`（通过 `tsc`） |
-| `node test/miniCli.test.js` | 交互式 CLI 测试 |

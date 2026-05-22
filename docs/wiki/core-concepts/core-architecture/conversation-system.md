@@ -21,12 +21,16 @@
 
 1. **命令处理**：`handleCommand` 逐条处理输入；系统命令已直接执行并跳过
 2. **文件引用解析**：`processFileReferences` 提取 `@文件` / `@目录`，生成 `systemReminders` 与补充信息（触发 `file:reference`）
-3. **系统提示词生成**：`formatSystemPrompt` 拼装工作目录、Memory、Rule、Skill 摘要、Plan 模式提示等
+   - 文本文件和目录会读取摘要内容
+   - 图片会作为 image content block 注入
+   - PDF 由 `view_file` 处理；未指定范围时小 PDF 会读取，大 PDF 会提示使用分页参数
+   - 不支持内联读取的二进制文件（如压缩包、可执行文件等）会跳过，不生成补充信息
+3. **系统提示词快照**：读取当前会话创建时冻结的 `systemPromptContent`；缺失时才兜底调用 `formatSystemPrompt`
 4. **additionalReminders 构建**（`buildAdditionalReminders`）：
    - 文件引用 `systemReminders`（每次均添加）
    - 首次查询时：Todos 提醒（仅当工具集中含 Skill 时按内部规则附加）、Rules 提醒
    - Plan 模式首次查询时：Plan 模式专用提醒（发送后标记避免重复）
-5. **AgentContext** 构建：`{ agentId, abortController, tools, model: 'main' }`
+5. **AgentContext** 构建：`{ sessionId, agentId, abortController, tools, model: 'main' }`
 
 
 ## query() 主循环
@@ -36,7 +40,7 @@ query(messages, systemPromptContent, agentContext)
    │
    ▼
 1. shouldAutoCompact 检查（仅主代理）
-   ├─ 命中 → TaskManager.dispose() + autoCompact + 清空 todos / readFileTimestamps
+   ├─ 命中 → TaskManager.disposeSession(sessionId) + autoCompact(sessionId) + 清空当前会话 todos / readFileTimestamps
    ▼
 2. queryLLM(...) 流式调用 LLM
    ├─ emit message:thinking:chunk / message:text:chunk
@@ -138,7 +142,7 @@ sequenceDiagram
 | 3 | 单个工具开始前 | RunTools 内部返回取消消息（`CANCEL_MESSAGE`） |
 | 4 | 工具执行期间 | 拒绝原因为 `refuse` 时保留原消息，否则返回取消消息 |
 
-调用 `sema.interruptSession()` 后，会在最近的检查点中止执行，并触发 `session:interrupted` 事件。后续是否继续消费输入队列、切换会话或置 `idle`，由 `SemaEngine.processQuery.finally` 决定。
+调用 `session.interrupt()` 后，会在最近的检查点中止执行，并触发当前会话的 `session:interrupted` 事件。后续是否继续消费该会话输入队列或置 `idle`，由 `SemaEngine.processQuery.finally` 决定。
 
 
 ## max_tokens 截断处理
@@ -159,7 +163,7 @@ sequenceDiagram
 shouldAutoCompact(messages) === true
         │
         ▼
-TaskManager.dispose()           // 关闭后台进程，避免压缩后状态不一致
+TaskManager.disposeSession(sessionId) // 关闭当前会话后台进程，避免压缩后状态不一致
 autoCompact(messages, abortCtl) // LLM 摘要式压缩
         │
         ▼
@@ -190,10 +194,9 @@ controlSignal: {
 重建步骤：
 
 1. 重新获取工具集：`getTools(useTools) + getMCPManager().getMCPTools()`
-2. 若 `newMode === 'Plan'` → 过滤掉 `create_todo`、`update_todo`
-3. 用新 tools 构造 `newAgentContext`
-4. 重新生成系统提示词 `formatSystemPrompt()`（不再含 Plan 模式提示）
-5. 决定下一轮消息历史：
+2. 用新 tools 构造 `newAgentContext`
+3. 复用当前会话的系统提示快照
+4. 决定下一轮消息历史：
    - **无 `rebuildMessage`**（startEditing）：保留原历史 → `[...messages, assistantMessage, ...orderedToolResults]`
    - **有 `rebuildMessage`**（clearContextAndStart）：清空历史，新建一条用户消息，附带 Skill / Rules 等首次查询提醒 + `rebuildMessage` 内容
 
@@ -202,7 +205,7 @@ controlSignal: {
 
 ## 用户消息注入（injectPendingInputsIntoToolResult）
 
-主代理在「工具执行完成 → 递归查询」之间，会消费 `StateManager` 的注入队列：
+主代理在「工具执行完成 → 递归查询」之间，会消费当前 `SessionRuntime` 的注入队列：
 
 ```
 1. consumeInjectInputsBeforeNextCommand() —— 从队头连续取 inject 类型，遇 command 停止
@@ -220,7 +223,7 @@ controlSignal: {
 每轮 AI 响应完成后及检查点 2 中断时均发布 token 使用情况（仅主代理触发）：
 
 ```javascript
-sema.on('conversation:usage', ({ usage }) => {
+session.on('conversation:usage', ({ usage }) => {
   console.log(`已用: ${usage.useTokens} / ${usage.maxTokens}`)
   console.log(`Prompt tokens: ${usage.promptTokens}`)
 })

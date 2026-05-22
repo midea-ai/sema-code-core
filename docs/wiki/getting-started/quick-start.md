@@ -26,6 +26,7 @@ const core = new SemaCore({
   thinking: false,                     // 是否显示思考过程
   disableTopicDetection: true,         // 禁用话题检测
   disableBackgroundTasks: true,        // 禁用后台任务
+  maxSessions: 5,                      // 可选：同时最多保留 5 个会话
 });
 
 // 配置模型（以 qwen3.5-plus 为例）
@@ -74,24 +75,26 @@ node quickstart.mjs
 
 ```javascript
 // 创建会话
-await core.createSession();
+const result = await core.createSession();
+if (!result.ok) throw new Error(result.error);
+const session = result.session;
 
 // 发送用户输入
-core.processUserInput("帮我重构这个函数");
+session.processUserInput("帮我重构这个函数");
 
 // 中断会话
-core.interruptSession();
+session.interrupt();
 
-// 监听事件
-core.on('session:ready', (data) => { ... });
-core.on('message:text:chunk', ({ delta }) => { process.stdout.write(delta); });
-core.on('tool:permission:request', (data) => { ... });
+// 监听会话级事件
+session.on('session:ready', (data) => { ... });
+session.on('message:text:chunk', ({ delta }) => { process.stdout.write(delta); });
+session.on('tool:permission:request', (data) => { ... });
 
 // 响应权限请求
-core.respondToToolPermission({ toolId, toolName, selected: 'agree' });
+session.respondToToolPermission({ toolId, toolName, selected: 'agree' });
 ```
 
-完整 API 列表请参考 [SemaCore 公共 API](wiki/core-concepts/core-architecture/sema-core-public-api)。
+完整 API 列表请参考 [SemaCore 公共 API](wiki/core-concepts/core-architecture/sema-core-public-api) 与 [SemaSession 会话级 API](wiki/core-concepts/core-architecture/sema-session-api)。
 
 ---
 
@@ -143,13 +146,14 @@ example/
 
 | 概念 | 说明 | 文档 |
 |------|------|------|
-| **SemaCore** | 公共 API 入口，所有操作都通过它进行 | [SemaCore - 公共 API 层](wiki/core-concepts/core-architecture/sema-core-public-api) |
-| **SemaEngine** | 核心引擎，负责协调所有子系统的初始化和运行时调度 | [SemaEngine - 业务逻辑](wiki/core-concepts/core-architecture/sema-engine-business-logic) |
+| **SemaCore** | 进程级入口，管理全局资源、配置和会话池 | [SemaCore - 公共 API 层](wiki/core-concepts/core-architecture/sema-core-public-api) |
+| **SemaSession** | 会话级入口，处理输入、事件、权限响应和后台任务 | [SemaSession - 会话级 API](wiki/core-concepts/core-architecture/sema-session-api) |
+| **SemaEngine** | 单会话核心引擎，负责输入队列、模式控制和对话调度 | [SemaEngine - 业务逻辑](wiki/core-concepts/core-architecture/sema-engine-business-logic) |
 | **事件系统** | 流式输出、状态变化、工具执行均通过事件通知 | [事件总线架构](wiki/core-concepts/event-system/event-bus) |
 | **工具权限** | 写操作（RunShell、PatchFile 等）默认需要用户授权 | [权限系统](wiki/core-concepts/tool-system/permission-system) |
-| **MCP** | 通过标准协议为 AI 扩展自定义工具 | [MCP 集成](wiki/core-concepts/advanced-topics/mcp-integration) |
-| **Skill** | 可复用的 AI 工作流，存储为 Markdown 文件 | [Skill 支持](wiki/core-concepts/advanced-topics/skill-support) |
-| **SubAgent** | 隔离执行的专用子代理 | [SubAgent 子代理](wiki/core-concepts/advanced-topics/subagents) |
+| **MCP** | 通过标准协议为 AI 扩展自定义工具 | [MCP 使用](wiki/getting-started/basic-usage/mcp-usage) |
+| **Skill** | 可复用的 AI 工作流，存储为 Markdown 文件 | [Skill 使用](wiki/getting-started/basic-usage/skill-usage) |
+| **SubAgent** | 隔离执行的专用子代理 | [SubAgent 后台任务](wiki/core-concepts/task-management/agent-task) |
 
 ---
 
@@ -157,6 +161,6 @@ example/
 
 - 📚 [添加新模型配置](wiki/getting-started/basic-usage/add-new-model) - 配置更多 LLM 服务商
 - 🔧 [命令使用说明](wiki/getting-started/basic-usage/command-usage) - 学习内置命令
-- 🤖 [子代理使用](wiki/getting-started/basic-usage/subagent-usage) - 委派专项任务
+- 🤖 [SubAgent 后台任务](wiki/core-concepts/task-management/agent-task) - 委派专项任务
 - ⏰ [定时任务使用](wiki/getting-started/basic-usage/cron-usage) - 设置周期性任务
 - 🔌 [MCP 集成使用](wiki/getting-started/basic-usage/mcp-usage) - 接入外部工具

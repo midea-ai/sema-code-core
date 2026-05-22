@@ -106,7 +106,7 @@ const toolInfos = getToolInfos()
 const sdkTools = buildTools(filteredTools)
 ```
 
-> `buildTools` 还会读取核心配置 `disableBackgroundTasks`：当其为 `true` 时，会从 `run_shell` 与 `sub_agent` 的 toolParams 中自动剔除 `run_in_background` 字段，确保 LLM 看不到该参数。
+> `buildTools` 还会读取核心配置 `disableBackgroundTasks`：当其为 `true` 时，会从 `run_shell` 与 `sub_agent` 的 toolParams 中自动剔除 `background` 字段，确保 LLM 看不到该参数。
 
 
 ## 工具分类
@@ -285,18 +285,18 @@ LLM 调用:
 
 # 后台任务相关
 
-`run_shell` 与 `sub_agent` 工具的 toolParams 都包含 `run_in_background` 字段，配合 `peek_bg_job` / `stop_bg_job` 工具，构成完整的后台任务能力：
+`run_shell` 与 `sub_agent` 工具的 toolParams 都包含 `background` 字段，配合 `peek_bg_job` / `stop_bg_job` 工具，构成完整的后台任务能力：
 
-- **启动**：`run_shell(run_in_background: true)` 直接 spawn 独立进程；`sub_agent(run_in_background: true)` 启动独立 AbortController 的子代理循环
+- **启动**：`run_shell(background: true)` 直接 spawn 独立进程；`sub_agent(background: true)` 启动独立 AbortController 的子代理循环
 - **接管**：`run_shell` 同步执行超时时，自动把底层 shell 接管为后台任务（`takeoverTask`）
 - **读取**：`peek_bg_job(task_id, block, timeout)` 拉取已完成快照或阻塞等待
 - **停止**：`stop_bg_job(task_id)` 向后台任务发起停止
 
 约束：
 
-- 子代理（`agentId !== MAIN_AGENT_ID`）强制不允许后台任务，`run_in_background` 即使被传入也被忽略
+- 子代理（`agentId !== MAIN_AGENT_ID`）强制不允许后台任务，`background` 即使被传入也被忽略
 - 核心配置 `disableBackgroundTasks: true` 时：
-  - `buildTools` 会从 `run_shell` / `sub_agent` 的 schema 中过滤 `run_in_background`，LLM 看不到该参数
+  - `buildTools` 会从 `run_shell` / `sub_agent` 的 schema 中过滤 `background`，LLM 看不到该参数
   - 超时接管 / 转后台等路径同样禁用
 
 详见 [RunShell 后台任务](wiki/core-concepts/task-management/bash-task) 与 [SubAgent 后台任务](wiki/core-concepts/task-management/agent-task)。

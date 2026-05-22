@@ -206,4 +206,4 @@ argument-hint: [pr-number] [focus-area]
 
 ## 进一步了解
 
-对于更复杂的可复用工作流（含 AI 自动调用、工具约束等），推荐使用 [Skill 使用](wiki/getting-started/basic-usage/skill-usage)；命令系统的更多细节参考 [Command 命令](wiki/core-concepts/advanced-topics/commands)。
+对于更复杂的可复用工作流（含 AI 自动调用、工具约束等），推荐使用 [Skill 使用](wiki/getting-started/basic-usage/skill-usage)。

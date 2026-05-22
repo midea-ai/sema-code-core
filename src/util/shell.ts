@@ -173,6 +173,24 @@ export function getShellRuntimeInfo(): DetectedShell | null {
   }
 }
 
+export function toOneShotShell(shell: DetectedShell): DetectedShell {
+  switch (shell.type) {
+    case 'posix':
+    case 'msys':
+      return { bin: shell.bin, args: ['-c'], type: shell.type }
+    case 'wsl':
+      return { bin: shell.bin, args: ['-e', 'bash', '-c'], type: shell.type }
+    case 'powershell':
+      return { bin: shell.bin, args: ['-NoProfile', '-Command'], type: shell.type }
+    case 'cmd':
+      return { bin: shell.bin, args: ['/c'], type: shell.type }
+  }
+}
+
+export function getOneShotShellRuntimeInfo(): DetectedShell {
+  return toOneShotShell(resolveShellBinary())
+}
+
 // 从环境变量检测 bash（SEMA_BASH / SHELL）
 function detectBashFromEnv(): DetectedShell | null {
   // SEMA_BASH 环境变量优先级最高

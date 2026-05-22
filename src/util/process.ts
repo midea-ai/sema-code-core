@@ -4,6 +4,7 @@ import * as os from 'os'
 import { execSync, type ChildProcess } from 'child_process'
 import { IS_WIN } from './platform'
 import { logWarn } from './log'
+import { getOneShotShellRuntimeInfo } from './shell'
 
 // 内存输出上限 2MB
 export const MAX_OUTPUT_BYTES = 2 * 1024 * 1024
@@ -17,10 +18,8 @@ export function ensureTaskDir() {
 
 // 获取 shell 信息（用于独立 spawn 场景）
 export function getShellForSpawn(): { bin: string; args: string[] } {
-  if (IS_WIN) {
-    return { bin: process.env.ComSpec || 'cmd.exe', args: ['/c'] }
-  }
-  return { bin: process.env.SHELL || '/bin/bash', args: ['-c'] }
+  const { bin, args } = getOneShotShellRuntimeInfo()
+  return { bin, args }
 }
 
 // kill 进程（跨平台），返回是否成功

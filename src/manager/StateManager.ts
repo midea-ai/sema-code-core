@@ -16,7 +16,7 @@
 
 import * as crypto from 'crypto';
 import { getEventBus } from '../events/EventSystem';
-import { StateUpdateData, AppSessionState, TodoItem, AutoEditUpdateData } from '../events/types';
+import { StateUpdateData, AppSessionState, TodoItem, PermissionLevelUpdateData } from '../events/types';
 import { logInfo } from '../util/log';
 import { saveHistory } from '../util/history';
 import { Message } from '../types/message';
@@ -24,7 +24,7 @@ import { getConfManager } from './ConfManager';
 import { TodoTask, TodoTaskStatus } from '../types/todoTask';
 import { LineEndingKind } from '../util/file';
 import type { AgentContext } from '../types/agent';
-import type { AgentMode } from '../types';
+import type { AgentMode, PermissionLevel } from '../types';
 
 
 // 待处理用户输入项
@@ -105,7 +105,7 @@ export class SessionRuntime {
 
   // === 会话级状态 ===
   public currentAbortController: AbortController | null = null;
-  private globalEditPermissionGranted = false;
+  private permissionLevel: PermissionLevel = 'Ask';
   private planModeInfoSent = false;
   private designModeInfoSent = false;
 
@@ -499,7 +499,7 @@ export class SessionRuntime {
 
     this.currentAbortController = null;
     this.systemPromptContent = null;
-    this.globalEditPermissionGranted = false;
+    this.permissionLevel = 'Ask';
     this.planModeInfoSent = false;
     this.designModeInfoSent = false;
     this.foregroundAgents.clear();
@@ -543,35 +543,50 @@ export class SessionRuntime {
   }
 
   // ============================================================
-  // 全局编辑权限（会话级）
+  // 权限自由度档位（会话级）
   // ============================================================
 
-  hasGlobalEditPermission(): boolean {
-    return this.globalEditPermissionGranted;
+  getPermissionLevel(): PermissionLevel {
+    return this.permissionLevel;
   }
 
-  grantGlobalEditPermission(): void {
-    if (this.globalEditPermissionGranted) return;
-    this.globalEditPermissionGranted = true;
-    logInfo(`[${this.sessionId}] 全局编辑权限已授予`);
-    this.emitAutoEditUpdate(true);
+  /** 当前是否为 AutoRun 档位（最高自由度，需做自动判断） */
+  isAutoRun(): boolean {
+    return this.permissionLevel === 'AutoRun';
   }
 
   /**
-   * 设置自动编辑状态（仅在 skipFileEditPermission 为 false 时生效）
+   * 非 Ask 档（AutoEdit / AutoRun）时项目内文件编辑自动放行。
+   * 命名保留以最小化权限检查处的改动，语义不变。
    */
-  updateAutoEdit(enable: boolean): void {
-    const coreConfig = getConfManager().getCoreConfig();
-    if (coreConfig?.skipFileEditPermission) return;
-    if (this.globalEditPermissionGranted === enable) return;
-    this.globalEditPermissionGranted = enable;
-    logInfo(`[${this.sessionId}] 自动编辑已${enable ? '开启' : '关闭'}`);
-    this.emitAutoEditUpdate(enable);
+  hasGlobalEditPermission(): boolean {
+    return this.permissionLevel !== 'Ask';
   }
 
-  private emitAutoEditUpdate(enable: boolean): void {
-    const data: AutoEditUpdateData = { enable };
-    getEventBus().emit('autoEdit:update', data, this.sessionId);
+  /**
+   * 用户在文件编辑弹窗选择"本次会话不再询问文件编辑"时调用：
+   * 仅当当前为 Ask 时提升到 AutoEdit；已是 AutoEdit/AutoRun 则不降级。
+   */
+  grantGlobalEditPermission(): void {
+    if (this.permissionLevel !== 'Ask') return;
+    this.permissionLevel = 'AutoEdit';
+    logInfo(`[${this.sessionId}] 权限档位提升至 AutoEdit`);
+    this.emitPermissionLevelUpdate('AutoEdit');
+  }
+
+  /**
+   * 设置权限自由度档位。
+   */
+  setPermissionLevel(level: PermissionLevel): void {
+    if (this.permissionLevel === level) return;
+    this.permissionLevel = level;
+    logInfo(`[${this.sessionId}] 权限档位已设为 ${level}`);
+    this.emitPermissionLevelUpdate(level);
+  }
+
+  private emitPermissionLevelUpdate(level: PermissionLevel): void {
+    const data: PermissionLevelUpdateData = { level };
+    getEventBus().emit('permissionLevel:update', data, this.sessionId);
   }
 
   // ============================================================

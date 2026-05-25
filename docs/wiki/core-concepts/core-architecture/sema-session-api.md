@@ -1,6 +1,6 @@
 # SemaSession — 会话级 API
 
-`SemaSession` 表示一个独立会话，由 `SemaCore.createSession()` 创建并返回。它承载对话输入、会话级事件、权限响应、Agent 模式、自动编辑和后台任务等能力。
+`SemaSession` 表示一个独立会话，由 `SemaCore.createSession()` 创建并返回。它承载对话输入、会话级事件、权限响应、Agent 模式、权限档位和后台任务等能力。
 
 `SemaCore` 负责进程级资源和会话池；`SemaSession` 负责单个会话的交互。
 
@@ -14,6 +14,7 @@ const core = new SemaCore({ workingDir: '/path/to/project' })
 const result = await core.createSession({
   sessionId: 'existing-session-id', // 可选：恢复已有历史
   agentMode: 'Agent',               // 可选：'Agent' | 'Plan' | 'Design'
+  permissionLevel: 'Ask',           // 可选：'Ask' | 'AutoEdit' | 'AutoRun'，默认 'Ask'
 })
 
 if (!result.ok) {
@@ -92,11 +93,11 @@ session.respondToPlanExit({
 ## 会话级配置
 
 ```javascript
-session.updateAgentMode('Plan')   // 'Agent' | 'Plan' | 'Design'
-session.updateAutoEdit(true)
+session.updateAgentMode('Plan')              // 'Agent' | 'Plan' | 'Design'
+session.updatePermissionLevel('AutoEdit')    // 'Ask' | 'AutoEdit' | 'AutoRun'
 ```
 
-`agentMode` 从全局配置读取默认值，也可以在 `createSession({ agentMode })` 时指定初始值。之后的切换只影响当前会话，不会改写其它会话。
+`agentMode` 从全局配置读取默认值，也可以在 `createSession({ agentMode })` 时指定初始值。`permissionLevel` 默认 `'Ask'`，可在 `createSession({ permissionLevel })` 时指定初始值，变更时触发 `permissionLevel:update` 事件。之后的切换只影响当前会话，不会改写其它会话。
 
 会话创建时会生成一份系统提示快照（包含环境、git 状态等），同一会话内复用该快照，避免运行中因外部状态变化导致提示词漂移。
 

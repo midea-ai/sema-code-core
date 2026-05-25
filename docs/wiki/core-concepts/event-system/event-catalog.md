@@ -414,15 +414,15 @@ SubAgent 执行结束。
 }
 ```
 
-## 自动编辑
+## 权限档位
 
-### `autoEdit:update`
+### `permissionLevel:update`
 
-自动编辑模式开关状态变更。
+会话权限自由度档位变更。
 
 ```typescript
 {
-  enable: boolean   // 是否开启自动编辑
+  level: 'Ask' | 'AutoEdit' | 'AutoRun'   // 当前权限档位
 }
 ```
 

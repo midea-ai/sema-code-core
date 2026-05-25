@@ -51,12 +51,13 @@ async createSession(opts?: CreateSessionOptions): Promise<void>
 ```
 1. initialize()：设置日志级别，检查 main 模型
 2. 设置会话级 agentMode：opts.agentMode > coreConfig.agentMode > 'Agent'
-3. 构建并冻结系统提示快照 formatSystemPrompt()
-4. loadHistory(opts.sessionId, workingDir) 恢复历史
-5. 恢复主代理消息历史、Todos、TodoTasks、文件读取时间戳
-6. 读取项目输入历史与 token 使用量
-7. setImmediate 发送 session:ready
-8. 将主代理状态置为 idle
+3. 设置会话级 permissionLevel：opts.permissionLevel > 'Ask'
+4. 构建并冻结系统提示快照 formatSystemPrompt()
+5. loadHistory(opts.sessionId, workingDir) 恢复历史
+6. 恢复主代理消息历史、Todos、TodoTasks、文件读取时间戳
+7. 读取项目输入历史与 token 使用量
+8. setImmediate 发送 session:ready
+9. 将主代理状态置为 idle
 ```
 
 `session:ready` 事件数据：
@@ -154,14 +155,14 @@ processUserInput(input: string, originalInput?: string, silent?: boolean): void
 
 多会话不再通过 `pendingSession` 切换。新会话由 `SessionPool` 创建并并存；旧会话仍可继续处理自己的队列，除非调用方显式 `session.interrupt()` 或关闭该会话。
 
-## Agent 模式与自动编辑
+## Agent 模式与权限档位
 
 ```javascript
 updateAgentMode(mode: 'Agent' | 'Plan' | 'Design'): void
-updateAutoEdit(enable: boolean): void
+updatePermissionLevel(level: 'Ask' | 'AutoEdit' | 'AutoRun'): void
 ```
 
-这些配置写入当前会话的 `SessionRuntime`，不会影响其它会话。切换到 Plan 或 Design 模式时，会重置对应的模式提示发送标记，使下一轮对话重新注入模式说明。`updateAutoEdit()` 会更新会话级编辑权限状态；若核心配置 `skipFileEditPermission=true`，该调用不再改变会话状态。
+这些配置写入当前会话的 `SessionRuntime`，不会影响其它会话。切换到 Plan 或 Design 模式时，会重置对应的模式提示发送标记，使下一轮对话重新注入模式说明。`updatePermissionLevel()` 设置会话级权限自由度档位（`'Ask'` / `'AutoEdit'` / `'AutoRun'`），档位决定需要确认的工具被自动放行的力度（详见[权限系统](wiki/core-concepts/tool-system/permission-system)），变更时触发 `permissionLevel:update` 事件。
 
 ## 中断与释放
 

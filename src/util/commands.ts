@@ -140,8 +140,9 @@ export function splitCommand(command: string): string[] {
 export async function getCommandSubcommandPrefix(
   command: string,
   abortSignal: AbortSignal,
+  sessionId?: string,
 ): Promise<CommandPrefixWithSubcommands | null> {
-  return buildCommandPrefixWithSubcommands(command, command => getCommandPrefix(command, abortSignal))
+  return buildCommandPrefixWithSubcommands(command, command => getCommandPrefix(command, abortSignal, sessionId))
 }
 
 export async function buildCommandPrefixWithSubcommands(
@@ -188,6 +189,7 @@ export async function buildCommandPrefixWithSubcommands(
 async function getCommandPrefix(
   command: string,
   abortSignal: AbortSignal,
+  sessionId?: string,
 ): Promise<ExtractedCommandPrefix | null> {
   let response
   try {
@@ -201,6 +203,7 @@ async function getCommandPrefix(
       userPrompt: COMMAND_PREFIX_USER_PROMPT(command),
       signal: abortSignal,
       enableLLMCache: false,
+      sessionId,
     })
   } catch {
     return null

@@ -53,7 +53,7 @@ class StateManager {
 | `sessionId` | `string` | 该 Runtime 绑定的会话 ID |
 | `currentAbortController` | `AbortController | null` | 当前会话中断控制器 |
 | `pendingUserInputs` | `PendingUserInput[]` | 该会话处理中收到的待处理输入队列 |
-| `globalEditPermissionGranted` | `boolean` | 文件编辑 allow 权限，仅当前会话有效 |
+| `permissionLevel` | `'Ask' | 'AutoEdit' | 'AutoRun'` | 会话级权限自由度档位，仅当前会话有效 |
 | `agentMode` | `'Agent' | 'Plan' | 'Design'` | 当前会话模式 |
 | `systemPromptContent` | text blocks | 会话创建时冻结的系统提示快照 |
 | `foregroundAgents` | `Set<string>` | 当前会话运行中的前台 Agent |
@@ -81,9 +81,11 @@ agentState.setFileLineEnding(filePath, kind)
 runtime.addPendingUserInput(item)
 runtime.consumeAllPendingInputs()
 runtime.clearPendingUserInputs()
-runtime.grantGlobalEditPermission()
-runtime.hasGlobalEditPermission()
-runtime.updateAutoEdit(true)
+runtime.getPermissionLevel()
+runtime.setPermissionLevel('AutoEdit')
+runtime.isAutoRun()
+runtime.hasGlobalEditPermission()      // 档位非 Ask 时为 true：项目内文件编辑自动放行
+runtime.grantGlobalEditPermission()    // 文件编辑 allow：仅将 Ask 提升到 AutoEdit
 runtime.setSystemPromptContent(content)
 runtime.getSystemPromptContent()
 ```

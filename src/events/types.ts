@@ -1,4 +1,5 @@
 import type { TodoItem } from '../types/todoTask';
+import type { PermissionLevel } from '../types';
 
 // Sema-Core 事件系统类型定义
 
@@ -237,14 +238,14 @@ export type { TodoItem } from '../types/todoTask';
  */
 export type TodosUpdateData = TodoItem[];
 
-// ==================== 自动编辑事件 ====================
+// ==================== 权限档位事件 ====================
 
 /**
- * 自动编辑状态更新事件数据
- * 事件: `autoEdit:update`
+ * 权限自由度档位更新事件数据
+ * 事件: `permissionLevel:update`
  */
-export interface AutoEditUpdateData {
-  enable: boolean;    // 是否开启自动编辑
+export interface PermissionLevelUpdateData {
+  level: PermissionLevel;    // 当前权限档位：Ask | AutoEdit | AutoRun
 }
 
 // ==================== 主题相关事件 ====================

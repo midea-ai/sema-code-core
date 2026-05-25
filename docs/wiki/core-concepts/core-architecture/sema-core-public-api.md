@@ -51,6 +51,7 @@ createSession(opts?: CreateSessionOptions): Promise<CreateSessionResult>
 interface CreateSessionOptions {
   sessionId?: string             // 可选：恢复指定历史会话；不传则新建
   agentMode?: 'Agent' | 'Plan' | 'Design'
+  permissionLevel?: 'Ask' | 'AutoEdit' | 'AutoRun'   // 可选：会话初始权限档位，默认 'Ask'
 }
 
 type CreateSessionResult =
@@ -77,7 +78,7 @@ if (result.ok) {
 
 > `maxSessions` 可限制同时存在的会话数量。超过限制时返回 `{ ok: false, error }`，不会抛异常。`setActiveSession()` 主要用于 UI 指定当前打开会话，Cron 等全局通知在来源会话不可用时会投递到活跃会话。
 
-会话级事件、权限响应、用户输入、中断、Agent 模式切换、自动编辑和后台任务 API 见 [SemaSession - 会话级 API](wiki/core-concepts/core-architecture/sema-session-api)。
+会话级事件、权限响应、用户输入、中断、Agent 模式切换、权限档位和后台任务 API 见 [SemaSession - 会话级 API](wiki/core-concepts/core-architecture/sema-session-api)。
 
 ## 模型管理
 
@@ -127,7 +128,7 @@ updateDisabledTools(toolNames: string[] | null): void
 getToolInfos(): ToolInfo[]
 ```
 
-> `updateCoreConfByKey` 仅支持以下字段的运行时更新：`stream`、`thinking`、`systemPrompt`、`customRules`、`skipFileEditPermission`、`skipShellExecPermission`、`skipSkillPermission`、`skipMCPToolPermission`、`skipFetchUrlPermission`、`enableLLMCache`、`disableBackgroundTasks`。Agent 模式和自动编辑属于会话级配置，请使用 `SemaSession.updateAgentMode()` / `SemaSession.updateAutoEdit()`。
+> `updateCoreConfByKey` 仅支持以下字段的运行时更新：`stream`、`thinking`、`systemPrompt`、`customRules`、`skipFileEditPermission`、`skipShellExecPermission`、`skipSkillPermission`、`skipMCPToolPermission`、`skipFetchUrlPermission`、`enableLLMCache`、`disableBackgroundTasks`。Agent 模式和权限档位属于会话级配置，请使用 `SemaSession.updateAgentMode()` / `SemaSession.updatePermissionLevel()`。
 
 ## 插件市场管理
 

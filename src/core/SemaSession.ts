@@ -6,7 +6,7 @@ import { getStateManager } from '../manager/StateManager';
 import { getTaskManager } from '../manager/TaskManager';
 import { ToolPermissionResponse, PickOptionResponseData, PlanExitResponseData } from '../events/types';
 import { TaskListItem } from '../types/task';
-import type { AgentMode } from '../types';
+import type { AgentMode, PermissionLevel } from '../types';
 import { logInfo } from '../util/log';
 
 /**
@@ -62,7 +62,7 @@ export class SemaSession {
 
   // ==================== 会话级配置 ====================
   updateAgentMode = (mode: AgentMode): void => this.engine.updateAgentMode(mode);
-  updateAutoEdit = (enable: boolean): void => this.engine.updateAutoEdit(enable);
+  updatePermissionLevel = (level: PermissionLevel): void => this.engine.updatePermissionLevel(level);
 
   // ==================== 后台任务（仅本会话）====================
   getTaskList = (): TaskListItem[] => getTaskManager().getTaskList(this.sessionId);

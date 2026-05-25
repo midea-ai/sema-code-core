@@ -38,7 +38,7 @@ Sema Core 的核心架构采用进程级门面 + 会话级门面的两层 API：
 │  · processUserInput / interrupt             │
 │  · session.on / once / off                  │
 │  · respondToToolPermission / Pick / Plan    │
-│  · updateAgentMode / updateAutoEdit         │
+│  · updateAgentMode / updatePermissionLevel  │
 │  · 会话级后台任务管理                         │
 └──────────────┬──────────────────────────────┘
                │ 持有
@@ -93,7 +93,7 @@ Sema Core 的核心架构采用进程级门面 + 会话级门面的两层 API：
 | 中断 | `interrupt` | 中断当前会话正在执行的请求 |
 | 会话级事件 | `on` / `once` / `off` | 订阅消息流、状态、权限请求、工具执行、任务事件等 |
 | 交互响应 | `respondToToolPermission` / `respondToPickOption` / `respondToPlanExit` | 回应当前会话中的等待事件 |
-| 会话配置 | `updateAgentMode` / `updateAutoEdit` | 调整当前会话模式和自动编辑状态 |
+| 会话配置 | `updateAgentMode` / `updatePermissionLevel` | 调整当前会话模式和权限自由度档位 |
 | 后台任务 | `getTaskList` / `watchTask` / `stopTask` / `stopAllTasks` / `transferAgentToBackground` | 管理当前会话的后台任务 |
 | 资源 | `dispose` | 清理当前会话资源 |
 

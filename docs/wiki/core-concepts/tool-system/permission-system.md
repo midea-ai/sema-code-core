@@ -24,30 +24,52 @@
 skipXxxPermission = true？
      ├─ 是 → 直接执行 ✓
      └─ 否 → 文件编辑工具？
-               ├─ 是 → hasGlobalEditPermission？
-               │         ├─ 是 → isFileInAuthorizedScope？
+               ├─ 是 → 档位非 Ask（AutoEdit / AutoRun）？
+               │         ├─ 是 → 项目目录内？
                │         │         ├─ 是 → 直接执行 ✓
-               │         │         └─ 否 → emit tool:permission:request
-               │         └─ 否 → emit tool:permission:request
-               └─ 否 → allowedTools 中已记录？
+               │         │         └─ 否 → 请求权限 *
+               │         └─ 否 → 请求权限 *
+               └─ 否 → allowedTools 已记录 / 安全命令白名单？（白名单仅 RunShell）
                          ├─ 是 → 直接执行 ✓
-                         └─ 否 → 安全命令白名单？（仅 RunShell）
-                                   ├─ 是 → 直接执行 ✓
-                                   └─ 否 → emit tool:permission:request
-                                             │
-                                             ▼
-                                         等待 session.respondToToolPermission()
-                                             │
-                                         selected = ?
-                                         ├─ 'agree'      → 本次执行 ✓
-                                         ├─ 'allow'      → 执行 ✓ + 持久化权限
-                                         │                 （文件编辑：grantGlobalEditPermission；
-                                         │                  run_shell/Skill/MCP/fetch_url：写入 allowedTools）
-                                         ├─ 'refuse'     → 中断 + 返回拒绝原因给 LLM
-                                         └─ 其他字符串  → 返回反馈文本给 LLM（不中断）
+                         └─ 否 → 请求权限 *
+
+* 请求权限：AutoRun 档位下，先做自动安全判断（见下），判定安全则直接放行；
+  否则 emit tool:permission:request 并等待 session.respondToToolPermission()
+       │
+   selected = ?
+   ├─ 'agree'      → 本次执行 ✓
+   ├─ 'allow'      → 执行 ✓ + 持久化权限
+   │                 （文件编辑：档位提升至 AutoEdit；
+   │                  run_shell/Skill/MCP/fetch_url：写入 allowedTools）
+   ├─ 'refuse'     → 中断 + 返回拒绝原因给 LLM
+   └─ 其他字符串  → 返回反馈文本给 LLM（不中断）
 ```
 
-**文件编辑权限说明**：用户选择 `'allow'` 后，当前 `SemaSession` 的 `hasGlobalEditPermission` 置为 `true`，该会话内项目目录下的文件编辑不再询问；项目目录外的文件仍会再次请求权限。关闭会话或新建会话后，该授权不会继承。
+**文件编辑权限说明**：用户选择 `'allow'` 后，当前 `SemaSession` 的权限档位提升至 `'AutoEdit'`（已是 `'AutoEdit'` / `'AutoRun'` 则保持不变），该会话内项目目录下的文件编辑不再询问；项目目录外的文件仍会再次请求权限。关闭会话或新建会话后，该档位不会继承。
+
+## 权限自由度档位（会话级）
+
+每个 `SemaSession` 持有一个权限自由度档位，控制需要确认的工具被自动放行的力度。档位由 `createSession({ permissionLevel })` 指定初始值（默认 `'Ask'`），运行中通过 `session.updatePermissionLevel(level)` 调整，变更时触发 `permissionLevel:update` 事件。
+
+| 档位 | 自由度 | 行为 |
+|------|--------|------|
+| `'Ask'` | 最低 | 每个需要确认的动作都弹窗询问 |
+| `'AutoEdit'` | 中 | 项目目录内的文件编辑自动放行，其余动作仍询问 |
+| `'AutoRun'` | 最高 | 在发出人工权限申请前先做自动安全判断，判定安全则放行，否则转人工 |
+
+> 档位只能由用户显式提升或在文件编辑弹窗选择 `'allow'` 时从 `'Ask'` 提升到 `'AutoEdit'`；已是 `'AutoEdit'` / `'AutoRun'` 时不会被自动降级。
+
+### AutoRun 自动安全判断
+
+`AutoRun` 档位下，动作在转人工之前先经过一道自动判断，按工具类型分流：
+
+- **文件编辑**：确定性判断，不走模型。项目目录内放行，项目目录外转人工。
+- **Skill**：放行（仅注入提示词；技能内的真实动作会作为下游工具再次过权限闸门）。
+- **MCP 工具**：转人工（外部不可逆副作用，语义对模型不透明）。
+- **fetch_url**：先做确定性 SSRF 兜底——命中环回（`127.0.0.0/8`、`::1`）、链路本地（`169.254.0.0/16`，含云元数据 `169.254.169.254`）、内网（`10/8`、`172.16/12`、`192.168/16`、`100.64/10`）、`localhost`、`metadata.google.internal` 等一律转人工，不交给模型；未命中再交由快速模型判断。
+- **run_shell 及其余动作**：交给快速模型（`quick` 指针）判断 `safe` / `risky`。仅当模型明确返回 `safe` 时放行；其余情况（解释性文本、空响应、API 错误、超时、中断）一律失败关闭，转人工。
+
+> 安全判断以**当前执行代理自身**的会话历史作为上下文旁路调用模型，绝不写回会话历史——子代理使用子代理自己的上下文，而非主代理。
 
 
 ## `run_shell` 安全命令白名单
@@ -77,7 +99,7 @@ ls, find, grep, head, tail, cat, du, wc, echo, env, printenv
 | `'mcp__fs_read_file'` | 允许调用特定 MCP 工具 |
 | `'fetch_url(example.com)'` | 允许对 `example.com` 域名的 `fetch_url` 请求 |
 
-> 文件编辑权限（`patch_file` / `write_file` / `edit_notebook`）以会话级 `globalEditPermission` 标志控制，不写入 `allowedTools`。
+> 文件编辑权限（`patch_file` / `write_file` / `edit_notebook`）以会话级权限档位控制（档位为 `'AutoEdit'` / `'AutoRun'` 时项目目录内自动放行），不写入 `allowedTools`。
 
 
 ## 交互式工具事件

@@ -22,7 +22,7 @@ import { getTaskManager } from '../manager/TaskManager';
 import { getCronManager } from '../manager/CronManager';
 import { handlequickchat } from '../util/quickchat';
 import { TOOL_NAME_SKILL } from '../prompt/tool';
-import type { AgentMode } from '../types';
+import type { AgentMode, PermissionLevel } from '../types';
 import type { CreateSessionOptions } from '../types/session';
 
 /**
@@ -68,6 +68,9 @@ export class SemaEngine {
     // 会话级配置：Agent 模式
     const coreConfig = getConfManager().getCoreConfig();
     this.runtime.agentMode = opts.agentMode || coreConfig?.agentMode || 'Agent';
+
+    // 会话级配置：权限自由度档位
+    this.runtime.setPermissionLevel(opts.permissionLevel || 'Ask');
 
     // 构建会话级系统提示快照：整个会话不再变化（env/gitStatus 取会话创建时的快照）
     this.runtime.setSystemPromptContent(await formatSystemPrompt());
@@ -266,6 +269,7 @@ export class SemaEngine {
           allOriginalTexts,
           this.runtime.currentAbortController,
           (result) => this.emit('topic:update', result),
+          this.sessionId,
         );
       }
 
@@ -398,10 +402,10 @@ export class SemaEngine {
   }
 
   /**
-   * 更新自动编辑状态
+   * 更新权限自由度档位（会话级）
    */
-  updateAutoEdit(enable: boolean): void {
-    this.runtime.updateAutoEdit(enable);
+  updatePermissionLevel(level: PermissionLevel): void {
+    this.runtime.setPermissionLevel(level);
   }
 
   // 初始化系统配置与模型检查

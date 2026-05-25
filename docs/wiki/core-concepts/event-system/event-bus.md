@@ -102,7 +102,7 @@ eventBus.eventNames(): string[]                      // 获取所有已注册事
 | `message` | AI 消息 | `message:text:chunk`, `message:thinking:chunk`, `message:complete` |
 | `tool` | 工具执行 | `tool:permission:request`, `tool:execution:complete`, `tool:execution:chunk`, `tool:execution:error` |
 | `todos` | 待办事项 | `todos:update` |
-| `autoEdit` | 自动编辑 | `autoEdit:update` |
+| `permissionLevel` | 权限档位 | `permissionLevel:update` |
 | `topic` | 话题检测 | `topic:update` |
 | `conversation` | 对话统计 | `conversation:usage` |
 | `compact` | 上下文压缩 | `compact:exec` |

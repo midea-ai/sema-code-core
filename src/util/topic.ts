@@ -15,6 +15,7 @@ export type TopicResult = {
 export async function getTopicFromUserInput(
   userInput: string,
   abortSignal: AbortSignal,
+  sessionId?: string,
 ): Promise<TopicResult | null> {
     const customRules = getConfManager().getCoreConfig()?.customRules ?? ''
     const customRulesHint = customRules
@@ -31,6 +32,7 @@ export async function getTopicFromUserInput(
       userPrompt: userInput,
       signal: abortSignal,
       enableLLMCache: false,
+      sessionId,
     })
 
     const content =
@@ -79,6 +81,7 @@ export async function detectTopicInBackground(
   userInput: string,
   mainAbortController: AbortController | null,
   onTopic: (result: TopicResult) => void,
+  sessionId?: string,
 ): Promise<void> {
   // 创建独立的 AbortController 用于话题检测
   const topicAbortController = new AbortController()
@@ -93,7 +96,7 @@ export async function detectTopicInBackground(
   }
 
   try {
-    const topicResult = await getTopicFromUserInput(userInput, topicAbortController.signal)
+    const topicResult = await getTopicFromUserInput(userInput, topicAbortController.signal, sessionId)
 
     if (topicResult) {
       logDebug(`话题检测结果: ${JSON.stringify(topicResult)}`)

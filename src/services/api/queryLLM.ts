@@ -209,11 +209,13 @@ export async function queryQuick({
   systemPrompt = [],
   userPrompt,
   signal,
+  sessionId,
 }: {
   systemPrompt?: Array<{ type: 'text', text: string }>
   userPrompt: string
   signal?: AbortSignal
   enableLLMCache?: boolean | null
+  sessionId?: string
 }): Promise<AiMessage> {
   const messages = [
     {
@@ -236,6 +238,7 @@ export async function queryQuick({
       disableChunkEvents: true,
       disableErrorEvents: true,
       disableThinking: true,
+      sessionId,
     }
   )
 }

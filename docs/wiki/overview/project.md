@@ -162,7 +162,7 @@ EventBus 是全局单例发布/订阅系统，所有模块间通信通过事件�
 | 上下文 | `conversation:usage`、`compact:exec`、`file:reference`、`topic:update` |
 | 旁路问答 | `quickchat:response` |
 | 定时任务 | `cron:update` |
-| 自动编辑 | `autoEdit:update` |
+| 权限档位 | `permissionLevel:update` |
 | MCP 状态 | `mcp:server:status` |
 
 ## 入口与导出

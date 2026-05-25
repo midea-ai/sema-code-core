@@ -5,6 +5,7 @@ import { COMMAND_PREFIX_SYSTEM_PROMPT, COMMAND_PREFIX_USER_PROMPT } from '../pro
 
 const SQ_PLACEHOLDER = '__SQ_PLACEHOLDER__'
 const DQ_PLACEHOLDER = '__DQ_PLACEHOLDER__'
+const BS_PLACEHOLDER = '__BS_PLACEHOLDER__'
 
 export type ExtractedCommandPrefix =
   | {
@@ -29,6 +30,7 @@ export function splitCommand(command: string): string[] {
   // 1. 合并相邻的字符串
   for (const part of parse(
     command
+      .replaceAll('\\', BS_PLACEHOLDER)
       .replaceAll('"', `"${DQ_PLACEHOLDER}`)
       .replaceAll("'", `'${SQ_PLACEHOLDER}`),
     varName => `$${varName}`,
@@ -66,6 +68,7 @@ export function splitCommand(command: string): string[] {
     return part
       .replaceAll(`${SQ_PLACEHOLDER}`, "'")
       .replaceAll(`${DQ_PLACEHOLDER}`, '"')
+      .replaceAll(`${BS_PLACEHOLDER}`, '\\')
   })
 
   // 4. 过滤掉分隔符

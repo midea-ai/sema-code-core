@@ -39,6 +39,10 @@ const SAFE_COMMANDS = new Set([
 // 取值偏宽：容得下带多个长绝对路径的正常命令；超限仅丢失「按前缀授权」便利，不影响命令本身可单次执行。
 const MAX_PREFIX_EXTRACT_LEN = 512
 
+// 精确命令授权（run_shell(<完整命令>)）的命令长度上限：前缀提取失败时，仅当整条命令足够短才退化为
+// 「按完整命令授权」。过长的完整命令逐字命中概率低，精确授权意义不大，故超过此长度只允许单次确认。
+const MAX_EXACT_AUTH_LEN = 64
+
 const FILE_EDIT_TOOLS = new Set([
   PATCH_FILE_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
@@ -298,8 +302,9 @@ async function checkRunShellPermission(
     const info = await getCommandPrefix(firstUncovered, abortController.signal, sessionId)
     checkAbortSignal(abortController)
     if (info === null) {
-      // 模型调用失败 → 退化「精确命令授权」run_shell(<完整命令>)（命令不超长时），下次同一条命令可放行
-      allowExact = command.length <= MAX_PREFIX_EXTRACT_LEN
+      // 模型调用失败 → 退化「精确命令授权」run_shell(<完整命令>)（命令 ≤ 64 时），下次同一条命令可放行；
+      // 命令 > 64（即便 ≤ 512）则不给 allow，仅单次确认
+      allowExact = command.length <= MAX_EXACT_AUTH_LEN
     } else if (info.commandInjectionDetected || !info.commandPrefix) {
       // 检出注入 或 返回 none/git（如 git push）：模型明确判定不宜授权 → 不给 allow，仅单次确认
     } else {
@@ -308,7 +313,7 @@ async function checkRunShellPermission(
     }
   }
 
-  // 有前缀 → 按前缀授权；模型失败且命令不超长 → 精确命令授权；其余（注入/none/超长）→ 无 allow，仅单次确认
+  // 有前缀 → 按前缀授权；模型失败且命令 ≤ 64 → 精确命令授权；其余（注入/none/命令 > 64/超长）→ 无 allow，仅单次确认
   const showAllow = prefix !== null || allowExact
 
   return requestPermissionViaEvent(tool, { command }, prefix, abortController, agentId, sessionId, toolId, showAllow, true)

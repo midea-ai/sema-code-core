@@ -14,12 +14,13 @@ export type ExtractedCommandPrefix =
     }
   | { commandInjectionDetected: true }
 
-// 命令前缀结果包含子命令前缀
-export type CommandPrefixWithSubcommands = ExtractedCommandPrefix & {
-  subcommandPrefixes: Map<string, ExtractedCommandPrefix>
-}
+// 命令注入特征：反引号 / $( / 换行 / && / || / ;（与 COMMAND_PREFIX 提示词 step1 保持一致）。
+// splitCommand 已按 && || ; 拆分，子命令里仍残留这些字符即视为注入，按危险处理（fail-closed）。
+const COMMAND_INJECTION_PATTERN = /[`\n;]|\$\(|&&|\|\|/
 
-type CommandPrefixExtractor = (command: string) => Promise<ExtractedCommandPrefix | null>
+export function hasCommandInjection(command: string): boolean {
+  return COMMAND_INJECTION_PATTERN.test(command)
+}
 
 /**
  * 根据shell操作符将命令字符串拆分为单个命令
@@ -137,56 +138,7 @@ export function splitCommand(command: string): string[] {
   return commandParts
 }
 
-export async function getCommandSubcommandPrefix(
-  command: string,
-  abortSignal: AbortSignal,
-  sessionId?: string,
-): Promise<CommandPrefixWithSubcommands | null> {
-  return buildCommandPrefixWithSubcommands(command, command => getCommandPrefix(command, abortSignal, sessionId))
-}
-
-export async function buildCommandPrefixWithSubcommands(
-  command: string,
-  extractPrefix: CommandPrefixExtractor,
-): Promise<CommandPrefixWithSubcommands | null> {
-  const subCommands = splitCommand(command)
-
-  if (subCommands.length < 2) {
-    const fullCommandPrefix = await extractPrefix(command)
-    if (!fullCommandPrefix) return null
-
-    return {
-      ...fullCommandPrefix,
-      subcommandPrefixes: new Map<string, ExtractedCommandPrefix>(),
-    }
-  }
-
-  const subcommandPrefixes = new Map<string, ExtractedCommandPrefix>()
-  let commandInjectionDetected = false
-  for (const subCommand of subCommands) {
-    const subcommandPrefix = await extractPrefix(subCommand)
-    if (!subcommandPrefix) return null
-    subcommandPrefixes.set(subCommand, subcommandPrefix)
-    if (subcommandPrefix.commandInjectionDetected) {
-      commandInjectionDetected = true
-    }
-  }
-
-  if (commandInjectionDetected) {
-    return {
-      commandInjectionDetected: true,
-      subcommandPrefixes,
-    }
-  }
-
-  return {
-    commandPrefix: null,
-    commandInjectionDetected: false,
-    subcommandPrefixes,
-  }
-}
-
-async function getCommandPrefix(
+export async function getCommandPrefix(
   command: string,
   abortSignal: AbortSignal,
   sessionId?: string,

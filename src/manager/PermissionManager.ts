@@ -1,7 +1,7 @@
 import { Tool } from '../tools/base/Tool'
 import { RunShell, toolParams } from '../tools/RunShell'
 import { TOOL_NAME_PATCH_FILE as PATCH_FILE_TOOL_NAME, TOOL_NAME_WRITE_FILE as WRITE_FILE_TOOL_NAME, TOOL_NAME_EDIT_NOTEBOOK as EDIT_NOTEBOOK_TOOL_NAME, TOOL_NAME_SKILL, TOOL_NAME_FETCH_URL } from '../prompt/tool'
-import { getCommandSubcommandPrefix, splitCommand } from '../util/commands'
+import { splitCommand, hasCommandInjection, getCommandPrefix } from '../util/commands'
 import { readInitialCwd } from '../util/cwd'
 import { logDebug, logError, logInfo } from '../util/log'
 import { REJECT_MSG, CANCEL_MSG, getCustomFeedbackMessage, API_ERR_PREFIX, prepareMessagesForApi, buildUserMsg } from '../util/message'
@@ -33,6 +33,11 @@ const SAFE_COMMANDS = new Set([
   'pwd', 'tree', 'date', 'which',
   'ls', 'find', 'grep', 'head', 'tail', 'cat', 'du', 'wc', 'echo', 'env', 'printenv'
 ])
+
+// 子命令字符长度上限：超过则跳过前缀提取（如内联脚本 python -c "...大段..."，提取前缀无意义），
+// 同时不提供「按前缀授权」，只允许单次确认。
+// 取值偏宽：容得下带多个长绝对路径的正常命令；超限仅丢失「按前缀授权」便利，不影响命令本身可单次执行。
+const MAX_PREFIX_EXTRACT_LEN = 512
 
 const FILE_EDIT_TOOLS = new Set([
   PATCH_FILE_TOOL_NAME,
@@ -216,14 +221,24 @@ function runShellToolHasExactMatch(tool: Tool, command: string, allowedTools: st
   return allowedTools.includes(keyWithPrefix)
 }
 
+// 已保存的前缀授权 run_shell(P:*) 用字符串前缀匹配判定覆盖，无需模型提取前缀
+function matchesSavedPrefix(command: string, allowedTools: string[]): boolean {
+  const open = `${RunShell.name}(`
+  for (const entry of allowedTools) {
+    if (!entry.startsWith(open) || !entry.endsWith(':*)')) continue
+    const prefix = entry.slice(open.length, -':*)'.length)
+    if (prefix && (command === prefix || command.startsWith(`${prefix} `))) return true
+  }
+  return false
+}
+
 function isRunShellCommandPermitted(
   tool: Tool,
   command: string,
-  prefix: string | null,
   allowedTools: string[]
 ): boolean {
   return runShellToolHasExactMatch(tool, command, allowedTools) ||
-         allowedTools.includes(getPermissionKey(tool, { command }, prefix))
+         matchesSavedPrefix(command, allowedTools)
 }
 
 async function checkRunShellPermission(
@@ -235,16 +250,23 @@ async function checkRunShellPermission(
   sessionId: string,
   toolId: string
 ): Promise<PermissionCheckResult> {
-  // 移除当前工作目录前缀 
+  // 移除当前工作目录前缀
   command = command.replace(`cd ${readInitialCwd()} && `, '')
+
+  // 先拆分子命令并做注入检测——必须先于白名单/AutoRun 放行，否则白名单主命令词（echo/cat/grep 等）
+  // 夹带 $()、`` 命令替换或换行即可绕过检测（如 echo $(id)）。检出注入 → 转人工且不提供"永久允许"
+  const subCommands = splitCommand(command)
+  if (subCommands.some(hasCommandInjection)) {
+    return requestPermissionViaEvent(tool, { command }, null, abortController, agentId, sessionId, toolId, false, true)
+  }
 
   // 命中白名单或项目配置已允许
   if (runShellToolHasExactMatch(tool, command, allowedTools)) {
     return { result: true }
   }
 
-  // AutoRun 档位：先做安全判断，判定 safe 直接放行，省去后续的前缀提取（同为一次快速模型调用）。
-  // 仅当判定有风险时才需要前缀：既用于匹配已保存的前缀授权，也用于人工弹窗选项。
+  // AutoRun 档位：对整条命令做一次安全判断，判定 safe 直接放行；
+  // 判定有风险时继续走下面的确定性覆盖匹配（已保存授权仍可放行），否则转人工。
   const runtime = getStateManager().session(sessionId)
   if (runtime.isAutoRun()) {
     let safe = false
@@ -261,35 +283,35 @@ async function checkRunShellPermission(
     logDebug(`[Permission][AutoRun]${tool.name} 判定有风险，转人工申请`)
   }
 
-  const subCommands = splitCommand(command)
-  // LLM 提取前缀
-  const commandInfo = await getCommandSubcommandPrefix(command, abortController.signal, sessionId)
-
-  // 防止中断后，还继续处理如弹出权限选择
-  checkAbortSignal(abortController)
-
-  if (!commandInfo || commandInfo.commandInjectionDetected) {
-    return runShellToolHasExactMatch(tool, command, allowedTools)
-      ? { result: true }
-      : requestPermissionViaEvent(tool, { command }, null, abortController, agentId, sessionId, toolId, false, true)
+  // 每个子命令都被 SAFE_COMMANDS / 精确授权 / 已保存前缀覆盖 → 放行（注入已在函数开头排除）
+  if (subCommands.length > 0 && subCommands.every(subCmd => isRunShellCommandPermitted(tool, subCmd, allowedTools))) {
+    return { result: true }
   }
 
-  if (subCommands.length < 2) {
-    return isRunShellCommandPermitted(tool, command, commandInfo.commandPrefix, allowedTools)
-      ? { result: true }
-      : requestPermissionViaEvent(tool, { command }, commandInfo.commandPrefix, abortController, agentId, sessionId, toolId, true, true)
+  // 未完全覆盖 → 转人工。对「首个未被覆盖的子命令」调一次快速模型提取前缀，给出"按前缀授权"选项。
+  // 必须用子命令而非整条命令——整条复合命令含 && / || / ; 会被前缀提取提示词判为注入，提取不到前缀。
+  // 首个未覆盖子命令过长（如内联脚本 python -c "...大段..."）时跳过前缀提取：提取无意义
+  const firstUncovered = subCommands.find(subCmd => !isRunShellCommandPermitted(tool, subCmd, allowedTools)) ?? command
+  let prefix: string | null = null
+  let allowExact = false
+  if (firstUncovered.length <= MAX_PREFIX_EXTRACT_LEN) {
+    const info = await getCommandPrefix(firstUncovered, abortController.signal, sessionId)
+    checkAbortSignal(abortController)
+    if (info === null) {
+      // 模型调用失败 → 退化「精确命令授权」run_shell(<完整命令>)（命令不超长时），下次同一条命令可放行
+      allowExact = command.length <= MAX_PREFIX_EXTRACT_LEN
+    } else if (info.commandInjectionDetected || !info.commandPrefix) {
+      // 检出注入 或 返回 none/git（如 git push）：模型明确判定不宜授权 → 不给 allow，仅单次确认
+    } else {
+      // 提到有效前缀 → 「按前缀授权」run_shell(<前缀>:*)
+      prefix = info.commandPrefix
+    }
   }
 
-  const allSubCommandsAllowed = subCommands.every(subCmd => {
-    const prefixResult = commandInfo.subcommandPrefixes.get(subCmd)
-    if (!prefixResult || prefixResult.commandInjectionDetected) return false
-    return isRunShellCommandPermitted(tool, subCmd, prefixResult.commandPrefix, allowedTools)
-  })
+  // 有前缀 → 按前缀授权；模型失败且命令不超长 → 精确命令授权；其余（注入/none/超长）→ 无 allow，仅单次确认
+  const showAllow = prefix !== null || allowExact
 
-  // 如果不是所有子命令都被允许，请求权限时使用主命令的前缀
-  return allSubCommandsAllowed
-    ? { result: true }
-    : requestPermissionViaEvent(tool, { command }, commandInfo.commandPrefix, abortController, agentId, sessionId, toolId, true, true)
+  return requestPermissionViaEvent(tool, { command }, prefix, abortController, agentId, sessionId, toolId, showAllow, true)
 }
 
 // ==================== 权限保存 ====================

@@ -1,8 +1,10 @@
 import { SemaEngine } from './SemaEngine';
 import { CreateSessionOptions } from '../types/session';
+import { ForkOptions, ForkPreview, ForkResult } from '../types/fork';
 import { SessionEventBus, createSessionEventBus } from '../events/EventSystem';
 import { generateSessionId } from '../util/session';
 import { getStateManager } from '../manager/StateManager';
+import { getCheckpointManager } from '../manager/CheckpointManager';
 import { getTaskManager } from '../manager/TaskManager';
 import { ToolPermissionResponse, PickOptionResponseData, PlanExitResponseData } from '../events/types';
 import { TaskListItem } from '../types/task';
@@ -64,6 +66,18 @@ export class SemaSession {
   updateAgentMode = (mode: AgentMode): void => this.engine.updateAgentMode(mode);
   updatePermissionLevel = (level: PermissionLevel): void => this.engine.updatePermissionLevel(level);
 
+  // ==================== 会话 Fork / 撤销 ====================
+  /** 预览：在该用户消息处恢复文件会改动哪些文件、各自增删行数（只读，无副作用） */
+  getForkPreview = (messageUuid: string): ForkPreview =>
+    getCheckpointManager().preview(this.sessionId, messageUuid);
+
+  /**
+   * 原地回退（Fork / 撤销）：把会话历史截断到该用户消息之前；
+   * restoreFiles=true 时同时回滚文件。会话 id 不变，继续使用。
+   */
+  fork = (messageUuid: string, options?: ForkOptions): Promise<ForkResult> =>
+    this.engine.rewind(messageUuid, options);
+
   // ==================== 后台任务（仅本会话）====================
   getTaskList = (): TaskListItem[] => getTaskManager().getTaskList(this.sessionId);
   watchTask = (taskId: string, onDelta: (delta: string) => void): () => void =>
@@ -81,6 +95,7 @@ export class SemaSession {
     this.engine.dispose();
     getTaskManager().disposeSession(this.sessionId);
     getStateManager().removeSession(this.sessionId);
+    getCheckpointManager().forgetSession(this.sessionId);
     this.bus.dispose();
   };
 }

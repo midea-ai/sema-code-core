@@ -15,6 +15,9 @@ export const HISTORY_FILES_RETAIN_COUNT = 200  // 会话历史记录文件保留
 export const PER_PROJECT_HISTORY_LENGTH_LIMIT = 50 // 每个项目历史记录文件保留数量
 export const HISTORY_CLEANUP_INTERVAL = 60 * 60 * 1000;  // 清理会话历史记录文件的时间间隔（毫秒）
 
+// 会话 Fork 文件级快照（内容寻址 blob + 每会话 editlog）
+export const SNAPSHOTS_DIR_PATH = 'snapshots'
+
 // 服务日志10
 export const LOG_DIR_PATH = 'logs'
 export const SERVICE_LOG_FILES_RETAIN_COUNT = 7  // 服务日志文件保留数量

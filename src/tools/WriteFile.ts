@@ -16,6 +16,7 @@ import { readInitialCwd } from '../util/cwd'
 import { IS_WIN } from '../util/platform'
 import { TOOL_NAME_WRITE_FILE, TOOL_NAME_VIEW_FILE, TOOL_NAME_PATCH_FILE } from '../prompt/tool'
 import { getStateManager } from '../manager/StateManager'
+import { getCheckpointManager } from '../manager/CheckpointManager'
 import { getPatch } from '../util/diff'
 import {
   getWriteFileTitle,
@@ -128,6 +129,9 @@ Rules:
         throw new Error('The file changed while awaiting permission. Please re-read it before writing.')
       }
     }
+
+    // 写盘前捕获改动前快照（fail-closed：捕获失败则不写盘）
+    getCheckpointManager().recordPreEdit(agentContext.sessionId, agentContext.agentId, fullFilePath)
 
     writeTextFile(fullFilePath, normalizedContent, enc, endings!)
     agentState.setReadFileTimestamp(fullFilePath, statSync(fullFilePath).mtimeMs)

@@ -6,6 +6,7 @@ import {
   MODEL_CONF_FILE_PATH,
   PROJECT_CONF_FILE_PATH,
   HISTORY_DIR_PATH,
+  SNAPSHOTS_DIR_PATH,
   LOG_DIR_PATH,
   LLM_LOG_DIR_PATH,
   TRACKS_DIR_PATH,
@@ -52,15 +53,36 @@ export function getHistoryDir(): string {
 }
 
 /**
- * 获取项目的历史记录目录路径
  * 将项目绝对路径转换为目录名：路径分隔符替换为 -，开头加 -，Windows盘符的冒号去掉
  * 例如：/Users/xxx/project -> -Users-xxx-project
+ * history 与 snapshots 共用此命名规则，仅根目录不同。
  */
-export function getProjectHistoryDir(projectPath: string): string {
+export function getProjectDirName(projectPath: string): string {
   let normalized = path.normalize(projectPath);
   normalized = normalized.replace(/^([A-Za-z]):/, '$1');
   const dirName = normalized.replace(/[/\\]+/g, '-');
-  return path.join(getHistoryDir(), dirName.startsWith('-') ? dirName : '-' + dirName);
+  return dirName.startsWith('-') ? dirName : '-' + dirName;
+}
+
+/**
+ * 获取项目的历史记录目录路径
+ */
+export function getProjectHistoryDir(projectPath: string): string {
+  return path.join(getHistoryDir(), getProjectDirName(projectPath));
+}
+
+/**
+ * 获取 Fork 快照根目录路径
+ */
+export function getSnapshotsDir(): string {
+  return path.join(getSemaRootDir(), SNAPSHOTS_DIR_PATH);
+}
+
+/**
+ * 获取项目的 Fork 快照目录路径（与 history 共用项目目录名规则）
+ */
+export function getProjectSnapshotsDir(projectPath: string): string {
+  return path.join(getSnapshotsDir(), getProjectDirName(projectPath));
 }
 
 /**

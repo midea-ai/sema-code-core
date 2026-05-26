@@ -15,6 +15,7 @@ import { safeParseJSON } from '../util/format'
 import { getPatch } from '../util/diff'
 import { TOOL_NAME_EDIT_NOTEBOOK, TOOL_NAME_PATCH_FILE } from '../prompt/tool'
 import { getStateManager } from '../manager/StateManager'
+import { getCheckpointManager } from '../manager/CheckpointManager'
 import { readInitialCwd } from '../util/cwd'
 
 function getTitle(input?: { notebook_path?: string; cell_index?: number }) {
@@ -246,6 +247,9 @@ command=insert: add new cell at index. command=delete: remove cell at index.`
       if (readTimestamp && statSync(fullPath).mtimeMs > readTimestamp) {
         throw new Error('The file changed while awaiting permission. Please re-read it before editing.')
       }
+
+      // 写盘前捕获改动前快照（fail-closed：捕获失败则不写盘）
+      getCheckpointManager().recordPreEdit(agentContext.sessionId, agentContext.agentId, fullPath)
 
       writeTextFile(fullPath, JSON.stringify(notebook, null, 1), inferFileEncoding(fullPath), inferLineEndings(fullPath))
 

@@ -43,6 +43,25 @@ export function getPatch({ filePath, fileContents, oldStr, newStr }: PatchParams
   }))
 }
 
+/**
+ * 计算整文件 current → target 的 diff。
+ * 强制按"整文件替换"语义调用 getPatch（oldStr === fileContents），
+ * 避免误传部分字符串导致只替换首次匹配。
+ */
+export function diffContents(filePath: string, current: string, target: string): Hunk[] {
+  return getPatch({ filePath, fileContents: current, oldStr: current, newStr: target })
+}
+
+/**
+ * 统计 hunks 的新增/删除行数（行首 + / -）。
+ */
+export function countPatchLines(patches?: Hunk[]): { additions: number; removals: number } {
+  const hunks = patches ?? []
+  const count = (prefix: string) =>
+    hunks.reduce((c, hunk) => c + hunk.lines.filter(l => l.startsWith(prefix)).length, 0)
+  return { additions: count('+'), removals: count('-') }
+}
+
 // 获取更新摘要信息
 export function getUpdateSummary(filePath: string, patches?: Hunk[]): string {
   const hunks = patches ?? []

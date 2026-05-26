@@ -4,7 +4,8 @@ import { TodoTask } from '../types/todoTask';
 import { logDebug, logInfo, logWarn } from './log';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getHistoryDir, getHistoryFilePath, getProjectHistoryDir } from './savePath';
+import { getHistoryDir, getHistoryFilePath, getProjectHistoryDir, getSnapshotsDir } from './savePath';
+import { cleanupProjectSnapshots } from './snapshotStore';
 import {
   PER_PROJECT_HISTORY_LENGTH_LIMIT,
   PROJECT_LENGTH_LIMIT,
@@ -146,6 +147,18 @@ function cleanupInactiveProjects(): void {
       } catch (deleteError) {
         logWarn(`删除项目历史目录失败 ${dir.name}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`);
       }
+
+      // 同步删除对应的同名快照目录，避免遗留无主 editlog / blob
+      // （snapshots 与 history 共用项目目录名，仅根目录不同）
+      const snapshotDir = path.join(getSnapshotsDir(), dir.name);
+      try {
+        if (fs.existsSync(snapshotDir)) {
+          fs.rmSync(snapshotDir, { recursive: true, force: true });
+          logDebug(`删除不活跃项目快照目录: ${dir.name}`);
+        }
+      } catch (deleteError) {
+        logWarn(`删除项目快照目录失败 ${dir.name}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`);
+      }
     }
 
     if (dirsToDelete.length > 0) {
@@ -162,6 +175,8 @@ function cleanupInactiveProjects(): void {
 export async function cleanupOldHistoryFiles(projectPath?: string): Promise<void> {
   if (projectPath) {
     cleanupProjectHistoryFiles(getProjectHistoryDir(projectPath));
+    // 历史清理后回收对应快照（删除无主 editlog + blob 标记清除）
+    cleanupProjectSnapshots(projectPath);
   }
   cleanupInactiveProjects();
 }

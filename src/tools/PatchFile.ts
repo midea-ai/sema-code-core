@@ -16,6 +16,7 @@ import { readInitialCwd } from '../util/cwd'
 import { TOOL_NAME_PATCH_FILE, TOOL_NAME_EDIT_NOTEBOOK } from '../prompt/tool'
 import { applyEdit, normalizeLF } from '../util/edit'
 import { getStateManager } from '../manager/StateManager'
+import { getCheckpointManager } from '../manager/CheckpointManager'
 
 
 const toolParams = z.strictObject({
@@ -216,6 +217,9 @@ Always edit existing files rather than creating new ones. Never add emojis unles
         throw new Error('The file changed while awaiting permission. Please re-read it before editing.')
       }
     }
+
+    // 写盘前捕获改动前快照（fail-closed：捕获失败则不写盘）
+    getCheckpointManager().recordPreEdit(agentContext.sessionId, agentContext.agentId, fullFilePath)
 
     writeTextFile(fullFilePath, updatedFile, enc, endings)
 

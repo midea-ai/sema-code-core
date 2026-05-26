@@ -1,7 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { randomUUID } from 'crypto'
+import { statSync } from 'fs'
 import { logInfo, logDebug, setLogLevel, logWarn } from '../util/log';
 import { getTokens } from '../util/tokens';
-import { loadHistory } from '../util/history';
+import { loadHistory, saveHistory } from '../util/history';
 import { detectTopicInBackground } from '../util/topic';
 import { processFileReferences } from '../util/fileReference';
 import { buildUserMsg, buildAdditionalReminders } from '../util/message';
@@ -12,11 +14,13 @@ import { getConfManager } from '../manager/ConfManager';
 import { getModelManager } from '../manager/ModelManager';
 import { SessionEventBus } from '../events/EventSystem';
 import { isInterruptedException } from '../types/errors';
-import type { Message } from '../types/message';
+import type { Message, UserMsg } from '../types/message';
+import type { UUID } from '../types/uuid';
+import type { ForkOptions, ForkResult } from '../types/fork';
 import { ReAct } from './Conversation';
 import type { AgentContext } from '../types/agent'
 import { getStateManager, MAIN_AGENT_ID, PendingUserInput, SessionRuntime } from '../manager/StateManager';
-import { generateShortId } from '../util/session';
+import { getCheckpointManager } from '../manager/CheckpointManager';
 import { handleCommand } from '../services/commands/runCommand';
 import { getTaskManager } from '../manager/TaskManager';
 import { getCronManager } from '../manager/CronManager';
@@ -124,7 +128,8 @@ export class SemaEngine {
    */
   processUserInput(input: string, originalInput?: string, silent?: boolean): void {
     const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
-    const inputId = generateShortId()
+    // inputId 同时作为该用户输入持久化消息的 uuid，UI 据此调用 fork
+    const inputId = randomUUID()
     const trimmedInput = input.trim()
 
     // quickchat 旁路：不影响状态和队列，异步处理后直接返回
@@ -234,8 +239,8 @@ export class SemaEngine {
         }
       }
 
-      // 处理命令，收集所有 blocks
-      const allBlocks: Anthropic.ContentBlockParam[] = [];
+      // 处理命令，按输入分别收集 blocks（每条输入对应一条持久化消息）
+      const perInput: Array<{ inputId: string; blocks: Anthropic.ContentBlockParam[] }> = [];
       let combinedProcessedText = '';
 
       for (const item of inputs) {
@@ -249,10 +254,12 @@ export class SemaEngine {
           continue;
         }
         combinedProcessedText += (combinedProcessedText ? '\n' : '') + commandResult.processedText;
-        allBlocks.push(...commandResult.blocks);
+        if (commandResult.blocks.length > 0) {
+          perInput.push({ inputId: item.inputId, blocks: commandResult.blocks });
+        }
       }
 
-      if (allBlocks.length === 0) {
+      if (perInput.length === 0) {
         return;
       }
 
@@ -306,12 +313,20 @@ export class SemaEngine {
         this.sessionId,
         hasSkillTool
       )
-      const userMessage = buildUserMsg([
-        ...additionalReminders,
-        ...allBlocks
-      ])
+      // 打 Fork 锚点：记录本批输入发送时已累积的文件快照数，并开启新的快照 segment
+      const checkpointSeq = getCheckpointManager().beginTurn(this.sessionId)
 
-      const messages: Message[] = [...messageHistory, userMessage]
+      // 每条输入各生成一条 UserMsg（uuid=inputId，便于 UI 按输入块 fork）；
+      // additionalReminders 挂在首条上；API 调用时由 prepareMessagesForApi 自动合并连续 user 消息
+      const userMessages: UserMsg[] = perInput.map((p, idx) => {
+        const blocks = idx === 0 ? [...additionalReminders, ...p.blocks] : p.blocks
+        const msg = buildUserMsg(blocks)
+        msg.uuid = p.inputId as UUID
+        msg.checkpointSeq = checkpointSeq
+        return msg
+      })
+
+      const messages: Message[] = [...messageHistory, ...userMessages]
 
       // 调用 query 函数
       for await (const _message of ReAct(
@@ -381,6 +396,79 @@ export class SemaEngine {
    */
   interruptSession(): void {
     this.abortCurrentRequest();
+  }
+
+  /**
+   * 原地回退（Fork / 撤销）：把当前会话历史截断到指定用户消息之前（移除该消息及其之后），
+   * 可选把文件回滚到该点。会话 id 不变，原会话继续使用。
+   */
+  async rewind(messageUuid: string, options: ForkOptions = {}): Promise<ForkResult> {
+    const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
+
+    // idle 守卫：处理中回退会导致 editlog / history / 磁盘不一致
+    if (mainAgentState.getCurrentState() !== 'idle') {
+      return { ok: false, error: '会话忙，请等待空闲后再撤销' };
+    }
+
+    const history = mainAgentState.getMessageHistory();
+    const idx = history.findIndex(m => m.uuid === messageUuid);
+    if (idx < 0) {
+      return { ok: false, error: `未找到消息: ${messageUuid}` };
+    }
+
+    // 回退只接受真实用户输入消息：checkpointSeq 仅打在真实用户输入上（见 startQuery），
+    // 工具结果消息与合成 user 消息（中断提示 / 上下文重建 / 压缩通知等）都不带此标记。
+    // 它们不是干净的回合边界，在其之上截断会把上一条 assistant 的 tool_use 留成孤儿，
+    // 后续准备 API 请求时丢失该轮 assistant 内容，静默破坏会话历史。
+    const forkMsg = history[idx];
+    if (forkMsg.type !== 'user' || forkMsg.checkpointSeq === undefined) {
+      return { ok: false, error: `该消息不是可回退的用户输入: ${messageUuid}` };
+    }
+
+    const forkSeq = forkMsg.checkpointSeq; // 真实用户输入必有锚点
+    const truncated = history.slice(0, idx); // 移除该消息及其之后
+
+    const checkpoint = getCheckpointManager();
+
+    // 1) 回滚文件（仅 restoreFiles）
+    let restoredFiles: string[] = [];
+    if (options.restoreFiles) {
+      const plan = checkpoint.computeRestorePlan(this.sessionId, forkSeq);
+      restoredFiles = checkpoint.applyRestore(plan);
+      // 刷新被回滚文件的读时间戳，沿用会话时间戳、不触发"先重读"
+      for (const filePath of restoredFiles) {
+        try {
+          mainAgentState.setReadFileTimestamp(filePath, statSync(filePath).mtimeMs);
+        } catch {
+          // 回滚为删除等情况文件已不存在，忽略
+        }
+      }
+    }
+
+    // 2) 截断 editlog 到 forkSeq（被撤销的快照记录丢弃）
+    checkpoint.truncateEditLog(this.sessionId, forkSeq);
+
+    // 3) 就地截断历史并持久化（同一会话同 id）
+    mainAgentState.setMessageHistory(truncated); // 非空时自动保存
+    if (truncated.length === 0) {
+      // 空历史不触发自动保存，强制落盘覆盖旧历史
+      const workingDir = getConfManager().getCoreConfig()?.workingDir;
+      await saveHistory(
+        this.sessionId,
+        [],
+        this.runtime.getTodos(),
+        workingDir,
+        this.runtime.getReadFileTimestamps(),
+        this.runtime.listTodoTasks(MAIN_AGENT_ID),
+      );
+    }
+
+    // 主动重发当前 todos：todos 不随回档回退，但 UI 的 todos 面板只吃 todos:update，
+    // 这里重发一次让面板与回档后的会话重新同步
+    this.emit('todos:update', this.runtime.getTodos());
+
+    logInfo(`原地回退: ${this.sessionId} @ ${messageUuid} (restoreFiles=${!!options.restoreFiles}, restored=${restoredFiles.length}, 历史保留 ${truncated.length} 条)`);
+    return { ok: true, sessionId: this.sessionId, restoredFiles };
   }
 
   /**

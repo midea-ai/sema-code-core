@@ -8,7 +8,14 @@ export function resolveSubAgentDescription(): string {
 Each agent runs in its own independent context with its own tool set. Use \`agent_type\` to select; defaults to Default.
 
 Available types:
-${getAgentTypesDescription}
+${getAgentTypesDescription()}
+
+## Explicit invocation (\`/AgentName\`)
+
+When the user invokes an agent by name — e.g. typing \`/SearchCodebase\` or \`/<custom-agent>\` — you MUST dispatch this tool with \`agent_type\` set to that exact name. This is a hard gate, not a preference:
+1. Dispatch the agent before any text output.
+2. Referencing the agent by name without dispatching it is forbidden.
+3. The name maps directly to \`agent_type\`; do not fall back to \`Default\` when a specific agent was named.
 
 ## Agent selection
 

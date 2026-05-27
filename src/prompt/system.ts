@@ -75,6 +75,8 @@ Parallelize independent tool calls in a single response. Sequence dependent ones
 Use \`${TOOL_NAME_SUB_AGENT}\` to parallelize independent research or shield the main context from large results. Use \`agent_type=SearchCodebase\` for broad codebase exploration (when >3 queries are needed). Don't duplicate work a subagent is already doing.
 
 \`/<skill-name>\` invokes a user skill via the \`${TOOL_NAME_SKILL}\` tool. Only use skills listed in the available skills section.
+
+\`/<agent-name>\` invokes a subagent via the \`${TOOL_NAME_SUB_AGENT}\` tool, passing the name as \`agent_type\`. Only use agent types listed in the tool's Available types.
 `
 
 export const SUBAGENT_NOTES = `

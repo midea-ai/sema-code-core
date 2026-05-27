@@ -63,6 +63,11 @@ export const DOC_NOT_SUPPORTED_MESSAGE = `DOC/DOCX files cannot be read directly
 .doc on Linux/Mac (requires LibreOffice):
   soffice --headless --convert-to txt your_file.doc`
 
+const SPREADSHEET_NOT_SUPPORTED_EXTS = new Set(['.xls', '.xlsx', '.xlsm', '.xlsb', '.ods'])
+
+export const SPREADSHEET_NOT_SUPPORTED_MESSAGE =
+  'Spreadsheet files (.xls, .xlsx, .xlsm, .xlsb, .ods) are not supported and cannot be read directly — their binary content would appear as garbled text.'
+
 
 const SUPPORTED_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])
 const IMAGE_MEDIA_TYPES: Record<string, 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'> = {
@@ -216,6 +221,10 @@ export const ViewFile = {
       return { result: false, message: DOC_NOT_SUPPORTED_MESSAGE }
     }
 
+    if (SPREADSHEET_NOT_SUPPORTED_EXTS.has(lowerExtForDoc)) {
+      return { result: false, message: SPREADSHEET_NOT_SUPPORTED_MESSAGE }
+    }
+
     const isImageFile = SUPPORTED_IMAGE_EXTS.has(extname(fullFilePath).toLowerCase())
     const isPDFFile = extname(fullFilePath).toLowerCase() === '.pdf'
     if (!isImageFile && !isPDFFile && fileSize > MAX_OUTPUT_BYTES && !start_line && !max_lines) {
@@ -247,6 +256,10 @@ export const ViewFile = {
 
     if (fileExtension.toLowerCase() === '.doc' || fileExtension.toLowerCase() === '.docx') {
       throw new Error(DOC_NOT_SUPPORTED_MESSAGE)
+    }
+
+    if (SPREADSHEET_NOT_SUPPORTED_EXTS.has(fileExtension.toLowerCase())) {
+      throw new Error(SPREADSHEET_NOT_SUPPORTED_MESSAGE)
     }
 
     if (fileExtension.toLowerCase() === '.pdf') {

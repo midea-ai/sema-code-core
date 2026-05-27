@@ -53,7 +53,7 @@ export const toolParams = z.strictObject({
     .number()
     .optional()
     .describe(`Timeout duration in milliseconds, up to ${RUN_SHELL_MAX_TIMEOUT_MS}ms (${RUN_SHELL_MAX_TIMEOUT_MS / 60000} min). Defaults to ${DEFAULT_RUN_SHELL_TIMEOUT_MS}ms if omitted.`),
-  description: z.string().optional().describe(`A brief active-voice summary (5-10 words) explaining what this command does. Keep it simple for common commands, add context for complex ones.
+  description: z.string().describe(`A brief active-voice summary (5-10 words) explaining what this command does. Required for every call so users can understand the command at a glance. Keep it simple for common commands, add context for complex ones.
 
 Examples:
   pwd → "Print current working directory"
@@ -130,7 +130,7 @@ export const RunShell = {
       content: input.description || ''
     }
   },
-  genToolResultMessage({ stdout, stderr, interrupted, command }) {
+  genToolResultMessage({ stdout, stderr, interrupted, command }, input) {
     let result = ''
 
     if (stdout !== '') {
@@ -149,7 +149,7 @@ export const RunShell = {
 
     return {
       title,
-      summary: '',
+      summary: input?.description || '',
       content: result.trim()
     }
   },
@@ -174,7 +174,7 @@ export const RunShell = {
     return result || '(no content)'
   },
   async *call(
-    { command, timeout = DEFAULT_RUN_SHELL_TIMEOUT_MS, background },
+    { command, timeout = DEFAULT_RUN_SHELL_TIMEOUT_MS, background, description },
     agentContext: any,
   ) {
     const abortController = agentContext.abortController
@@ -256,7 +256,7 @@ export const RunShell = {
         toolId: agentContext.currentToolUseID || '',
         toolName: TOOL_NAME_RUN_SHELL,
         title: commandDisplay,
-        summary: '',
+        summary: description || '',
         content: content,
       }
       getEventBus().emit('tool:execution:chunk', chunkData, agentContext.sessionId)

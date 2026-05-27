@@ -138,8 +138,8 @@ export const checkToolPermission = async (
     if (coreConfig?.skipShellExecPermission) return { result: true }
 
     const allowedTools = projectConfig?.allowedTools || []
-    const { command } = toolParams.parse(input)
-    return await checkRunShellPermission(tool, command, abortController, allowedTools, agentId, sessionId, toolId)
+    const { command, description } = toolParams.parse(input)
+    return await checkRunShellPermission(tool, command, abortController, allowedTools, agentId, sessionId, toolId, description)
   }
 
   // Skill 工具权限检查
@@ -252,7 +252,8 @@ async function checkRunShellPermission(
   allowedTools: string[],
   agentId: string,
   sessionId: string,
-  toolId: string
+  toolId: string,
+  description?: string
 ): Promise<PermissionCheckResult> {
   // 移除当前工作目录前缀
   command = command.replace(`cd ${readInitialCwd()} && `, '')
@@ -261,7 +262,7 @@ async function checkRunShellPermission(
   // 夹带 $()、`` 命令替换或换行即可绕过检测（如 echo $(id)）。检出注入 → 转人工且不提供"永久允许"
   const subCommands = splitCommand(command)
   if (subCommands.some(hasCommandInjection)) {
-    return requestPermissionViaEvent(tool, { command }, null, abortController, agentId, sessionId, toolId, false, true)
+    return requestPermissionViaEvent(tool, { command, description }, null, abortController, agentId, sessionId, toolId, false, true)
   }
 
   // 命中白名单或项目配置已允许
@@ -316,7 +317,7 @@ async function checkRunShellPermission(
   // 有前缀 → 按前缀授权；模型失败且命令 ≤ 64 → 精确命令授权；其余（注入/none/命令 > 64/超长）→ 无 allow，仅单次确认
   const showAllow = prefix !== null || allowExact
 
-  return requestPermissionViaEvent(tool, { command }, prefix, abortController, agentId, sessionId, toolId, showAllow, true)
+  return requestPermissionViaEvent(tool, { command, description }, prefix, abortController, agentId, sessionId, toolId, showAllow, true)
 }
 
 // ==================== 权限保存 ====================

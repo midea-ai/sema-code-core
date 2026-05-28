@@ -11,6 +11,7 @@ import { ToolPermissionRequestData, ToolPermissionResponse } from '../events/typ
 import { checkAbortSignal } from '../types/errors'
 import { getFilePath } from '../util/file'
 import { isAbsolute, resolve, relative } from 'path'
+import { tmpdir } from 'os'
 import { normalizeCmpPath } from '../util/platform'
 import { getStateManager, MAIN_AGENT_ID } from './StateManager'
 import { queryLLM } from '../services/api/queryLLM'
@@ -24,6 +25,21 @@ function isPathInsideRoot(filePath: string, root: string): boolean {
   const rel = relative(normalizeCmpPath(root), normalizeCmpPath(abs))
   if (!rel || rel === '') return true
   return !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+// 系统临时目录：这些目录树下的文件视为临时文件，AutoEdit/AutoRun 下即便在项目外也自动放行
+// tmpdir() 已涵盖 $TMPDIR/$TEMP/$TMP；/var/folders 覆盖 macOS 临时/缓存区
+const TEMP_BASE_PATHS = [tmpdir(), '/tmp', '/var/tmp', '/var/folders']
+
+function isTempFile(filePath: string): boolean {
+  // 相对路径按项目根解析（解析后必落在项目内，由 isPathInsideRoot 处理）；临时文件均为绝对路径
+  const abs = isAbsolute(filePath) ? filePath : resolve(readInitialCwd(), filePath)
+  const absNorm = normalizeCmpPath(abs)
+  return TEMP_BASE_PATHS.some(base => {
+    const rel = relative(normalizeCmpPath(base), absNorm)
+    if (!rel || rel === '') return true
+    return !rel.startsWith('..') && !isAbsolute(rel)
+  })
 }
 
 // ==================== 常量定义 ====================
@@ -117,9 +133,9 @@ export const checkToolPermission = async (
     const runtime = getStateManager().session(sessionId)
     if (runtime.hasGlobalEditPermission()) {
       logDebug(`[Permission]${tool.name} hasGlobalEditPermission: True`)
-      // 项目内直接读取，项目外需要请求权限
+      // 项目内或临时文件直接放行，其余项目外文件需要请求权限
       const filePath = getFilePath(input)
-      if (!filePath || isPathInsideRoot(filePath, readInitialCwd())) {
+      if (!filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath)) {
         logDebug(`[Permission]${filePath} 会话级允许`)
         return { result: true }
       }
@@ -530,10 +546,10 @@ async function autoApproveInAutoRun(
   agentId?: string,
 ): Promise<boolean> {
   // 文件编辑：确定性判断，不走 LLM
-  // 项目内放行；项目外一律转人工，避免模型误判为 safe
+  // 项目内或临时文件放行；其余项目外文件一律转人工，避免模型误判为 safe
   if (isFileEditTool(tool)) {
     const filePath = getFilePath(input)
-    return !filePath || isPathInsideRoot(filePath, readInitialCwd())
+    return !filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath)
   }
 
   // Skill：本身无副作用（仅注入提示词），技能内的真实动作会作为下游工具再次过权限闸门，直接放行

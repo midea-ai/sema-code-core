@@ -1,4 +1,4 @@
-import { Message } from '../types/message'
+import { AiMessage, Message } from '../types/message'
 import { countTokens } from './tokens'
 import { buildUserMsg, prepareMessagesForApi } from './message'
 import { queryLLM } from '../services/api/queryLLM'
@@ -11,6 +11,22 @@ import { z } from 'zod'
 import { getTokens } from './tokens'
 import { COMPRESSION_PROMPT } from '../prompt/compact'
 
+const defaultCompactDependencies = {
+  queryLLM,
+  getModelManager,
+  getEventBus,
+}
+
+const compactDependencies = { ...defaultCompactDependencies }
+
+export const __compactTestHooks = {
+  setDependencies(dependencies: Partial<typeof defaultCompactDependencies>): void {
+    Object.assign(compactDependencies, dependencies)
+  },
+  resetDependencies(): void {
+    Object.assign(compactDependencies, defaultCompactDependencies)
+  },
+}
 
 /**
  * 触发自动上下文压缩的阈值比例
@@ -19,9 +35,57 @@ import { COMPRESSION_PROMPT } from '../prompt/compact'
  */
 const AUTO_COMPACT_THRESHOLD_RATIO = 0.75
 
+export type CompactTruncatedReason =
+  | 'EMPTY_SUMMARY'
+  | 'INVALID_COMPACT_RESPONSE'
+  | 'COMPACT_ERROR'
+
+export type CompactResult =
+  | {
+      kind: 'unchanged'
+      messages: Message[]
+    }
+  | {
+      kind: 'summary'
+      messages: Message[]
+      summary: string
+    }
+  | {
+      kind: 'truncated'
+      messages: Message[]
+      reason: CompactTruncatedReason
+    }
+  | {
+      kind: 'failed'
+      error: unknown
+    }
+
+export type AutoCompactResult =
+  | {
+      changed: true
+      messages: Message[]
+      mode: 'summary' | 'truncated'
+    }
+  | {
+      changed: false
+      messages: Message[]
+      error?: unknown
+    }
+
+type CompactSummaryResult =
+  | {
+      kind: 'summary'
+      messages: Message[]
+      summary: string
+    }
+  | {
+      kind: 'invalid'
+      reason: Exclude<CompactTruncatedReason, 'COMPACT_ERROR'>
+    }
+
 function getContextLimit(): number {
   try {
-    return getModelManager().getModel('main')?.contextLength ?? 128_000
+    return compactDependencies.getModelManager().getModel('main')?.contextLength ?? 128_000
   } catch {
     return 128_000
   }
@@ -131,10 +195,72 @@ function calculateCompactRate(tokenBefore: number, tokenAfter: number): number {
   return tokenAfter / tokenBefore;
 }
 
-/**
- * 基于主模型能力计算上下文使用阈值
- * 采用主模型上下文长度作为基准，因为压缩任务需要由性能足够的模型处理
- */
+function isInvalidCompactResponse(response: AiMessage): boolean {
+  const usage = response.message.usage as any
+  if (!usage || typeof usage !== 'object') return true
+
+  const inputTokens = usage.input_tokens ?? usage.prompt_tokens ?? 0
+  const outputTokens = usage.output_tokens ?? usage.completion_tokens ?? 0
+
+  if (response.message.stop_reason == null) return true
+  if (inputTokens === 0 && outputTokens === 0) return true
+
+  const content = response.message.content as any
+  if (typeof content === 'string') return content.length === 0
+  return !Array.isArray(content) || content.length === 0
+}
+
+function extractSummaryText(response: AiMessage): string {
+  const content = response.message.content as any
+
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (Array.isArray(content)) {
+    const textBlock = content.find((block: any) => block.type === 'text')
+    return textBlock?.type === 'text' ? textBlock.text : ''
+  }
+
+  return ''
+}
+
+function emitCompactUsage(
+  messagesBefore: Message[],
+  messagesAfter: Message[] | null,
+  sessionId: string | undefined,
+  mode: 'summary' | 'truncated' | 'failed',
+  reason?: string,
+  error?: unknown,
+): void {
+  try {
+    // `compact:exec` means a compacted transcript was actually committed.
+    // Failed compact attempts must not emit it, otherwise clients may hide the
+    // visible transcript even though persisted history remains unchanged.
+    if (mode === 'failed' || !messagesAfter) {
+      return
+    }
+
+    const tokensBeforeInfo = countTokens(messagesBefore)
+    const tokenBefore = tokensBeforeInfo.inputTokens + tokensBeforeInfo.outputTokens
+    const usage = getTokens(messagesAfter)
+    const eventBus = compactDependencies.getEventBus()
+    const compactExecData: CompactExecData = {
+      tokenBefore,
+      tokenCompact: usage.useTokens,
+      compactRate: calculateCompactRate(tokenBefore, usage.useTokens),
+      mode,
+      reason,
+      errMsg: error instanceof Error ? error.message : error ? String(error) : undefined,
+    }
+
+    eventBus.emit('compact:exec', compactExecData, sessionId)
+    eventBus.emit('conversation:usage', { usage }, sessionId)
+  } catch (usageError) {
+    logError(`Failed to emit compact usage: ${usageError}`)
+  }
+}
+
 /**
  * 根据令牌使用量判断是否应触发自动压缩
  * 只计算输入token数，因为API调用时主要关心的是输入token限制
@@ -164,21 +290,50 @@ export function needsAutoCompact(messages: Message[]): boolean {
 export async function compactMessages(
   messages: Message[],
   abortController: AbortController,
-  sessionId?: string
-): Promise<Message[]> {
+  sessionId?: string,
+  options: { allowTruncationFallback?: boolean } = {}
+): Promise<CompactResult> {
+  const allowTruncationFallback = options.allowTruncationFallback ?? true
+
   if (messages.length < 2) {
-    return messages
+    return { kind: 'unchanged', messages }
   }
 
-  // 计算压缩前的输入token数
-  const tokensBeforeInfo = countTokens(messages);
-  const tokenBefore = tokensBeforeInfo.inputTokens + tokensBeforeInfo.outputTokens;
-
-  let compactedMessages
-
   try {
-    compactedMessages = await executeAutoCompact(messages, abortController)
+    const summaryResult = await executeAutoCompact(messages, abortController)
+
+    if (summaryResult.kind === 'summary') {
+      emitCompactUsage(messages, summaryResult.messages, sessionId, 'summary')
+      return summaryResult
+    }
+
+    if (!allowTruncationFallback) {
+      emitCompactUsage(messages, null, sessionId, 'failed', summaryResult.reason)
+      return {
+        kind: 'failed',
+        error: new Error(`Compact did not produce a valid summary: ${summaryResult.reason}`),
+      }
+    }
+
+    const contextLimit = getContextLimit()
+    const targetLimit = contextLimit * 0.5 // 截断到50%容量
+    const truncatedMessages = truncateMessages(messages, targetLimit)
+    emitCompactUsage(messages, truncatedMessages, sessionId, 'truncated', summaryResult.reason)
+
+    return {
+      kind: 'truncated',
+      messages: truncatedMessages,
+      reason: summaryResult.reason,
+    }
   } catch (error) {
+    if (!allowTruncationFallback) {
+      emitCompactUsage(messages, null, sessionId, 'failed', 'COMPACT_ERROR', error)
+      return {
+        kind: 'failed',
+        error,
+      }
+    }
+
     // 压缩完全失败时的备用策略：使用截断方式
     logError(`Compact failed, attempting truncation fallback: ${error}`)
 
@@ -186,31 +341,27 @@ export async function compactMessages(
       const contextLimit = getContextLimit()
       const targetLimit = contextLimit * 0.5 // 截断到50%容量
 
-      compactedMessages = truncateMessages(messages, targetLimit)
+      const truncatedMessages = truncateMessages(messages, targetLimit)
 
-      logError(`Successfully applied truncation fallback, reduced from ${messages.length} to ${compactedMessages.length} messages`)
+      logError(`Successfully applied truncation fallback, reduced from ${messages.length} to ${truncatedMessages.length} messages`)
+      emitCompactUsage(messages, truncatedMessages, sessionId, 'truncated', 'COMPACT_ERROR', error)
 
+      return {
+        kind: 'truncated',
+        messages: truncatedMessages,
+        reason: 'COMPACT_ERROR',
+      }
     } catch (truncationError) {
-      // 如果连截断都失败，抛出错误
+      // 如果连截断都失败，返回失败结果
       logError(`Truncation fallback also failed: ${truncationError}`)
-      throw truncationError
+      emitCompactUsage(messages, null, sessionId, 'failed', 'COMPACT_ERROR', truncationError)
+
+      return {
+        kind: 'failed',
+        error: truncationError,
+      }
     }
   }
-  // 计算压缩后的输入token数并触发事件
-  const usage = getTokens(compactedMessages);
-
-  // 触发压缩执行事件
-  const eventBus = getEventBus();
-  const compactExecData: CompactExecData = {
-    tokenBefore: tokenBefore,
-    tokenCompact: usage.useTokens,
-    compactRate: calculateCompactRate(tokenBefore, usage.useTokens)
-  };
-  eventBus.emit('compact:exec', compactExecData, sessionId);
-  // 自动压缩后发送更新的 usage 事件
-  eventBus.emit('conversation:usage', { usage }, sessionId)
-
-  return compactedMessages
 }
 
 /**
@@ -229,7 +380,7 @@ export async function autoCompact(
   messages: Message[],
   abortController: AbortController,
   sessionId?: string
-): Promise<Message[]> {
+): Promise<AutoCompactResult> {
   // 从后往前找最后一条真实用户消息（非 tool_result）的索引
   let lastRealUserIdx = -1
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -247,7 +398,7 @@ export async function autoCompact(
 
   if (lastRealUserIdx === -1) {
     // 没有找到真实用户消息，跳过压缩
-    return messages
+    return { changed: false, messages }
   }
 
   // 只压缩最后一条真实用户消息之前的历史
@@ -257,26 +408,34 @@ export async function autoCompact(
 
   if (messagesToCompact.length < 2) {
     // 历史消息太少，不值得压缩
-    return messages
+    return { changed: false, messages }
   }
 
-  try {
-    const compactedHistory = await compactMessages(messagesToCompact, abortController, sessionId)
+  const compactResult = await compactMessages(messagesToCompact, abortController, sessionId)
 
+  if (compactResult.kind === 'summary' || compactResult.kind === 'truncated') {
     // 组合结果示例（工具调用场景）：
     //   [compactNotice(user), summaryMsg(assistant), lastRealUserMsg(user), assistantMsg(assistant), toolResult(user)]
     // 组合结果示例（新查询场景）：
     //   [compactNotice(user), summaryMsg(assistant), newUserQuery(user)]
     // 两种场景均以 user 消息结尾，API 调用合法
-    const finalMessages = [...compactedHistory, ...messagesToKeep]
+    const finalMessages = [...compactResult.messages, ...messagesToKeep]
 
     logDebug(`[Compact] Final messages count: ${finalMessages.length}, kept current turn: ${messagesToKeep.length} messages`)
 
-    return finalMessages
-  } catch (error) {
-    logError(`Auto-compact failed completely: ${error}. Continuing with original messages`)
-    return messages
+    return {
+      changed: true,
+      messages: finalMessages,
+      mode: compactResult.kind,
+    }
   }
+
+  if (compactResult.kind === 'unchanged') {
+    return { changed: false, messages }
+  }
+
+  logError(`Auto-compact failed completely: ${compactResult.error}. Continuing with original messages`)
+  return { changed: false, messages, error: compactResult.error }
 }
 
 /**
@@ -304,12 +463,12 @@ export const NULL_TOOL: Tool = {
  * 1. 压缩传入的历史对话消息
  * 2. 返回结构：[压缩指令(user), 压缩摘要(assistant+usage)]
  *
- * 注意：新用户消息的分离和添加由 checkAutoCompact 统一处理
+ * 注意：新用户消息的分离和添加由 autoCompact 统一处理
  */
 async function executeAutoCompact(
   messages: Message[],
   abortController: AbortController
-): Promise<Message[]> {
+): Promise<CompactSummaryResult> {
   // 使用 null tool 作为占位，避免模型调用任何工具
   const tools = [NULL_TOOL]
 
@@ -319,7 +478,7 @@ async function executeAutoCompact(
     buildUserMsg(COMPRESSION_PROMPT)
   ]
 
-  const summaryResponse = await queryLLM(
+  const summaryResponse = await compactDependencies.queryLLM(
     messagesWithPrompt,
     [
       {
@@ -332,28 +491,20 @@ async function executeAutoCompact(
     { modelPointer: 'main', disableChunkEvents: true }
   )
 
-  // 解析 summary 结果，兼容 Anthropic 和 OpenAI 两种格式
-  const content = summaryResponse.message.content
-  let summary: string | null = null
-
-
-  if (typeof content === 'string') {
-    // OpenAI 格式：content 直接是字符串
-    summary = content
-
-  } else if (Array.isArray(content)) {
-    // Anthropic 格式：content 是 ContentBlock[] 数组
-    const textBlock = content.find(block => block.type === 'text')
-    summary = textBlock?.type === 'text' ? textBlock.text : null
+  if (isInvalidCompactResponse(summaryResponse)) {
+    return {
+      kind: 'invalid',
+      reason: 'INVALID_COMPACT_RESPONSE',
+    }
   }
 
-  if (!summary || summary.trim().length === 0) {
-    // 压缩失败时的备用策略：尝试简单截断而不是完全失败
-    const contextLimit = getContextLimit()
-    const targetLimit = contextLimit * 0.5 // 截断到50%容量
+  const summary = extractSummaryText(summaryResponse)
 
-    logError('压缩生成摘要失败，使用截断策略作为备用方案')
-    return truncateMessages(messages, targetLimit)
+  if (summary.trim().length === 0) {
+    return {
+      kind: 'invalid',
+      reason: 'EMPTY_SUMMARY',
+    }
   }
 
   // 压缩后的消息结构：
@@ -373,6 +524,9 @@ The conversation has been automatically compressed due to token limit. Below is 
   const originalUsage = summaryResponse.message.usage as any
   const estimatedNoticeTokens = 30
   const summaryTokens = originalUsage.completion_tokens || originalUsage.output_tokens || 0
+  const correctedInputTokens = estimatedNoticeTokens + summaryTokens
+  const originalInputTokens = originalUsage.input_tokens ?? originalUsage.prompt_tokens ?? 0
+  const originalOutputTokens = originalUsage.output_tokens ?? originalUsage.completion_tokens ?? 0
 
   // 创建修正后的 summary message
   const correctedSummaryMessage: typeof summaryResponse = {
@@ -382,21 +536,26 @@ The conversation has been automatically compressed due to token limit. Below is 
       usage: {
         ...originalUsage,
         // 修正 input_tokens：压缩通知 + 摘要内容
-        input_tokens: estimatedNoticeTokens + summaryTokens,
+        input_tokens: correctedInputTokens,
         // 修正 output_tokens：摘要内容
         output_tokens: summaryTokens,
         // 如果是 OpenAI 格式，也要修正
-        prompt_tokens: estimatedNoticeTokens + summaryTokens,
+        prompt_tokens: correctedInputTokens,
         completion_tokens: summaryTokens,
       }
     }
   }
 
-  // logDebug(`[Compact] Original usage: input=${originalUsage.input_tokens || originalUsage.prompt_tokens}, output=${originalUsage.output_tokens || originalUsage.completion_tokens}`)
-  // logDebug(`[Compact] Corrected usage: input=${estimatedNoticeTokens + summaryTokens}, output=${summaryTokens}`)
+  logDebug(
+    `[Compact] Corrected summary usage: originalInput=${originalInputTokens}, originalOutput=${originalOutputTokens}, correctedInput=${correctedInputTokens}, correctedOutput=${summaryTokens}`
+  )
 
   // 构建压缩后的消息列表（只包含压缩通知和摘要，不包含新用户消息）
   const compactedMessages: Message[] = [compactNoticeMessage, correctedSummaryMessage]
 
-  return compactedMessages
+  return {
+    kind: 'summary',
+    messages: compactedMessages,
+    summary,
+  }
 }

@@ -94,25 +94,37 @@ async function handleCompactCommand(sessionId: string): Promise<void> {
   try {
     logDebug(`开始手动压缩，当前消息数: ${messages.length}`);
 
-    const compactedMessages = await compactMessages(messages, runtime.currentAbortController, sessionId);
+    const result = await compactMessages(messages, runtime.currentAbortController, sessionId, {
+      allowTruncationFallback: false,
+    });
 
-    const summaryContent = compactedMessages[1]?.message?.content;
-    const summaryText =
-      typeof summaryContent === 'string'
-        ? summaryContent
-        : Array.isArray(summaryContent)
-          ? summaryContent
-              .filter((b: any) => b.type === 'text')
-              .map((b: any) => b.text)
-              .join('\n')
-          : '';
+    if (result.kind === 'unchanged') {
+      logInfo('Not enough history to compact, skip compact');
+      return;
+    }
+
+    if (result.kind !== 'summary') {
+      const errorMsg = `Compact did not produce a valid summary: ${result.kind}`;
+      logError(errorMsg);
+      eventBus.emit('session:error', {
+        type: 'compact_error',
+        error: {
+          code: 'COMPACT_FAILED',
+          message: errorMsg,
+          details: result.kind === 'failed'
+            ? { error: result.error }
+            : { reason: result.reason },
+        },
+      }, sessionId);
+      return;
+    }
 
     // 压缩后清空 todos 和 readFileTimestamps（历史上下文已丢失，它们不再有意义）
     mainAgentState.updateTodosIntelligently([]);
     mainAgentState.setReadFileTimestamps({});
 
     mainAgentState.setMessageHistory([
-      buildUserMsg(summaryText),
+      buildUserMsg(result.summary),
     ]);
 
     logDebug('压缩完成，已替换为 local-command 格式消息历史');

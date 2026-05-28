@@ -43,9 +43,13 @@ export async function* ReAct(
   // 在处理新消息前检查，如果需要压缩，会分离出最新的用户消息
   if (!isSubagent && await needsAutoCompact(messages)) {
     getTaskManager().disposeSession(sessionId);
-    messages = await autoCompact(messages, abortController, sessionId)
-    agentState.updateTodosIntelligently([]);
-    agentState.setReadFileTimestamps({});
+    const compactResult = await autoCompact(messages, abortController, sessionId)
+    messages = compactResult.messages
+
+    if (compactResult.changed) {
+      agentState.updateTodosIntelligently([]);
+      agentState.setReadFileTimestamps({});
+    }
   }
 
   // 获取助手响应

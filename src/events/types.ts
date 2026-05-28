@@ -286,6 +286,8 @@ export interface ConversationUsageData {
  */
 export interface CompactExecData {
   errMsg?: string
+  mode?: 'summary' | 'truncated' | 'failed'
+  reason?: string
   tokenBefore: number;   // 压缩前输入token数
   tokenCompact: number;  // 压缩后输入token数
   compactRate: number;   // 压缩率，如0.235表示压缩到23.5%

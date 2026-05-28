@@ -36,4 +36,5 @@
     - [事件总线架构](wiki/core-concepts/event-system/event-bus)
     - [事件类型](wiki/core-concepts/event-system/event-catalog)
   - [数据持久化](wiki/core-concepts/persistent-storage/index)
+  - [会话 Fork / 回滚](wiki/core-concepts/session-fork/index)
 

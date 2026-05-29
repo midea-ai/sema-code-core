@@ -168,7 +168,7 @@ async function processSingleReference(
   const referenceText = match[1] // 去掉@的部分，如 index.js:13-17
 
   // 解析文件引用
-  const parsed = parseFileReference(referenceText)
+  const parsed = parseFileReference((referenceText ?? match[2])!)
   const fullPath = canonicalizeFilePath(parsed.fileName)
 
   logInfo(`Processing file reference: ${fullReference} -> ${fullPath}${parsed.startLine ? `:${parsed.startLine}${parsed.endLine !== parsed.startLine ? `-${parsed.endLine}` : ''}` : ''}`)
@@ -375,7 +375,7 @@ export async function processFileReferences(
   // 不含 . : / \ 等路径合法字符，避免截断文件名/路径
   // 左边界：@ 必须位于行首或边界字符之后（避免误匹配 email@example.com 等）
   // 右边界：遇到边界字符则停止
-  const fileReferenceRegex = /(?:^|(?<=[\s。，、；：！？""''「」『』（）《》〈〉【】,;!?]))@([^\s。，、；：！？""''「」『』（）《》〈〉【】,;!?]+)/g
+  const fileReferenceRegex = /(?:^|(?<=[\s。，、；：！？""''「」『』（）《》〈〉【】,;!?]))@(?:"([^"]+)"|([^\s。，、；：！？""''「」『』（）《》〈〉【】,;!?]+))/g
   const allMatches = [...userInput.matchAll(fileReferenceRegex)]
 
   // 如果没有找到文件引用,直接返回
@@ -386,7 +386,7 @@ export async function processFileReferences(
   // 对文件引用进行去重，保持首次出现的顺序
   const seen = new Set<string>()
   const matches = allMatches.filter(match => {
-    const ref = match[1]
+    const ref = (match[1] ?? match[2])!
     if (seen.has(ref)) {
       return false
     }

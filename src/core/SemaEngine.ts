@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { statSync } from 'fs'
 import { logInfo, logDebug, setLogLevel, logWarn } from '../util/log';
 import { getTokens } from '../util/tokens';
-import { loadHistory, saveHistory } from '../util/history';
+import { loadHistory, saveHistory, resolveHistoryFile } from '../util/history';
 import { detectTopicInBackground } from '../util/topic';
 import { processFileReferences } from '../util/fileReference';
 import { buildUserMsg, buildAdditionalReminders } from '../util/message';
@@ -82,6 +82,15 @@ export class SemaEngine {
     const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
     const workingDir = coreConfig?.workingDir;
     const historyId = opts.sessionId;
+
+    // 决定本会话历史文件命名格式：传入 ID 且无任何历史文件（不存在的会话ID）→ 无日期，
+    // 沿用已存在文件的格式；不传 ID（随机 ID）→ 带日期。
+    let historyNoDate = false;
+    if (historyId) {
+      const resolved = resolveHistoryFile(historyId, workingDir);
+      historyNoDate = resolved.exists ? resolved.noDate : true;
+    }
+    this.runtime.setHistoryNoDate(historyNoDate);
 
     const historyData = await loadHistory(historyId, workingDir);
 
@@ -460,6 +469,7 @@ export class SemaEngine {
         workingDir,
         this.runtime.getReadFileTimestamps(),
         this.runtime.listTodoTasks(MAIN_AGENT_ID),
+        this.runtime.getHistoryNoDate(),
       );
     }
 

@@ -109,6 +109,9 @@ export class SessionRuntime {
   private planModeInfoSent = false;
   private designModeInfoSent = false;
 
+  // 历史文件命名格式：true 表示本会话使用无日期文件名（会话id.json），用于固定会话持久化
+  private historyNoDate = false;
+
   // 当前正在运行的前台 agent taskId 集合
   private foregroundAgents = new Set<string>();
 
@@ -534,12 +537,22 @@ export class SessionRuntime {
       const readFileTimestamps = this.getReadFileTimestamps(MAIN_AGENT_ID);
       const workingDir = getConfManager().getCoreConfig()?.workingDir;
       if (messageHistory.length > 0) {
-        await saveHistory(this.sessionId, messageHistory, todos, workingDir, readFileTimestamps, todoTasks);
+        await saveHistory(this.sessionId, messageHistory, todos, workingDir, readFileTimestamps, todoTasks, this.historyNoDate);
         logInfo(`会话历史已保存: ${this.sessionId}`);
       }
     } catch (error) {
       logInfo(`保存会话历史失败: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /** 设置本会话历史文件是否使用无日期命名（会话id.json） */
+  setHistoryNoDate(noDate: boolean): void {
+    this.historyNoDate = noDate;
+  }
+
+  /** 本会话历史文件是否使用无日期命名 */
+  getHistoryNoDate(): boolean {
+    return this.historyNoDate;
   }
 
   // ============================================================

@@ -89,13 +89,15 @@ export function cleanupProjectSnapshots(projectPath: string): void {
     const snapDir = getProjectSnapshotsDir(projectPath);
     if (!existsSync(snapDir)) return;
 
-    // 1) 从剩余历史文件中收集仍存活的 sessionId（文件名形如 YYYY-MM-DD_<sessionId>.json）
+    // 1) 从剩余历史文件中收集仍存活的 sessionId
+    //    文件名两种格式：带日期 YYYY-MM-DD_<sessionId>.json，或无日期 <sessionId>.json（固定会话）
     const liveSessions = new Set<string>();
     const histDir = getProjectHistoryDir(projectPath);
     if (existsSync(histDir)) {
       for (const file of readdirSync(histDir)) {
-        const m = /^\d{4}-\d{2}-\d{2}_(.+)\.json$/.exec(file);
-        if (m) liveSessions.add(m[1]);
+        const dated = /^\d{4}-\d{2}-\d{2}_(.+)\.json$/.exec(file);
+        if (dated) { liveSessions.add(dated[1]); continue; }
+        if (file.endsWith('.json')) liveSessions.add(file.slice(0, -'.json'.length));
       }
     }
 

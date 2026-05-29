@@ -25,15 +25,30 @@ interface HistoryData {
 }
 
 /**
+ * 解析会话当前应使用的历史文件路径与命名格式。
+ * 优先级：无日期 会话id.json > 当天带日期 日期_会话id.json。
+ * 都不存在时返回当天带日期路径，exists=false（由调用方决定新会话的命名格式）。
+ */
+export function resolveHistoryFile(sessionId: string, projectPath?: string): { path: string; noDate: boolean; exists: boolean } {
+  const noDatePath = getHistoryFilePath(sessionId, projectPath, true);
+  if (fs.existsSync(noDatePath)) return { path: noDatePath, noDate: true, exists: true };
+
+  const datedPath = getHistoryFilePath(sessionId, projectPath, false);
+  if (fs.existsSync(datedPath)) return { path: datedPath, noDate: false, exists: true };
+
+  return { path: datedPath, noDate: false, exists: false };
+}
+
+/**
  * 加载历史消息和todos
  */
 export async function loadHistory(sessionId?: string, projectPath?: string): Promise<HistoryData> {
   if (!sessionId) return { messages: [], todos: [] };
 
-  const historyPath = getHistoryFilePath(sessionId, projectPath);
+  const { path: historyPath, exists } = resolveHistoryFile(sessionId, projectPath);
 
   try {
-    if (fs.existsSync(historyPath)) {
+    if (exists) {
       const historyData: HistoryData = JSON.parse(fs.readFileSync(historyPath, 'utf-8'));
       const messages = historyData.messages || [];
       const todos = historyData.todos || [];
@@ -184,9 +199,9 @@ export async function cleanupOldHistoryFiles(projectPath?: string): Promise<void
 /**
  * 保存历史消息和todos
  */
-export async function saveHistory(sessionId: string, messages: Message[], todos?: TodoItem[], projectPath?: string, readFileTimestamps?: Record<string, number>, todoTasks?: TodoTask[]): Promise<void> {
+export async function saveHistory(sessionId: string, messages: Message[], todos?: TodoItem[], projectPath?: string, readFileTimestamps?: Record<string, number>, todoTasks?: TodoTask[], noDate?: boolean): Promise<void> {
   const historyDir = projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
-  const historyPath = getHistoryFilePath(sessionId, projectPath);
+  const historyPath = getHistoryFilePath(sessionId, projectPath, noDate);
 
   try {
     // 确保目录存在

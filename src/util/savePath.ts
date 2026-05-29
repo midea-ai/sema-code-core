@@ -87,10 +87,11 @@ export function getProjectSnapshotsDir(projectPath: string): string {
 
 /**
  * 获取历史记录文件路径
+ * @param noDate 为 true 时文件名不带日期前缀（会话id.json），用于固定会话持久化；
+ *               默认带日期（日期_会话id.json）。
  */
-export function getHistoryFilePath(sessionId: string, projectPath?: string): string {
-  const dateStr = getDayTimeString();
-  const filename = `${dateStr}_${sessionId}.json`;
+export function getHistoryFilePath(sessionId: string, projectPath?: string, noDate?: boolean): string {
+  const filename = noDate ? `${sessionId}.json` : `${getDayTimeString()}_${sessionId}.json`;
 
   if (projectPath) {
     return path.join(getProjectHistoryDir(projectPath), filename);

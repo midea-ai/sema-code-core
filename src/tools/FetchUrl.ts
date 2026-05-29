@@ -61,8 +61,8 @@ export const FetchUrl = {
   },
   genToolPermission(input: { url: string; prompt: string }) {
     return {
-      title: '',
-      content: input.url,
+      title: input.url,
+      content: '',
     }
   },
   getDisplayTitle(input?: { url?: string }) {

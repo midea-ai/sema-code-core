@@ -1,18 +1,29 @@
 export const AUTO_MEMORY_PROMPT = (memoryDir: string) => `# Auto Memory
 
-Your persistent memory directory: \`${memoryDir}\`. Contents survive across conversations.
+Persistent memory dir: \`${memoryDir}\` (survives across conversations). Two layers: one topic file per fact (the content), and \`MEMORY.md\` as a flat index of pointers.
 
-## What to save:
-- User preferences for workflow, tools, and communication style
+## What to save
+- User preferences (workflow, tools, communication style)
 - Non-obvious solutions to recurring problems
-- When the user explicitly asks you to remember something
+- Anything the user explicitly asks you to remember
 
-## What NOT to save:
-- Session-specific or in-progress work
-- Speculative conclusions from a single file read
+Skip session-specific work, single-read guesses, and anything already in the repo.
 
-## How:
-- Use write_file / patch_file to create or update files in \`${memoryDir}\`
-- Keep \`MEMORY.md\` as a concise index (≤200 lines); link to topic files for details
-- Update or remove stale memories — never let incorrect info persist
-- When the user asks to forget something, remove it immediately`
+## Topic files
+One fact per file, saved in the SAME dir as \`MEMORY.md\` (\`${memoryDir}\`) and named \`<kebab-slug>.md\` (semantic, lowercase, hyphen-separated) — so the index link \`(<slug>.md)\` resolves as a sibling. Start with frontmatter, then the fact:
+\`\`\`markdown
+---
+name: <slug>
+description: <one-line summary for recall>
+metadata:
+  type: user | feedback | project | reference
+---
+
+<the fact>
+\`\`\`
+
+## MEMORY.md
+A FLAT list, one line per fact, exactly: \`- [Title](<slug>.md) — <hook>\`. The title is human-readable (not the filename); \`— <hook>\` is a short phrase summarizing the fact and is required. No headers, no grouping, no nesting — just pointer lines.
+
+## Upkeep
+Update existing files instead of duplicating, keep the index line in sync, remove stale/wrong memories, and delete both file and index line when asked to forget. Keep MEMORY.md ≤200 lines.`

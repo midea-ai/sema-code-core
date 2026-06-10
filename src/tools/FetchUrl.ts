@@ -138,7 +138,7 @@ Please call ${TOOL_NAME_FETCH_URL} again with the redirected URL:
     if (contentType.includes('text/markdown') && content.length < FETCH_URL_MAX_MARKDOWN_LEN) {
       result = content
     } else {
-      result = await injectPromptIntoMarkdown(prompt, content, abortController.signal)
+      result = await injectPromptIntoMarkdown(prompt, content, abortController.signal, agentContext.sessionId)
     }
 
     const output: ToolRes = {

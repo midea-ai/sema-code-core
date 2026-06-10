@@ -227,6 +227,20 @@ export interface ToolPermissionResponse {
   selected: string;      // 用户选择的操作标识，如 'agree' | 'allow' | 'refuse' 或其他自定义选项
 }
 
+/**
+ * 工具权限「模型自动放行」事件数据
+ * 事件: `tool:permission:auto`
+ * 说明: AutoRun 档位下，工具动作经快速模型判定为 safe 而自动放行时触发。
+ *       仅「模型判断放行」才触发；只读白名单、项目内文件、Skill 等确定性放行不触发。
+ *       UI 可据此提示"已由模型安全判断自动放行"。
+ */
+export interface ToolPermissionAutoData {
+  agentId: string;       // 代理ID（主代理为 MAIN_AGENT_ID，子代理为 taskId）
+  toolId: string;        // 工具调用唯一ID（对应 Anthropic ToolUseBlock 的 id）
+  toolName: string;      // 工具名称
+  content: string;       // 一句简短的文字说明（UI 展示），如"已由模型安全判断自动放行"
+}
+
 // ==================== 待办事项相关类型 ====================
 
 export type { TodoItem } from '../types/todoTask';

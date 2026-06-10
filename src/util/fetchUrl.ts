@@ -107,6 +107,7 @@ export async function injectPromptIntoMarkdown(
   prompt: string,
   markdownContent: string,
   signal: AbortSignal,
+  sessionId?: string,
 ): Promise<string> {
   const truncated =
     markdownContent.length > FETCH_URL_MAX_MARKDOWN_LEN
@@ -116,7 +117,7 @@ export async function injectPromptIntoMarkdown(
   const userPrompt = buildSecondaryModelPrompt(truncated, prompt)
 
   try {
-    const { message } = await queryQuick({ userPrompt, signal })
+    const { message } = await queryQuick({ userPrompt, signal, sessionId })
     const firstBlock = message.content[0]
     return firstBlock && 'text' in firstBlock ? firstBlock.text : 'The model returned an empty response.'
   } catch (e) {

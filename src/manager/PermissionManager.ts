@@ -7,7 +7,7 @@ import { logDebug, logError, logInfo } from '../util/log'
 import { REJECT_MSG, CANCEL_MSG, getCustomFeedbackMessage, API_ERR_PREFIX, prepareMessagesForApi, buildUserMsg } from '../util/message'
 import { getConfManager } from './ConfManager'
 import { getEventBus } from '../events/EventSystem'
-import { ToolPermissionRequestData, ToolPermissionResponse } from '../events/types'
+import { ToolPermissionRequestData, ToolPermissionResponse, ToolPermissionAutoData } from '../events/types'
 import { checkAbortSignal } from '../types/errors'
 import { getFilePath } from '../util/file'
 import { isAbsolute, resolve, relative } from 'path'
@@ -17,6 +17,8 @@ import { getStateManager, MAIN_AGENT_ID } from './StateManager'
 import { queryLLM } from '../services/api/queryLLM'
 import { NULL_TOOL } from '../util/compact'
 import { AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT, AUTO_RUN_SAFETY_CONTEXT_USER_PROMPT } from '../prompt/permission'
+import { isReadonlySafeCommand, isUnsafeForPrefixAuth, hasDangerousCommand } from '../util/shellSafety'
+import { isBlockedFetchHost } from '../util/fetchSafety'
 
 // ==================== 辅助函数 ====================
 
@@ -43,12 +45,6 @@ function isTempFile(filePath: string): boolean {
 }
 
 // ==================== 常量定义 ====================
-
-const SAFE_COMMANDS = new Set([
-  'git status', 'git diff', 'git log', 'git branch',
-  'pwd', 'tree', 'date', 'which',
-  'ls', 'find', 'grep', 'head', 'tail', 'cat', 'du', 'wc', 'echo', 'env', 'printenv'
-])
 
 // 子命令字符长度上限：超过则跳过前缀提取（如内联脚本 python -c "...大段..."，提取前缀无意义），
 // 同时不提供「按前缀授权」，只允许单次确认。
@@ -198,14 +194,18 @@ export const checkToolPermission = async (
     const allowedTools = projectConfig?.allowedTools || []
     const url = (input as any).url
 
-    if (url) {
+    // 内网/链路本地/元数据等 SSRF 兜底命中的主机：即便已保存域名授权也不放行（纵深防御，
+    // 治存量配置），且转人工时不提供「永久允许该域名」选项，避免一键给内网地址开永久通行证。
+    const blocked = url ? isBlockedFetchHost(url) : false
+
+    if (url && !blocked) {
       const domain = extractDomain(url)
       if (domain && allowedTools.includes(`${FETCH_URL_TOOL_NAME}(${domain})`)) {
         return { result: true }
       }
     }
 
-    return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId)
+    return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId, !blocked)
   }
 
   logDebug(`[Permission]${tool.name} 非编辑、run_shell、skill、mcp或webfetch工具默认允许`)
@@ -217,22 +217,9 @@ export const checkToolPermission = async (
 // ==================== run_shell 工具权限检查 ====================
 
 function runShellToolHasExactMatch(tool: Tool, command: string, allowedTools: string[]): boolean {
-  if (SAFE_COMMANDS.has(command)) return true
-
-  // 链式命令（&&、||、;）交由子命令分析处理，此处不做前缀匹配
-  const hasChainOperator = /&&|\|\||;/.test(command)
-  if (!hasChainOperator) {
-    const pipeParts = command.split(/\s+\|\s+/)
-    if (pipeParts.length > 1) {
-      // 管道命令：每一段的主命令都必须在白名单，防止 "find . | rm -rf /" 绕过
-      const allSafe = pipeParts.every(part => SAFE_COMMANDS.has(part.trim().split(' ')[0]))
-      if (allSafe) return true
-    } else {
-      // 单条命令：主命令前缀匹配（如 "ls -la /path" 匹配 "ls"）
-      const mainCommand = command.split(' ')[0]
-      if (SAFE_COMMANDS.has(mainCommand)) return true
-    }
-  }
+  // 只读安全命令快速通道：基于 splitCommand 分词逐子命令判定，
+  // 杜绝「整串 split(' ')[0]」导致的重定向 / 不带空格管道 / find 危险 flag 绕过
+  if (isReadonlySafeCommand(command)) return true
 
   const key = getPermissionKey(tool, { command }, null)
   if (allowedTools.includes(key)) return true
@@ -243,6 +230,10 @@ function runShellToolHasExactMatch(tool: Tool, command: string, allowedTools: st
 
 // 已保存的前缀授权 run_shell(P:*) 用字符串前缀匹配判定覆盖，无需模型提取前缀
 function matchesSavedPrefix(command: string, allowedTools: string[]): boolean {
+  // 前缀匹配只看首词，无法识别参数/重定向带来的危险。危险命令（含重定向、rm/sudo/mv
+  // 等危险首词、find 危险 flag）即便首词被前缀授权也不放行，避免 `rm:*`/`echo:*` 退化为
+  // 任意删除/写文件原语。
+  if (isUnsafeForPrefixAuth(command)) return false
   const open = `${RunShell.name}(`
   for (const entry of allowedTools) {
     if (!entry.startsWith(open) || !entry.endsWith(':*)')) continue
@@ -286,6 +277,13 @@ async function checkRunShellPermission(
     return { result: true }
   }
 
+  // 确定性危险命令（rm/sudo/mv 等危险首词、find 危险 flag）：直接转人工，不调模型。
+  // 这类命令语义本身危险，不该给模型机会判 safe 放行；也不提供前缀授权（showAllow=false）。
+  // skipAutoRun=true 跳过 requestPermissionViaEvent 内的 AutoRun 自动放行，避免再次调用模型。
+  if (hasDangerousCommand(command)) {
+    return requestPermissionViaEvent(tool, { command, description }, null, abortController, agentId, sessionId, toolId, false, true)
+  }
+
   // AutoRun 档位：对整条命令做一次安全判断，判定 safe 直接放行；
   // 判定有风险时继续走下面的确定性覆盖匹配（已保存授权仍可放行），否则转人工。
   const runtime = getStateManager().session(sessionId)
@@ -299,6 +297,7 @@ async function checkRunShellPermission(
     checkAbortSignal(abortController)
     if (safe) {
       logDebug(`[Permission][AutoRun]${tool.name} 自动放行`)
+      emitAutoApproved(tool, agentId, sessionId, toolId)
       return { result: true }
     }
     logDebug(`[Permission][AutoRun]${tool.name} 判定有风险，转人工申请`)
@@ -315,7 +314,9 @@ async function checkRunShellPermission(
   const firstUncovered = subCommands.find(subCmd => !isRunShellCommandPermitted(tool, subCmd, allowedTools)) ?? command
   let prefix: string | null = null
   let allowExact = false
-  if (firstUncovered.length <= MAX_PREFIX_EXTRACT_LEN) {
+  // 危险命令（含重定向、rm/sudo/mv 等危险首词、find 危险 flag）不提供「按前缀/精确授权」，
+  // 只允许单次确认；顺带跳过一次前缀提取模型调用。
+  if (!isUnsafeForPrefixAuth(command) && firstUncovered.length <= MAX_PREFIX_EXTRACT_LEN) {
     const info = await getCommandPrefix(firstUncovered, abortController.signal, sessionId)
     checkAbortSignal(abortController)
     if (info === null) {
@@ -486,51 +487,9 @@ async function classifyActionSafety(
   return raw.toLowerCase() === 'safe' ? 'safe' : 'risky'
 }
 
-/**
- * fetch_url 的确定性 SSRF 兜底：命中环回 / 链路本地（含云元数据 169.254.169.254）/
- * 内网 / 未指定地址 / 本地主机名，一律按危险处理，不交给模型，避免被误判为 safe。
- * URL 解析失败同样按危险处理。
- */
-function isBlockedFetchHost(url: string): boolean {
-  let hostname: string
-  try {
-    hostname = new URL(url).hostname.toLowerCase()
-  } catch {
-    return true
-  }
-
-  // 去掉 IPv6 字面量的方括号
-  const host = hostname.replace(/^\[|\]$/g, '')
-
-  // 本地主机名 / 已知云元数据主机名
-  if (host === 'localhost' || host.endsWith('.localhost')) return true
-  if (host === 'metadata.google.internal') return true
-
-  // IPv4 字面量
-  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
-  if (ipv4) {
-    const a = Number(ipv4[1])
-    const b = Number(ipv4[2])
-    if (a === 0) return true                          // 0.0.0.0/8 未指定
-    if (a === 10) return true                         // 10.0.0.0/8 私网
-    if (a === 127) return true                        // 127.0.0.0/8 环回
-    if (a === 169 && b === 254) return true           // 169.254.0.0/16 链路本地（含元数据）
-    if (a === 172 && b >= 16 && b <= 31) return true  // 172.16.0.0/12 私网
-    if (a === 192 && b === 168) return true           // 192.168.0.0/16 私网
-    if (a === 100 && b >= 64 && b <= 127) return true // 100.64.0.0/10 CGNAT
-    return false
-  }
-
-  // IPv6 字面量：环回 / 未指定 / ULA(fc00::/7) / 链路本地(fe80::/10)
-  if (host.includes(':')) {
-    if (host === '::1' || host === '::') return true
-    if (/^f[cd]/.test(host)) return true   // fc00::/7
-    if (/^fe[89ab]/.test(host)) return true // fe80::/10
-    return false
-  }
-
-  return false
-}
+// AutoRun 自动放行结果：approved=是否放行；byModel=是否由快速模型安全判断放行
+// （区别于只读/路径/Skill 等确定性放行，仅 byModel=true 才向 UI 发「模型自动放行」事件）。
+type AutoApproveOutcome = { approved: boolean; byModel: boolean }
 
 /**
  * AutoRun 档位下尝试自动放行：
@@ -544,22 +503,23 @@ async function autoApproveInAutoRun(
   signal: AbortSignal,
   sessionId?: string,
   agentId?: string,
-): Promise<boolean> {
+): Promise<AutoApproveOutcome> {
   // 文件编辑：确定性判断，不走 LLM
   // 项目内或临时文件放行；其余项目外文件一律转人工，避免模型误判为 safe
   if (isFileEditTool(tool)) {
     const filePath = getFilePath(input)
-    return !filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath)
+    const approved = !filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath)
+    return { approved, byModel: false }
   }
 
   // Skill：本身无副作用（仅注入提示词），技能内的真实动作会作为下游工具再次过权限闸门，直接放行
   if (isSkillTool(tool)) {
-    return true
+    return { approved: true, byModel: false }
   }
 
   // MCP：外部且不可逆的副作用，下游不再拦截，工具语义对模型不透明，未白名单一律转人工
   if (isMCPTool(tool)) {
-    return false
+    return { approved: false, byModel: false }
   }
 
   // fetch_url：先做确定性 SSRF 兜底，命中内网/链路本地/元数据等直接转人工，不交给模型
@@ -567,20 +527,35 @@ async function autoApproveInAutoRun(
     const url = ((input as any).url || '').toString()
     if (isBlockedFetchHost(url)) {
       logDebug(`[Permission][AutoRun] fetch_url 命中内网/元数据 denylist，转人工: ${url}`)
-      return false
+      return { approved: false, byModel: false }
     }
   }
 
   // 其余（fetch_url 通过兜底后等）：交给快速模型判断（run_shell 已在 checkRunShellPermission 中提前判断）
   try {
-    return (await classifyActionSafety(tool, input, signal, sessionId, agentId)) === 'safe'
+    const safe = (await classifyActionSafety(tool, input, signal, sessionId, agentId)) === 'safe'
+    return { approved: safe, byModel: safe }
   } catch (error) {
     logDebug(`[Permission][AutoRun] 安全判断失败，转人工: ${error}`)
-    return false
+    return { approved: false, byModel: false }
   }
 }
 
 // ==================== 权限请求 ====================
+
+/**
+ * 发出「模型自动放行」事件，告知 UI 本次放行由快速模型安全判断通过（而非确定性放行）。
+ * 仅在快速模型判定 safe 而放行时调用。
+ */
+function emitAutoApproved(tool: Tool, agentId: string, sessionId: string, toolId: string): void {
+  const data: ToolPermissionAutoData = {
+    agentId,
+    toolId,
+    toolName: tool.name,
+    content: 'Allowed by model check · auto mode',
+  }
+  getEventBus().emit('tool:permission:auto', data, sessionId)
+}
 
 async function requestPermissionViaEvent(
   tool: Tool,
@@ -598,9 +573,12 @@ async function requestPermissionViaEvent(
   // skipAutoRun=true 表示调用方（如 run_shell）已完成 AutoRun 判断，避免重复的快速模型调用
   const runtime = getStateManager().session(sessionId)
   if (!skipAutoRun && runtime.isAutoRun()) {
-    if (await autoApproveInAutoRun(tool, input, abortController.signal, sessionId, agentId)) {
+    const outcome = await autoApproveInAutoRun(tool, input, abortController.signal, sessionId, agentId)
+    if (outcome.approved) {
       checkAbortSignal(abortController)
       logDebug(`[Permission][AutoRun]${tool.name} 自动放行`)
+      // 仅模型判断放行才通知 UI；确定性放行（文件路径/Skill）不发事件
+      if (outcome.byModel) emitAutoApproved(tool, agentId, sessionId, toolId)
       return { result: true }
     }
     checkAbortSignal(abortController)
@@ -749,6 +727,10 @@ function buildPermissionOptions(
 
   // fetch_url 工具
   if (isFetchUrlTool(tool)) {
+    // SSRF 兜底命中（内网/元数据等）时 showAllow=false：不提供「永久允许域名」，只许单次确认
+    if (!showAllow) {
+      return { agree: '确认', refuse: '拒绝' }
+    }
     const url = (input as any).url || ''
     const domain = extractDomain(url)
     return {

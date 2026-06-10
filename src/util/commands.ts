@@ -14,12 +14,46 @@ export type ExtractedCommandPrefix =
     }
   | { commandInjectionDetected: true }
 
-// 命令注入特征：反引号 / $( / 换行 / && / || / ;（与 COMMAND_PREFIX 提示词 step1 保持一致）。
-// splitCommand 已按 && || ; 拆分，子命令里仍残留这些字符即视为注入，按危险处理（fail-closed）。
-const COMMAND_INJECTION_PATTERN = /[`\n;]|\$\(|&&|\|\|/
-
+// 命令注入特征：反引号 / $( / 换行 / && / || / ;。
+// 但必须区分引号内外——引号里的换行/分号是字面数据（如 echo "多行文本"），不是命令分隔：
+//  - 单引号内：全部字面，shell 不做任何解释 → 一律忽略
+//  - 双引号内：换行 / ; / && / || 是字面，但 $( 与反引号仍是命令替换 → 仅检出这两者
+//  - 引号外：换行 / ; / && / || / $( / 反引号 全部视为注入
+// 反斜杠转义会跳过下一个字符，避免把 \" \' 误判为引号边界。解析始终保守（fail-closed）。
 export function hasCommandInjection(command: string): boolean {
-  return COMMAND_INJECTION_PATTERN.test(command)
+  let inSingle = false
+  let inDouble = false
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]
+    const next = command[i + 1]
+
+    if (inSingle) {
+      // 单引号内无转义，仅 ' 结束
+      if (c === "'") inSingle = false
+      continue
+    }
+
+    if (c === '\\') {
+      // 引号外或双引号内：反斜杠转义下一个字符，跳过
+      i++
+      continue
+    }
+
+    if (inDouble) {
+      if (c === '`') return true
+      if (c === '$' && next === '(') return true
+      if (c === '"') inDouble = false
+      continue
+    }
+
+    // 引号外
+    if (c === "'") { inSingle = true; continue }
+    if (c === '"') { inDouble = true; continue }
+    if (c === '`' || c === '\n' || c === ';') return true
+    if (c === '$' && next === '(') return true
+    if ((c === '&' || c === '|') && next === c) return true
+  }
+  return false
 }
 
 /**

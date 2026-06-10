@@ -11,7 +11,7 @@
  *   - 会话级配置：agentMode / useTools
  *
  * 子代理不触发 conversation:usage、message:chunk、tool:execution:chunk、state:update、todos:update、topic:update
- * 子代理相关事件 message:complete、tool:execution:complete、tool:execution:error、session:interrupted、tool:permission:request 有agentId字段
+ * 子代理相关事件 message:complete、tool:execution:complete、tool:execution:error、session:interrupted、tool:permission:request、tool:permission:auto 有agentId字段
  */
 
 import * as crypto from 'crypto';

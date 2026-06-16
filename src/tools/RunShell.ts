@@ -53,14 +53,15 @@ export const toolParams = z.strictObject({
     .number()
     .optional()
     .describe(`Timeout duration in milliseconds, up to ${RUN_SHELL_MAX_TIMEOUT_MS}ms (${RUN_SHELL_MAX_TIMEOUT_MS / 60000} min). Defaults to ${DEFAULT_RUN_SHELL_TIMEOUT_MS}ms if omitted.`),
-  description: z.string().describe(`A brief active-voice summary (5-10 words) explaining what this command does. Required for every call so users can understand the command at a glance. Keep it simple for common commands, add context for complex ones.
+  description: z.string().describe(`LANGUAGE: Write this summary in the same language you use to respond to the user (NOT the system prompt language). If you reply to the user in Chinese, this summary MUST be in Chinese.
 
-Examples:
-  pwd → "Print current working directory"
-  git log --oneline -5 → "Show last 5 commits"
-  docker ps → "List running containers"
-  cat .env | wc -l → "Count lines in .env file"
-  tar -czf backup.tar.gz src/ → "Compress src directory into tarball"`),
+A brief active-voice summary (5-10 words) explaining what this command does. Required for every call so users can understand the command at a glance. Keep it simple for common commands, add context for complex ones.
+
+Structure (translate the summary into your reply language):
+  pwd → print current working directory
+  git log --oneline -5 → show last 5 commits
+  docker ps → list running containers
+  cat .env | wc -l → count lines in .env file`),
   background: z
     .boolean()
     .optional()

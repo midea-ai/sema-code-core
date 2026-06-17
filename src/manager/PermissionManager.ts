@@ -1,7 +1,7 @@
 import { Tool } from '../tools/base/Tool'
 import { RunShell, toolParams } from '../tools/RunShell'
 import { TOOL_NAME_PATCH_FILE as PATCH_FILE_TOOL_NAME, TOOL_NAME_WRITE_FILE as WRITE_FILE_TOOL_NAME, TOOL_NAME_EDIT_NOTEBOOK as EDIT_NOTEBOOK_TOOL_NAME, TOOL_NAME_SKILL, TOOL_NAME_FETCH_URL } from '../prompt/tool'
-import { splitCommand, hasCommandInjection, getCommandPrefix } from '../util/commands'
+import { splitCommand, hasCommandInjection, getCommandPrefix, stripHeredocBody } from '../util/commands'
 import { readInitialCwd } from '../util/cwd'
 import { logDebug, logError, logInfo } from '../util/log'
 import { REJECT_MSG, CANCEL_MSG, getCustomFeedbackMessage, API_ERR_PREFIX, prepareMessagesForApi, buildUserMsg } from '../util/message'
@@ -268,7 +268,16 @@ async function checkRunShellPermission(
   // 先拆分子命令并做注入检测——必须先于白名单/AutoRun 放行，否则白名单主命令词（echo/cat/grep 等）
   // 夹带 $()、`` 命令替换或换行即可绕过检测（如 echo $(id)）。检出注入 → 转人工且不提供"永久允许"
   const subCommands = splitCommand(command)
-  if (subCommands.some(hasCommandInjection)) {
+  // heredoc 正文是喂给程序的数据而非 shell 命令，但底层 shell-quote 不理解 heredoc，会把正文打散、
+  // 换行有时残留，导致合法的多行内联脚本（python3 << 'EOF' ...）被误判注入、跳过 AutoRun 模型判断。
+  // 注入检测改在「剥离 heredoc 正文后的骨架」上进行：成功剥离后骨架若仍残留换行，只能是结束符之后
+  // 藏了第二条命令 → 判注入；否则按子命令逐段检测。无法安全剥离（多 heredoc 同行/缺结束符/不带引号
+  // 且正文含命令替换）时 stripHeredocBody 原样返回，退回逐段检测，绝不因剥离而放过真注入。
+  const injectionSkeleton = stripHeredocBody(command)
+  const injectionDetected = injectionSkeleton !== command
+    ? injectionSkeleton.includes('\n') || splitCommand(injectionSkeleton).some(hasCommandInjection)
+    : subCommands.some(hasCommandInjection)
+  if (injectionDetected) {
     return requestPermissionViaEvent(tool, { command, description }, null, abortController, agentId, sessionId, toolId, false, true)
   }
 

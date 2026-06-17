@@ -56,6 +56,79 @@ export function hasCommandInjection(command: string): boolean {
   return false
 }
 
+// heredoc 起始标记：<< 或 <<-，后跟可选引号包裹的结束符。
+// 不匹配 <<<（here-string，语义不同）：<< 后紧跟 < 不是引号也不是标识符首字符，自然落空。
+const HEREDOC_START_RE = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/g
+
+/**
+ * 剥离 heredoc 正文,返回仅含"命令骨架"的字符串,供注入检测使用。
+ *
+ * heredoc 正文是喂给程序的「数据」而非 shell 命令,但底层 shell-quote 不理解 heredoc,
+ * 会把正文按 token 打散、换行有时残留,导致 hasCommandInjection 把正文换行误判为命令注入
+ * （是否误判还取决于正文里有无 # 注释等,结果不稳定）。本函数在解析前把正文摘掉:
+ *  - 结束符带引号（<< 'X' / << "X"）：正文纯字面,shell 不展开,直接剥离
+ *  - 结束符不带引号（<< X）：shell 会对正文做命令替换,仅当正文不含 $( / 反引号 时才剥离;
+ *    含命令替换则保留拦截（返回原命令,让 hasCommandInjection 照常检出）
+ *
+ * 任何无法可靠解析的情形（多 heredoc 同行、缺结束符等）一律返回原命令（fail-closed,维持现状）,
+ * 绝不因剥离而放过真注入。
+ */
+export function stripHeredocBody(command: string): string {
+  if (!command.includes('\n')) return command
+
+  const lines = command.split('\n')
+  const out: string[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]!
+    const matches = [...line.matchAll(HEREDOC_START_RE)]
+
+    if (matches.length === 0) {
+      out.push(line)
+      i++
+      continue
+    }
+    // 同一行多个 heredoc：正文顺序复杂,放弃剥离
+    if (matches.length > 1) return command
+
+    const m = matches[0]!
+    const quoted = m[1] !== ''
+    const delim = m[2]!
+
+    // 起始行保留,正文从下一行起到独占一行的结束符为止。
+    // 结束符匹配忽略两侧空白：真实 shell 对 << 要求结束符顶格（仅 <<- 允许 tab），但调用方/agent
+    // 常带缩进。放宽只会让我们更早判定正文边界——结束符之后的内容仍照常做注入检测（更保守，不放过
+    // 真注入）；带引号正文本就字面、不带引号正文已先扫 $(/反引号，故放宽不削弱安全性。
+    out.push(line)
+    let j = i + 1
+    const body: string[] = []
+    let foundEnd = false
+    for (; j < lines.length; j++) {
+      const bodyLine = lines[j]!
+      if (bodyLine.trim() === delim) {
+        foundEnd = true
+        break
+      }
+      body.push(bodyLine)
+    }
+
+    // 没找到结束符（命令被截断等）→ fail-closed
+    if (!foundEnd) return command
+
+    // 不带引号且正文含命令替换 → shell 会真执行,保留拦截
+    if (!quoted) {
+      const bodyText = body.join('\n')
+      if (bodyText.includes('$(') || bodyText.includes('`')) return command
+    }
+
+    // 剥离正文与结束符行,直接跳到结束符行之后
+    i = j + 1
+  }
+
+  return out.join('\n')
+}
+
 /**
  * 根据shell操作符将命令字符串拆分为单个命令
  */

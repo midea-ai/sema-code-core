@@ -204,8 +204,8 @@ const MODEL_MAP = {
   minimax: {
     baseURL: 'https://api.minimaxi.com/anthropic',
     models: [
-      { id: 'MiniMax-M2.7', name: 'MiniMax-M2.7' },
-      { id: 'MiniMax-M2.5', name: 'MiniMax-M2.5' }
+      { id: 'MiniMax-M3', name: 'MiniMax-M3' },
+      { id: 'MiniMax-M2.7', name: 'MiniMax-M2.7' }
     ]
   }
 };

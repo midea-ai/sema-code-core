@@ -5,31 +5,47 @@ import { PickOptionRequestData, PickOptionResponseData } from '../events/types'
 import { checkAbortSignal } from '../types/errors'
 import { TOOL_NAME_PICK_OPTION } from '../prompt/tool'
 
-const idField = z
-  .string()
-  .min(1)
-  .describe(
-    'Unique stable identifier for this question (lowercase snake_case, e.g. "platform", "tone"). Used internally; not shown to the user.',
-  )
+// NOTE: These are factory functions (not shared instances) on purpose.
+// Reusing a single zod instance across question types makes the JSON Schema
+// generator deduplicate them into internal `$ref`s like
+// "#/properties/questions/items/anyOf/0/properties/id", which Moonshot rejects
+// (it only accepts `$ref` starting with "#/$defs/"). Fresh instances inline.
+const idField = () =>
+  z
+    .string()
+    .min(1)
+    .describe(
+      'Unique stable identifier for this question (lowercase snake_case, e.g. "platform", "tone"). Used internally; not shown to the user.',
+    )
 
-const labelField = z
-  .string()
-  .describe(
-    'The question shown to the user (max 60 chars). Be concise and unambiguous.',
-  )
+const labelField = () =>
+  z
+    .string()
+    .describe(
+      'The question shown to the user (max 60 chars). Be concise and unambiguous.',
+    )
 
-const requiredField = z
-  .boolean()
-  .optional()
-  .describe(
-    'If true, the user must answer this question to submit the form. Default false.',
-  )
+const requiredField = () =>
+  z
+    .boolean()
+    .optional()
+    .describe(
+      'If true, the user must answer this question to submit the form. Default false.',
+    )
+
+const defaultValueField = () =>
+  z
+    .string()
+    .optional()
+    .describe(
+      'Optional pre-filled value for the input — any string (a number, a word, or a short phrase). Unlike placeholder (a grey hint that vanishes on typing), this is a real default the user can keep or edit. Set it only when you can infer a sensible answer from context; omit it otherwise.',
+    )
 
 const radioQ = z.strictObject({
   type: z.literal('radio'),
-  id: idField,
-  label: labelField,
-  required: requiredField,
+  id: idField(),
+  label: labelField(),
+  required: requiredField(),
   options: z
     .array(z.string())
     .min(2)
@@ -41,9 +57,9 @@ const radioQ = z.strictObject({
 
 const checkboxQ = z.strictObject({
   type: z.literal('checkbox'),
-  id: idField,
-  label: labelField,
-  required: requiredField,
+  id: idField(),
+  label: labelField(),
+  required: requiredField(),
   options: z
     .array(z.string())
     .min(2)
@@ -59,9 +75,9 @@ const checkboxQ = z.strictObject({
 
 const selectQ = z.strictObject({
   type: z.literal('select'),
-  id: idField,
-  label: labelField,
-  required: requiredField,
+  id: idField(),
+  label: labelField(),
+  required: requiredField(),
   options: z
     .array(z.string())
     .min(6)
@@ -73,21 +89,23 @@ const selectQ = z.strictObject({
 
 const textQ = z.strictObject({
   type: z.literal('text'),
-  id: idField,
-  label: labelField,
-  required: requiredField,
+  id: idField(),
+  label: labelField(),
+  required: requiredField(),
   placeholder: z
     .string()
     .optional()
     .describe('Hint text shown inside the empty input.'),
+  defaultValue: defaultValueField(),
 })
 
 const textareaQ = z.strictObject({
   type: z.literal('textarea'),
-  id: idField,
-  label: labelField,
-  required: requiredField,
+  id: idField(),
+  label: labelField(),
+  required: requiredField(),
   placeholder: z.string().optional(),
+  defaultValue: defaultValueField(),
 })
 
 const questionSchema = z.discriminatedUnion('type', [
@@ -156,6 +174,7 @@ Rules:
 - Keep forms tight: do NOT exceed 5 questions unless every one of them is essential.
 - Prefer choice types (radio/checkbox/select) over text/textarea. Only use free-form input when the answer truly cannot be enumerated.
 - To recommend a default, put that option first and append " (Recommended)" to its label.
+- For text/textarea, 'defaultValue' is optional: set it only when context lets you infer a likely answer (a number, a word, or a short phrase), and leave it out when you genuinely cannot guess. It is a real pre-filled value the user can keep or edit and is submitted as-is if kept — unlike 'placeholder', which is only a grey hint that disappears on typing.
 - Each question must have a unique 'id' (lowercase snake_case).
 - Do NOT restate UI affordances in the label. The frontend automatically appends type/constraint hints — for example, a checkbox question with maxSelections: 3 is rendered as "<label> (multi-select, max 3)". Writing labels like "Core modules (select multiple, max 3)" produces duplicated hints. Just write the bare question, e.g. "Core modules".
 - Do NOT add an "Other" / "Skip" / "None" option yourself — the UI automatically provides an "Other" free-text fallback for radio/select/checkbox and per-question skipping. Because every choice question already has an "Other" escape hatch, prefer radio even when you cannot enumerate every possible answer.

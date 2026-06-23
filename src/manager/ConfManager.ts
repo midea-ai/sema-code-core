@@ -87,6 +87,7 @@ export class ConfigManager {
       'skipSkillPermission',
       'skipMCPToolPermission',
       'skipFetchUrlPermission',
+      'skipExternalFileReadPermission',
       'enableLLMCache',
       'disableBackgroundTasks'
     ];

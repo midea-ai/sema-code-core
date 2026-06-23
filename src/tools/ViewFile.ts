@@ -109,7 +109,16 @@ export const ViewFile = {
   },
   toolParams,
   isSafe() {
+    return false
+  },
+  canRunConcurrently() {
     return true
+  },
+  genToolPermission(input) {
+    return {
+      title: getDisplayPath(input.file_path),
+      content: '',
+    }
   },
   genToolResultMessage(data) {
     if (data.type === 'image') {

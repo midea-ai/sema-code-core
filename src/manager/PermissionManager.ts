@@ -1,6 +1,6 @@
 import { Tool } from '../tools/base/Tool'
 import { RunShell, toolParams } from '../tools/RunShell'
-import { TOOL_NAME_PATCH_FILE as PATCH_FILE_TOOL_NAME, TOOL_NAME_WRITE_FILE as WRITE_FILE_TOOL_NAME, TOOL_NAME_EDIT_NOTEBOOK as EDIT_NOTEBOOK_TOOL_NAME, TOOL_NAME_SKILL, TOOL_NAME_FETCH_URL } from '../prompt/tool'
+import { TOOL_NAME_PATCH_FILE as PATCH_FILE_TOOL_NAME, TOOL_NAME_WRITE_FILE as WRITE_FILE_TOOL_NAME, TOOL_NAME_EDIT_NOTEBOOK as EDIT_NOTEBOOK_TOOL_NAME, TOOL_NAME_SKILL, TOOL_NAME_FETCH_URL, TOOL_NAME_VIEW_FILE } from '../prompt/tool'
 import { splitCommand, hasCommandInjection, getCommandPrefix, stripHeredocBody } from '../util/commands'
 import { readInitialCwd } from '../util/cwd'
 import { logDebug, logError, logInfo } from '../util/log'
@@ -10,7 +10,7 @@ import { getEventBus } from '../events/EventSystem'
 import { ToolPermissionRequestData, ToolPermissionResponse, ToolPermissionAutoData } from '../events/types'
 import { checkAbortSignal } from '../types/errors'
 import { getFilePath } from '../util/file'
-import { isAbsolute, resolve, relative } from 'path'
+import { isAbsolute, resolve, relative, dirname } from 'path'
 import { tmpdir } from 'os'
 import { normalizeCmpPath } from '../util/platform'
 import { getStateManager, MAIN_AGENT_ID } from './StateManager'
@@ -143,6 +143,38 @@ export const checkToolPermission = async (
     logDebug(`[Permission]${tool.name} hasGlobalEditPermission: False`)
 
     return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId)
+  }
+
+  // 文件读取工具权限检查：仅项目外文件需要权限
+  if (tool.name === TOOL_NAME_VIEW_FILE) {
+    if (coreConfig?.skipExternalFileReadPermission) {
+      logDebug(`[Permission]${tool.name} 跳过项目外读取检查`)
+      return { result: true }
+    }
+
+    const filePath = getFilePath(input)
+    // 项目内或临时文件：直接放行，保持静默
+    if (!filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath)) {
+      return { result: true }
+    }
+
+    // 项目外文件：auto 模式（非 Ask）自动放行
+    const runtime = getStateManager().session(sessionId)
+    if (runtime.hasGlobalEditPermission()) {
+      logDebug(`[Permission]${filePath} 项目外读取，auto 模式自动放行`)
+      return { result: true }
+    }
+
+    // 命中本会话已授权的父目录则放行
+    const absPath = isAbsolute(filePath) ? filePath : resolve(readInitialCwd(), filePath)
+    if (runtime.getAllowedExternalReadDirs().some(dir => isPathInsideRoot(absPath, dir))) {
+      logDebug(`[Permission]${filePath} 项目外读取，命中会话级已授权目录`)
+      return { result: true }
+    }
+
+    // 否则请求权限，prefix 传父目录，供「允许」时按目录授权
+    logDebug(`[Permission]${filePath} 项目外读取，请求权限`)
+    return requestPermissionViaEvent(tool, input, dirname(absPath), abortController, agentId, sessionId, toolId)
   }
 
   // run_shell 工具权限检查
@@ -357,6 +389,12 @@ export async function savePermission(
   // 文件编辑 会话内生效
   if (isFileEditTool(tool)) {
     getStateManager().session(sessionId).grantGlobalEditPermission()
+    return
+  }
+
+  // 文件读取 按父目录会话内生效（不持久化），prefix 即父目录
+  if (tool.name === TOOL_NAME_VIEW_FILE) {
+    if (prefix) getStateManager().session(sessionId).grantExternalReadDir(prefix)
     return
   }
 
@@ -709,6 +747,18 @@ function buildPermissionOptions(
     return {
       agree: '确认',
       allow: '确认, 本次会话不再询问文件编辑',
+      refuse: '拒绝'
+    }
+  }
+
+  // 文件读取工具：按父目录会话级授权；无父目录则不提供「允许」
+  if (tool.name === TOOL_NAME_VIEW_FILE) {
+    if (!prefix) {
+      return { agree: '确认', refuse: '拒绝' }
+    }
+    return {
+      agree: '确认',
+      allow: `确认，本次会话不再询问 ${prefix} 目录下的读取`,
       refuse: '拒绝'
     }
   }

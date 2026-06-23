@@ -20,6 +20,7 @@ export interface SemaCoreConfig {
   skipSkillPermission?: boolean;     // 是否跳过Skill权限检查，默认 否
   skipMCPToolPermission?: boolean;   // 是否跳过MCP工具权限检查，默认 否
   skipFetchUrlPermission?: boolean;  // 是否跳过fetch_url权限检查，默认 否
+  skipExternalFileReadPermission?: boolean; // 是否跳过项目外文件读取权限检查，默认 否
   enableLLMCache?: boolean;          // 是否开启LLM缓存，默认 否 建议只在重复测试时使用
   useTools?: string[] | null;        // 限定使用的工具（白名单）默认 null 使用所有工具
   disabledTools?: string[] | null;   // 禁用的工具（黑名单）默认 null 不禁用；与 useTools 同时传时优先生效
@@ -30,7 +31,7 @@ export interface SemaCoreConfig {
 }
 
 // 支持动态更新的核心配置字段
-export type UpdatableCoreConfigKeys = 'stream' | 'thinking' | 'systemPrompt' | 'customRules' | 'skipFileEditPermission' | 'skipShellExecPermission' | 'skipSkillPermission' | 'skipMCPToolPermission' | 'skipFetchUrlPermission' | 'enableLLMCache' | 'disableBackgroundTasks';
+export type UpdatableCoreConfigKeys = 'stream' | 'thinking' | 'systemPrompt' | 'customRules' | 'skipFileEditPermission' | 'skipShellExecPermission' | 'skipSkillPermission' | 'skipMCPToolPermission' | 'skipFetchUrlPermission' | 'skipExternalFileReadPermission' | 'enableLLMCache' | 'disableBackgroundTasks';
 
 // 默认核心配置
 export const defaultCoreConfig = {
@@ -41,6 +42,7 @@ export const defaultCoreConfig = {
   skipSkillPermission: false,
   skipMCPToolPermission: false,
   skipFetchUrlPermission: false,
+  skipExternalFileReadPermission: false,
   systemPrompt: DEFINE_SYSTEM_PROMPT,
   customRules: "- 中文回答",
   enableLLMCache: false,

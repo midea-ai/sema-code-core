@@ -109,6 +109,9 @@ export class SessionRuntime {
   private planModeInfoSent = false;
   private designModeInfoSent = false;
 
+  // 项目外读取已授权的父目录集合（会话级，不持久化）
+  private allowedExternalReadDirs = new Set<string>();
+
   // 历史文件命名格式：true 表示本会话使用无日期文件名（会话id.json），用于固定会话持久化
   private historyNoDate = false;
 
@@ -585,6 +588,20 @@ export class SessionRuntime {
     this.permissionLevel = 'AutoEdit';
     logInfo(`[${this.sessionId}] 权限档位提升至 AutoEdit`);
     this.emitPermissionLevelUpdate('AutoEdit');
+  }
+
+  /**
+   * 用户在项目外文件读取弹窗选择"本次会话不再询问该目录读取"时调用：
+   * 将文件父目录加入会话级授权集合，不持久化到项目配置。
+   */
+  grantExternalReadDir(dirPath: string): void {
+    this.allowedExternalReadDirs.add(dirPath);
+    logInfo(`[${this.sessionId}] 项目外读取已授权目录: ${dirPath}`);
+  }
+
+  /** 返回本会话已授权的项目外读取父目录列表 */
+  getAllowedExternalReadDirs(): string[] {
+    return [...this.allowedExternalReadDirs];
   }
 
   /**

@@ -132,7 +132,12 @@ public class SemaCoreClient : IAsyncDisposable
         await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, _cts.Token);
 
         using var timeoutCts = new CancellationTokenSource(timeoutMs);
-        timeoutCts.Token.Register(() => tcs.TrySetCanceled(), useSynchronizationContext: false);
+        timeoutCts.Token.Register(() =>
+        {
+            // 超时：取消等待并从 _pending 移除，避免泄漏
+            _pending.TryRemove(cmd.Id, out _);
+            tcs.TrySetCanceled();
+        }, useSynchronizationContext: false);
 
         return await tcs.Task;
     }

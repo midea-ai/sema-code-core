@@ -23,16 +23,16 @@ const GRPC_HOST = 'localhost:3766';
 
 const WORKING_DIR = '/path/to/your/project'; // Agent 将操作的目标代码仓库路径
 
-// 配置模型（以 qwen3.6-plus 为例，更多LLM服务商请见"新增模型"文档）
+// 配置模型（以 deepseek 为例，更多LLM服务商请见"新增模型"文档）
 // 只需要加一次，后面可以注释掉添加模型相关代码
-const MODEL_CONFIG = {
-  provider: "custom",
-  modelName: "qwen3.5-plus",
-  baseURL: "https://aimpapi.midea.com/t-aigc/llm-openai-api",
-  apiKey: "sk-",
-  maxTokens: 32000,
-  contextLength: 256000,
-  adapt: "openai"
+const MODEL_CONFIG  = {
+  "modelName": "deepseek-v4-flash",
+  "provider": "deepseek",
+  "baseURL": "https://api.deepseek.com/anthropic",
+  "apiKey": "sk-your-api-key",  // 替换为你的 API Key
+  "maxTokens": 32000,
+  "contextLength": 256000,
+  "adapt": "anthropic"
 };
 
 // ── Proto 加载 ───────────────────────────────────────────────────────────────
@@ -96,19 +96,6 @@ async function run() {
     return id;
   }
 
-  // ── 等待特定事件的 Promise 工厂 ───────────────────────────────────────────
-  const waitFor = (eventName) =>
-    new Promise((resolve) => {
-      const handler = (msg) => {
-        if (msg.event === eventName) {
-          off();
-          resolve(msg.data ? JSON.parse(msg.data) : undefined);
-        }
-      };
-      call.on('data', handler);
-      const off = () => call.removeListener('data', handler);
-    });
-
   // ── 等待指定 cmdId 的 ack（确保命令按序完成）────────────────────────────
   const waitForAck = (cmdId) =>
     new Promise((resolve, reject) => {
@@ -135,52 +122,96 @@ async function run() {
   // ── 状态机 ────────────────────────────────────────────────────────────────
 
   let sessionId = null;
-  let state = 'init'; // init | idle | running
+  let state = 'init'; // init | idle | processing
   let interruptCount = 0; // 中断计数：第一次中断会话，第二次强制退出
+  let subAgentDepth = 0;  // 子代理深度：>0 时不把文本混入主输出
+  let awaitingInput = false; // 防止多个结束信号重复弹出输入
+  let finished = false;
+  let resolveRun;
+  const done = new Promise((resolve) => { resolveRun = resolve; });
 
-  // 统一处理所有服务端推送事件
+  // message:text:chunk 不带 agentId，靠 task:agent:start/end 包裹判断是否在子代理内
+  const MAIN_AGENT_ID = 'main';
+  const isMain = (agentId) => agentId === MAIN_AGENT_ID || !agentId;
+
+  // 弹出输入并发送。以主代理回到 idle 作为弹出时机。
+  async function askAndSend() {
+    if (awaitingInput || finished) return;
+    awaitingInput = true;
+    const input = (await prompt(blue('\n👤 消息 (esc中断): '))).trim();
+    awaitingInput = false;
+    if (input === 'exit' || input === 'quit') { finished = true; resolveRun(); return; }
+    if (!input) { askAndSend(); return; } // 空输入：重新询问
+    process.stdout.write('\n' + green('🤖 AI: '));
+    interruptCount = 0;
+    send('session.input', { content: input });
+  }
+
+  // 统一处理所有服务端推送事件（仅此一个 data 主分发器，避免重复注册）
   call.on('data', (msg) => {
-    const { event, data, cmd_id } = msg;
+    const { event, data } = msg;
     const parsed = data ? JSON.parse(data) : undefined;
 
     switch (event) {
       // 调试日志（灰色）
-      case 'tool:execution:start':
       case 'tool:execution:complete':
       case 'tool:execution:error':
-      case 'task:agent:start':
-      case 'task:agent:end':
+      case 'task:start':
+      case 'task:end':
       case 'todos:update':
-      case 'session:interrupted':
         console.log(gray(`${event}|${data}`));
         break;
 
-      // 会话就绪
+      // 子代理进入/退出
+      case 'task:agent:start':
+        subAgentDepth++;
+        console.log(gray(`${event}|${data}`));
+        break;
+      case 'task:agent:end':
+        if (subAgentDepth > 0) subAgentDepth--;
+        console.log(gray(`${event}|${data}`));
+        break;
+
+      // 会话就绪 → 弹首条输入
       case 'session:ready':
         sessionId = parsed?.sessionId;
         state = 'idle';
+        askAndSend();
         break;
 
-      // 状态变化
+      // 被中断后重新弹输入
+      case 'session:interrupted':
+        console.log(gray(`${event}|${data}`));
+        askAndSend();
+        break;
+
+      // 状态变化：回到 idle 即一轮结束，弹下一条输入
       case 'state:update':
         state = parsed?.state ?? state;
-        if (state === 'running') interruptCount = 0; // 恢复运行后重置中断计数
+        if (state === 'processing') interruptCount = 0; // 恢复运行后重置中断计数
+        if (state === 'idle') askAndSend();
         break;
 
-      // AI 流式文本
+      // AI 流式文本：仅主代理，避免子代理文本混入主输出
       case 'message:text:chunk':
-        process.stdout.write(parsed?.delta || '');
+        if (subAgentDepth === 0) process.stdout.write(parsed?.delta || '');
         break;
 
-      // AI 输出完成
+      // AI 输出完成：仅主代理换行
       case 'message:complete':
-        process.stdout.write('\n');
+        if (isMain(parsed?.agentId)) process.stdout.write('\n');
         break;
 
       // 工具权限请求（异步处理）
       case 'tool:permission:request':
         console.log(gray(`${event}|${data}`));
         handlePermission(parsed);
+        break;
+
+      // 选项询问 / 计划退出：本示例未实现交互应答，仅记录（如触发需自行响应）
+      case 'pick:option:request':
+      case 'plan:exit:request':
+        console.log(gray(`${event}|${data}`));
         break;
 
       // 错误
@@ -247,7 +278,7 @@ async function run() {
 
   // ── 初始化：config.init ───────────────────────────────────────────────────
 
-  await sendAndWait('config.init', { workingDir: WORKING_DIR, logLevel: 'none', thinking: false, disableBackgroundTasks: true, disableTopicDetection: true });
+  await sendAndWait('config.init', { workingDir: WORKING_DIR, logLevel: 'none', thinking: false, disableBackgroundTasks: true, disableTopicDetection: true, disabledTools: ['ask_form', 'plan_to_agent'] });
 
   // ── 添加并应用模型 ────────────────────────────────────────────────────────
 
@@ -256,33 +287,14 @@ async function run() {
   await sendAndWait('model.applyTask', { main: modelId, quick: modelId });
   console.log(`Model configured: ${modelId}`);
 
-  // ── 创建会话，等待 session:ready ──────────────────────────────────────────
+  // ── 创建会话 ──────────────────────────────────────────────────────────────
+  // session:ready 由主分发器处理：就绪后自动弹首条输入，随后由 state:update=idle 驱动对话循环。
 
   send('session.create');
-  await waitFor('session:ready');
-  console.log(`[session] sessionId=${sessionId}`);
 
-  // ── 对话循环 ──────────────────────────────────────────────────────────────
+  // ── 对话循环：等待用户 exit/quit ──────────────────────────────────────────
 
-  await new Promise((resolve, reject) => {
-    call.on('data', async (msg) => {
-      if (msg.event === 'state:update') {
-        const s = msg.data ? JSON.parse(msg.data) : {};
-        if (s.state === 'idle') {
-          setTimeout(async () => {
-            const input = (await prompt(blue('\n👤 消息 (esc中断): '))).trim();
-            if (input === 'exit' || input === 'quit') { resolve(); return; }
-            if (input) { process.stdout.write('\n' + green('🤖 AI: ')); send('session.input', { content: input }); }
-          }, 100);
-        }
-      }
-    });
-    (async () => {
-      const input = (await prompt(blue('👤 消息 (esc中断): '))).trim();
-      if (input === 'exit' || input === 'quit') { resolve(); return; }
-      if (input) { process.stdout.write('\n' + green('🤖 AI: ')); send('session.input', { content: input }); }
-    })();
-  });
+  await done;
 
   // ── 退出 ──────────────────────────────────────────────────────────────────
 

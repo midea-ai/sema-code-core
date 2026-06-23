@@ -1,0 +1,20 @@
+{
+    "name": "sema-core-demo",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "sema-core TypeScript demo：交互式 CLI 与一次性执行两种入口",
+    "scripts": {
+        "cli": "tsx src/cli.ts",
+        "exec": "tsx src/run.ts",
+        "_argtest": "node /tmp/argtest.js"
+    },
+    "dependencies": {
+        "sema-core": "latest"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "tsx": "^4.19.0",
+        "typescript": "^5.5.0"
+    }
+}

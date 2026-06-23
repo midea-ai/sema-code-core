@@ -19,7 +19,8 @@ wss.on('connection', (ws: WebSocket) => {
             const cmd: BridgeCommand = JSON.parse(raw.toString());
             await session.handle(cmd);
         } catch (err: any) {
-            ws.send(JSON.stringify({ event: 'error', data: { message: err.message } }));
+            // 解析失败时无法得知对应指令 id，cmdId 留空
+            ws.send(JSON.stringify({ event: 'error', data: { message: err.message }, cmdId: '' }));
         }
     });
 

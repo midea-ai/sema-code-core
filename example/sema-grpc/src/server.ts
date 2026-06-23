@@ -1,12 +1,18 @@
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import * as path from 'path';
+import * as fs from 'fs';
 import { BridgeSession } from './session';
 
 const PORT = parseInt(process.env.SEMA_BRIDGE_PORT || '3766');
 const WORKING_DIR = process.env.SEMA_WORKING_DIR || process.cwd();
 
-const PROTO_PATH = path.join(process.cwd(), 'proto', 'sema.proto');
+// 相对源码定位 proto，避免依赖启动时的工作目录。
+// npm start: dist/src/server.js（回退两级）；npm run dev(ts-node): src/server.ts（回退一级）。
+const PROTO_PATH = [
+  path.join(__dirname, '..', '..', 'proto', 'sema.proto'),
+  path.join(__dirname, '..', 'proto', 'sema.proto'),
+].find(p => fs.existsSync(p)) ?? path.join(process.cwd(), 'proto', 'sema.proto');
 
 const packageDef = protoLoader.loadSync(PROTO_PATH, {
   keepCase: true,

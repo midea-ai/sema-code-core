@@ -1,5 +1,7 @@
 import { SemaCore } from 'sema-core';
+import type { SemaSession } from 'sema-core';
 
+// 会话级事件统一通过 SemaSession.on 订阅（SemaCore.on 只接收进程级事件）
 const FORWARD_EVENTS = [
   'session:ready', 'session:error', 'session:interrupted', 'session:cleared',
   'state:update',
@@ -20,18 +22,11 @@ interface GrpcStream {
 export class BridgeSession {
   private core: SemaCore;
   private coreConfig: Record<string, any>;
+  private session: SemaSession | null = null;
 
   constructor(private stream: GrpcStream, defaultConfig: Record<string, any>) {
     this.coreConfig = defaultConfig;
-    this.core = this._createCore(this.coreConfig);
-  }
-
-  private _createCore(config: Record<string, any>): SemaCore {
-    const core = new SemaCore(config);
-    for (const event of FORWARD_EVENTS) {
-      core.on(event, (data: any) => this.push(event, data));
-    }
-    return core;
+    this.core = new SemaCore(this.coreConfig);
   }
 
   private push(event: string, data?: any, cmdId?: string): void {
@@ -44,29 +39,64 @@ export class BridgeSession {
     }
   }
 
+  // 把会话级事件桥接到 gRPC 流（必须绑在 SemaSession 上，而非 SemaCore）
+  private bindSessionEvents(session: SemaSession): void {
+    for (const event of FORWARD_EVENTS) {
+      session.on(event, (data: any) => this.push(event, data));
+    }
+  }
+
+  // 取出当前会话，未创建时报错（避免在 core 上误调会话级方法）
+  private requireSession(action: string): SemaSession {
+    if (!this.session) {
+      throw new Error(`No active session for action "${action}"; call session.create first`);
+    }
+    return this.session;
+  }
+
   async handle(cmd: { id: string; action: string; payload?: any }): Promise<void> {
     const { id, action, payload } = cmd;
     try {
       switch (action) {
-        case 'config.init':
-          await (this.core as any).dispose?.();
+        case 'config.init': {
+          await this.core.dispose();
+          this.session = null;
           this.coreConfig = { ...this.coreConfig, ...payload };
-          this.core = this._createCore(this.coreConfig);
+          this.core = new SemaCore(this.coreConfig);
           break;
-        case 'session.create':     await this.core.createSession(payload?.sessionId); break;
-        case 'session.input':      this.core.processUserInput(payload.content, payload.orgContent); break;
-        case 'session.interrupt':  this.core.interruptSession(); break;
-        case 'session.dispose':    await (this.core as any).dispose?.(); break;
-        case 'permission.respond': this.core.respondToToolPermission(payload); break;
-        case 'question.respond':   this.core.respondToPickOption(payload); break;
-        case 'plan.respond':       this.core.respondToPlanExit(payload); break;
+        }
+        case 'session.create': {
+          const result = await this.core.createSession(
+            payload?.sessionId ? { sessionId: payload.sessionId } : undefined,
+          );
+          if (!result.ok) {
+            // tsconfig strict=false 下不会按 ok 收窄联合类型，这里显式取 error
+            this.push('error', { message: (result as { error?: string }).error, action }, id);
+            return;
+          }
+          this.session = result.session;
+          this.bindSessionEvents(this.session);
+          break;
+        }
+        case 'session.input':      this.requireSession(action).processUserInput(payload.content, payload.orgContent); break;
+        case 'session.interrupt':  this.requireSession(action).interrupt(); break;
+        case 'session.dispose': {
+          if (this.session) {
+            this.core.closeSession(this.session.sessionId);
+            this.session = null;
+          }
+          break;
+        }
+        case 'permission.respond': this.requireSession(action).respondToToolPermission(payload); break;
+        case 'question.respond':   this.requireSession(action).respondToPickOption(payload); break;
+        case 'plan.respond':       this.requireSession(action).respondToPlanExit(payload); break;
+        case 'config.updateAgentMode': this.requireSession(action).updateAgentMode(payload.mode); break;
         case 'model.add':          await this.core.addModel(payload.config, payload.skipValidation); break;
         case 'model.applyTask':    await this.core.applyTaskModel(payload); break;
         case 'model.del':          await this.core.delModel(payload.modelName); break;
         case 'model.switch':       await this.core.switchModel(payload.modelName); break;
         case 'model.getData':      { const data = await this.core.getModelData(); this.push('ack', data, id); return; }
         case 'config.update':      this.core.updateCoreConfig(payload); break;
-        case 'config.updateAgentMode': this.core.updateAgentMode(payload.mode); break;
         default: this.push('error', { message: `Unknown action: ${action}` }, id); return;
       }
       this.push('ack', { action }, id);
@@ -75,5 +105,11 @@ export class BridgeSession {
     }
   }
 
-  dispose(): void { void (this.core as any).dispose?.(); }
+  dispose(): void {
+    if (this.session) {
+      this.core.closeSession(this.session.sessionId);
+      this.session = null;
+    }
+    void this.core.dispose();
+  }
 }

@@ -83,6 +83,10 @@ async def main() -> None:
     current_state: dict = {"value": "idle"}
     esc_state: dict = {"stop": asyncio.Event(), "task": None}
 
+    # main 代理判断：agentId 为 "main" 或 None/空 即视为主代理
+    def is_main(agent_id) -> bool:
+        return agent_id == "main" or not agent_id
+
     # ── 日志事件（灰色输出，对应 quickstart.mjs events 数组）────────
     for evt_name in [
         "tool:execution:start", "tool:execution:complete", "tool:execution:error",
@@ -95,8 +99,16 @@ async def main() -> None:
             return handler
         client.on(evt_name, make_log_handler(evt_name))
 
-    # ── 流式输出 ──────────────────────────────────────────────────
+    # ── 子代理深度跟踪：message:text:chunk 不带 agentId，靠 task:agent:start/end
+    #    包裹判断是否在子代理内（对应 quickstart.mjs:93-103）────────
+    sub_agent_depth: dict = {"value": 0}
+    client.on("task:agent:start", lambda _: sub_agent_depth.update(value=sub_agent_depth["value"] + 1))
+    client.on("task:agent:end", lambda _: sub_agent_depth.update(value=max(0, sub_agent_depth["value"] - 1)))
+
+    # ── 流式输出：仅主代理（depth==0），避免子代理文本混入主输出 ──────
     def on_text_chunk(data):
+        if sub_agent_depth["value"] > 0:
+            return
         if data and "delta" in data:
             delta = data["delta"]
             if _raw_mode:
@@ -104,12 +116,7 @@ async def main() -> None:
             sys.stdout.write(delta)
             sys.stdout.flush()
 
-    def on_message_complete(_):
-        sys.stdout.write("\r\n" if _raw_mode else "\n")
-        sys.stdout.flush()
-
     client.on("message:text:chunk", on_text_chunk)
-    client.on("message:complete", on_message_complete)
 
     # ── 权限交互（对应 quickstart.mjs 的 tool:permission:request 处理）─
     async def handle_permission(data):
@@ -133,11 +140,18 @@ async def main() -> None:
         print("Make sure sema-bridge is running: cd sema-bridge && npm start", file=sys.stderr)
         return
 
-    # ── Ctrl+C 中断：idle 状态退出，否则 interrupt ──
+    # 提前声明，供 handle_interrupt 在会话循环建立前安全引用
+    loop_done: Optional[asyncio.Future] = None
+
+    # ── Ctrl+C 中断：idle 状态优雅退出（走正常关闭路径），否则 interrupt ──
     def handle_interrupt():
+        nonlocal loop_done
         rwrite("\n⚠️  中断会话...")
         if current_state["value"] == "idle":
-            sys.exit(0)
+            # 解析 loop_done 让 finally 执行清理（client.close()/termios 复位），
+            # 而非 sys.exit(0) 绕过收尾。
+            if loop_done is not None and not loop_done.done():
+                loop_done.set_result(None)
         else:
             asyncio.ensure_future(client.interrupt())
 
@@ -170,22 +184,23 @@ async def main() -> None:
                 thinking=False,
                 disable_background_tasks=True,
                 disable_topic_detection=True,
+                disabled_tools=["ask_form", "plan_to_agent"],  # 交互场景禁用无法应答的工具
             )
         )
 
-        # ── 配置模型（以 qwen3.6-plus 为例，更多LLM服务商请见"新增模型"文档）──────
+        # ── 配置模型（以 deepseek 为例，更多LLM服务商请见"新增模型"文档）──────
         # 只需要加一次，后面可以注释掉添加模型相关代码
         model_config = {
-            "provider":      "custom",
-            "modelName":     "qwen3.5-plus",
-            "baseURL":       "https://aimpapi.midea.com/t-aigc/llm-openai-api",
-            "apiKey":        "sk-",
+            "modelName":     "deepseek-v4-flash",
+            "provider":      "deepseek",
+            "baseURL":       "https://api.deepseek.com/anthropic",
+            "apiKey":        "sk-your-api-key",
             "maxTokens":     32000,
             "contextLength": 256000,
-            "adapt":         "openai",
+            "adapt":         "anthropic",
         }
         await client.add_model(model_config, skip_validation=False)
-        model_id = "qwen3.5-plus[custom]"
+        model_id = "deepseek-v4-flash[deepseek]"
         await client.apply_task_model(model_id, model_id)
         print(f"Model configured: {model_id}\n")
 
@@ -198,8 +213,9 @@ async def main() -> None:
         session_id = session_data.get("sessionId", "") if session_data else ""
         print(f"Session ready: {session_id}\n")
 
-        # ── 对话循环（对应 quickstart.mjs 的 Promise + state:update 模式）─
-        loop_done: asyncio.Future = asyncio.get_event_loop().create_future()
+        # 对话循环：以主代理回到 idle 作为一轮结束信号
+        loop_done = asyncio.get_event_loop().create_future()
+        awaiting_input: dict = {"value": False}  # 防止多个结束信号并发重复弹输入
 
         def on_session_error(data):
             msg = data.get("message", "Unknown error") if data else "Unknown error"
@@ -208,39 +224,49 @@ async def main() -> None:
 
         client.once("session:error", on_session_error)
 
+        # 跟踪状态（供 Ctrl+C 判断），并在回到 idle 时弹下一条输入
         def on_state_update(data):
             if data:
                 current_state["value"] = data.get("state", "idle")
-            if data and data.get("state") == "idle" and not loop_done.done():
-                async def prompt_after_idle():
-                    await stop_esc()
-                    await asyncio.sleep(0.1)  # 对应 JS setTimeout(100)
-                    user_input = (await ainput(blue("\n👤 消息 (esc中断): "))).strip()
-                    if user_input in ("exit", "quit"):
-                        if not loop_done.done():
-                            loop_done.set_result(None)
-                        return
-                    if user_input:
-                        rwrite(green("\n🤖 AI: "), end="")
-                        await start_esc()
-                        await client.send_user_input(user_input)
-                asyncio.ensure_future(prompt_after_idle())
+                if current_state["value"] == "idle":
+                    asyncio.ensure_future(ask_and_send())
 
         client.on("state:update", on_state_update)
 
-        # 初始 prompt（对应 quickstart.mjs 对话循环中立即执行的 async IIFE）
-        async def initial_prompt():
-            user_input = (await ainput(blue("👤 消息 (esc中断): "))).strip()
-            if user_input in ("exit", "quit"):
-                if not loop_done.done():
-                    loop_done.set_result(None)
+        async def ask_and_send():
+            if awaiting_input["value"] or loop_done.done():
                 return
-            if user_input:
-                rwrite(green("\n🤖 AI: "), end="")
-                await start_esc()
-                await client.send_user_input(user_input)
+            awaiting_input["value"] = True
+            await stop_esc()  # 退出 raw mode，确保 readline 可正常接收回车
+            user_input = (await ainput(blue("\n👤 消息 (esc中断): "))).strip()
+            awaiting_input["value"] = False
+            if loop_done.done():
+                return
+            if user_input in ("exit", "quit"):
+                loop_done.set_result(None)
+                return
+            if not user_input:  # 空输入：重新询问
+                asyncio.ensure_future(ask_and_send())
+                return
+            rwrite(green("\n🤖 AI: "), end="")
+            await start_esc()
+            await client.send_user_input(user_input)
 
-        asyncio.ensure_future(initial_prompt())
+        # 主代理消息结束：仅换行（弹输入交给 state:update=idle）
+        def on_message_complete(data):
+            agent_id = data.get("agentId") if data else None
+            if not is_main(agent_id):
+                return
+            sys.stdout.write("\r\n" if _raw_mode else "\n")
+            sys.stdout.flush()
+
+        client.on("message:complete", on_message_complete)
+
+        # 被中断后重新弹输入（对应 quickstart.mjs:141）
+        client.on("session:interrupted", lambda _: asyncio.ensure_future(ask_and_send()))
+
+        # 初始 prompt（对应 quickstart.mjs 对话循环中立即执行的 async IIFE）
+        asyncio.ensure_future(ask_and_send())
         try:
             await loop_done
         except asyncio.CancelledError:

@@ -1,13 +1,13 @@
-# sema-grpc
+# sema-bridge
 
-基于 gRPC 双向流的 sema-core 桥接服务，供 C# / Java / Python 等客户端通过 gRPC 调用 sema-core 能力。
+基于 WebSocket 的 sema-core 桥接服务，供 C# / Java / Python 等客户端通过 WebSocket 调用 sema-core 能力。
 
 ## 架构
 
 ```
-客户端应用 (C# / Java / Python / ...)
-    ↕ gRPC 双向流 (grpc://localhost:3766)
-Node.js gRPC 服务 (sema-grpc)
+客户端应用 (C# / Java / Python)
+    ↕ WebSocket (ws://localhost:3765)
+Node.js 桥接服务 (sema-bridge)
     ↕ 内部调用
 sema-core (npm 包)
 ```
@@ -15,43 +15,34 @@ sema-core (npm 包)
 ## 目录结构
 
 ```
-sema-grpc/
+sema-bridge/
 ├── package.json
 ├── tsconfig.json
-├── proto/
-│   └── sema.proto        # Protobuf 协议定义
 └── src/
-    ├── server.ts         # gRPC 服务器入口
-    └── session.ts        # 会话管理
+    ├── server.ts         # WebSocket 服务器入口
+    ├── session.ts        # 会话管理
+    └── protocol.ts       # 指令/事件帧定义
 ```
 
 ## 协议说明
 
-### Proto 定义（`proto/sema.proto`）
-
-服务暴露单个双向流 RPC：
-
-```protobuf
-service SemaBridge {
-  rpc Connect(stream BridgeCommand) returns (stream BridgeEvent);
-}
-```
+服务端与客户端通过 WebSocket 收发 JSON 文本帧。
 
 **BridgeCommand**（客户端 → 服务端）
 
 | 字段      | 类型   | 说明                          |
 |---------|------|-------------------------------|
-| `id`    | string | 请求 ID，用于匹配响应             |
+| `id`      | string | 请求 ID，用于匹配响应             |
 | `action`  | string | 操作名，见下表                  |
-| `payload` | string | JSON 序列化的参数（可为空字符串）  |
+| `payload` | object | 参数对象（可省略）                |
 
 **BridgeEvent**（服务端 → 客户端）
 
 | 字段      | 类型   | 说明                          |
 |---------|------|-------------------------------|
 | `event`   | string | 事件名，见下表                  |
-| `data`    | string | JSON 序列化的数据（可为空字符串） |
-| `cmd_id`  | string | 对应指令的 ID（仅响应类消息携带）  |
+| `data`    | object | 事件数据（可省略）                |
+| `cmdId`   | string | 对应指令的 ID（仅响应类消息携带）  |
 
 ### 支持的 Action
 
@@ -87,8 +78,8 @@ config.init  ─▶  model.add  ─▶  model.applyTask  ─▶  session.create
                                                   session.dispose
 ```
 
-- 每条指令都会收到一帧 `ack`（或 `error`），其 `cmd_id` 等于指令的 `id`，可用于按序等待。
-- 模型相关 action 只需配置一次，后续连接可复用。
+- 每条指令都会收到一帧 `ack`（或 `error`），其 `cmdId` 等于指令的 `id`，可用于按序等待。
+- 回合结束信号：以「主代理回到 `state:update==='idle'`」为准（整轮含工具调用结束后只发一次 idle）。会话初始即 idle，不会触发 `state:update`，故首条输入靠 `session:ready` 触发。
 - 交互场景建议在 `config.init` 的配置中加 `disabledTools: ['ask_form', 'plan_to_agent']` 禁用无法应答的工具。
 
 ### 服务端推送的事件（Event）
@@ -105,6 +96,7 @@ config.init  ─▶  model.add  ─▶  model.applyTask  ─▶  session.create
 | `message:text:chunk`       | AI 文本流式输出片段  |
 | `message:thinking:chunk`   | AI 思考流式输出片段  |
 | `message:complete`         | 本轮消息输出完成     |
+| `tool:execution:start`     | 工具开始执行        |
 | `tool:permission:request`  | 请求工具执行权限     |
 | `tool:execution:complete`  | 工具执行完成        |
 | `tool:execution:chunk`     | 工具执行中间态      |
@@ -119,8 +111,8 @@ config.init  ─▶  model.add  ─▶  model.applyTask  ─▶  session.create
 | `plan:exit:request`        | AI 请求退出计划模式  |
 | `conversation:usage`       | Token 使用统计     |
 | `file:reference`           | 文件引用信息        |
-| `ack`                      | 指令确认（含 `cmd_id`）|
-| `error`                    | 错误事件（含 `cmd_id`）|
+| `ack`                      | 指令确认（含 `cmdId`）|
+| `error`                    | 错误事件（含 `cmdId`）|
 
 ## 环境要求
 
@@ -130,7 +122,7 @@ config.init  ─▶  model.add  ─▶  model.applyTask  ─▶  session.create
 ## 安装与启动
 
 ```bash
-cd example/sema-grpc
+cd sema-bridge
 npm install
 npm run build
 npm start
@@ -140,27 +132,15 @@ npm start
 
 | 变量名               | 默认值          | 说明                   |
 |---------------------|----------------|------------------------|
-| `SEMA_BRIDGE_PORT`  | `3766`         | gRPC 服务监听端口        |
+| `SEMA_BRIDGE_PORT`  | `3765`         | WebSocket 服务监听端口   |
 | `SEMA_WORKING_DIR`  | 当前工作目录     | Agent 操作的目标代码仓库路径 |
 
 示例：
 
 ```bash
-SEMA_BRIDGE_PORT=3766 SEMA_WORKING_DIR=/path/to/your/project npm start
+SEMA_BRIDGE_PORT=3765 SEMA_WORKING_DIR=/path/to/your/project npm start
 ```
 
-## 快速测试
+## 客户端示例
 
-服务启动后，可使用同目录下的 `quickstart-grpc.mjs` 进行基本连通性测试：
-执行前修改配置：
-```javascript
-// sema-grpc/quickstart-grpc.mjs
-const WORKING_DIR = '/path/to/your/project';  // Agent 将操作的目标代码仓库路径
-"apiKey": "sk-your-api-key",  // 替换为你的 API Key
-```
-
-执行：
-```bash
-cd example/sema-grpc
-node quickstart-grpc.mjs
-```
+C# / Java / Python 客户端示例见 [sema-bridge-clients](../sema-bridge-clients/README.md)。

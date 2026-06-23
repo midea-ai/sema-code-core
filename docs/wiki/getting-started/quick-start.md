@@ -2,7 +2,7 @@
 
 本文档介绍如何在 1 分钟内快速启动一个 AI 编码 Agent。
 
-## 方式一：Node.js 直接集成（推荐）
+## 方式一：Node.js 直接集成
 
 如果你使用 Node.js 开发，可以直接使用 `sema-core`，无需桥接服务。
 
@@ -20,32 +20,11 @@ npm install sema-core
 
 ```javascript
 // quickstart.mjs
-const core = new SemaCore({
-  workingDir: '/path/to/your/project', // Agent 将操作的目标代码仓库路径
-  logLevel: 'none',                    // 日志级别：'debug' | 'info' | 'warn' | 'error' | 'none'
-  thinking: false,                     // 是否显示思考过程
-  disableTopicDetection: true,         // 禁用话题检测
-  disableBackgroundTasks: true,        // 禁用后台任务
-  maxSessions: 5,                      // 可选：同时最多保留 5 个会话
-});
-
-// 配置模型（以 qwen3.5-plus 为例）
-const modelConfig = {
-  "modelName": "qwen3.5-plus",         // 模型名称
-  "provider": "custom",                // 服务商：'anthropic' | 'custom'
-  "baseURL": "https://api.example.com/v1",  // OpenAI 兼容接口地址
-  "apiKey": "sk-your-api-key",         // 替换为你的 API Key
-  "maxTokens": 32000,                  // 最大输出 token 数
-  "contextLength": 256000,             // 上下文长度
-  "adapt": "openai"                    // 适配器：'anthropic' | 'openai'
-};
-
-const modelId = `${modelConfig.modelName}[${modelConfig.provider}]`;
-await core.addModel(modelConfig);
-await core.applyTaskModel({ main: modelId, quick: modelId });
+  workingDir: '/path/to/your/project',       // Agent 将操作的目标代码仓库路径
+  "apiKey": "sk-your-api-key",               // 替换为你的 deepseek API Key
 ```
 
-> 💡 **提示**：`addModel` 和 `applyTaskModel` 只需运行一次，模型配置会持久化保存。后续运行可以注释掉这两行。
+> 💡 **提示**：`addModel` 和 `applyTaskModel` 只需运行一次，模型配置会持久化保存。后续运行可以注释掉模型相关代码。
 
 更多模型配置选项，请参考 [添加新模型](wiki/getting-started/basic-usage/add-new-model)。
 
@@ -96,6 +75,27 @@ session.respondToToolPermission({ toolId, toolName, selected: 'agree' });
 
 完整 API 列表请参考 [SemaCore 公共 API](wiki/core-concepts/core-architecture/sema-core-public-api) 与 [SemaSession 会话级 API](wiki/core-concepts/core-architecture/sema-session-api)。
 
+### 6. 进阶：TypeScript 示例工程（demo）
+
+`example/demo` 是一个最小化的 TypeScript 工程，演示 `sema-core` 的两种典型用法。它的模型配置不写在代码里，而是启动时自动读取 `~/.sema/model.conf`（首次使用需先创建该文件，格式见 [demo/README](https://github.com/midea-ai/sema-code-core/blob/main/example/demo/README.md)）。
+
+```bash
+cd example/demo
+npm install
+```
+
+**入口 1 — 交互式 CLI**（多轮对话、流式输出、esc 中断、权限询问）：
+
+```bash
+npm run cli <项目路径> [会话id]   # 会话id 可选，传入则加载历史会话继续对话
+```
+
+**入口 2 — 一次性执行**（执行单条指令后退出，全程免人工确认）：
+
+```bash
+npm run exec <项目路径> "<用户输入>" [详略档位]   # 详略档位：verbose | medium | simple | minimal，缺省 verbose
+```
+
 ---
 
 ## 方式二：跨语言集成（C# / Java / Python）
@@ -127,13 +127,14 @@ sema-core (npm 包)
 ```
 example/
 ├── quickstart.mjs            # Node.js 直接集成（无需桥接）
+├── demo/                     # TypeScript 示例工程（交互式 CLI + 一次性执行）
 │
-├── sema-bridge/              # 桥接服务端 ─ WebSocket
 ├── sema-grpc/                # 桥接服务端 ─ gRPC
-│
-├── sema-csharp-demo/         # 客户端示例 ─ C#    (连接 sema-bridge)
-├── sema-java-demo/           # 客户端示例 ─ Java   (连接 sema-bridge)
-└── sema-python-demo/         # 客户端示例 ─ Python (连接 sema-bridge)
+├── sema-bridge/              # 桥接服务端 ─ WebSocket
+└── sema-bridge-clients/      # 连接 sema-bridge 的多语言客户端示例
+    ├── sema-csharp-demo/     # 客户端示例 ─ C#
+    ├── sema-java-demo/       # 客户端示例 ─ Java
+    └── sema-python-demo/     # 客户端示例 ─ Python
 ```
 
 ### 启动步骤

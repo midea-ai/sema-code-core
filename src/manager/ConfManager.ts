@@ -36,6 +36,14 @@ export class ConfigManager {
 
     // 如果 workingDir 未提供，使用当前工作目录
     const workingDir = config.workingDir || readInitialCwd();
+
+    // 校验 workingDir 必须是真实存在的目录，避免误用不存在的路径建出空会话
+    if (config.workingDir) {
+      if (!fs.existsSync(workingDir) || !fs.statSync(workingDir).isDirectory()) {
+        throw new Error(`workingDir 不存在或不是目录: ${workingDir}`);
+      }
+    }
+
     this.projecName = workingDir;
 
     if (config.workingDir) {

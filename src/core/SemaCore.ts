@@ -54,8 +54,14 @@ export class SemaCore {
   // ==================== 会话池（实现见 SessionPool）====================
   createSession = async (opts: CreateSessionOptions = {}): Promise<CreateSessionResult> => {
     if (this.configPromise) {
-      await this.configPromise;
-      this.configPromise = null;
+      try {
+        await this.configPromise;
+      } catch (e) {
+        // 配置初始化失败（如 workingDir 无效）：返回明确错误而非抛异常
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      } finally {
+        this.configPromise = null;
+      }
     }
     return getSessionPool().createSession(opts);
   };

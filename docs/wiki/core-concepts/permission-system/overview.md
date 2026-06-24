@@ -13,7 +13,7 @@
 | Fetch Url | `skipFetchUrlPermission` | 需要确认 | `'fetch_url(domain)'` |
 | 项目外文件读取 `view_file` | `skipExternalFileReadPermission` | 项目内/临时文件静默放行，项目外需要确认 | 会话级授权（按父目录，不写入 allowedTools） |
 
-> 对应跳过开关为 `true` 时，该类工具直接放行，不再进入任何检查。其余工具（非以上类型）默认放行。各工具的具体判定流程见[工具权限检查](shell-check)。
+> 对应跳过开关为 `true` 时，该类工具直接放行，不再进入任何检查。其余工具（非以上类型）默认放行。各工具的具体判定流程见[工具权限检查](wiki/core-concepts/permission-system/shell-check)。
 
 ## 权限自由度档位（会话级）
 
@@ -39,6 +39,6 @@
 
 > 安全判断以**当前执行代理自身**的会话历史作为上下文旁路调用模型，绝不写回会话历史——子代理用子代理自己的上下文，而非主代理。
 >
-> `run_shell` 的 AutoRun 判断在其专属检查流程中提前完成，详见[工具权限检查](shell-check)。
+> `run_shell` 的 AutoRun 判断在其专属检查流程中提前完成，详见[工具权限检查](wiki/core-concepts/permission-system/shell-check)。
 
-经模型判定 `safe` 自动放行时不弹窗，但会发一个单向的 `tool:permission:auto` 事件供 UI 提示「已自动放行」；档位变更则发 `permissionLevel:update`。两者均无需回应，结构见[事件目录](../event-system/event-catalog)。
+经模型判定 `safe` 自动放行时不弹窗，但会发一个单向的 `tool:permission:auto` 事件供 UI 提示「已自动放行」；档位变更则发 `permissionLevel:update`。两者均无需回应，结构见[事件目录](wiki/core-concepts/event-system/event-catalog)。

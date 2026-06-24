@@ -1,6 +1,6 @@
 # 交互式工具事件
 
-除工具权限外（见[工具权限检查](shell-check)），以下两类工具在执行时也会暂停等待用户响应，需通过对应的响应接口回传结果。
+除工具权限外（见[工具权限检查](wiki/core-concepts/permission-system/shell-check)），以下两类工具在执行时也会暂停等待用户响应，需通过对应的响应接口回传结果。
 
 ## AskForm — 向用户提问
 
@@ -100,7 +100,7 @@ interface PlanImplementData {
 
 > 响应必须在发起请求的 `SemaSession` 上发送。`pick` 和 `plan` 响应需原样回传 `agentId`；工具权限响应需回传 `toolId` 和 `toolName`，以精确匹配同时存在的请求。
 >
-> `tool:permission:auto` 与 `permissionLevel:update` 是单向通知事件（见[权限系统概述](overview)），无对应响应方法。
+> `tool:permission:auto` 与 `permissionLevel:update` 是单向通知事件（见[权限系统概述](wiki/core-concepts/permission-system/overview)），无对应响应方法。
 
 ## 代码示例
 

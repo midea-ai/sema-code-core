@@ -183,7 +183,7 @@ modelManager.getModelData()
 - 文件编辑工具的 `allow` 权限写入 `SessionRuntime`，只在当前会话生效
 - `run_shell` 的持久 allow 前缀仍写入项目配置 `allowedTools`
 
-详细的权限类型、检查流程和白名单说明参考：[权限系统](wiki/core-concepts/tool-system/permission-system)。
+详细的权限类型、检查流程和白名单说明参考：[权限系统](wiki/core-concepts/permission-system/overview)。
 
 ## TaskManager
 
@@ -218,7 +218,8 @@ modelManager.getModelData()
 
 ### 详细文档
 
-- [后台任务概述](wiki/core-concepts/task-management/overview)
+- [任务管理概述](wiki/core-concepts/task-management/overview)
+- [后台任务](wiki/core-concepts/task-management/background-task)
 - [RunShell 后台任务](wiki/core-concepts/task-management/bash-task)
 - [Agent 后台任务](wiki/core-concepts/task-management/agent-task)
 

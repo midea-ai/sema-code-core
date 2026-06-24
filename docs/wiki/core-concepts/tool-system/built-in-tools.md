@@ -63,7 +63,7 @@
 3. 未授权时发布 `tool:permission:request` 事件，由宿主应用展示并回传选择。
 4. 权限被拒绝时，工具不会执行，并向模型返回拒绝结果。
 
-权限展示内容由工具的 `genToolPermission` 提供；执行完成后的 UI 展示内容由 `genToolResultMessage` 提供。更详细的权限规则见 [权限系统](wiki/core-concepts/tool-system/permission-system)。
+权限展示内容由工具的 `genToolPermission` 提供；执行完成后的 UI 展示内容由 `genToolResultMessage` 提供。更详细的权限规则见 [权限系统](wiki/core-concepts/permission-system/overview)。
 
 ## 并发、中断与后台任务
 

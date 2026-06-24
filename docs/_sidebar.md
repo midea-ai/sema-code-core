@@ -25,13 +25,18 @@
     - [Manager Layer - 管理器层](wiki/core-concepts/core-architecture/manager-layer)
   - 工具系统
     - [工具架构](wiki/core-concepts/tool-system/tool-architecture)
-    - [权限系统](wiki/core-concepts/tool-system/permission-system)
     - [创建自定义工具](wiki/core-concepts/tool-system/creating-custom-tools)
     - [内置工具](wiki/core-concepts/tool-system/built-in-tools)
-  - 后台任务
-    - [后台任务概述](wiki/core-concepts/task-management/overview)
-    - [RunShell 后台任务](wiki/core-concepts/task-management/bash-task)
-    - [SubAgent 后台任务](wiki/core-concepts/task-management/agent-task)
+  - 权限系统
+    - [权限系统概述](wiki/core-concepts/permission-system/overview)
+    - [工具权限检查](wiki/core-concepts/permission-system/shell-check)
+    - [交互式工具事件](wiki/core-concepts/permission-system/interactive)
+  - 任务管理
+    - [任务管理概述](wiki/core-concepts/task-management/overview)
+    - [后台任务](wiki/core-concepts/task-management/background-task)
+      - [RunShell 后台任务](wiki/core-concepts/task-management/bash-task)
+      - [SubAgent 后台任务](wiki/core-concepts/task-management/agent-task)
+    - [定时任务](wiki/core-concepts/task-management/cron-task)
   - 事件系统
     - [事件总线架构](wiki/core-concepts/event-system/event-bus)
     - [事件类型](wiki/core-concepts/event-system/event-catalog)

@@ -256,6 +256,6 @@ To retrieve the result, read the output file: <filepath>
 
 后台任务的完整调度模型、`TaskRecord` 数据结构、超时接管机制、前后台 Agent 的 `Promise.race` 协作流程：
 
-- [概述](wiki/core-concepts/task-management/overview)
+- [后台任务](wiki/core-concepts/task-management/background-task)
 - [RunShell 后台任务](wiki/core-concepts/task-management/bash-task)
 - [Agent 后台任务](wiki/core-concepts/task-management/agent-task)

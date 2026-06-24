@@ -235,7 +235,7 @@ getDesignSystemsInfo(refresh?: boolean): Promise<DesignSystemInfo[]>
 
 ## 后台任务管理
 
-后台任务包含 `run_shell` 与 `sub_agent` 两种类型，由 `TaskManager` 统一管理，但对外 API 已下沉到 `SemaSession`。每个会话只能看到和停止自己的后台任务，运行中任务限额也按会话独立计算。详见 [SemaSession - 会话级 API](wiki/core-concepts/core-architecture/sema-session-api) 与 [后台任务概述](wiki/core-concepts/task-management/overview)。
+后台任务包含 `run_shell` 与 `sub_agent` 两种类型，由 `TaskManager` 统一管理，但对外 API 已下沉到 `SemaSession`。每个会话只能看到和停止自己的后台任务，运行中任务限额也按会话独立计算。详见 [SemaSession - 会话级 API](wiki/core-concepts/core-architecture/sema-session-api) 与 [后台任务](wiki/core-concepts/task-management/background-task)。
 
 ## 定时任务管理
 

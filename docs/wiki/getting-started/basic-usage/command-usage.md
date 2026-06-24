@@ -197,13 +197,6 @@ argument-hint: [pr-number] [focus-area]
     └── check.md       → /docs:check
 ```
 
-## 相关源码
-
-- 命令管理器：`src/services/commands/commandsManager.ts`
-- 命令类型定义：`src/types/command.ts`
-- 命令执行逻辑：`src/services/commands/runCommand.ts`
-- SemaCore 公共 API：`src/core/SemaCore.ts`
-
 ## 进一步了解
 
 对于更复杂的可复用工作流（含 AI 自动调用、工具约束等），推荐使用 [Skill 使用](wiki/getting-started/basic-usage/skill-usage)。

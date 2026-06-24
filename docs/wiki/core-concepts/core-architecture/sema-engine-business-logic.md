@@ -162,7 +162,7 @@ updateAgentMode(mode: 'Agent' | 'Plan' | 'Design'): void
 updatePermissionLevel(level: 'Ask' | 'AutoEdit' | 'AutoRun'): void
 ```
 
-这些配置写入当前会话的 `SessionRuntime`，不会影响其它会话。切换到 Plan 或 Design 模式时，会重置对应的模式提示发送标记，使下一轮对话重新注入模式说明。`updatePermissionLevel()` 设置会话级权限自由度档位（`'Ask'` / `'AutoEdit'` / `'AutoRun'`），档位决定需要确认的工具被自动放行的力度（详见[权限系统](wiki/core-concepts/tool-system/permission-system)），变更时触发 `permissionLevel:update` 事件。
+这些配置写入当前会话的 `SessionRuntime`，不会影响其它会话。切换到 Plan 或 Design 模式时，会重置对应的模式提示发送标记，使下一轮对话重新注入模式说明。`updatePermissionLevel()` 设置会话级权限自由度档位（`'Ask'` / `'AutoEdit'` / `'AutoRun'`），档位决定需要确认的工具被自动放行的力度（详见[权限系统](wiki/core-concepts/permission-system/overview)），变更时触发 `permissionLevel:update` 事件。
 
 ## 中断与释放
 

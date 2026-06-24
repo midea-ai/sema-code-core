@@ -151,7 +151,7 @@ example/
 | **SemaSession** | 会话级入口，处理输入、事件、权限响应和后台任务 | [SemaSession - 会话级 API](wiki/core-concepts/core-architecture/sema-session-api) |
 | **SemaEngine** | 单会话核心引擎，负责输入队列、模式控制和对话调度 | [SemaEngine - 业务逻辑](wiki/core-concepts/core-architecture/sema-engine-business-logic) |
 | **事件系统** | 流式输出、状态变化、工具执行均通过事件通知 | [事件总线架构](wiki/core-concepts/event-system/event-bus) |
-| **工具权限** | 写操作（RunShell、PatchFile 等）默认需要用户授权 | [权限系统](wiki/core-concepts/tool-system/permission-system) |
+| **工具权限** | 写操作（RunShell、PatchFile 等）默认需要用户授权 | [权限系统](wiki/core-concepts/permission-system/overview) |
 | **MCP** | 通过标准协议为 AI 扩展自定义工具 | [MCP 使用](wiki/getting-started/basic-usage/mcp-usage) |
 | **Skill** | 可复用的 AI 工作流，存储为 Markdown 文件 | [Skill 使用](wiki/getting-started/basic-usage/skill-usage) |
 | **SubAgent** | 隔离执行的专用子代理 | [SubAgent 后台任务](wiki/core-concepts/task-management/agent-task) |

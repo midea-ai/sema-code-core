@@ -222,13 +222,6 @@ task="检查状态"
 task="检查 CI 构建状态，如果失败请汇总错误原因并给出修复建议"
 ```
 
-## 相关源码
-
-- 定时任务管理器：`src/manager/CronManager.ts`
-- 任务类型定义：`src/types/cron.ts`
-- Cron 表达式工具：`src/util/cron.ts`
-- SemaCore 公共 API：`src/core/SemaCore.ts`
-
 ## 进一步了解
 
 定时任务的内置工具详细参数与实现：

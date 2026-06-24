@@ -188,6 +188,19 @@ session.respondToToolPermission({
 }
 ```
 
+### `tool:permission:auto`
+
+AutoRun 档位下，工具动作经快速模型判定为 `safe` 而**自动放行**时触发（不触发 `tool:permission:request`）。仅模型判断放行才发该事件，只读白名单、项目内文件编辑、Skill 等确定性放行不触发。**单向通知，无需回应。**
+
+```typescript
+{
+  agentId: string    // 代理 ID（主代理为 MAIN_AGENT_ID，子代理为 taskId）
+  toolId: string     // 工具调用唯一 ID（对应 Anthropic ToolUseBlock 的 id）
+  toolName: string   // 工具名称
+  content: string    // 一句简短说明，如 "Allowed by model check · auto mode"
+}
+```
+
 ### `tool:execution:chunk`
 
 工具执行期间，工具结果的中间态推送。结构与 `tool:execution:complete` 相同，`content` 仅包含本次新增的 delta。

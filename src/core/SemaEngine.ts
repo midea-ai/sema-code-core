@@ -14,7 +14,8 @@ import { getConfManager } from '../manager/ConfManager';
 import { getModelManager } from '../manager/ModelManager';
 import { SessionEventBus } from '../events/EventSystem';
 import { isInterruptedException } from '../types/errors';
-import type { Message, UserMsg } from '../types/message';
+import type { Message, UserMsg, InputImageAttachment } from '../types/message';
+import { compressImage } from '../util/imageCompress';
 import type { UUID } from '../types/uuid';
 import type { ForkOptions, ForkResult } from '../types/fork';
 import { ReAct } from './Conversation';
@@ -27,7 +28,13 @@ import { getCronManager } from '../manager/CronManager';
 import { handlequickchat } from '../util/quickchat';
 import { TOOL_NAME_SKILL } from '../prompt/tool';
 import type { AgentMode, PermissionLevel } from '../types';
+import type { FileReferenceInfo } from '../types/index';
 import type { CreateSessionOptions } from '../types/session';
+
+// 粘贴图片单张体积上限，超出则压缩（与 ViewFile 的 MAX_OUTPUT_BYTES 保持一致）
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024
+// 支持的图片 media_type 白名单
+const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
 
 /**
  * Sema 引擎 - 单个会话的核心业务逻辑
@@ -135,7 +142,7 @@ export class SemaEngine {
    * 处理用户输入
    * 如果当前正在处理中，将输入加入队列等待
    */
-  processUserInput(input: string, originalInput?: string, silent?: boolean): void {
+  processUserInput(input: string, originalInput?: string, silent?: boolean, attachments?: InputImageAttachment[]): void {
     const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
     // inputId 同时作为该用户输入持久化消息的 uuid，UI 据此调用 fork
     const inputId = randomUUID()
@@ -155,7 +162,7 @@ export class SemaEngine {
 
     if (mainAgentState.getCurrentState() === 'processing') {
       const type: PendingUserInput['type'] = trimmedInput.startsWith('/') ? 'command' : 'inject'
-      this.runtime.addPendingUserInput({ inputId, input: trimmedInput, originalInput, silent, type })
+      this.runtime.addPendingUserInput({ inputId, input: trimmedInput, originalInput, silent, type, attachments })
       logInfo(`输入已入队(${type})，队列长度: ${this.runtime.getPendingUserInputsLength()}`)
       if (!silent) {
         this.emit('input:received', {
@@ -180,13 +187,13 @@ export class SemaEngine {
         queueLength: 0,
       })
     }
-    this.startQuery([{ inputId, input: trimmedInput, originalInput, silent }]);
+    this.startQuery([{ inputId, input: trimmedInput, originalInput, silent, attachments }]);
   }
 
   /**
    * 启动一次查询（构建上下文并调用 processQuery）
    */
-  private startQuery(inputs: Array<{ inputId: string; input: string; originalInput?: string; silent?: boolean }>): void {
+  private startQuery(inputs: Array<{ inputId: string; input: string; originalInput?: string; silent?: boolean; attachments?: InputImageAttachment[] }>): void {
     const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
     mainAgentState.updateState('processing');
 
@@ -227,16 +234,29 @@ export class SemaEngine {
    * 处理查询逻辑
    */
   private async processQuery(
-    inputs: Array<{ inputId: string; input: string; originalInput?: string; silent?: boolean }>,
+    inputs: Array<{ inputId: string; input: string; originalInput?: string; silent?: boolean; attachments?: InputImageAttachment[] }>,
     agentContext: AgentContext,
     agentMode: AgentMode
   ): Promise<void> {
     const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
 
+    // 先按 inputId 规范化各输入的图片附件（过滤非法类型、超限压缩），
+    // 以便 input:processing 事件直接回吐与该消息绑定的最终附件，气泡回显无需 UI 暂存或队列对齐
+    const normalizedAttachments = new Map<string, InputImageAttachment[]>();
+    for (const item of inputs) {
+      normalizedAttachments.set(item.inputId, await this.normalizeAttachments(item.attachments));
+    }
+
     // 为每条输入发送独立的 input:processing 事件（静默输入跳过）
     for (const item of inputs) {
       if (!item.silent) {
-        this.emit('input:processing', { inputId: item.inputId, input: item.input, originalInput: item.originalInput })
+        const attachments = normalizedAttachments.get(item.inputId);
+        this.emit('input:processing', {
+          inputId: item.inputId,
+          input: item.input,
+          originalInput: item.originalInput,
+          attachments: attachments && attachments.length > 0 ? attachments : undefined,
+        })
       }
     }
 
@@ -249,8 +269,9 @@ export class SemaEngine {
       }
 
       // 处理命令，按输入分别收集 blocks（每条输入对应一条持久化消息）
-      const perInput: Array<{ inputId: string; blocks: Anthropic.ContentBlockParam[] }> = [];
-      let combinedProcessedText = '';
+      const perInput: Array<{ inputId: string; blocks: Anthropic.ContentBlockParam[]; attachments?: InputImageAttachment[]; fileRefReminders: Anthropic.ContentBlockParam[] }> = [];
+      // 文件引用补充信息：跨输入累加，循环后统一发一次 file:reference 事件
+      const allSupplementaryInfo: FileReferenceInfo[] = [];
 
       for (const item of inputs) {
         if (agentContext.abortController.signal.aborted) {
@@ -262,14 +283,24 @@ export class SemaEngine {
           // 系统命令已处理（如 /compact, /clear），跳过
           continue;
         }
-        combinedProcessedText += (combinedProcessedText ? '\n' : '') + commandResult.processedText;
-        if (commandResult.blocks.length > 0) {
-          perInput.push({ inputId: item.inputId, blocks: commandResult.blocks });
+        // 逐输入处理文件引用：@图片/文件 提醒挂到该输入自己的消息上（对齐 inputId）
+        const fileRef = await processFileReferences(commandResult.processedText, agentContext);
+        allSupplementaryInfo.push(...fileRef.supplementaryInfo);
+        // 复用已规范化的图片附件（与 input:processing 事件回吐的是同一份）
+        const attachments = normalizedAttachments.get(item.inputId) ?? [];
+        // 文本块 / 图片附件 / 文件引用提醒 任一存在即生成一条持久化消息
+        if (commandResult.blocks.length > 0 || attachments.length > 0 || fileRef.systemReminders.length > 0) {
+          perInput.push({ inputId: item.inputId, blocks: commandResult.blocks, attachments, fileRefReminders: fileRef.systemReminders });
         }
       }
 
       if (perInput.length === 0) {
         return;
+      }
+
+      logInfo(`返回文件引用信息: ${JSON.stringify(allSupplementaryInfo, null, 2)}`)
+      if (allSupplementaryInfo.length > 0) {
+        this.emit('file:reference', { references: allSupplementaryInfo });
       }
 
       if (agentContext.abortController.signal.aborted) {
@@ -289,21 +320,6 @@ export class SemaEngine {
         );
       }
 
-      // 处理文件引用以获取补充信息
-      const fileReferencesResult = await processFileReferences(combinedProcessedText, agentContext)
-      logInfo(`返回文件引用信息: ${JSON.stringify(fileReferencesResult.supplementaryInfo, null, 2)}`)
-
-      if (fileReferencesResult.supplementaryInfo.length > 0) {
-        this.emit('file:reference', {
-          references: fileReferencesResult.supplementaryInfo
-        });
-      }
-
-      if (agentContext.abortController.signal.aborted) {
-        logInfo('processQuery: abort detected after processFileReferences, skipping remaining');
-        return;
-      }
-
       // 1、系统提示：复用会话级快照（整会话不变）；缺失时兜底构建一次
       const hasSkillTool = agentContext.tools.some(tool => tool.name === TOOL_NAME_SKILL);
       let systemPromptContent = this.runtime.getSystemPromptContent();
@@ -315,8 +331,10 @@ export class SemaEngine {
       // 2、构建用户消息内容
       const messageHistory = mainAgentState.getMessageHistory()
 
-      const additionalReminders = buildAdditionalReminders(
-        fileReferencesResult.systemReminders,
+      // 回合级提醒（skills/rules/plan/design）：传空 systemReminders，仅取回合级部分，挂到首条消息；
+      // 文件引用提醒已按 inputId 拆到各自输入（见 perInput.fileRefReminders）
+      const turnLevelReminders = buildAdditionalReminders(
+        [],
         messageHistory,
         agentMode,
         this.sessionId,
@@ -326,9 +344,23 @@ export class SemaEngine {
       const checkpointSeq = getCheckpointManager().beginTurn(this.sessionId)
 
       // 每条输入各生成一条 UserMsg（uuid=inputId，便于 UI 按输入块 fork）；
-      // additionalReminders 挂在首条上；API 调用时由 prepareMessagesForApi 自动合并连续 user 消息
+      // 文件引用提醒挂在各自输入消息上，回合级提醒只挂首条；
+      // API 调用时由 prepareMessagesForApi 自动合并连续 user 消息
       const userMessages: UserMsg[] = perInput.map((p, idx) => {
-        const blocks = idx === 0 ? [...additionalReminders, ...p.blocks] : p.blocks
+        // 图片附件转 image content block
+        const imageBlocks: Anthropic.ContentBlockParam[] = (p.attachments ?? []).map(a => ({
+          type: 'image' as const,
+          source: { type: 'base64' as const, media_type: a.media_type, data: a.data },
+        }))
+        // 存在图片时过滤空文本块（纯截图场景 input 为空，空 text block 会导致 API 报错）
+        const textBlocks = imageBlocks.length > 0
+          ? p.blocks.filter(b => !(b.type === 'text' && !b.text.trim()))
+          : p.blocks
+        // 文件引用提醒（含 @图片）放在该输入文本之前；回合级提醒仅首条
+        const head = idx === 0
+          ? [...p.fileRefReminders, ...turnLevelReminders]
+          : [...p.fileRefReminders]
+        const blocks = [...head, ...textBlocks, ...imageBlocks]
         const msg = buildUserMsg(blocks)
         msg.uuid = p.inputId as UUID
         msg.checkpointSeq = checkpointSeq
@@ -369,6 +401,7 @@ export class SemaEngine {
           input: item.input,
           originalInput: item.originalInput,
           silent: item.silent,
+          attachments: item.attachments,
         }))
         const batch = takeNextBatch(pending)
 
@@ -386,6 +419,44 @@ export class SemaEngine {
         mainAgentState.updateState('idle');
       }
     }
+  }
+
+  /**
+   * 规范化图片附件：过滤非法 media_type，单张超限则压缩
+   * 返回干净可直接转 image content block 的附件数组
+   */
+  private async normalizeAttachments(attachments?: InputImageAttachment[]): Promise<InputImageAttachment[]> {
+    if (!attachments || attachments.length === 0) return [];
+
+    const result: InputImageAttachment[] = [];
+    for (const att of attachments) {
+      if (!SUPPORTED_IMAGE_MEDIA_TYPES.includes(att.media_type as typeof SUPPORTED_IMAGE_MEDIA_TYPES[number])) {
+        logWarn(`忽略不支持的图片类型: ${att.media_type}`);
+        continue;
+      }
+      try {
+        const buffer = Buffer.from(att.data, 'base64');
+        if (buffer.length > MAX_IMAGE_BYTES) {
+          if (att.media_type === 'image/gif') {
+            logWarn(`忽略超出上限且不支持压缩的 GIF 附件: ${Math.round(buffer.length / 1024)}KB`);
+            continue;
+          }
+          logInfo(`图片附件 ${Math.round(buffer.length / 1024)}KB 超过上限 ${Math.round(MAX_IMAGE_BYTES / 1024)}KB，压缩中...`);
+          const compressed = await compressImage(buffer, att.media_type, MAX_IMAGE_BYTES);
+          const compressedBytes = Math.ceil(compressed.data.length * 3 / 4);
+          if (compressedBytes > MAX_IMAGE_BYTES) {
+            logWarn(`忽略压缩后仍超出上限的图片附件: ${Math.round(compressedBytes / 1024)}KB`);
+            continue;
+          }
+          result.push({ type: 'image', data: compressed.data, media_type: compressed.media_type });
+        } else {
+          result.push(att);
+        }
+      } catch (e) {
+        logWarn(`处理图片附件失败，已忽略: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return result;
   }
 
   /**

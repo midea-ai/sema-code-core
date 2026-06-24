@@ -7,3 +7,4 @@ export type {
   ForkOptions,
   ForkResult,
 } from './types/fork';
+export type { InputImageAttachment } from './types/message';

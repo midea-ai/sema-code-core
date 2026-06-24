@@ -21,6 +21,13 @@ export type ToolControlSignal = {
   }
 }
 
+// 用户粘贴的图片附件（base64，无系统文件路径）
+export interface InputImageAttachment {
+  type: 'image';
+  data: string;          // base64，不含 data: 前缀
+  media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+}
+
 export type UserMsg = {
   message: Anthropic.MessageParam
   type: 'user'

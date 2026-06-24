@@ -1,5 +1,6 @@
 import type { TodoItem } from '../types/todoTask';
 import type { PermissionLevel } from '../types';
+import type { InputImageAttachment } from '../types/message';
 
 // Sema-Core 事件系统类型定义
 
@@ -130,6 +131,7 @@ export interface InputProcessingData {
   inputId: string;            // 输入唯一标识，与 input:received 中的 inputId 对应
   input: string;              // 正在处理的输入内容
   originalInput?: string;     // 原始输入内容
+  attachments?: InputImageAttachment[]; // 该输入规范化后的图片附件（已过滤非法类型、已压缩），用于气泡回显
 }
 
 // ==================== AI消息事件 ====================

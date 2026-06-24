@@ -2,7 +2,9 @@
  * 输入队列批处理工具
  */
 
-type InputItem = { inputId: string; input: string; originalInput?: string; silent?: boolean }
+import type { InputImageAttachment } from '../types/message'
+
+type InputItem = { inputId: string; input: string; originalInput?: string; silent?: boolean; attachments?: InputImageAttachment[] }
 
 /**
  * 从待处理队列中取出下一批输入

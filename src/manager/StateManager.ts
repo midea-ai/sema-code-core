@@ -19,7 +19,7 @@ import { getEventBus } from '../events/EventSystem';
 import { StateUpdateData, AppSessionState, TodoItem, PermissionLevelUpdateData } from '../events/types';
 import { logInfo } from '../util/log';
 import { saveHistory } from '../util/history';
-import { Message } from '../types/message';
+import { Message, InputImageAttachment } from '../types/message';
 import { getConfManager } from './ConfManager';
 import { TodoTask, TodoTaskStatus } from '../types/todoTask';
 import { LineEndingKind } from '../util/file';
@@ -34,6 +34,7 @@ export interface PendingUserInput {
   originalInput?: string;
   silent?: boolean;
   type: 'inject' | 'command'; // inject=普通文本，command=以/开头的命令
+  attachments?: InputImageAttachment[]; // 用户粘贴的图片附件
 }
 
 // 代理状态接口

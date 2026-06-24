@@ -325,8 +325,15 @@ async function checkRunShellPermission(
     return requestPermissionViaEvent(tool, { command, description }, null, abortController, agentId, sessionId, toolId, false, true)
   }
 
-  // AutoRun 档位：对整条命令做一次安全判断，判定 safe 直接放行；
-  // 判定有风险时继续走下面的确定性覆盖匹配（已保存授权仍可放行），否则转人工。
+  // 每个子命令都被 SAFE_COMMANDS / 精确授权 / 已保存前缀覆盖 → 放行（注入已在函数开头排除）。
+  // 必须先于下面的 AutoRun 模型判断：已被「确定性覆盖」的命令无需再调用快速模型——既省一次模型
+  // 调用，也更准确（确定性放行不应触发「模型自动放行」事件 tool:permission:auto）。
+  if (subCommands.length > 0 && subCommands.every(subCmd => isRunShellCommandPermitted(tool, subCmd, allowedTools))) {
+    return { result: true }
+  }
+
+  // AutoRun 档位：子命令未被确定性覆盖时，对整条命令做一次安全判断，判定 safe 直接放行；
+  // 判定有风险（或非 AutoRun）则继续转人工申请。
   const runtime = getStateManager().session(sessionId)
   if (runtime.isAutoRun()) {
     let safe = false
@@ -342,11 +349,6 @@ async function checkRunShellPermission(
       return { result: true }
     }
     logDebug(`[Permission][AutoRun]${tool.name} 判定有风险，转人工申请`)
-  }
-
-  // 每个子命令都被 SAFE_COMMANDS / 精确授权 / 已保存前缀覆盖 → 放行（注入已在函数开头排除）
-  if (subCommands.length > 0 && subCommands.every(subCmd => isRunShellCommandPermitted(tool, subCmd, allowedTools))) {
-    return { result: true }
   }
 
   // 未完全覆盖 → 转人工。对「首个未被覆盖的子命令」调一次快速模型提取前缀，给出"按前缀授权"选项。

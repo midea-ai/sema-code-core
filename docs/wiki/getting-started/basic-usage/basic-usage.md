@@ -17,6 +17,7 @@ interface SemaCoreConfig {
   skipSkillPermission?: boolean;     // 是否跳过 Skill 权限检查，默认 否
   skipMCPToolPermission?: boolean;   // 是否跳过 MCP 工具权限检查，默认 否
   skipFetchUrlPermission?: boolean;  // 是否跳过 fetch_url 权限检查，默认 否
+  skipExternalFileReadPermission?: boolean; // 是否跳过项目外文件读取权限检查，默认 否
   enableLLMCache?: boolean;          // 是否开启 LLM 缓存，默认 否（建议只在重复测试时使用）
   useTools?: string[] | null;        // 限定使用的工具，默认 null（使用所有工具）
   disabledTools?: string[] | null;   // 禁用工具黑名单，默认 null；与 useTools 同时传时优先生效
@@ -201,6 +202,7 @@ const sema = new SemaCore({
   skipSkillPermission: true,
   skipMCPToolPermission: true,
   skipFetchUrlPermission: true,
+  skipExternalFileReadPermission: true,
   // 移除 ask_form / plan_to_agent（避免主动等待用户）
   useTools: ["run_shell", "search_files", "search_content", "view_file", "patch_file", "write_file", "skill", "sub_agent", "create_todo", "get_todo", "update_todo", "list_todos", "edit_notebook", "peek_bg_job", "stop_bg_job"]
 })

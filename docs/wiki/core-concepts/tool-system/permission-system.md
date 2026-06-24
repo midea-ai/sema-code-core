@@ -11,6 +11,7 @@
 | Skill 调用 | `skipSkillPermission` | 需要确认 | `'Skill(name)'` |
 | MCP 工具 | `skipMCPToolPermission` | 需要确认 | `'mcp__server_tool'` |
 | Fetch Url | `skipFetchUrlPermission` | 需要确认 | `'fetch_url(domain)'` |
+| 项目外文件读取 | `skipExternalFileReadPermission` | 项目内/临时文件静默放行，项目外需要确认 | 会话级授权（按父目录，不写入 allowedTools） |
 
 
 ## 权限检查流程

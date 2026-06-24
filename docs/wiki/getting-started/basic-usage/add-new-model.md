@@ -8,12 +8,12 @@ SemaCore 支持多种主流 AI 模型服务商：
 
 | 提供商 | 代表模型 | baseURL | SDK 适配类型 |
 |--------|----------|----------|----------|
-| openrouter | claude-opus-4.6 | https://openrouter.ai/api | anthropic |
-| qwen | qwen3.6-plus | https://dashscope.aliyuncs.com/compatible-mode/v1 | openai |
-| glm | glm-5.1 | https://open.bigmodel.cn/api/paas/v4 | openai |
-| minimax | MiniMax-M2.7 | https://api.minimaxi.com/anthropic | anthropic |
-| kimi | kimi-k2.5 | https://api.moonshot.cn/v1 | openai |
 | deepseek | deepseek-v4-pro | https://api.deepseek.com/anthropic | anthropic |
+| minimax | MiniMax-M3 | https://api.minimaxi.com/anthropic | anthropic |
+| glm | glm-5.2 | https://open.bigmodel.cn/api/paas/v4 | openai |
+| mimo | mimo-v2.5-pro | https://api.xiaomimimo.com/anthropic | anthropic |
+| qwen | qwen3.7-max | https://dashscope.aliyuncs.com/compatible-mode/v1 | openai |
+| kimi | kimi-k2.7-code | https://api.moonshot.cn/v1 | openai |
 | custom | 自定义模型 | 自定义 | 自动检测 |
 
 <figure align="center">

@@ -57,6 +57,10 @@ public class SemaCoreConfig {
     @JsonProperty("skipFetchUrlPermission")
     public Boolean skipFetchUrlPermission;
 
+    /** 跳过项目外文件读取权限检查，默认 false */
+    @JsonProperty("skipExternalFileReadPermission")
+    public Boolean skipExternalFileReadPermission;
+
     /** 限定使用的工具列表（白名单），null 表示使用所有工具 */
     @JsonProperty("useTools")
     public String[] useTools;
@@ -95,6 +99,7 @@ public class SemaCoreConfig {
         public Builder skipSkillPermission(Boolean v)     { c.skipSkillPermission = v;      return this; }
         public Builder skipMCPToolPermission(Boolean v)   { c.skipMCPToolPermission = v;    return this; }
         public Builder skipFetchUrlPermission(Boolean v)  { c.skipFetchUrlPermission = v;   return this; }
+        public Builder skipExternalFileReadPermission(Boolean v) { c.skipExternalFileReadPermission = v; return this; }
         public Builder enableLLMCache(Boolean v)          { c.enableLLMCache = v;           return this; }
         public Builder useTools(String... v)              { c.useTools = v;                 return this; }
         public Builder disabledTools(String... v)         { c.disabledTools = v;            return this; }

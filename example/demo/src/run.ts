@@ -149,6 +149,7 @@ async function main(): Promise<void> {
     skipSkillPermission: true,
     skipMCPToolPermission: true,
     skipFetchUrlPermission: true,
+    skipExternalFileReadPermission: true,
   });
 
   const result = await core.createSession();

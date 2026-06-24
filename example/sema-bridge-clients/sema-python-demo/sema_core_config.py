@@ -39,6 +39,9 @@ class SemaCoreConfig:
     skip_fetch_url_permission: Optional[bool] = None
     """ 跳过 fetch_url 权限检查，默认 False """
 
+    skip_external_file_read_permission: Optional[bool] = None
+    """ 跳过项目外文件读取权限检查，默认 False """
+
     enable_llm_cache: Optional[bool] = None
     """ 开启 LLM 缓存，默认 False，建议只在重复测试时使用 """
 
@@ -70,6 +73,7 @@ class SemaCoreConfig:
             "skipSkillPermission":     self.skip_skill_permission,
             "skipMCPToolPermission":   self.skip_mcp_tool_permission,
             "skipFetchUrlPermission":  self.skip_fetch_url_permission,
+            "skipExternalFileReadPermission": self.skip_external_file_read_permission,
             "enableLLMCache":          self.enable_llm_cache,
             "useTools":                self.use_tools,
             "disabledTools":           self.disabled_tools,

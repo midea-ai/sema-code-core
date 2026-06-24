@@ -118,5 +118,5 @@ npm run exec /path/to/your/project '帮我做两件事：
 | `simple`  | 简单 | 仅同步 AI 文本内容 |
 | `minimal` | 极简 | 仅同步最终结论 |
 
-> 一次性执行通过 `skipShellExecPermission` / `skipFileEditPermission` / `skipSkillPermission` / `skipMCPToolPermission` / `skipFetchUrlPermission` 直接跳过所有权限检查，全程无需人工确认。
+> 一次性执行通过 `skipShellExecPermission` / `skipFileEditPermission` / `skipSkillPermission` / `skipMCPToolPermission` / `skipFetchUrlPermission` / `skipExternalFileReadPermission` 直接跳过所有权限检查，全程无需人工确认。
 > （与 `AutoRun` 不同：`AutoRun` 仍会用快速模型判断安全性，命中风险会转人工申请，非交互场景下无人应答会挂起。）

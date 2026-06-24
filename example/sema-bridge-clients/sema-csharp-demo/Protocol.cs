@@ -56,6 +56,10 @@ public class SemaCoreConfig
     [JsonProperty("skipFetchUrlPermission", NullValueHandling = NullValueHandling.Ignore)]
     public bool? SkipFetchUrlPermission { get; set; }
 
+    /// <summary>跳过项目外文件读取权限检查，默认 false</summary>
+    [JsonProperty("skipExternalFileReadPermission", NullValueHandling = NullValueHandling.Ignore)]
+    public bool? SkipExternalFileReadPermission { get; set; }
+
     /// <summary>限定使用的工具列表（白名单），null 表示使用所有工具</summary>
     [JsonProperty("useTools", NullValueHandling = NullValueHandling.Ignore)]
     public string[]? UseTools { get; set; }

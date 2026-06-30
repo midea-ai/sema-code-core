@@ -18,9 +18,10 @@ export const getToolDescription = (
 
 # Command execution
 
-- Working directory persists across calls; shell state (variables, aliases) does not.
+- The shell starts in the project root (\`Working dir\` in <env>) and the working directory persists across calls; shell state (variables, aliases) does not.
+- For files inside the project, use paths relative to the working directory. Do NOT prefix commands with the absolute project path, \`cd <project> &&\`, or \`git -C <project>\`. Use absolute paths only for files outside the project.
 - Run \`ls\` first before creating new directories/files to confirm the parent exists.
-- Quote paths with spaces. Use absolute paths; avoid \`cd\` unless requested.
+- Quote paths with spaces. Avoid \`cd\` unless requested — because the working directory persists, a stray \`cd\` affects all later commands. If you must enter a subdirectory for a single command, use a subshell: \`(cd sub && ...)\` so the persistent cwd stays at the project root.
 - Timeout: default ${defaultTimeoutMs}ms, max ${maxTimeoutMs}ms.
 - Use \`background\` for long-running commands. No trailing \`&\` needed.
 - Write a concise \`description\` for every call.

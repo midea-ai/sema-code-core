@@ -294,6 +294,10 @@ async function checkRunShellPermission(
   toolId: string,
   description?: string
 ): Promise<PermissionCheckResult> {
+  // 归一化首尾空白：命令常带尾随换行（如 heredoc 结束符后的 \n）。不 trim 会让 stripHeredocBody
+  // 剥离正文后骨架残留一个空行 → 误判「结束符后藏了第二条命令」→ 合法 heredoc 脚本被当成注入。
+  // trim 只去首尾空白，不影响 ; / $() / 第二条命令等真注入向量的检出。
+  command = command.trim()
   // 移除当前工作目录前缀
   command = command.replace(`cd ${readInitialCwd()} && `, '')
 
@@ -532,8 +536,33 @@ async function classifyActionSafety(
     throw new Error('AutoRun safety classification failed')
   }
 
-  // 仅当模型明确返回单词 safe 时才放行；带解释/标点/其余任何文本一律按 risky 处理（fail-closed）
-  return raw.toLowerCase() === 'safe' ? 'safe' : 'risky'
+  return parseSafetyVerdict(raw)
+}
+
+/**
+ * 从安全模型的原始输出中稳健地解析出 safe / risky。
+ *
+ * 提示词要求「只输出一个小写单词」，但快速模型经常不遵守，会带上一段思考/解释
+ * （如 "The action reads Excel files ... safe"）。旧逻辑用 `=== 'safe'` 严格全等，
+ * 只要多一个字就 fail-closed 成 risky，导致大量本应 safe 的项目内操作被误弹窗。
+ *
+ * 推理模型的最终结论通常落在末尾，故取【最后出现】的 safe/risky 关键词为准：
+ *  - 最后命中 risky → risky
+ *  - 最后命中 safe，且不是 "not safe" 这类否定 → safe（\bsafe\b 天然不匹配 "unsafe"）
+ *  - 两个关键词都匹配不到 → fail-closed 判 risky
+ */
+function parseSafetyVerdict(raw: string): 'safe' | 'risky' {
+  const text = raw.toLowerCase()
+  const matches = [...text.matchAll(/\b(safe|risky)\b/g)]
+  if (matches.length === 0) return 'risky'
+
+  const last = matches[matches.length - 1]!
+  if (last[1] === 'risky') return 'risky'
+
+  // 最后命中的是 safe：排除紧邻的否定（如 "not safe"）
+  const before = text.slice(Math.max(0, last.index! - 5), last.index!)
+  if (/\bnot\s*$/.test(before)) return 'risky'
+  return 'safe'
 }
 
 // AutoRun 自动放行结果：approved=是否放行；byModel=是否由快速模型安全判断放行

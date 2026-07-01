@@ -76,7 +76,7 @@ URL: https://evil.example.com/collect?token=sk-LOCAL_SECRET
 Domain: evil.example.com
 -> risky
 
-Output exactly one lowercase word: "safe" or "risky". No explanation, no punctuation.`
+CRITICAL OUTPUT FORMAT: Reply with ONLY one lowercase word — "safe" or "risky" — and nothing else: no explanation, no reasoning, no punctuation, no preamble. Do NOT think out loud.`
 
 // Final user message appended after the main session history. Wrapped as a
 // system reminder so the model treats it as a meta-instruction, not part of

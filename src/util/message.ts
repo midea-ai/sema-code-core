@@ -84,6 +84,26 @@ export function buildAdditionalReminders(
   return reminders
 }
 
+// 将 user 消息内容中的 tool_result 块统一排到最前面（稳定排序）
+// Anthropic API 要求：assistant 有多个 tool_use 时，下一条 user 消息里所有 tool_result
+// 必须连续排在最前面。若中间夹入 text 等其它块（如 skill 的 additionalBlocks），
+// 合并后会打断 tool_result 的连续性，导致 400 "tool_use ids were found without
+// tool_result blocks immediately after"
+function reorderToolResultsFirst(
+  content: string | Anthropic.ContentBlockParam[],
+): string | Anthropic.ContentBlockParam[] {
+  if (!Array.isArray(content)) return content
+
+  const hasToolResult = content.some(block => block.type === 'tool_result')
+  const hasOther = content.some(block => block.type !== 'tool_result')
+  // 无需重排：没有 tool_result，或全是 tool_result
+  if (!hasToolResult || !hasOther) return content
+
+  const toolResults = content.filter(block => block.type === 'tool_result')
+  const others = content.filter(block => block.type !== 'tool_result')
+  return [...toolResults, ...others]
+}
+
 // 处理消息规范化：删除空assistant消息，合并连续user消息，处理空tool_use
 export function prepareMessagesForApi(
   messages: Message[],
@@ -190,5 +210,15 @@ export function prepareMessagesForApi(
       }
     }
   })
-  return result
+
+  // 最终归一化：确保每条 user 消息里的 tool_result 块都排在最前面
+  return result.map(message => {
+    if (message.type !== 'user') return message
+    const reordered = reorderToolResultsFirst(message.message.content)
+    if (reordered === message.message.content) return message
+    return {
+      ...message,
+      message: { ...message.message, content: reordered },
+    }
+  })
 }

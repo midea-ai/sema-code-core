@@ -4,7 +4,7 @@ import { TOOL_NAME_PATCH_FILE as PATCH_FILE_TOOL_NAME, TOOL_NAME_WRITE_FILE as W
 import { splitCommand, hasCommandInjection, getCommandPrefix, stripHeredocBody } from '../util/commands'
 import { readInitialCwd } from '../util/cwd'
 import { logDebug, logError, logInfo } from '../util/log'
-import { REJECT_MSG, CANCEL_MSG, getCustomFeedbackMessage, API_ERR_PREFIX, prepareMessagesForApi, buildUserMsg } from '../util/message'
+import { REJECT_MSG, CANCEL_MSG, getCustomFeedbackMessage, API_ERR_PREFIX, buildUserMsg } from '../util/message'
 import { getConfManager } from './ConfManager'
 import { getEventBus } from '../events/EventSystem'
 import { ToolPermissionRequestData, ToolPermissionResponse, ToolPermissionAutoData } from '../events/types'
@@ -15,9 +15,9 @@ import { tmpdir } from 'os'
 import { normalizeCmpPath } from '../util/platform'
 import { getStateManager, MAIN_AGENT_ID } from './StateManager'
 import { queryLLM } from '../services/api/queryLLM'
-import { NULL_TOOL } from '../util/compact'
-import { AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT, AUTO_RUN_SAFETY_CONTEXT_USER_PROMPT } from '../prompt/permission'
+import { AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT } from '../prompt/permission'
 import { isReadonlySafeCommand, isUnsafeForPrefixAuth, hasDangerousCommand } from '../util/shellSafety'
+import { extractAutoRunContext, summarizeActionLine } from '../util/autoRunContext'
 import { isBlockedFetchHost } from '../util/fetchSafety'
 
 // ==================== 辅助函数 ====================
@@ -449,43 +449,6 @@ function getPermissionKey(tool: Tool, input: ToolInvocationArgs, prefix: string 
 // ==================== AutoRun 自动判断 ====================
 
 /**
- * 将单个工具动作概括为一段可供快速模型判断的描述文本。
- */
-function buildActionSummary(tool: Tool, input: ToolInvocationArgs): string {
-  if (tool.name === RunShell.name) {
-    const command = ((input as any).command || '').toString().trim()
-    return `Tool: run_shell\nCommand: ${command}`
-  }
-
-  if (isFileEditTool(tool)) {
-    const filePath = getFilePath(input)
-    const outside = !!filePath && !isPathInsideRoot(filePath, readInitialCwd())
-    return `Tool: ${tool.name} (edit/write file)\nPath: ${filePath || '(unknown)'}\nLocation: ${outside ? 'OUTSIDE project directory' : 'inside project directory'}`
-  }
-
-  if (isSkillTool(tool)) {
-    return `Tool: Skill\nSkill: ${(input as any).skill || '(unknown)'}`
-  }
-
-  if (isFetchUrlTool(tool)) {
-    const url = (input as any).url || ''
-    return `Tool: fetch_url\nURL: ${url}\nDomain: ${extractDomain(url) || '(unknown)'}`
-  }
-
-  const label = isMCPTool(tool) ? `${tool.name} (MCP tool)` : tool.name
-  return `Tool: ${label}\nArgs: ${safeStringify(input)}`
-}
-
-function safeStringify(input: unknown, max = 800): string {
-  try {
-    const s = JSON.stringify(input)
-    return s.length > max ? `${s.slice(0, max)}…(truncated)` : s
-  } catch {
-    return '(unserializable)'
-  }
-}
-
-/**
  * 调用快速模型判断动作是否安全。
  * API 错误或返回为空时抛出异常，交由调用方做失败关闭处理。
  */
@@ -502,18 +465,19 @@ async function classifyActionSafety(
     ? getStateManager().session(sessionId).forAgent(agentId).getMessageHistory()
     : []
 
-  // 末尾追加待判断动作；prepareMessagesForApi 会剥离历史尾部孤立 tool_use，
-  // 配合 NULL_TOOL 占位避免部分 provider 因历史含 tool 块报错
-  const actionMsg = buildUserMsg([
-    { type: 'text', text: AUTO_RUN_SAFETY_CONTEXT_USER_PROMPT(buildActionSummary(tool, input)) },
-  ])
-  const messages = [...prepareMessagesForApi(history), actionMsg]
+  // 历史压缩成紧凑 text 行（只留用户输入 + run_shell/fetch_url/编辑工具摘要），末尾直接追加
+  // 同格式的待判断动作行，全部合并进同一条 user 消息：不含裸 tool_use，信号更聚焦。
+  const messages = [buildUserMsg([
+    ...extractAutoRunContext(history),
+    // 动作行与历史工具行同格式（无前缀/包装），最大化连续检查间的前缀缓存复用
+    { type: 'text', text: summarizeActionLine(tool.name, input) },
+  ])]
 
   const response = await queryLLM(
     messages,
     [{ type: 'text', text: AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT }],
     signal,
-    [NULL_TOOL],
+    [], // 消息里已无任何 tool 块，无需占位工具；空数组会让适配器省略 tools 字段
     {
       modelPointer: 'quick',
       disableChunkEvents: true,
@@ -542,17 +506,20 @@ async function classifyActionSafety(
 /**
  * 从安全模型的原始输出中稳健地解析出 safe / risky。
  *
- * 提示词要求「只输出一个小写单词」，但快速模型经常不遵守，会带上一段思考/解释
- * （如 "The action reads Excel files ... safe"）。旧逻辑用 `=== 'safe'` 严格全等，
- * 只要多一个字就 fail-closed 成 risky，导致大量本应 safe 的项目内操作被误弹窗。
- *
- * 推理模型的最终结论通常落在末尾，故取【最后出现】的 safe/risky 关键词为准：
- *  - 最后命中 risky → risky
- *  - 最后命中 safe，且不是 "not safe" 这类否定 → safe（\bsafe\b 天然不匹配 "unsafe"）
- *  - 两个关键词都匹配不到 → fail-closed 判 risky
+ * 提示词要求整条回复就是一个标签 <verdict>safe|risky</verdict>（结论前置，抗话痨）：
+ *  1) 优先取【第一个】<verdict> 标签为准——结论放最前，即便后面又啰嗦也不影响；
+ *  2) 没有标签时兜底：快速模型偶发不带标签、夹带思考，取【最后出现】的 safe/risky
+ *     关键词（推理结论通常落末尾），并排除 "not safe" 这类紧邻否定；
+ *  3) 都匹配不到 → fail-closed 判 risky。
  */
 function parseSafetyVerdict(raw: string): 'safe' | 'risky' {
   const text = raw.toLowerCase()
+
+  // 1) 首个 <verdict> 标签
+  const tag = text.match(/<verdict>\s*(safe|risky)\s*<\/verdict>/)
+  if (tag) return tag[1] === 'safe' ? 'safe' : 'risky'
+
+  // 2) 兜底：最后一个 safe/risky 关键词
   const matches = [...text.matchAll(/\b(safe|risky)\b/g)]
   if (matches.length === 0) return 'risky'
 

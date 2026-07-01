@@ -177,6 +177,10 @@ export async function* ReAct(
     return tool?.isSafe?.() || tool?.canRunConcurrently?.() || false
   })
 
+  // 工具执行前，把「截至上一轮已完成的对话」刷入内存历史，使工具执行期间的权限检查
+  // 持久化仍由轮末 finalizeMessages 负责（不改变现有落盘时机）。
+  agentState.setMessageHistory(messages, true)
+
   // 根据是否可以并发运行选择不同的执行策略
   const runTools = canRunConcurrently ? runToolsConcurrently : runToolsSerially
   for await (const message of runTools(toolUseMessages, assistantMessage, agentContext)) {

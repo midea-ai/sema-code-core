@@ -6,7 +6,8 @@ export type AgentMode = 'Agent' | 'Plan' | 'Design';
 // - Ask：每次动作都询问
 // - AutoEdit：项目内文件编辑自动放行，其余仍询问
 // - AutoRun：在发出人工权限申请前先做自动判断，安全则放行
-export type PermissionLevel = 'Ask' | 'AutoEdit' | 'AutoRun';
+// - Bypass：所有工具调用直接放行，跳过全部安全检查（危险）
+export type PermissionLevel = 'Ask' | 'AutoEdit' | 'AutoRun' | 'Bypass';
 
 export interface SemaCoreConfig {
   workingDir?: string;               // 项目绝对路径

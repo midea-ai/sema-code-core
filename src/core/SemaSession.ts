@@ -35,7 +35,7 @@ export class SemaSession {
     const session = new SemaSession(sessionId, engine, bus);
 
     try {
-      await engine.createSession({ sessionId: opts.sessionId, agentMode: opts.agentMode });
+      await engine.createSession({ sessionId: opts.sessionId, agentMode: opts.agentMode, permissionLevel: opts.permissionLevel });
     } catch (error) {
       session.dispose();
       throw error;

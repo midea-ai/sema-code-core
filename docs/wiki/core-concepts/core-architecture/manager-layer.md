@@ -53,7 +53,7 @@ class StateManager {
 | `sessionId` | `string` | 该 Runtime 绑定的会话 ID |
 | `currentAbortController` | `AbortController | null` | 当前会话中断控制器 |
 | `pendingUserInputs` | `PendingUserInput[]` | 该会话处理中收到的待处理输入队列 |
-| `permissionLevel` | `'Ask' | 'AutoEdit' | 'AutoRun'` | 会话级权限自由度档位，仅当前会话有效 |
+| `permissionLevel` | `'Ask' | 'AutoEdit' | 'AutoRun' | 'Bypass'` | 会话级权限自由度档位，仅当前会话有效 |
 | `agentMode` | `'Agent' | 'Plan' | 'Design'` | 当前会话模式 |
 | `systemPromptContent` | text blocks | 会话创建时冻结的系统提示快照 |
 | `foregroundAgents` | `Set<string>` | 当前会话运行中的前台 Agent |

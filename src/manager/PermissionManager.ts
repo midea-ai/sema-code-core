@@ -118,6 +118,12 @@ export const checkToolPermission = async (
   const coreConfig = getConfManager().getCoreConfig()
   const projectConfig = getConfManager().getProjectConfig()
 
+  // Bypass 档位：所有工具调用直接放行，跳过全部安全检查（危险）
+  const runtime = getStateManager().session(sessionId)
+  if (runtime.isBypass()) {
+    logDebug(`[Permission]${tool.name} Bypass 档位，跳过全部安全检查`)
+    return { result: true }
+  }
 
   // 文件编辑工具权限检查
   if (isFileEditTool(tool)) {

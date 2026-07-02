@@ -51,7 +51,7 @@ createSession(opts?: CreateSessionOptions): Promise<CreateSessionResult>
 interface CreateSessionOptions {
   sessionId?: string             // 可选：恢复指定历史会话；不传则新建
   agentMode?: 'Agent' | 'Plan' | 'Design'
-  permissionLevel?: 'Ask' | 'AutoEdit' | 'AutoRun'   // 可选：会话初始权限档位，默认 'Ask'
+  permissionLevel?: 'Ask' | 'AutoEdit' | 'AutoRun' | 'Bypass'   // 可选：会话初始权限档位，默认 'Ask'
 }
 
 type CreateSessionResult =

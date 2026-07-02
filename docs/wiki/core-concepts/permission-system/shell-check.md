@@ -2,13 +2,15 @@
 
 本文介绍各类工具的具体权限判定流程，其中 **`run_shell`（终端命令）** 的检查最复杂、防护层级最多，是重点。权限类型、会话档位等总览见[权限系统概述](wiki/core-concepts/permission-system/overview)。
 
+> **前提：`Bypass` 档位在所有检查之前短路。** `checkToolPermission` 入口一旦判定当前会话为 `Bypass`（`runtime.isBypass()`），所有工具（含 `run_shell`、文件编辑/读取、Skill、MCP、`fetch_url`）直接放行，跳过下文全部流程，也不发权限申请事件。以下各节均以非 `Bypass` 档位为前提。
+
 ## `run_shell` 命令权限检查
 
 `run_shell` 的权限检查按固定顺序执行，任一环节放行即直接执行，否则继续下探，最终转人工。所有解析失败均按「不安全」处理（fail-closed）。
 
 ### 检查顺序
 
-> 前提：`skipShellExecPermission` 为 `false`（为 `true` 则整条直接放行）。
+> 前提：档位非 `Bypass`（`Bypass` 整条直接放行），且 `skipShellExecPermission` 为 `false`（为 `true` 则整条直接放行）。
 
 1. **剥离 cwd 前缀**：去掉命令开头的 `cd <项目根目录> && `，避免该前缀干扰后续匹配。
 2. **命令注入检测（最先执行，fail-closed）**：见下文「命令注入检测」。命中即**转人工，且不提供「永久允许」，仅单次确认**，并跳过后续 AutoRun 模型判断。

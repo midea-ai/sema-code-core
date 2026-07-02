@@ -572,6 +572,11 @@ export class SessionRuntime {
     return this.permissionLevel === 'AutoRun';
   }
 
+  /** 当前是否为 Bypass 档位（跳过一切安全检查，危险） */
+  isBypass(): boolean {
+    return this.permissionLevel === 'Bypass';
+  }
+
   /**
    * 非 Ask 档（AutoEdit / AutoRun）时项目内文件编辑自动放行。
    * 命名保留以最小化权限检查处的改动，语义不变。

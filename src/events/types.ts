@@ -261,7 +261,7 @@ export type TodosUpdateData = TodoItem[];
  * 事件: `permissionLevel:update`
  */
 export interface PermissionLevelUpdateData {
-  level: PermissionLevel;    // 当前权限档位：Ask | AutoEdit | AutoRun
+  level: PermissionLevel;    // 当前权限档位：Ask | AutoEdit | AutoRun | Bypass
 }
 
 // ==================== 主题相关事件 ====================

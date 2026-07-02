@@ -14,7 +14,7 @@ const core = new SemaCore({ workingDir: '/path/to/project' })
 const result = await core.createSession({
   sessionId: 'existing-session-id', // 可选：恢复已有历史
   agentMode: 'Agent',               // 可选：'Agent' | 'Plan' | 'Design'
-  permissionLevel: 'Ask',           // 可选：'Ask' | 'AutoEdit' | 'AutoRun'，默认 'Ask'
+  permissionLevel: 'Ask',           // 可选：'Ask' | 'AutoEdit' | 'AutoRun' | 'Bypass'，默认 'Ask'
 })
 
 if (!result.ok) {
@@ -94,7 +94,7 @@ session.respondToPlanExit({
 
 ```javascript
 session.updateAgentMode('Plan')              // 'Agent' | 'Plan' | 'Design'
-session.updatePermissionLevel('AutoEdit')    // 'Ask' | 'AutoEdit' | 'AutoRun'
+session.updatePermissionLevel('AutoEdit')    // 'Ask' | 'AutoEdit' | 'AutoRun' | 'Bypass'
 ```
 
 `agentMode` 从全局配置读取默认值，也可以在 `createSession({ agentMode })` 时指定初始值。`permissionLevel` 默认 `'Ask'`，可在 `createSession({ permissionLevel })` 时指定初始值，变更时触发 `permissionLevel:update` 事件。之后的切换只影响当前会话，不会改写其它会话。

@@ -23,9 +23,10 @@
 |------|--------|------|
 | `'Ask'` | 最低 | 每个需要确认的动作都弹窗询问 |
 | `'AutoEdit'` | 中 | 项目目录内（含系统临时目录）的文件编辑自动放行，其余动作仍询问 |
-| `'AutoRun'` | 最高 | 在发出人工权限申请前先做自动安全判断，判定安全则放行，否则转人工 |
+| `'AutoRun'` | 高 | 在发出人工权限申请前先做自动安全判断，判定安全则放行，否则转人工 |
+| `'Bypass'` | 最高（危险） | 所有工具调用直接放行，跳过全部安全检查（含 AutoRun 的确定性危险命令拦截），不做任何判断、不弹窗 |
 
-> 档位只能由用户显式提升，或在文件编辑弹窗选择 `'allow'` 时由 `grantGlobalEditPermission()` 从 `'Ask'` 提升到 `'AutoEdit'`；已是 `'AutoEdit'` / `'AutoRun'` 时不会被自动降级。关闭/新建会话不继承该档位。
+> 档位只能由用户显式提升，或在文件编辑弹窗选择 `'allow'` 时由 `grantGlobalEditPermission()` 从 `'Ask'` 提升到 `'AutoEdit'`；已是 `'AutoEdit'` / `'AutoRun'` / `'Bypass'` 时不会被自动降级。关闭/新建会话不继承该档位。
 
 ### AutoRun 自动安全判断
 
@@ -42,3 +43,7 @@
 > `run_shell` 的 AutoRun 判断在其专属检查流程中提前完成，详见[工具权限检查](wiki/core-concepts/permission-system/shell-check)。
 
 经模型判定 `safe` 自动放行时不弹窗，但会发一个单向的 `tool:permission:auto` 事件供 UI 提示「已自动放行」；档位变更则发 `permissionLevel:update`。两者均无需回应，结构见[事件目录](wiki/core-concepts/event-system/event-catalog)。
+
+### Bypass 全放行（危险）
+
+`Bypass` 档位在 `checkToolPermission` 入口最先短路（`runtime.isBypass()`）：所有工具直接放行，**跳过全部安全检查**——不做 AutoRun 自动判断，也不拦截确定性危险命令（`rm`/`sudo` 等）与 SSRF，且**不发任何权限申请/自动放行事件**（无 `tool:permission:request`、无 `tool:permission:auto`）。仅在完全信任的环境下使用。UI 侧建议常驻危险提示、并在开启前二次确认。

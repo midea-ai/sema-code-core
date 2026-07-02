@@ -435,7 +435,7 @@ SubAgent 执行结束。
 
 ```typescript
 {
-  level: 'Ask' | 'AutoEdit' | 'AutoRun'   // 当前权限档位
+  level: 'Ask' | 'AutoEdit' | 'AutoRun' | 'Bypass'   // 当前权限档位
 }
 ```
 

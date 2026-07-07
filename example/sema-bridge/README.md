@@ -1,5 +1,7 @@
 # sema-bridge
 
+> ⚠️ **维护状态**：早期 WebSocket 示例，很久未更新、API 与事件均不完整，仅作最简参考保留，**后续不再更新**。跨语言集成请优先使用 [sema-grpc](../sema-grpc/README.md)（API/事件完整，且有生产工程在用）。
+
 基于 WebSocket 的 sema-core 桥接服务，供 C# / Java / Python 等客户端通过 WebSocket 调用 sema-core 能力。
 
 ## 架构

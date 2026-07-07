@@ -1,14 +1,23 @@
 /**
- * sema-grpc 快速上手示例
+ * sema-grpc 快速上手示例（单会话）
  *
  * 依赖：
  *   npm install @grpc/grpc-js @grpc/proto-loader readline
  *
  * 启动前请先运行 sema-grpc 服务：
- *   cd sema-grpc && npm start
+ *   cd sema-grpc && npm install && npm run build && npm start
  *
  * 运行：
  *   node quickstart-grpc.mjs
+ *
+ * ── 协议要点（与旧版的差异）──────────────────────────────────────────────────
+ * 桥现在是 sema-core 的透明镜像：action 名与 sema-core 方法名一一对应
+ * （init / createSession / processUserInput / interrupt / addModel …），事件名保持 core 原始名。
+ * BridgeCommand/BridgeEvent 新增 session_id 字段：
+ *   - session_id 为空  → 调用进程级 SemaCore 方法（init / addModel / createSession …）
+ *   - session_id 非空  → 路由到对应会话的 SemaSession 方法（processUserInput / interrupt …）
+ * createSession 的 ack 直接回 { sessionId }；session:ready 事件也带同一个 id。
+ * 本示例只用一个会话，把它记在 sessionId 里，会话级指令统一带上。
  */
 
 import * as grpc from '@grpc/grpc-js';
@@ -85,28 +94,30 @@ async function run() {
   const client = new SemaBridge(GRPC_HOST, grpc.credentials.createInsecure());
   const call = client.Connect();
 
-  // 发送指令的辅助函数
-  function send(action, payload) {
+  // 发送指令的辅助函数。
+  // sessionId 为会话级指令的目标会话；进程级指令（init / addModel / createSession …）留空即可。
+  function send(action, payload, sessionId = '') {
     const id = nextId();
     call.write({
       id,
       action,
       payload: payload !== undefined ? JSON.stringify(payload) : '',
+      session_id: sessionId,
     });
     return id;
   }
 
-  // ── 等待指定 cmdId 的 ack（确保命令按序完成）────────────────────────────
+  // ── 等待指定 cmdId 的 ack（确保命令按序完成），resolve 出 ack 携带的 data ──────
   const waitForAck = (cmdId) =>
     new Promise((resolve, reject) => {
       const handler = (msg) => {
         if (msg.cmd_id === cmdId) {
           off();
+          const parsed = msg.data ? JSON.parse(msg.data) : undefined;
           if (msg.event === 'ack') {
-            resolve();
+            resolve(parsed);
           } else if (msg.event === 'error') {
-            const parsed = msg.data ? JSON.parse(msg.data) : {};
-            reject(new Error(parsed.message || 'Command failed'));
+            reject(new Error(parsed?.message || 'Command failed'));
           }
         }
       };
@@ -114,9 +125,9 @@ async function run() {
       const off = () => call.removeListener('data', handler);
     });
 
-  async function sendAndWait(action, payload) {
-    const id = send(action, payload);
-    await waitForAck(id);
+  async function sendAndWait(action, payload, sessionId = '') {
+    const id = send(action, payload, sessionId);
+    return waitForAck(id);
   }
 
   // ── 状态机 ────────────────────────────────────────────────────────────────
@@ -144,7 +155,7 @@ async function run() {
     if (!input) { askAndSend(); return; } // 空输入：重新询问
     process.stdout.write('\n' + green('🤖 AI: '));
     interruptCount = 0;
-    send('session.input', { content: input });
+    send('processUserInput', { content: input }, sessionId);
   }
 
   // 统一处理所有服务端推送事件（仅此一个 data 主分发器，避免重复注册）
@@ -172,9 +183,9 @@ async function run() {
         console.log(gray(`${event}|${data}`));
         break;
 
-      // 会话就绪 → 弹首条输入
+      // 会话就绪 → 记下 sessionId 并弹首条输入
       case 'session:ready':
-        sessionId = parsed?.sessionId;
+        sessionId = parsed?.sessionId ?? msg.session_id;
         state = 'idle';
         askAndSend();
         break;
@@ -240,11 +251,11 @@ async function run() {
   async function handlePermission(data) {
     const answer = await prompt(blue('👤 权限响应 (y=agree / a=allow / n=refuse): '));
     const map = { y: 'agree', a: 'allow', n: 'refuse' };
-    send('permission.respond', {
+    send('respondToToolPermission', {
       toolId: data?.toolId,
       toolName: data?.toolName,
       selected: map[answer.trim()] || 'agree',
-    });
+    }, sessionId);
   }
 
   // ── Ctrl+C / ESC 中断 ─────────────────────────────────────────────────────
@@ -253,7 +264,7 @@ async function run() {
     interruptCount++;
     console.log('\n⚠️  中断会话...');
     if (sessionId && interruptCount === 1) {
-      send('session.interrupt');
+      send('interrupt', undefined, sessionId);
     } else {
       rl && rl.close();
       call.end();
@@ -267,7 +278,7 @@ async function run() {
     if (key && key.name === 'escape') {
       interruptCount++;
       if (interruptCount === 1 && sessionId) {
-        send('session.interrupt');
+        send('interrupt', undefined, sessionId);
       } else {
         rl && rl.close();
         call.end();
@@ -276,30 +287,32 @@ async function run() {
     }
   });
 
-  // ── 初始化：config.init ───────────────────────────────────────────────────
+  // ── 初始化：init（进程级，非破坏式，仅首次建 Core 时吃 payload）─────────────
 
-  await sendAndWait('config.init', { workingDir: WORKING_DIR, logLevel: 'none', thinking: false, disableBackgroundTasks: true, disableTopicDetection: true, disabledTools: ['ask_form', 'plan_to_agent'] });
+  await sendAndWait('init', { workingDir: WORKING_DIR, logLevel: 'none', thinking: false, disableBackgroundTasks: true, disableTopicDetection: true, disabledTools: ['ask_form', 'plan_to_agent'] });
 
-  // ── 添加并应用模型 ────────────────────────────────────────────────────────
+  // ── 添加并应用模型（进程级）──────────────────────────────────────────────
 
-  await sendAndWait('model.add', { config: MODEL_CONFIG });
+  await sendAndWait('addModel', { config: MODEL_CONFIG });
   const modelId = `${MODEL_CONFIG.modelName}[${MODEL_CONFIG.provider}]`;
-  await sendAndWait('model.applyTask', { main: modelId, quick: modelId });
+  await sendAndWait('applyTaskModel', { main: modelId, quick: modelId });
   console.log(`Model configured: ${modelId}`);
 
-  // ── 创建会话 ──────────────────────────────────────────────────────────────
-  // session:ready 由主分发器处理：就绪后自动弹首条输入，随后由 state:update=idle 驱动对话循环。
+  // ── 创建会话（进程级，ack 回 { sessionId }）────────────────────────────────
+  // 这里同时演示两种取 sessionId 的方式：ack 直接回、以及随后到达的 session:ready 事件。
+  // 就绪后由主分发器的 session:ready 分支弹首条输入，随后由 state:update=idle 驱动对话循环。
 
-  send('session.create');
+  const created = await sendAndWait('createSession');
+  sessionId = created?.sessionId ?? sessionId;
 
   // ── 对话循环：等待用户 exit/quit ──────────────────────────────────────────
 
   await done;
 
-  // ── 退出 ──────────────────────────────────────────────────────────────────
+  // ── 退出：关闭会话（会话级，需带 sessionId）────────────────────────────────
 
   console.log('\n=== 会话结束 ===');
-  send('session.dispose');
+  if (sessionId) send('closeSession', undefined, sessionId);
   call.end();
   rl && rl.close();
 }

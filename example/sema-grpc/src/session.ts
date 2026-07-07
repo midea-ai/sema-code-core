@@ -1,115 +1,69 @@
-import { SemaCore } from 'sema-core';
 import type { SemaSession } from 'sema-core';
 
-// 会话级事件统一通过 SemaSession.on 订阅（SemaCore.on 只接收进程级事件）
-const FORWARD_EVENTS = [
+/**
+ * 会话级事件清单（挂在 SemaSession 上，与 VSCode SemaSessionWrapper 转发的事件对齐）。
+ * SemaCore.on 只接收进程级事件，会话级事件必须绑在 SemaSession 上。
+ */
+export const SESSION_EVENTS = [
   'session:ready', 'session:error', 'session:interrupted', 'session:cleared',
   'state:update',
   'input:received', 'input:processing',
   'message:text:chunk', 'message:thinking:chunk', 'message:complete',
-  'tool:permission:request', 'tool:execution:complete', 'tool:execution:chunk', 'tool:execution:error',
-  'task:agent:start', 'task:agent:end', 'task:start', 'task:end',
+  'tool:permission:request', 'tool:permission:auto',
+  'tool:execution:complete', 'tool:execution:chunk', 'tool:execution:error',
+  'task:agent:start', 'task:agent:end', 'task:start', 'task:end', 'task:transfer',
   'todos:update', 'topic:update',
-  'pick:option:request', 'plan:exit:request',
+  'pick:option:request', 'plan:exit:request', 'plan:implement',
+  'compact:exec',
   'conversation:usage', 'file:reference',
+  'permissionLevel:update', 'quickchat:response',
 ];
 
-interface GrpcStream {
-  write(event: { event: string; data: string; cmd_id: string }): void;
-  writable: boolean;
-}
+/** 事件推送回调：把会话事件写回对应的 gRPC 流，并带上所属 session_id */
+export type EventPush = (event: string, data: any, sessionId: string) => void;
 
-export class BridgeSession {
-  private core: SemaCore;
-  private coreConfig: Record<string, any>;
-  private session: SemaSession | null = null;
+/**
+ * 需跨连接广播的会话级生命周期事件：后台任务的 start/transfer/end。
+ * 对齐 VSCode handleTaskStart/handleTaskEnd——宿主把任务生命周期同时转发给聊天页与
+ * 配置页后台任务面板。JB 各面板连接独立，配置页那条连接没有 session，只能靠广播补齐。
+ * （task:transfer 在 VSCode 里也走 onTaskStart，故与 task:start 同列。）
+ */
+const TASK_BROADCAST_EVENTS = new Set(['task:start', 'task:transfer', 'task:end']);
 
-  constructor(private stream: GrpcStream, defaultConfig: Record<string, any>) {
-    this.coreConfig = defaultConfig;
-    this.core = new SemaCore(this.coreConfig);
-  }
+/**
+ * SessionBinder —— 把单个 SemaSession 的会话级事件桥接到 gRPC 流。
+ *
+ * 每个会话（对应 UI 一个标签）一个实例，转发出去的每条事件都带 session_id，
+ * 供宿主按标签分发。对齐 VSCode 中「一个 webview 消息通道按 sessionId 路由多会话」。
+ */
+export class SessionBinder {
+  private handlers: Array<{ event: string; fn: (data: any) => void }> = [];
 
-  private push(event: string, data?: any, cmdId?: string): void {
-    if (this.stream.writable) {
-      this.stream.write({
-        event,
-        data: data !== undefined ? JSON.stringify(data) : '',
-        cmd_id: cmdId ?? '',
-      });
+  constructor(
+    public readonly sessionId: string,
+    private session: SemaSession,
+    private push: EventPush,
+    // 跨连接广播（sessionId 留空），用于把后台任务生命周期同步给配置页任务面板；可选以兼容旧调用。
+    private broadcast?: (event: string, data: any) => void,
+  ) {}
+
+  bind(): void {
+    for (const event of SESSION_EVENTS) {
+      const fn = (data: any) => {
+        this.push(event, data, this.sessionId);
+        // 后台任务 start/transfer/end 额外跨连接广播，让配置页任务面板实时增删（D4，对齐 VSCode 双面板转发）。
+        // 广播帧 sessionId 留空 → 聊天页当作进程级事件、其 onProcessEvent 只认 model:update 故天然忽略，不会重复投递。
+        if (this.broadcast && TASK_BROADCAST_EVENTS.has(event)) this.broadcast(event, data);
+      };
+      (this.session as any).on(event, fn);
+      this.handlers.push({ event, fn });
     }
   }
 
-  // 把会话级事件桥接到 gRPC 流（必须绑在 SemaSession 上，而非 SemaCore）
-  private bindSessionEvents(session: SemaSession): void {
-    for (const event of FORWARD_EVENTS) {
-      session.on(event, (data: any) => this.push(event, data));
+  unbind(): void {
+    for (const { event, fn } of this.handlers) {
+      try { (this.session as any).off?.(event, fn); } catch { /* ignore */ }
     }
-  }
-
-  // 取出当前会话，未创建时报错（避免在 core 上误调会话级方法）
-  private requireSession(action: string): SemaSession {
-    if (!this.session) {
-      throw new Error(`No active session for action "${action}"; call session.create first`);
-    }
-    return this.session;
-  }
-
-  async handle(cmd: { id: string; action: string; payload?: any }): Promise<void> {
-    const { id, action, payload } = cmd;
-    try {
-      switch (action) {
-        case 'config.init': {
-          await this.core.dispose();
-          this.session = null;
-          this.coreConfig = { ...this.coreConfig, ...payload };
-          this.core = new SemaCore(this.coreConfig);
-          break;
-        }
-        case 'session.create': {
-          const result = await this.core.createSession(
-            payload?.sessionId ? { sessionId: payload.sessionId } : undefined,
-          );
-          if (!result.ok) {
-            // tsconfig strict=false 下不会按 ok 收窄联合类型，这里显式取 error
-            this.push('error', { message: (result as { error?: string }).error, action }, id);
-            return;
-          }
-          this.session = result.session;
-          this.bindSessionEvents(this.session);
-          break;
-        }
-        case 'session.input':      this.requireSession(action).processUserInput(payload.content, payload.orgContent); break;
-        case 'session.interrupt':  this.requireSession(action).interrupt(); break;
-        case 'session.dispose': {
-          if (this.session) {
-            this.core.closeSession(this.session.sessionId);
-            this.session = null;
-          }
-          break;
-        }
-        case 'permission.respond': this.requireSession(action).respondToToolPermission(payload); break;
-        case 'question.respond':   this.requireSession(action).respondToPickOption(payload); break;
-        case 'plan.respond':       this.requireSession(action).respondToPlanExit(payload); break;
-        case 'config.updateAgentMode': this.requireSession(action).updateAgentMode(payload.mode); break;
-        case 'model.add':          await this.core.addModel(payload.config, payload.skipValidation); break;
-        case 'model.applyTask':    await this.core.applyTaskModel(payload); break;
-        case 'model.del':          await this.core.delModel(payload.modelName); break;
-        case 'model.switch':       await this.core.switchModel(payload.modelName); break;
-        case 'model.getData':      { const data = await this.core.getModelData(); this.push('ack', data, id); return; }
-        case 'config.update':      this.core.updateCoreConfig(payload); break;
-        default: this.push('error', { message: `Unknown action: ${action}` }, id); return;
-      }
-      this.push('ack', { action }, id);
-    } catch (err: any) {
-      this.push('error', { message: err.message, action }, id);
-    }
-  }
-
-  dispose(): void {
-    if (this.session) {
-      this.core.closeSession(this.session.sessionId);
-      this.session = null;
-    }
-    void this.core.dispose();
+    this.handlers = [];
   }
 }

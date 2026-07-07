@@ -1,12 +1,12 @@
 # sema-grpc
 
-基于 gRPC 双向流的 sema-core 桥接服务，供 C# / Java / Python 等客户端通过 gRPC 调用 sema-core 能力。
+基于 gRPC 双向流的 sema-core 桥接服务，供 C# / Java / Kotlin / Python 等客户端通过 gRPC 调用 sema-core 能力。
 
 ## 架构
 
 ```
-客户端应用 (C# / Java / Python / ...)
-    ↕ gRPC 双向流 (grpc://localhost:3766)
+客户端应用 (C# / Java / Kotlin / Python / ...)
+    ↕ gRPC 双向流 (grpc://127.0.0.1:3766)
 Node.js gRPC 服务 (sema-grpc)
     ↕ 内部调用
 sema-core (npm 包)
@@ -21,8 +21,9 @@ sema-grpc/
 ├── proto/
 │   └── sema.proto        # Protobuf 协议定义
 └── src/
-    ├── server.ts         # gRPC 服务器入口
-    └── session.ts        # 会话管理
+    ├── server.ts         # gRPC 服务器入口 + action 路由
+    ├── core.ts           # SemaCoreManager：进程级单例 Core + 会话池
+    └── session.ts        # SessionBinder：会话级事件桥接到 gRPC 流
 ```
 
 ## 协议说明
@@ -39,57 +40,78 @@ service SemaBridge {
 
 **BridgeCommand**（客户端 → 服务端）
 
-| 字段      | 类型   | 说明                          |
-|---------|------|-------------------------------|
-| `id`    | string | 请求 ID，用于匹配响应             |
-| `action`  | string | 操作名，见下表                  |
-| `payload` | string | JSON 序列化的参数（可为空字符串）  |
+| 字段         | 类型   | 说明                                             |
+|------------|------|--------------------------------------------------|
+| `id`         | string | 请求 ID，用于匹配响应                              |
+| `action`     | string | 操作名，见下表                                    |
+| `payload`    | string | JSON 序列化的参数（可为空字符串）                   |
+| `session_id` | string | 目标会话 ID；**会话级 action 必填**，进程级 action 留空 |
 
 **BridgeEvent**（服务端 → 客户端）
 
-| 字段      | 类型   | 说明                          |
-|---------|------|-------------------------------|
-| `event`   | string | 事件名，见下表                  |
-| `data`    | string | JSON 序列化的数据（可为空字符串） |
-| `cmd_id`  | string | 对应指令的 ID（仅响应类消息携带）  |
+| 字段         | 类型   | 说明                                          |
+|------------|------|-----------------------------------------------|
+| `event`      | string | 事件名，见下表                                 |
+| `data`       | string | JSON 序列化的数据（可为空字符串）               |
+| `cmd_id`     | string | 对应指令的 ID（仅响应类消息携带）                |
+| `session_id` | string | 事件所属会话 ID；会话级事件携带，进程级事件留空    |
+
+### 进程与会话模型
+
+> **桥是 sema-core 的透明镜像。** action 名与 sema-core 方法名**一一对应**，事件名保持 core 原始事件名，桥不做协议翻译——「调 gRPC」等同于「调 core 方法」。
+
+- **一个 Node 进程 = 一个共享的 SemaCore + 会话池**：模型 / 配置 等进程级能力全进程共享。
+- **路由规则**：`session_id` 为空 → 调用 **SemaCore** 方法（进程级）；非空 → 路由到对应会话的 **SemaSession** 方法（该会话须已 `createSession` 成功，否则返回 `error`）。
+- **`init` 非破坏式**：首次创建 Core，再次调用只做就绪确认（不销毁已有会话、不覆盖已有配置）。是唯一没有同名 core 方法的 action（对应 Core 构造）。
+- `createSession` 的 `ack` 直接返回分配的 `sessionId`，`session:ready` 事件也携带同一 id。
 
 ### 支持的 Action
 
-> 作用域说明：**Core** 级 action 作用于 SemaCore（模型/配置）；**Session** 级 action 作用于当前会话，**必须先 `session.create` 成功后**才能调用，否则返回 `error`。
+> 本示例（`quickstart-grpc.mjs`）用到的是下列常用 action。桥实际转发的 action 是 sema-core 方法的完整镜像（还含 Tools / Plugins / MCP / Cron / Agents / Skills / Commands / Memory / fork 撤销 / 后台任务面板等），可按需在 `src/server.ts` 的路由表查阅。
 
-| Action              | 作用域 | Payload 说明                                      |
-|---------------------|--------|--------------------------------------------------|
-| `config.init`       | Core   | 重新初始化 SemaCore（会重建实例并丢弃当前会话），payload 为核心配置对象 |
-| `model.add`         | Core   | 添加模型，`{ config, skipValidation? }`             |
-| `model.del`         | Core   | 删除模型，`{ modelName }`                          |
-| `model.applyTask`   | Core   | 应用任务模型，`{ main, quick }`                     |
-| `model.switch`      | Core   | 切换模型，`{ modelName }`                          |
-| `model.getData`     | Core   | 获取模型信息（数据随 `ack` 的 `data` 返回）          |
-| `config.update`     | Core   | 更新核心配置                                       |
-| `session.create`    | Core   | 创建会话，可选传入 `{ sessionId }`（加载历史）；成功后触发 `session:ready` |
-| `session.input`     | Session| 发送用户消息，`{ content, orgContent? }`            |
-| `session.interrupt` | Session| 中断当前会话                                       |
-| `session.dispose`   | Session| 关闭当前会话（`closeSession`，不销毁 Core）          |
-| `permission.respond`| Session| 回应工具权限请求，`{ toolId, toolName, selected }`    |
-| `question.respond`  | Session| 回应选项询问，`{ agentId, answers }`                |
-| `plan.respond`      | Session| 回应计划退出请求，`{ selected }`                     |
-| `config.updateAgentMode` | Session | 切换代理模式，`{ mode }`                       |
+#### 进程级（Core，无需 session_id）
+
+| Action           | 说明 / Payload                                              |
+|------------------|-----------------------------------------------------------|
+| `init`           | 初始化/确认 SemaCore 就绪（非破坏式），payload 为核心配置对象；ack 回 `{ ready: true }` |
+| `addModel`       | 添加模型，`{ config, skipValidation? }`                     |
+| `delModel`       | 删除模型，`{ modelName }`                                  |
+| `switchModel`    | 切换模型，`{ modelName }`                                  |
+| `applyTaskModel` | 应用任务模型，`{ main, quick }`                             |
+| `getModelData`   | 获取模型信息（数据随 `ack` 的 `data` 返回）                  |
+| `updateCoreConfig` | 更新核心配置                                             |
+| `listSessions`   | 列出会话 ID（随 `ack` 的 `data.sessions` 返回）             |
+| `createSession`  | 创建会话，可选 `{ sessionId?, permissionLevel?, mode? }`；`ack` 回 `{ sessionId }`，随后触发 `session:ready` |
+| `closeSession`   | 关闭指定会话（需带 `session_id`，不销毁 Core）              |
+
+#### 会话级（Session，需 session_id）
+
+| Action                     | 说明 / Payload                                          |
+|----------------------------|--------------------------------------------------------|
+| `processUserInput`         | 发送用户消息，`{ content, orgContent?, attachments? }`   |
+| `interrupt`                | 中断当前会话                                            |
+| `respondToToolPermission`  | 回应工具权限请求，`{ toolId, toolName, selected }`       |
+| `respondToPickOption`      | 回应选项询问，`{ agentId, answers }`                     |
+| `respondToPlanExit`        | 回应计划退出请求，`{ selected }`                         |
+| `updateAgentMode`          | 切换代理模式，`{ mode }`                                |
+| `updatePermissionLevel`    | 切换权限档位，`{ level }`                               |
 
 ### 典型调用流程
 
 ```
-config.init  ─▶  model.add  ─▶  model.applyTask  ─▶  session.create
-                                                          │
-                                            等待 session:ready 事件
-                                                          ▼
-                              session.input ⇄ (message:*/tool:* 等事件流)
-                                                          │
-                                                  session.dispose
+init  ─▶  addModel  ─▶  applyTaskModel  ─▶  createSession
+                                                 │
+                                    ack 回 { sessionId }（session:ready 事件也带同一 id）
+                                                 ▼
+                    processUserInput ⇄ (message:*/tool:* 等事件流)   ← 均带 session_id
+                                                 │
+                                           closeSession
 ```
 
 - 每条指令都会收到一帧 `ack`（或 `error`），其 `cmd_id` 等于指令的 `id`，可用于按序等待。
-- 模型相关 action 只需配置一次，后续连接可复用。
-- 交互场景建议在 `config.init` 的配置中加 `disabledTools: ['ask_form', 'plan_to_agent']` 禁用无法应答的工具。
+- 会话级指令（`processUserInput` / `interrupt` / `respondTo*` / `closeSession`）必须带上 `createSession` 返回的 `session_id`。
+- 模型相关 action 只需配置一次，后续可复用。
+- 交互场景建议在 `init` 的配置中加 `disabledTools: ['ask_form', 'plan_to_agent']` 禁用无法应答的工具。
 
 ### 服务端推送的事件（Event）
 
@@ -117,10 +139,13 @@ config.init  ─▶  model.add  ─▶  model.applyTask  ─▶  session.create
 | `topic:update`             | 会话主题更新        |
 | `pick:option:request`      | AI 发起选项询问     |
 | `plan:exit:request`        | AI 请求退出计划模式  |
+| `permissionLevel:update`   | 权限档位变更        |
 | `conversation:usage`       | Token 使用统计     |
 | `file:reference`           | 文件引用信息        |
 | `ack`                      | 指令确认（含 `cmd_id`）|
 | `error`                    | 错误事件（含 `cmd_id`）|
+
+> 会话级事件均带 `session_id`；进程级事件（如 `ack` 进程级指令、模型广播等）`session_id` 留空。
 
 ## 环境要求
 
@@ -140,7 +165,7 @@ npm start
 
 | 变量名               | 默认值          | 说明                   |
 |---------------------|----------------|------------------------|
-| `SEMA_BRIDGE_PORT`  | `3766`         | gRPC 服务监听端口        |
+| `SEMA_BRIDGE_PORT`  | `3766`         | gRPC 服务监听端口（传 `0` 由系统分配，实际端口从 stdout 的 `SEMA_BRIDGE_PORT_ACTUAL=` 行读取） |
 | `SEMA_WORKING_DIR`  | 当前工作目录     | Agent 操作的目标代码仓库路径 |
 
 示例：
@@ -151,7 +176,7 @@ SEMA_BRIDGE_PORT=3766 SEMA_WORKING_DIR=/path/to/your/project npm start
 
 ## 快速测试
 
-服务启动后，可使用同目录下的 `quickstart-grpc.mjs` 进行基本连通性测试：
+服务启动后，可使用同目录下的 `quickstart-grpc.mjs` 进行基本连通性测试（单会话交互 demo）。
 执行前修改配置：
 ```javascript
 // sema-grpc/quickstart-grpc.mjs

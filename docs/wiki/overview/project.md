@@ -6,7 +6,7 @@
 
 引擎负责 LLM 编排、多 Agent 协调、工具执行、权限控制、会话管理、插件/Skill/MCP 扩展加载与后台任务调度，使用方只需关注 UI/UX 层。
 
->  主要应用场景：驱动 [Sema VSCode Extension](https://github.com/midea-ai/sema-code-vscode-extension) 等 AI 编程工具。
+>  主要应用场景：驱动 [Sema Code Extension](https://github.com/midea-ai/sema-code-vscode-extension)（VSCode 插件 / JetBrains 插件）等 AI 编程工具。
 
 ## 技术栈
 

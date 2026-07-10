@@ -12,7 +12,7 @@
     - [后台任务使用](wiki/getting-started/basic-usage/background-task-usage)
     - [定时任务使用](wiki/getting-started/basic-usage/cron-usage)
 - **扩展应用**
-  - [VSCode 插件](wiki/scenarios/vscode-extension)
+  - [IDE 插件（VSCode / JetBrains）](wiki/scenarios/vscode-extension)
   - [SemaClaw](wiki/scenarios/semaclaw)
   - [Code2Skill](wiki/scenarios/code2skill)
 - **核心概念**

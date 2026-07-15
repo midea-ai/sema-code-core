@@ -1,0 +1,33 @@
+{
+  "name": "sema-bridge",
+  "version": "2.0.9",
+  "description": "gRPC bridge service for sema-core cross-language integration",
+  "main": "dist/server.js",
+  "files": [
+    "dist/server.js",
+    "dist/sema.proto",
+    "manifest/actions.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "build:tsc": "tsc",
+    "typecheck": "tsc --noEmit",
+    "watch": "node esbuild.mjs --watch",
+    "start": "node dist/server.js",
+    "dev": "ts-node src/server.ts",
+    "check:contract": "node scripts/check-consistency.mjs",
+    "prepublishOnly": "npm run build && npm run check:contract"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.10.0",
+    "@grpc/proto-loader": "^0.7.0",
+    "sema-core": "^2.0.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.24.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

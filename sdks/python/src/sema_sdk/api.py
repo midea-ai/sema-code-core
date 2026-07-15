@@ -1,0 +1,416 @@
+"""api 层：sema-core 的镜像 API（≙ Java api/SemaCore、api/SemaSession）。
+
+镜像原则：方法名 = core 方法名（PEP 8 机械转 snake_case，无语义偏差）、参数名 =
+core 参数名、事件名 = core 原始事件名；payload / 返回值为 dict（JSON 级一致，字段
+名与 core 相同，camelCase 不转换）。本层不定义任何 payload 类型。
+
+    # 一步式（推荐，≙ Node: new SemaCore({workingDir})；sidecar 由 SDK 托管）
+    core = await SemaCore.start({"workingDir": project_dir})
+    session = await core.create_session()
+    session.on("message:text:chunk", lambda d: print(d["delta"], end=""))
+    await session.process_user_input("你好")
+    await core.close()
+"""
+from __future__ import annotations
+
+import json
+from typing import Any, Callable, Optional, Union
+
+from . import events as SemaEvents
+from .constants import PROTOCOL_VERSION
+from .protocol import Registration, SemaBridgeClient, SemaBridgeException
+from .transport import BridgeConnection
+
+Json = Optional[dict]
+Handler = Callable[[Any], Any]
+
+
+def _obj(**kwargs: Any) -> dict:
+    """构造 payload：值为 None 的键跳过（可选参数不发送，≙ Java Json.obj）。"""
+    return {k: v for k, v in kwargs.items() if v is not None}
+
+
+def _parse(data: str) -> Any:
+    return json.loads(data) if data else None
+
+
+class SemaCore:
+    """进程级镜像 API：用法与 Node 侧 `new SemaCore(config)` 一致。"""
+
+    def __init__(self, client: SemaBridgeClient, owned_sidecar: Any = None) -> None:
+        # 内部构造；请用 SemaCore.start / SemaCore.attach
+        self._client = client
+        self._owned_sidecar = owned_sidecar  # start() 托管的 sidecar；attach 时为 None
+
+    # ── 获取实例（≙ Node: new SemaCore(config)，经桥 init，非破坏式）──────
+
+    @classmethod
+    async def start(cls, config: Json = None) -> "SemaCore":
+        """一步式入口：拉起托管 sidecar → 建连 → init → 版本握手；close() 级联关闭 sidecar。
+
+        workingDir 从 config 读取（与 Node 一致），缺省当前目录。需要多连接 /
+        自定义 node_provider / 连接外部桥时，用 SidecarManager + attach 的分步形态。
+        """
+        from .runtime import SidecarManager  # 延迟导入避免环
+        sidecar = SidecarManager(working_dir=(config or {}).get("workingDir"))
+        try:
+            return await cls.attach(sidecar.new_client(), config, _owned_sidecar=sidecar)
+        except BaseException:
+            await sidecar.close()
+            raise
+
+    @classmethod
+    async def attach(cls, client_or_connection: Union[SemaBridgeClient, BridgeConnection],
+                     config: Json = None, *, _owned_sidecar: Any = None) -> "SemaCore":
+        """经指定协议层客户端/连接初始化 core；init ack 后完成（含协议版本握手）。"""
+        if isinstance(client_or_connection, BridgeConnection):
+            client_or_connection.connect()
+            client = SemaBridgeClient(client_or_connection)
+        else:
+            client = client_or_connection
+        ack = _parse(await client.call("init", json.dumps(config or {})))
+        bridge_version = (ack or {}).get("protocolVersion", -1)
+        if bridge_version != PROTOCOL_VERSION:
+            raise SemaBridgeException("init", (
+                f"桥协议版本不匹配：SDK 需要 {PROTOCOL_VERSION}，sidecar 上报 "
+                f"{'无（产物过旧）' if bridge_version == -1 else bridge_version}。"
+                "请重新构建 sdks/bridge（npm run build）并重装 SDK，保持二者同版本。"))
+        return cls(client, _owned_sidecar)
+
+    @property
+    def client(self) -> SemaBridgeClient:
+        """底层协议层客户端（哑转发 / 调试等场景的逃生口）。"""
+        return self._client
+
+    # ── 核心配置 ─────────────────────────────────────────────────────────
+
+    async def update_core_config(self, config: dict) -> None:
+        await self._client.call("updateCoreConfig", json.dumps(config))
+
+    async def update_core_conf_by_key(self, key: str, value: Any) -> None:
+        await self._client.call("updateCoreConfByKey", json.dumps({"key": key, "value": value}))
+
+    # ── 模型管理 ─────────────────────────────────────────────────────────
+
+    async def add_model(self, config: dict, skip_validation: Optional[bool] = None) -> Any:
+        return await self._json("addModel", _obj(config=config, skipValidation=skip_validation))
+
+    async def del_model(self, model_name: str) -> Any:
+        return await self._json("delModel", {"modelName": model_name})
+
+    async def switch_model(self, model_name: str) -> Any:
+        return await self._json("switchModel", {"modelName": model_name})
+
+    async def apply_task_model(self, models: dict) -> Any:
+        """models: {main, quick}（与 core 的 applyTaskModel 参数一致）。"""
+        return await self._json("applyTaskModel", models)
+
+    async def get_model_data(self) -> Any:
+        return await self._json("getModelData", None)
+
+    async def fetch_available_models(self, params: dict) -> Any:
+        return await self._json("fetchAvailableModels", params)
+
+    async def test_api_connection(self, params: dict) -> Any:
+        return await self._json("testApiConnection", params)
+
+    async def get_model_adapter(self, provider: str, model_name: str, base_url: str) -> Any:
+        return await self._json("getModelAdapter",
+                                _obj(provider=provider, modelName=model_name, baseURL=base_url))
+
+    # ── 会话 ─────────────────────────────────────────────────────────────
+
+    async def list_sessions(self) -> Any:
+        return await self._json("listSessions", None)
+
+    async def set_active_session(self, session_id: str) -> Any:
+        return await self._json("setActiveSession", {"sessionId": session_id})
+
+    async def create_session(self, opts: Json = None) -> "SemaSession":
+        """opts 可选 {sessionId, permissionLevel, mode}（与 core createSession 一致）。"""
+        data = await self._json("createSession", opts or {})
+        return SemaSession(self._client, data["sessionId"])
+
+    def session(self, session_id: str) -> "SemaSession":
+        """按已知 sessionId 构造会话句柄（不发起创建）。"""
+        return SemaSession(self._client, session_id)
+
+    get_session = session
+
+    async def close_session(self, session_id: str) -> None:
+        await self._client.call("closeSession", None, session_id)
+
+    # ── 工具 ─────────────────────────────────────────────────────────────
+
+    async def get_tool_infos(self) -> Any:
+        return await self._json("getToolInfos", None)
+
+    async def update_disabled_tools(self, disabled_tools: list[str]) -> None:
+        await self._client.call("updateDisabledTools", json.dumps({"disabledTools": disabled_tools}))
+
+    # ── 插件市场 ─────────────────────────────────────────────────────────
+
+    async def get_marketplace_plugins_info(self) -> Any:
+        return await self._json("getMarketplacePluginsInfo", None)
+
+    async def refresh_marketplace_plugins_info(self) -> Any:
+        return await self._json("refreshMarketplacePluginsInfo", None)
+
+    async def add_marketplace_from_git(self, repo: str) -> Any:
+        return await self._json("addMarketplaceFromGit", {"repo": repo})
+
+    async def add_marketplace_from_directory(self, dir_path: str) -> Any:
+        return await self._json("addMarketplaceFromDirectory", {"dirPath": dir_path})
+
+    async def update_marketplace(self, marketplace_name: str) -> Any:
+        return await self._json("updateMarketplace", {"marketplaceName": marketplace_name})
+
+    async def remove_marketplace(self, marketplace_name: str) -> Any:
+        return await self._json("removeMarketplace", {"marketplaceName": marketplace_name})
+
+    async def install_plugin(self, plugin_name: str, marketplace_name: str,
+                             scope: Optional[str] = None, project_path: Optional[str] = None) -> Any:
+        return await self._plugin("installPlugin", plugin_name, marketplace_name, scope, project_path)
+
+    async def uninstall_plugin(self, plugin_name: str, marketplace_name: str,
+                               scope: Optional[str] = None, project_path: Optional[str] = None) -> Any:
+        return await self._plugin("uninstallPlugin", plugin_name, marketplace_name, scope, project_path)
+
+    async def enable_plugin(self, plugin_name: str, marketplace_name: str,
+                            scope: Optional[str] = None, project_path: Optional[str] = None) -> Any:
+        return await self._plugin("enablePlugin", plugin_name, marketplace_name, scope, project_path)
+
+    async def disable_plugin(self, plugin_name: str, marketplace_name: str,
+                             scope: Optional[str] = None, project_path: Optional[str] = None) -> Any:
+        return await self._plugin("disablePlugin", plugin_name, marketplace_name, scope, project_path)
+
+    async def update_plugin(self, plugin_name: str, marketplace_name: str,
+                            scope: Optional[str] = None, project_path: Optional[str] = None) -> Any:
+        return await self._plugin("updatePlugin", plugin_name, marketplace_name, scope, project_path)
+
+    # ── Agents / Skills / Commands ───────────────────────────────────────
+
+    async def get_agents_info(self, concise: Optional[bool] = None, refresh: Optional[bool] = None) -> Any:
+        return await self._json("getAgentsInfo", _obj(concise=concise, refresh=refresh))
+
+    async def add_agent_conf(self, conf: dict) -> Any:
+        return await self._json("addAgentConf", conf)
+
+    async def remove_agent_conf(self, name: str) -> Any:
+        return await self._json("removeAgentConf", {"name": name})
+
+    async def get_skills_info(self, concise: Optional[bool] = None, refresh: Optional[bool] = None) -> Any:
+        return await self._json("getSkillsInfo", _obj(concise=concise, refresh=refresh))
+
+    async def remove_skill_conf(self, name: str) -> Any:
+        return await self._json("removeSkillConf", {"name": name})
+
+    async def get_commands_info(self, concise: Optional[bool] = None, refresh: Optional[bool] = None) -> Any:
+        return await self._json("getCommandsInfo", _obj(concise=concise, refresh=refresh))
+
+    async def add_command_conf(self, conf: dict) -> Any:
+        return await self._json("addCommandConf", conf)
+
+    async def remove_command_conf(self, name: str) -> Any:
+        return await self._json("removeCommandConf", {"name": name})
+
+    # ── MCP ──────────────────────────────────────────────────────────────
+
+    async def get_mcp_server_info(self) -> Any:
+        return await self._json("getMCPServerInfo", None)
+
+    async def refresh_mcp_server_info(self) -> Any:
+        return await self._json("refreshMCPServerInfo", None)
+
+    async def add_mcp_server(self, conf: dict) -> Any:
+        return await self._json("addMCPServer", conf)
+
+    async def remove_mcp_server(self, name: str) -> Any:
+        return await self._json("removeMCPServer", {"name": name})
+
+    async def reconnect_mcp_server(self, name: str) -> Any:
+        return await self._json("reconnectMCPServer", {"name": name})
+
+    async def disable_mcp_server(self, name: str) -> Any:
+        return await self._json("disableMCPServer", {"name": name})
+
+    async def enable_mcp_server(self, name: str) -> Any:
+        return await self._json("enableMCPServer", {"name": name})
+
+    async def update_mcp_use_tools(self, name: str, tool_names: list[str]) -> Any:
+        return await self._json("updateMCPUseTools", {"name": name, "toolNames": tool_names})
+
+    # ── Cron ─────────────────────────────────────────────────────────────
+
+    async def get_cron_tasks(self) -> Any:
+        return await self._json("getCronTasks", None)
+
+    async def delete_cron_task(self, task_id: str) -> Any:
+        return await self._json("deleteCronTask", {"id": task_id})
+
+    async def enable_cron_task(self, task_id: str) -> Any:
+        return await self._json("enableCronTask", {"id": task_id})
+
+    async def disable_cron_task(self, task_id: str) -> Any:
+        return await self._json("disableCronTask", {"id": task_id})
+
+    # ── 只读信息 ─────────────────────────────────────────────────────────
+
+    async def get_memory_info(self, refresh: Optional[bool] = None) -> Any:
+        return await self._json("getMemoryInfo", _obj(refresh=refresh))
+
+    async def get_rule_info(self, refresh: Optional[bool] = None) -> Any:
+        return await self._json("getRuleInfo", _obj(refresh=refresh))
+
+    async def get_design_skills_info(self, refresh: Optional[bool] = None) -> Any:
+        return await self._json("getDesignSkillsInfo", _obj(refresh=refresh))
+
+    async def get_design_systems_info(self, refresh: Optional[bool] = None) -> Any:
+        return await self._json("getDesignSystemsInfo", _obj(refresh=refresh))
+
+    # ── 进程级事件 ───────────────────────────────────────────────────────
+
+    def on(self, event: str, handler: Handler) -> Registration:
+        """订阅进程级事件；handler(data)，data 为 JSON 级事件数据（dict/list/None）。"""
+        return self._client.on(event, lambda data, _sid: handler(_parse(data)), "")
+
+    def once(self, event: str, handler: Handler) -> Registration:
+        return self._client.once(event, lambda data, _sid: handler(_parse(data)), "")
+
+    async def close(self) -> None:
+        """≙ Node core.dispose()：关闭连接；start() 创建的实例级联停掉托管 sidecar。"""
+        await self._client.close()
+        if self._owned_sidecar is not None:
+            try:
+                await self._owned_sidecar.close()
+            except Exception:
+                pass
+
+    # ── 内部 ─────────────────────────────────────────────────────────────
+
+    async def _json(self, action: str, payload: Json) -> Any:
+        return _parse(await self._client.call(action, json.dumps(payload) if payload is not None else None))
+
+    async def _plugin(self, action: str, plugin_name: str, marketplace_name: str,
+                      scope: Optional[str], project_path: Optional[str]) -> Any:
+        return await self._json(action, _obj(pluginName=plugin_name, marketplaceName=marketplace_name,
+                                             scope=scope, projectPath=project_path))
+
+
+class SemaSession:
+    """会话级镜像 API；事件订阅自动按 sessionId 过滤，session:ready 缓存重放。"""
+
+    def __init__(self, client: SemaBridgeClient, session_id: str) -> None:
+        self._client = client
+        self._session_id = session_id
+        self._ready_data: Optional[str] = None  # 创建期事件缓存：晚订阅也不丢
+        self._client.once(SemaEvents.SESSION_READY,
+                          self._cache_ready, session_id)
+
+    def _cache_ready(self, data: str, _sid: str) -> None:
+        self._ready_data = data if data else "{}"
+
+    @property
+    def session_id(self) -> str:
+        return self._session_id
+
+    # ── 会话交互 ─────────────────────────────────────────────────────────
+
+    async def process_user_input(self, content: str, org_content: Optional[str] = None,
+                                 attachments: Any = None) -> None:
+        await self._call("processUserInput",
+                         _obj(content=content, orgContent=org_content, attachments=attachments))
+
+    async def interrupt(self) -> None:
+        await self._call("interrupt", None)
+
+    async def respond_to_tool_permission(self, response: dict) -> None:
+        await self._call("respondToToolPermission", response)
+
+    async def respond_to_pick_option(self, response: dict) -> None:
+        await self._call("respondToPickOption", response)
+
+    async def respond_to_plan_exit(self, response: dict) -> None:
+        await self._call("respondToPlanExit", response)
+
+    async def update_agent_mode(self, mode: str) -> None:
+        await self._call("updateAgentMode", {"mode": mode})
+
+    async def update_permission_level(self, level: str) -> None:
+        await self._call("updatePermissionLevel", {"level": level})
+
+    async def get_fork_preview(self, message_uuid: str) -> Any:
+        return _parse(await self._call("getForkPreview", {"messageUuid": message_uuid}))
+
+    async def fork(self, message_uuid: str, options: Json = None) -> Any:
+        return _parse(await self._call("fork", _obj(messageUuid=message_uuid, options=options)))
+
+    # ── 后台任务 ─────────────────────────────────────────────────────────
+
+    async def stop_all_tasks(self) -> Any:
+        return _parse(await self._call("stopAllTasks", None))
+
+    async def get_task_list(self) -> Any:
+        return _parse(await self._call("getTaskList", None))
+
+    async def stop_task(self, task_id: str) -> Any:
+        return _parse(await self._call("stopTask", {"taskId": task_id}))
+
+    async def transfer_agent_to_background(self, task_id: str) -> Any:
+        return _parse(await self._call("transferAgentToBackground", {"taskId": task_id}))
+
+    async def transfer_all_foreground_agents(self) -> Any:
+        return _parse(await self._call("transferAllForegroundAgents", None))
+
+    def watch_task(self, task_id: str, on_delta: Callable[[str], Any]) -> Registration:
+        """订阅任务增量（task:watch:delta 合成事件）；unregister 时发 unwatchTask。"""
+        import asyncio
+
+        def forward(data: str, _sid: str) -> None:
+            parsed = _parse(data) or {}
+            if parsed.get("taskId") == task_id:
+                on_delta(parsed.get("delta", ""))
+
+        reg = self._client.on(SemaEvents.TASK_WATCH_DELTA, forward, self._session_id)
+        asyncio.ensure_future(self._call("watchTask", {"taskId": task_id}))
+
+        def unregister() -> None:
+            reg.unregister()
+            asyncio.ensure_future(self._call("unwatchTask", {"taskId": task_id}))
+
+        return Registration(unregister)
+
+    # ── 事件 ─────────────────────────────────────────────────────────────
+
+    def on(self, event: str, handler: Handler) -> Registration:
+        """订阅本会话事件；handler(data)。session:ready 走缓存重放（晚订阅也不丢）。"""
+        if event == SemaEvents.SESSION_READY and self._ready_data is not None:
+            handler(_parse(self._ready_data))
+        return self._client.on(event, lambda data, _sid: handler(_parse(data)), self._session_id)
+
+    def once(self, event: str, handler: Handler) -> Registration:
+        if event == SemaEvents.SESSION_READY and self._ready_data is not None:
+            handler(_parse(self._ready_data))
+            return Registration(lambda: None)
+        return self._client.once(event, lambda data, _sid: handler(_parse(data)), self._session_id)
+
+    async def wait_for(self, event: str, timeout: Optional[float] = None,
+                       predicate: Optional[Callable[[Any], bool]] = None) -> Any:
+        """等待本会话事件（可选 predicate 对解析后的 data 过滤），返回 JSON 级数据。"""
+        if event == SemaEvents.SESSION_READY and self._ready_data is not None:
+            data = _parse(self._ready_data)
+            if predicate is None or predicate(data):
+                return data
+        raw_predicate = None if predicate is None else (lambda raw: predicate(_parse(raw)))
+        raw = await self._client.wait_for(event, self._session_id, timeout, raw_predicate)
+        return _parse(raw)
+
+    async def close(self) -> None:
+        """= core.close_session(session_id)。"""
+        await self._client.call("closeSession", None, self._session_id)
+
+    # ── 内部 ─────────────────────────────────────────────────────────────
+
+    async def _call(self, action: str, payload: Json) -> str:
+        return await self._client.call(
+            action, json.dumps(payload) if payload is not None else None, self._session_id)

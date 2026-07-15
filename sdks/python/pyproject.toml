@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sema-core"
+version = "2.0.9"
+description = "Python SDK for sema-core: thin client over the sema-grpc bridge"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "SemaCode" }]
+dependencies = [
+    "grpcio>=1.60",
+    "protobuf>=4.25",
+]
+
+[project.urls]
+Repository = "https://github.com/midea-ai/sema-code-core"
+
+[project.optional-dependencies]
+dev = ["grpcio-tools>=1.60"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# _generated 提交入仓（pip 安装不依赖 protoc）；_sidecar 由 scripts/embed_sidecar.py
+# 从 ../bridge/dist 复制（构建产物不入 git，发布前执行，与 Java jar 内嵌同构）
+sema_sdk = ["_sidecar/server.js", "_sidecar/proto/sema.proto"]

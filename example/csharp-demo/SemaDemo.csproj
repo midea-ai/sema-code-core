@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- SDK 面向 net8.0（LTS）；本机只装更高版本运行时（如 .NET 9/10）时照常可跑 -->
+    <RollForward>LatestMajor</RollForward>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Sema.Example.Demo</RootNamespace>
+    <AssemblyName>SemaDemo</AssemblyName>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 直接引用仓库内 SDK 工程（其构建会内嵌 ../../sdks/shared/bridge/dist 的 sidecar 产物）；
+         发布后可改为 <PackageReference Include="Semacore" /> -->
+    <ProjectReference Include="../../sdks/csharp/Semacore.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Semacore</RootNamespace>
+    <AssemblyName>Semacore</AssemblyName>
+    <PackageId>Semacore</PackageId>
+    <Version>2.0.9</Version>
+    <Description>C# SDK for sema-core: thin client over the sema-grpc bridge</Description>
+    <Authors>SemaCode</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://midea-ai.github.io/sema-code-core</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/midea-ai/sema-code-core</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>sema-core;ai;agent;sdk;grpc</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.25.3" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.63.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.64.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 构建期从唯一协议源生成 stub（不入库）；Access=Internal：protobuf 类型不泄漏到公共 API -->
+    <Protobuf Include="../shared/proto/sema.proto" ProtoRoot="../shared/proto" GrpcServices="Client" Access="Internal" />
+    <!-- sidecar 随 SDK 分发：桥的自包含产物内嵌进程序集（sema-sidecar/），
+         SidecarManager.ExtractBundledSidecar 运行时释放到 ~/.sema，
+         「SDK 版本 = 桥版本 = core 版本」一次锁定 -->
+    <EmbeddedResource Include="../shared/bridge/dist/server.js" LogicalName="sema-sidecar/server.js" />
+    <EmbeddedResource Include="../shared/proto/sema.proto" LogicalName="sema-sidecar/proto/sema.proto" />
+  </ItemGroup>
+
+  <!-- sidecar 产物是 SDK 的硬前置：缺失时快速失败并给出指引，避免打出没有内嵌 sidecar 的「哑包」 -->
+  <Target Name="RequireBridgeDist" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('../shared/bridge/dist/server.js')"
+           Text="缺少 sidecar 产物 ../shared/bridge/dist/server.js：先执行 cd ../shared/bridge &amp;&amp; npm install &amp;&amp; npm run build" />
+  </Target>
+
+</Project>

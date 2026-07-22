@@ -37,11 +37,15 @@ cd ../../java && mvn -q -DskipTests clean install
 
 发到 Maven Central（Central Portal）。一次性准备：
 
-1. [central.sonatype.com](https://central.sonatype.com) 用 GitHub 账号登录（GitHub namespace 自动验证），生成 token 写入 `~/.m2/settings.xml`（`<server><id>central</id>` + token 用户名/密码）
+1. [central.sonatype.com](https://central.sonatype.com) 用 GitHub 账号登录（个人 namespace `io.github.<用户名>` 自动验证），生成 token 写入 `~/.m2/settings.xml`（`<server><id>central</id>` + token 用户名/密码）
 2. 本机 GPG 密钥（Central 强制签名）：`gpg --gen-key`，公钥上传 `gpg --keyserver keyserver.ubuntu.com --send-keys <KEYID>`
 
-之后每次发布一条命令：
+之后每次发布，打包与上传分两步：
 
 ```bash
-mvn -q -DskipTests clean deploy -P release   # 签名 + sources/javadoc + 上传，最后到 Portal 网页点 Publish 生效
+# ① 打包 + 签名（本地生成 jar/sources/javadoc 及 .asc，可先检查 target/ 产物）
+mvn -DskipTests -P release clean verify
+
+# ② 上传（不带 clean，复用上一步产物），最后到 Portal 网页 Deployments 点 Publish 生效
+mvn -DskipTests -P release deploy
 ```

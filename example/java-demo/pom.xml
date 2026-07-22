@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.sema.example</groupId>
+  <artifactId>sema-java-demo</artifactId>
+  <version>2.0.9</version>
+  <packaging>jar</packaging>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- 缺省交互式 CLI；一次性执行传 -Dexec.mainClass=com.sema.example.demo.Run 覆盖 -->
+    <exec.mainClass>com.sema.example.demo.Main</exec.mainClass>
+  </properties>
+
+  <dependencies>
+    <!-- 先在 sdks/java 执行 mvn install 装入本地仓库；grpc/gson 等运行依赖随其 pom 传递 -->
+    <dependency>
+      <groupId>io.github.midea-ai</groupId>
+      <artifactId>sema-core</artifactId>
+      <version>2.0.9</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.2.0</version>
+        <configuration>
+          <mainClass>${exec.mainClass}</mainClass>
+          <!-- demo 与 Maven 同 JVM：gRPC 等 daemon 线程交给 JVM 收尾，避免 exec 插件中断告警 -->
+          <cleanupDaemonThreads>false</cleanupDaemonThreads>
+          <!-- sidecar 内嵌在 sema-core jar 里，运行时自动释放到 ~/.sema，无需任何路径配置；
+               开发期要直连仓库里的桥产物时，可用环境变量 SEMA_SIDECAR_DIR 覆盖 -->
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -156,14 +156,14 @@ init  ─▶  addModel  ─▶  applyTaskModel  ─▶  createSession
 ## 安装与启动
 
 ```bash
-cd sdks/bridge
+cd sdks/shared/bridge
 npm install
 npm run build        # esbuild 单文件打包 → dist/server.js + dist/sema.proto（自包含，运行不需要 node_modules）
 npm start
 ```
 
 > 产物形态与 JetBrains 插件 sidecar 一致：`dist/server.js`（含 sema-core，`@vscode/ripgrep` 被 external，
-> rg 由 SDK runtime 供应并前置进子进程 PATH）+ 同级 `sema.proto`。`npm run build:tsc` 保留 tsc 多文件构建，
+> rg 由桥进程启动时自行供应：PATH 探测 → `~/.sema/rg` 缓存 → 按需下载，见 `src/rg.ts`）+ 同级 `sema.proto`。`npm run build:tsc` 保留 tsc 多文件构建，
 > `npm run typecheck` 只做类型检查。
 
 ## 环境变量
@@ -172,6 +172,8 @@ npm start
 |---------------------|----------------|------------------------|
 | `SEMA_BRIDGE_PORT`  | `3766`         | gRPC 服务监听端口（传 `0` 由系统分配，实际端口从 stdout 的 `SEMA_BRIDGE_PORT_ACTUAL=` 行读取） |
 | `SEMA_WORKING_DIR`  | 当前工作目录     | Agent 操作的目标代码仓库路径 |
+| `SEMA_RG_PATH`      | —              | 显式指定 rg 可执行文件（或所在目录），跳过探测/下载（内网/离线用） |
+| `SEMA_RG_BASE_URL`  | GitHub Release | ripgrep 下载镜像地址前缀 |
 
 示例：
 
@@ -184,13 +186,13 @@ SEMA_BRIDGE_PORT=3766 SEMA_WORKING_DIR=/path/to/your/project npm start
 服务启动后，可使用同目录下的 `quickstart-grpc.mjs` 进行基本连通性测试（单会话交互 demo）。
 执行前修改配置：
 ```javascript
-// sdks/bridge/quickstart-grpc.mjs
+// sdks/shared/bridge/quickstart-grpc.mjs
 const WORKING_DIR = '/path/to/your/project';  // Agent 将操作的目标代码仓库路径
 "apiKey": "sk-your-api-key",  // 替换为你的 API Key
 ```
 
 执行：
 ```bash
-cd sdks/bridge
+cd sdks/shared/bridge
 node quickstart-grpc.mjs
 ```

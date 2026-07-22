@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { SemaCoreManager } from './core';
 import { SessionBinder } from './session';
+import { ensureRg } from './rg';
 
 const PORT = parseInt(process.env.SEMA_BRIDGE_PORT || '3766');
 const WORKING_DIR = process.env.SEMA_WORKING_DIR || process.cwd();
@@ -11,8 +12,9 @@ const WORKING_DIR = process.env.SEMA_WORKING_DIR || process.cwd();
 // 桥协议版本：init ack 携带，各语言 SDK 握手校验（协议不兼容变更时 +1，并同步各 SDK 常量与 manifest）
 const PROTOCOL_VERSION = 1;
 
-// 相对源码定位 proto（唯一源在 sdks/proto/sema.proto），避免依赖启动时的工作目录。
-// npm start: dist/src/server.js（回退三级到 sdks/）；npm run dev(ts-node): src/server.ts（回退两级）。
+// 相对源码定位 proto（唯一源在 sdks/shared/proto/sema.proto），避免依赖启动时的工作目录。
+// bridge 与 proto 同在 sdks/shared/ 下、相对偏移不变：npm start dist/src/server.js（回退三级到 shared/）、
+// npm run dev(ts-node) src/server.ts（回退两级到 shared/）均落在 shared/proto。
 // 前两条为单文件 bundle 布局（server.js 同级 proto），tsc 构建不会命中，留作打包兼容。
 const PROTO_PATH = [
   path.join(__dirname, 'proto', 'sema.proto'),
@@ -36,6 +38,12 @@ const proto = grpc.loadPackageDefinition(packageDef) as any;
  * 对齐 VSCode「一个宿主进程一个 Core、多会话按 sessionId 复用」的模型。
  */
 const manager = new SemaCoreManager({ workingDir: WORKING_DIR, logLevel: 'none' });
+
+// rg 兜底供应（跨语言共享的唯一实现）：启动即异步准备，init 创建 Core 前 await 完成，
+// 保证 sema-core 首次 spawn rg 时 PATH 已就绪；失败只告警不阻塞（rg 缺失仅影响搜索性能）。
+const rgReady = ensureRg().catch((e) =>
+  console.warn(`[sema-grpc] ripgrep 准备失败（仅影响搜索性能，继续启动）: ${e?.message ?? e}`),
+);
 
 /** 进程级事件（挂在 SemaCore 上，非会话级）；转发时 session_id 留空 */
 const PROCESS_EVENTS = ['cron:update', 'mcp:server:status'];
@@ -119,6 +127,7 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
 
         // ── SemaCore 方法（进程级，无需 session_id）──────────
         case 'init': {
+          await rgReady;
           manager.init(payload);
           if (!processEventsAttached) { attachProcessEvents(); processEventsAttached = true; } // Core 就绪后再挂进程事件
           ack(id, { ready: true, protocolVersion: PROTOCOL_VERSION });
@@ -160,8 +169,8 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         case 'closeSession': {
           const binder = binders.get(sessionId);
           if (binder) { binder.unbind(); binders.delete(sessionId); }
-          manager.closeSession(sessionId);
-          break;
+          ack(id, { ok: manager.closeSession(sessionId) });
+          return;
         }
 
         // ── SemaSession 方法（会话级，需 session_id）──────────

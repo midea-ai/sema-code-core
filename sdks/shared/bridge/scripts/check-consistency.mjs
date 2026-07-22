@@ -13,7 +13,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const bridgeDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const sdksDir = path.resolve(bridgeDir, '..');
+// bridge 现位于 sdks/shared/bridge，回退两级到 sdks/（java|python|csharp 所在层）
+const sdksDir = path.resolve(bridgeDir, '..', '..');
 const read = (p) => fs.readFileSync(p, 'utf8');
 
 const manifest = JSON.parse(read(path.join(bridgeDir, 'manifest', 'actions.json')));
@@ -23,7 +24,7 @@ const semaCoreJava = read(path.join(javaApiDir, 'SemaCore.java'));
 const semaSessionJava = read(path.join(javaApiDir, 'SemaSession.java'));
 const semaEventsJava = read(path.join(javaApiDir, 'SemaEvents.java'));
 const semaConstantsJava = read(path.join(javaApiDir, 'SemaConstants.java'));
-const pyDir = path.join(sdksDir, 'python', 'src', 'sema_sdk');
+const pyDir = path.join(sdksDir, 'python', 'src', 'sema_core');
 const apiPy = read(path.join(pyDir, 'api.py'));
 const eventsPy = read(path.join(pyDir, 'events.py'));
 const constantsPy = read(path.join(pyDir, 'constants.py'));

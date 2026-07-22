@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package sema;
 
-// ⚠️ 本文件是协议唯一源（sdks/proto/sema.proto）：bridge 运行时加载、各语言 SDK 构建期生成，
+// ⚠️ 本文件是协议唯一源（sdks/shared/proto/sema.proto）：bridge 运行时加载、各语言 SDK 构建期生成，
 // 不要在任何语言目录另行维护副本。
 // 以下 option 只影响各语言代码生成，不影响 wire 格式（JS 的 proto-loader 会忽略）。
 option java_multiple_files = true;

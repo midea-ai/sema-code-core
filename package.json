@@ -6,24 +6,24 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "require": "./dist/index.js",
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/index.js"
     },
     "./types": {
+      "types": "./dist/types/index.d.ts",
       "require": "./dist/types/index.js",
-      "import": "./dist/types/index.js",
-      "types": "./dist/types/index.d.ts"
+      "import": "./dist/types/index.js"
     },
     "./event": {
+      "types": "./dist/events/types.d.ts",
       "require": "./dist/events/types.js",
-      "import": "./dist/events/types.js",
-      "types": "./dist/events/types.d.ts"
+      "import": "./dist/events/types.js"
     },
     "./mcp": {
+      "types": "./dist/services/mcp/index.d.ts",
       "require": "./dist/services/mcp/index.js",
-      "import": "./dist/services/mcp/index.js",
-      "types": "./dist/services/mcp/index.d.ts"
+      "import": "./dist/services/mcp/index.js"
     }
   },
   "scripts": {

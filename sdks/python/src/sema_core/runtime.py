@@ -6,17 +6,21 @@
   （_sidecar/，释放到 ~/.sema/python-sdk-sidecar，与 Java 的 jar 内嵌同构）；
 - 注入 SEMA_BRIDGE_PARENT_OWNED=1：生命周期归本 manager（close 发 SIGTERM），
   终端宿主的 Ctrl-C 广播 SIGINT 时桥忽略，保住「第一次 Ctrl-C 只中断会话」语义；
-- Node 供应按设计稿只做本地探测（SEMA_NODE_PATH → PATH 里 ≥18 的 node → 常见
-  绝对路径），下载/缓存由宿主注入 node_provider 解决。
+- Node 供应走统一分发范式（与 Java / C# SDK 对齐）：本地优先（SEMA_NODE_PATH →
+  PATH 里 ≥18 的 node → 常见绝对路径）→ ~/.sema/node 缓存 → 按需下载
+  （SEMA_NODE_BASE_URL 可指内网镜像）；宿主也可注入自定义 node_provider。
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import urllib.request
 from importlib import resources
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -26,9 +30,11 @@ from .transport import BridgeConnection
 
 _PORT_PATTERN = re.compile(r"SEMA_BRIDGE_PORT_ACTUAL=(\d+)")
 _SERVER_JS_CANDIDATES = ("server.js", "dist/server.js", "dist/src/server.js")
+_NODE_VERSION = "20.18.0"  # LTS；与 Java / C# SDK 写死同值，升级时三处同步
+_NODE_DEFAULT_BASE = "https://nodejs.org/dist"
 _COMMON_NODE_PATHS = (
     "/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node",
-    os.path.expanduser("~/.sema/node/20.18.0"),
+    os.path.expanduser(f"~/.sema/node/{_NODE_VERSION}"),
 )
 
 NodeProvider = Callable[[], str]
@@ -36,7 +42,7 @@ NodeProvider = Callable[[], str]
 
 
 def system_node_provider() -> str:
-    """本地探测：SEMA_NODE_PATH → PATH 里 ≥18 的 node → 常见绝对路径。"""
+    """统一分发范式：SEMA_NODE_PATH → PATH 里 ≥18 的 node → 常见绝对路径/缓存 → 按需下载。"""
     explicit = os.environ.get("SEMA_NODE_PATH")
     if explicit and Path(explicit).is_file():
         return explicit
@@ -50,11 +56,70 @@ def system_node_provider() -> str:
             candidates.append(str(path))
         elif path.is_dir():  # ~/.sema/node 缓存布局：<ver>/<triple>/bin/node
             candidates.extend(str(f) for f in path.glob("*/bin/node"))
+            candidates.extend(str(f) for f in path.glob("*/**/node.exe"))
     for node in candidates:
         if _node_major(node) >= 18:
             return node
-    raise FileNotFoundError(
-        "未找到 node ≥18：安装 node、设置 SEMA_NODE_PATH，或注入自定义 node_provider")
+    # 都未命中才下载（一次性，落 ~/.sema/node 缓存后上面即可命中）
+    try:
+        return _download_node()
+    except Exception as e:
+        raise FileNotFoundError(
+            f"未找到 node ≥18 且自动下载失败：{e}。请安装 node、设置 SEMA_NODE_PATH、"
+            "用 SEMA_NODE_BASE_URL 指定可达镜像，或注入自定义 node_provider") from e
+
+
+def _node_asset() -> tuple[str, bool]:
+    """(triple, is_zip)：nodejs.org 资产名片段；win 用 .zip，其余 .tar.gz。"""
+    machine = platform.machine().lower()
+    arm = machine in ("arm64", "aarch64")
+    x64 = machine in ("x86_64", "amd64")
+    if sys.platform == "darwin" and (arm or x64):
+        return ("darwin-arm64" if arm else "darwin-x64", False)
+    if sys.platform == "win32" and (arm or x64):
+        return ("win-arm64" if arm else "win-x64", True)
+    if sys.platform.startswith("linux") and (arm or x64):
+        return ("linux-arm64" if arm else "linux-x64", False)
+    raise OSError(f"不支持的平台: {sys.platform}/{machine}")
+
+
+def _download_node() -> str:
+    """下载 node 到 ~/.sema/node/<ver>/<triple>/，返回其中的可执行文件路径。"""
+    triple, is_zip = _node_asset()
+    cache_dir = Path.home() / ".sema" / "node" / _NODE_VERSION / triple
+    base = (os.environ.get("SEMA_NODE_BASE_URL") or _NODE_DEFAULT_BASE).rstrip("/")
+    file_name = f"node-v{_NODE_VERSION}-{triple}.{'zip' if is_zip else 'tar.gz'}"
+    url = f"{base}/v{_NODE_VERSION}/{file_name}"
+    try:
+        with tempfile.TemporaryDirectory(prefix="sema-node-") as tmp:
+            archive = Path(tmp) / file_name
+            with urllib.request.urlopen(
+                    urllib.request.Request(url, headers={"User-Agent": "sema-sdk"}),
+                    timeout=180) as resp, open(archive, "wb") as out:
+                shutil.copyfileobj(resp, out)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            if is_zip:
+                # win：解到 cache_dir，node.exe 在 cache_dir/<stem>/ 下（缓存探测按递归 glob 命中）
+                import zipfile
+                with zipfile.ZipFile(archive) as zf:
+                    zf.extractall(cache_dir)
+                node = next(cache_dir.rglob("node.exe"), None)
+            else:
+                # unix：--strip-components=1 把 bin/ lib/ 直接落到 cache_dir，node 固定在 bin/node
+                subprocess.run(
+                    ["tar", "xzf", str(archive), "-C", str(cache_dir), "--strip-components=1"],
+                    check=True, capture_output=True, timeout=180)
+                node = cache_dir / "bin" / "node"
+                node.chmod(0o755)
+                if sys.platform == "darwin":  # 去隔离，避免 Gatekeeper 拦下载来的二进制
+                    subprocess.run(["xattr", "-dr", "com.apple.quarantine", str(node)],
+                                   capture_output=True, timeout=10)
+            if node is None or not Path(node).is_file():
+                raise FileNotFoundError("解压后未找到 node 可执行文件")
+            return str(node)
+    except BaseException:
+        shutil.rmtree(cache_dir, ignore_errors=True)  # 半成品清掉，避免下次误命中
+        raise
 
 
 def _node_major(node: str) -> int:
@@ -190,7 +255,7 @@ class SidecarManager:
         code = await process.wait()
         if self._port_future is not None and not self._port_future.done():
             self._port_future.set_exception(
-                RuntimeError(f"sidecar 提前退出 code={code}（先确认 sdks/bridge 已 npm run build）"))
+                RuntimeError(f"sidecar 提前退出 code={code}（先确认 sdks/shared/bridge 已 npm run build）"))
         if self._on_exit is not None and not self._closed:
             self._on_exit(code)
 
@@ -216,7 +281,7 @@ class SidecarManager:
     @staticmethod
     def _extract_bundled_sidecar() -> Optional[Path]:
         """包内捆绑产物释放到 ~/.sema/python-sdk-sidecar（≙ Java extractBundledSidecar）。"""
-        pkg = resources.files("sema_sdk")
+        pkg = resources.files("sema_core")
         server = pkg / "_sidecar" / "server.js"
         if not server.is_file():
             return None

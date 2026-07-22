@@ -3,4 +3,5 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-src/sema_sdk/_sidecar/
+src/sema_core/_sidecar/
+tests/

@@ -1,4 +1,4 @@
-"""从唯一协议源 ../proto/sema.proto 生成 gRPC stub 到 src/sema_sdk/_generated/。
+"""从唯一协议源 ../shared/proto/sema.proto 生成 gRPC stub 到 src/sema_core/_generated/。
 
 生成物提交进仓（pip 安装不依赖 protoc）；协议变更后重跑本脚本。
 用法：.venv/bin/python scripts/gen_proto.py（需 dev 依赖 grpcio-tools）
@@ -12,8 +12,8 @@ from pathlib import Path
 from grpc_tools import protoc
 
 ROOT = Path(__file__).resolve().parent.parent
-PROTO_DIR = ROOT.parent / "proto"
-OUT_DIR = ROOT / "src" / "sema_sdk" / "_generated"
+PROTO_DIR = ROOT.parent / "shared" / "proto"
+OUT_DIR = ROOT / "src" / "sema_core" / "_generated"
 
 
 def main() -> int:

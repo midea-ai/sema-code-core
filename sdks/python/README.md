@@ -14,7 +14,7 @@ pip install sema-core
 
 ```python
 import asyncio
-from sema_sdk import SemaCore
+from sema_core import SemaCore
 
 async def main():
     core = await SemaCore.start({"workingDir": "/path/to/your/project"})

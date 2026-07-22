@@ -18,7 +18,7 @@ import re
 import sys
 from pathlib import Path
 
-from sema_sdk import MAIN_AGENT_ID, SemaCore, SemaEvents
+from sema_core import MAIN_AGENT_ID, SemaCore, SemaEvents
 
 # 文件编辑 / 终端类工具名（medium 档位只展示这些工具的标题）
 EDIT_TERMINAL_TOOLS = {"write_file", "patch_file", "edit_notebook", "run_shell"}

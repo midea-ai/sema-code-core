@@ -7,6 +7,9 @@ pip install sema-core
     python cli.py /path/to/project <会话id>   # 指定目录 + 加载历史会话
 
 模型自动读取 ~/.sema/model.conf（见 README），代码里无需配置模型。
+
+与 TS 版 cli.ts 的差异：不支持 esc 单键中断（Python 需接管终端 cbreak 模式并手写
+回显/退格，对 demo 而言代价太大），统一用 Ctrl+C：第一次中断会话，第二次退出。
 """
 from __future__ import annotations
 
@@ -15,12 +18,9 @@ import codecs
 import os
 import signal
 import sys
-import termios
-import tty
-from dataclasses import dataclass
 from pathlib import Path
 
-from sema_sdk import MAIN_AGENT_ID, SemaCore, SemaEvents, SemaSession
+from sema_core import MAIN_AGENT_ID, SemaCore, SemaEvents, SemaSession
 
 MAX_LOG_LEN = 200
 
@@ -29,107 +29,51 @@ blue = lambda s: f"\x1b[34m{s}\x1b[0m"   # noqa: E731
 green = lambda s: f"\x1b[32m{s}\x1b[0m"  # noqa: E731
 
 
-@dataclass
-class UiAskInput:
-    pass
-
-
-@dataclass
-class UiPermission:
-    tool_id: str
-    tool_name: str
-
-
-@dataclass
-class UiError:
-    message: str
-
-
-@dataclass
-class UiQuit:
-    pass
-
-
 class Cli:
     def __init__(self, working_dir: str, resume_session_id: str | None) -> None:
         self.working_dir = working_dir
         self.resume_session_id = resume_session_id
         self.session: SemaSession | None = None
+        # 事件回调是同步的，不能在回调里等用户输入；权限询问/消息询问都会抢 stdin，
+        # 统一入队由对话循环串行消费。消息形如：
+        # ("ask",) | ("perm", tool_id, tool_name) | ("error", msg) | ("quit",)
         self.ui_queue: asyncio.Queue = asyncio.Queue()
         self.line_queue: asyncio.Queue = asyncio.Queue()  # str | None(EOF)
         self.ask_pending = False        # ≙ cli.ts 的 awaitingInput
         self.interrupt_count = 0        # 第一次中断会话，第二次强制退出
         self.sub_agent_depth = 0
-        self.saved_tty: list | None = None
-        self.is_tty = sys.stdin.isatty()
 
-    # ── 中断处理（≙ cli.ts 的 SIGINT / esc 两个入口） ─────────────────────
+    # ── Ctrl+C 中断（≙ cli.ts 的 SIGINT 分支） ───────────────────────────
 
     def on_sigint(self) -> None:
         print("\n⚠️  中断会话...", flush=True)
-        self.interrupt_or_exit()
-
-    def interrupt_or_exit(self) -> None:
         self.interrupt_count += 1
         if self.session is not None and self.interrupt_count == 1:
             asyncio.ensure_future(self.session.interrupt())  # fire-and-forget
         else:
             # 第二次：解锁对话循环（无论卡在 ui_queue 还是 line_queue），
-            # 由 run() 的 finally 恢复终端并级联关闭 sidecar（≙ Java 的 shutdown hook）
+            # 由 run() 的 finally 级联关闭 sidecar（≙ Java 的 shutdown hook）
             self.line_queue.put_nowait(None)
-            self.ui_queue.put_nowait(UiQuit())
+            self.ui_queue.put_nowait(("quit",))
 
-    def setup_tty(self) -> None:
-        """esc 检测需 cbreak（非规范 + 关回显，保留 ISIG；≙ setRawMode）。"""
-        if not self.is_tty:
-            return
-        fd = sys.stdin.fileno()
-        self.saved_tty = termios.tcgetattr(fd)
-        # TCSANOW：默认的 TCSAFLUSH 会丢弃已缓冲的输入（启动期用户抢先打的字）
-        tty.setcbreak(fd, termios.TCSANOW)
-        attrs = termios.tcgetattr(fd)
-        attrs[3] &= ~termios.ECHO  # setcbreak 不关回显，自行关掉后由 reader 统一回显
-        termios.tcsetattr(fd, termios.TCSANOW, attrs)
-
-    def restore_tty(self) -> None:
-        if self.saved_tty is not None:
-            termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, self.saved_tty)
-
-    # ── stdin 读取（loop.add_reader，逐块读；esc 即时生效） ────────────────
+    # ── stdin 读取：终端保持规范模式，回显/退格由终端处理，按整行入队 ──────
 
     def start_stdin_reader(self, loop: asyncio.AbstractEventLoop) -> None:
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        buf: list[str] = []
         fd = sys.stdin.fileno()
+        buf = ""
 
         def on_readable() -> None:
-            chunk = os.read(fd, 1024)
-            if not chunk:  # EOF（管道输入耗尽）
+            nonlocal buf
+            chunk = os.read(fd, 4096)
+            if not chunk:  # EOF（管道输入耗尽 / Ctrl+D）
                 loop.remove_reader(fd)
                 self.line_queue.put_nowait(None)
                 return
-            # esc 单独按键才算中断；方向键等 CSI 序列（esc 后紧跟字节）整段丢弃
-            if self.is_tty and chunk.startswith(b"\x1b"):
-                if chunk == b"\x1b":
-                    self.interrupt_or_exit()
-                return
-            for ch in decoder.decode(chunk):
-                if ch in ("\r", "\n"):
-                    if self.is_tty:
-                        print()
-                    self.line_queue.put_nowait("".join(buf))
-                    buf.clear()
-                elif ch in ("\x7f", "\b"):
-                    if buf:
-                        last = buf.pop()
-                        if self.is_tty:  # CJK 等宽字符占两格
-                            sys.stdout.write("\b\b  \b\b" if ord(last) > 0xFF else "\b \b")
-                            sys.stdout.flush()
-                elif ch >= " ":
-                    buf.append(ch)
-                    if self.is_tty:
-                        sys.stdout.write(ch)
-                        sys.stdout.flush()
+            buf += decoder.decode(chunk)
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                self.line_queue.put_nowait(line.rstrip("\r"))
 
         loop.add_reader(fd, on_readable)
 
@@ -167,7 +111,7 @@ class Cli:
 
         # 权限交互：入队交对话循环读 y/n
         session.on(SemaEvents.TOOL_PERMISSION_REQUEST, lambda d: self.ui_queue.put_nowait(
-            UiPermission((d or {}).get("toolId", ""), (d or {}).get("toolName", ""))))
+            ("perm", (d or {}).get("toolId", ""), (d or {}).get("toolName", ""))))
 
         # 恢复运行后重置中断计数；以主代理回到 idle 作为一轮结束信号
         def on_state(d) -> None:
@@ -182,7 +126,7 @@ class Cli:
         # 会话初始即 idle 不会触发 state:update，靠 session:ready 弹首条输入（SDK 缓存重放）
         session.once(SemaEvents.SESSION_READY, lambda d: self.enqueue_ask())
         session.once(SemaEvents.SESSION_ERROR, lambda d: self.ui_queue.put_nowait(
-            UiError((d or {}).get("message") or str(d))))
+            ("error", (d or {}).get("message") or str(d))))
 
     def _bump_depth(self, delta: int) -> None:
         self.sub_agent_depth = max(0, self.sub_agent_depth + delta)
@@ -191,18 +135,20 @@ class Cli:
         """ready/idle/interrupted 都可能触发询问，ask_pending 防重复弹出输入。"""
         if not self.ask_pending:
             self.ask_pending = True
-            self.ui_queue.put_nowait(UiAskInput())
+            self.ui_queue.put_nowait(("ask",))
 
     # ── 对话循环 ─────────────────────────────────────────────────────────
 
     async def conversation_loop(self, session: SemaSession) -> None:
         while True:
             ev = await self.ui_queue.get()
-            if isinstance(ev, UiQuit):
+            kind = ev[0]
+            if kind == "quit":
                 return
-            if isinstance(ev, UiError):
-                raise RuntimeError(ev.message)
-            if isinstance(ev, UiPermission):
+            if kind == "error":
+                raise RuntimeError(ev[1])
+            if kind == "perm":
+                _, tool_id, tool_name = ev
                 sys.stdout.write(blue("👤 权限响应 (y=agree / n=refuse): "))
                 sys.stdout.flush()
                 answer = await self.next_line()
@@ -210,10 +156,10 @@ class Cli:
                     return
                 selected = "refuse" if answer.strip().lower() == "n" else "agree"
                 await session.respond_to_tool_permission(
-                    {"toolId": ev.tool_id, "toolName": ev.tool_name, "selected": selected})
+                    {"toolId": tool_id, "toolName": tool_name, "selected": selected})
                 continue
-            # UiAskInput
-            sys.stdout.write(blue("\n👤 消息 (esc中断): "))
+            # ("ask",)
+            sys.stdout.write(blue("\n👤 消息 (Ctrl+C中断): "))
             sys.stdout.flush()
             line = await self.next_line()
             self.ask_pending = False  # 读到输入后才复位，镜像 cli.ts 的 awaitingInput 时序
@@ -248,7 +194,6 @@ class Cli:
 
             loop = asyncio.get_running_loop()
             loop.add_signal_handler(signal.SIGINT, self.on_sigint)
-            self.setup_tty()
             self.start_stdin_reader(loop)
 
             self.subscribe(self.session)
@@ -260,7 +205,6 @@ class Cli:
             except Exception:
                 pass  # 退出路径尽力而为
         finally:
-            self.restore_tty()
             await core.close()
 
 

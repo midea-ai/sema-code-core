@@ -1,6 +1,6 @@
 """事件名常量（镜像 Java api/SemaEvents；名与值 = core 原始事件名，不做任何转换）。
 
-一致性由 bridge 的 manifest 校验兜底（sdks/bridge/scripts/check-consistency.mjs）。
+一致性由 bridge 的 manifest 校验兜底（sdks/shared/bridge/scripts/check-consistency.mjs）。
 """
 
 # ── 会话级 ────────────────────────────────────────────────────────────────

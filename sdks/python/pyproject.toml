@@ -10,13 +10,17 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "SemaCode" }]
+keywords = ["sema-core", "ai", "agent", "sdk", "grpc"]
 dependencies = [
     "grpcio>=1.60",
     "protobuf>=4.25",
 ]
 
 [project.urls]
+Homepage = "https://midea-ai.github.io/sema-code-core"
+Documentation = "https://midea-ai.github.io/sema-code-core"
 Repository = "https://github.com/midea-ai/sema-code-core"
+Issues = "https://github.com/midea-ai/sema-code-core/issues"
 
 [project.optional-dependencies]
 dev = ["grpcio-tools>=1.60"]
@@ -25,6 +29,7 @@ dev = ["grpcio-tools>=1.60"]
 where = ["src"]
 
 [tool.setuptools.package-data]
+# py.typed：PEP 561 标记，缺它下游 mypy/pyright 读不到本包类型（types.py / event.py 的 DTO）。
 # _generated 提交入仓（pip 安装不依赖 protoc）；_sidecar 由 scripts/embed_sidecar.py
-# 从 ../bridge/dist 复制（构建产物不入 git，发布前执行，与 Java jar 内嵌同构）
-sema_sdk = ["_sidecar/server.js", "_sidecar/proto/sema.proto"]
+# 从 ../shared/bridge/dist 复制（构建产物不入 git，发布前执行，与 Java jar 内嵌同构）
+sema_core = ["py.typed", "_sidecar/server.js", "_sidecar/proto/sema.proto"]

@@ -29,7 +29,7 @@ cd sdks/shared/bridge && npm install && npm run build
 cd ../../csharp && dotnet pack -c Release
 ```
 
-成功后 `bin/Release/` 下应有 `Semacore.2.0.9.nupkg`，内含 `sema-sidecar/server.js`。
+成功后 `bin/Release/` 下应有 `Semacore.<版本号>.nupkg`，内含 `sema-sidecar/server.js`。
 
 ## 发布
 
@@ -38,5 +38,5 @@ cd ../../csharp && dotnet pack -c Release
 之后每次发布一条命令：
 
 ```bash
-dotnet nuget push bin/Release/Semacore.2.0.9.nupkg --source https://api.nuget.org/v3/index.json --api-key <API_KEY>
+dotnet nuget push bin/Release/Semacore.<版本号>.nupkg --source https://api.nuget.org/v3/index.json --api-key <API_KEY>
 ```

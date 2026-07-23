@@ -31,7 +31,7 @@ cd sdks/shared/bridge && npm install && npm run build
 cd ../../java && mvn -q -DskipTests clean install
 ```
 
-成功后 `target/` 下应有 `sema-core-2.0.9.jar`，内含 `sema-sidecar/server.js`。
+成功后 `target/` 下应有 `sema-core-<版本号>.jar`，内含 `sema-sidecar/server.js`。
 
 ## 发布
 

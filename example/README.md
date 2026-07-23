@@ -36,7 +36,7 @@ npm run exec /path/to/your/project "列出 src 结构"    # 一次性执行
 <dependency>
   <groupId>io.github.midea-ai</groupId>
   <artifactId>sema-core</artifactId>
-  <version>2.0.9</version>
+  <version>2.0.10</version>
 </dependency>
 ```
 
@@ -59,7 +59,7 @@ python cli.py /path/to/your/project
 **C#**（.NET 8+）
 
 ```bash
-dotnet add package Semacore --version 2.0.9
+dotnet add package Semacore --version 2.0.10
 ```
 
 ```bash

@@ -13,7 +13,7 @@ demo 的 `pom.xml` 已声明依赖，Maven 会自动从 Maven Central 拉取；�
 <dependency>
   <groupId>io.github.midea-ai</groupId>
   <artifactId>sema-core</artifactId>
-  <version>2.0.9</version>
+  <version>2.0.10</version>
 </dependency>
 ```
 

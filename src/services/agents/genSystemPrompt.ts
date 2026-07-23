@@ -54,9 +54,10 @@ export async function formatSystemPrompt(): Promise<TextBlock[]> {
   const memoryDir = getMemoryManager().getActiveMemoryDir()
   const memoryPrompt = AUTO_MEMORY_PROMPT(memoryDir)
 
+  const { prefixPrompt, corePrompt } = resolveMainPrompt()
   return buildPromptBlocks({
-    prefixPrompt: getProductSyspromptPrefix(),
-    corePrompt: SYSTEM_PROMPT,
+    prefixPrompt,
+    corePrompt,
     sections: [memoryPrompt],
   })
 }
@@ -80,16 +81,21 @@ async function getContext(): Promise<Record<string, string>> {
   return context
 }
 
-function getProductSyspromptPrefix(): string {
+// 按 systemPromptMode 解析主提示词：replace 时配置的 systemPrompt 取代内置 SYSTEM_PROMPT（未配则回落 append）
+function resolveMainPrompt(): { prefixPrompt?: string, corePrompt: string } {
   try {
     const configManager = getConfManager();
     const coreConfig = configManager.getCoreConfig();
-    if (coreConfig?.systemPrompt) {
-      return coreConfig.systemPrompt;
+    const customPrompt = coreConfig?.systemPrompt?.trim();
+    if (coreConfig?.systemPromptMode === 'replace' && customPrompt) {
+      return { corePrompt: customPrompt };
+    }
+    if (customPrompt) {
+      return { prefixPrompt: coreConfig!.systemPrompt, corePrompt: SYSTEM_PROMPT };
     }
   } catch (error) {
   }
-  return DEFINE_SYSTEM_PROMPT;
+  return { prefixPrompt: DEFINE_SYSTEM_PROMPT, corePrompt: SYSTEM_PROMPT };
 }
 
 export function genEnv(context: Record<string, any>): string {

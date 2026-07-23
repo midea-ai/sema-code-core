@@ -293,7 +293,7 @@ SemaCore, SemaSession                                        // 主类：进程�
 ### 4.3 类型 `sema-core/types`
 
 ```
-AgentMode, PermissionLevel                                   // Agent 模式 / 权限档位
+AgentMode, PermissionLevel, SystemPromptMode                 // Agent 模式 / 权限档位 / 系统提示词模式
 SemaCoreConfig, UpdatableCoreConfig, UpdatableCoreConfigKeys // Core 配置 / 可更新子集 / 可更新键名
 ModelConfig, TaskConfig, ModelInfo, ModelUpdateData          // 模型：配置 / 主快指针 / 模型项 / 变更结果
 FetchModelsParams, FetchModelsResult                         // 拉取可用模型：参数 / 结果
@@ -318,6 +318,8 @@ MAIN_AGENT_ID                                                // 常量：主代�
 > `Fork*` 与 `InputImageAttachment` 归 `types` 入口（Python 已如此；Node 侧 `index.ts` 待同步——原在主入口导出）。
 >
 > `defaultCoreConfig`（含超大默认 systemPrompt）与 `TOOL_NAME_*` 常量暂未纳入 SDK，如需再议。
+>
+> `systemPromptMode`：`'append'`（默认，配置的 systemPrompt 叠加在内置提示词前）| `'replace'`（替换内置系统提示词，memory/env 上下文仍附加；未配 systemPrompt 时回落 append）。仅构造时生效，不支持动态更新。
 
 ### 4.4 事件数据 `sema-core/event`
 

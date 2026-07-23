@@ -48,6 +48,9 @@ public enum RuleScope { user, project }
 public enum SkillScope { user, project, plugin }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
+public enum SystemPromptMode { append, replace }
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TodoTaskStatus { pending, in_progress, completed }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -392,6 +395,7 @@ public record SemaCoreConfig
     [JsonPropertyName("stream")] public bool? Stream { get; init; }
     [JsonPropertyName("thinking")] public bool? Thinking { get; init; }
     [JsonPropertyName("systemPrompt")] public string? SystemPrompt { get; init; }
+    [JsonPropertyName("systemPromptMode")] public SystemPromptMode? SystemPromptMode { get; init; }
     [JsonPropertyName("customRules")] public string? CustomRules { get; init; }
     [JsonPropertyName("skipFileEditPermission")] public bool? SkipFileEditPermission { get; init; }
     [JsonPropertyName("skipShellExecPermission")] public bool? SkipShellExecPermission { get; init; }

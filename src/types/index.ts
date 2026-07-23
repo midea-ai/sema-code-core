@@ -2,6 +2,9 @@ import { DEFINE_SYSTEM_PROMPT } from '../prompt/define'
 
 export type AgentMode = 'Agent' | 'Plan' | 'Design';
 
+// 系统提示词模式：append=配置的 systemPrompt 叠加在内置提示词前（默认），replace=替换内置提示词
+export type SystemPromptMode = 'append' | 'replace';
+
 // 权限自由度档位（从低到高）
 // - Ask：每次动作都询问
 // - AutoEdit：项目内文件编辑自动放行，其余仍询问
@@ -15,6 +18,7 @@ export interface SemaCoreConfig {
   stream?: boolean;                  // 流式输出ai响应，默认 是
   thinking?: boolean;                // 流式输出ai响应，默认 否
   systemPrompt?: string;             // 系统提示
+  systemPromptMode?: SystemPromptMode; // 系统提示词模式，默认 'append'；'replace' 时未配 systemPrompt 则回落 append；仅构造时生效，不支持动态更新
   customRules?: string;              // 用户规则
   skipFileEditPermission?: boolean;  // 是否跳过文件编辑权限检查，默认 否
   skipShellExecPermission?: boolean;  // 是否跳过run_shell执行权限检查，默认 否

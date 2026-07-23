@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 # ==================== 字面量枚举 ====================
 
 AgentMode = Literal["Agent", "Plan", "Design"]
+SystemPromptMode = Literal["append", "replace"]
 PermissionLevel = Literal["Ask", "AutoEdit", "AutoRun", "Bypass"]
 AdapterType = Literal["openai", "anthropic"]
 MCPTransportType = Literal["stdio", "sse", "http"]
@@ -60,6 +61,7 @@ class SemaCoreConfig(TypedDict, total=False):
     stream: bool
     thinking: bool
     systemPrompt: str
+    systemPromptMode: SystemPromptMode
     customRules: str
     skipFileEditPermission: bool
     skipShellExecPermission: bool

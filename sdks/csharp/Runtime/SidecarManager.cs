@@ -154,6 +154,8 @@ public sealed class SidecarManager : IAsyncDisposable
             var psi = new ProcessStartInfo(node)
             {
                 WorkingDirectory = Path.GetDirectoryName(serverJs)!,
+                // stdin 管道只握不写：宿主死亡（含强杀）管道关闭，桥据此孤儿自检退出
+                RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,

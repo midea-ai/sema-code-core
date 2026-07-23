@@ -234,6 +234,8 @@ class SidecarManager:
                 node, str(server_js),
                 cwd=str(server_js.parent),
                 env=env,
+                # stdin 管道只握不写：宿主死亡（含 kill -9）管道关闭，桥据此孤儿自检退出
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )

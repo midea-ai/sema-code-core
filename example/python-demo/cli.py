@@ -8,16 +8,17 @@ pip install sema-core
 
 模型自动读取 ~/.sema/model.conf（见 README），代码里无需配置模型。
 
-与 TS 版 cli.ts 的差异：不支持 esc 单键中断（Python 需接管终端 cbreak 模式并手写
-回显/退格，对 demo 而言代价太大），统一用 Ctrl+C：第一次中断会话，第二次退出。
+与 TS 版 cli.ts 的差异：不支持 esc 单键中断，统一用 Ctrl+C：第一次中断会话，
+第二次退出。行编辑（回显/退格）由 readline 接管，在后台线程跑 input()。
 """
 from __future__ import annotations
 
 import asyncio
-import codecs
-import os
+import queue
 import signal
 import sys
+import termios
+import threading
 from pathlib import Path
 
 from sema_core import MAIN_AGENT_ID, SemaCore, SemaEvents, SemaSession
@@ -25,7 +26,6 @@ from sema_core import MAIN_AGENT_ID, SemaCore, SemaEvents, SemaSession
 MAX_LOG_LEN = 200
 
 gray = lambda s: f"\x1b[90m{s}\x1b[0m"   # noqa: E731
-blue = lambda s: f"\x1b[34m{s}\x1b[0m"   # noqa: E731
 green = lambda s: f"\x1b[32m{s}\x1b[0m"  # noqa: E731
 
 
@@ -56,28 +56,26 @@ class Cli:
             self.line_queue.put_nowait(None)
             self.ui_queue.put_nowait(("quit",))
 
-    # ── stdin 读取：终端保持规范模式，回显/退格由终端处理，按整行入队 ──────
+    # ── stdin 读取：后台线程跑 input()，readline 负责行编辑（宽字符退格正确） ──
 
     def start_stdin_reader(self, loop: asyncio.AbstractEventLoop) -> None:
-        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        fd = sys.stdin.fileno()
-        buf = ""
+        self.prompt_queue: queue.Queue = queue.Queue()  # 收到提示符字符串即唤起一次 input()
 
-        def on_readable() -> None:
-            nonlocal buf
-            chunk = os.read(fd, 4096)
-            if not chunk:  # EOF（管道输入耗尽 / Ctrl+D）
-                loop.remove_reader(fd)
-                self.line_queue.put_nowait(None)
-                return
-            buf += decoder.decode(chunk)
-            while "\n" in buf:
-                line, buf = buf.split("\n", 1)
-                self.line_queue.put_nowait(line.rstrip("\r"))
+        def reader() -> None:
+            while True:
+                prompt = self.prompt_queue.get()
+                try:
+                    line = input(prompt)
+                except EOFError:  # 管道输入耗尽 / Ctrl+D
+                    loop.call_soon_threadsafe(self.line_queue.put_nowait, None)
+                    return
+                loop.call_soon_threadsafe(self.line_queue.put_nowait, line)
 
-        loop.add_reader(fd, on_readable)
+        # daemon：退出路径（二次 Ctrl+C / 会话错误）上 input() 可能仍阻塞在 stdin，不能等它结束
+        threading.Thread(target=reader, daemon=True, name="stdin-reader").start()
 
-    async def next_line(self) -> str | None:
+    async def next_line(self, prompt: str) -> str | None:
+        self.prompt_queue.put(prompt)
         return await self.line_queue.get()
 
     # ── 事件订阅（对应 cli.ts 各节） ──────────────────────────────────────
@@ -149,9 +147,9 @@ class Cli:
                 raise RuntimeError(ev[1])
             if kind == "perm":
                 _, tool_id, tool_name = ev
-                sys.stdout.write(blue("👤 权限响应 (y=agree / n=refuse): "))
-                sys.stdout.flush()
-                answer = await self.next_line()
+                # 提示符必须交给 input()/readline 打印才能正确重绘；不能带 ANSI 色
+                # （readline 会把转义序列算进列宽，编辑时错位）
+                answer = await self.next_line("👤 权限响应 (y=agree / n=refuse): ")
                 if answer is None:
                     return
                 selected = "refuse" if answer.strip().lower() == "n" else "agree"
@@ -159,9 +157,7 @@ class Cli:
                     {"toolId": tool_id, "toolName": tool_name, "selected": selected})
                 continue
             # ("ask",)
-            sys.stdout.write(blue("\n👤 消息 (Ctrl+C中断): "))
-            sys.stdout.flush()
-            line = await self.next_line()
+            line = await self.next_line("\n👤 消息 (Ctrl+C中断): ")
             self.ask_pending = False  # 读到输入后才复位，镜像 cli.ts 的 awaitingInput 时序
             if line is None:
                 return  # EOF 视同退出
@@ -177,6 +173,10 @@ class Cli:
             await session.process_user_input(text)
 
     async def run(self) -> None:
+        try:
+            tty_attrs = termios.tcgetattr(sys.stdin.fileno())
+        except Exception:
+            tty_attrs = None  # stdin 非终端（管道输入）
         # ≙ Node: new SemaCore({...})，配置项一字不差。sidecar 内嵌在 SDK 包里自动释放拉起。
         core = await SemaCore.start({
             "workingDir": self.working_dir,
@@ -206,6 +206,10 @@ class Cli:
                 pass  # 退出路径尽力而为
         finally:
             await core.close()
+            if tty_attrs is not None:
+                # 退出时 input() 可能仍阻塞着（二次 Ctrl+C 路径），readline 来不及
+                # 恢复终端模式，这里兜底还原
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, tty_attrs)
 
 
 def main() -> None:

@@ -20,7 +20,12 @@ async def main():
     core = await SemaCore.start({"workingDir": "/path/to/your/project"})
     session = await core.create_session()
     session.on("message:text:chunk", lambda d: print(d["delta"], end="", flush=True))
+
+    done = asyncio.Event()
+    session.on("state:update", lambda d: done.set() if (d or {}).get("state") == "idle" else None)
+
     await session.process_user_input("你好")
+    await done.wait()          # 等回复完成再关
     await core.close()
 
 asyncio.run(main())

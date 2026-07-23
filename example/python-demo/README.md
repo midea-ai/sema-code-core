@@ -1,40 +1,26 @@
 # sema-core Python Demo
 
-`example/demo`（Node 示例）的 Python 镜像，直接依赖官方 Python SDK（pip 包 `sema-core`，模块 `sema_core`）。方法名（snake_case 机械映射）、参数名、事件名与 Node 版一致——对照两边源码可以看到逐节对应关系：
-
-| 入口 | Node 版 | Python 版 |
-|---|---|---|
-| 交互式 CLI | `demo/src/cli.ts` | `cli.py` |
-| 一次性执行（非交互） | `demo/src/run.ts` | `run.py` |
-
-```python
-# 起步代码与 Node 逐行对照（sidecar 内嵌在 SDK 包里，自动释放拉起，无需任何路径配置）：
-core = await SemaCore.start({"workingDir": project_dir})   # ≙ new SemaCore({workingDir})
-session = await core.create_session()                      # ≙ await core.createSession()
-session.on("message:text:chunk", lambda d: print(d["delta"], end=""))
-await session.process_user_input("你好")                    # ≙ session.processUserInput('你好')
-await core.close()                                          # ≙ await core.dispose()
-```
-
 ## 前置条件
 
 - Python 3.10+；Node ≥18（SDK 本地优先探测，探测不到自动下载到 `~/.sema/node`）
-- 模型配置 `~/.sema/model.conf`（sema-core 自动读取，demo 代码不涉及模型配置；格式见 [`example/demo/README.md`](../demo/README.md)）
+- 模型配置 `~/.sema/model.conf`（sema-core 自动读取，demo 代码不涉及模型配置；格式见 [`模型配置`](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/basic-usage/add-new-model?id=%E6%8C%81%E4%B9%85%E5%8C%96)）
 
-## 安装与运行
+## 安装 sema-core
 
 ```bash
-# ① 在 demo 目录建 venv 并安装 SDK
+# 在 demo 目录建 venv 并安装 SDK
 cd example/python-demo
 python3 -m venv .venv
 source .venv/bin/activate
 pip install sema-core
-
-# ② 运行 demo（venv 已激活；系统 python3 没装 SDK，不激活会报
-#    ModuleNotFoundError: No module named 'sema_core'）
-python cli.py /path/to/project              # 交互式 CLI，新建会话（≙ npm run cli）
-python cli.py /path/to/project <会话id>      # 加载历史会话
-python run.py /path/to/project "列出 src 结构" verbose   # 一次性执行（≙ npm run exec）
 ```
 
-交互方式与 Node 版基本一致：直接输入消息回车对话（如"你好"），权限询问输 `y`/`n`，`Ctrl-C` 第一次中断当前轮、第二次退出，输入 `exit`/`quit` 结束（Python 版不支持 esc 单键中断，统一用 `Ctrl-C`）。
+也可从 [releases](https://github.com/midea-ai/sema-code-core/releases/latest) 下载最新的 whl 文件，再 `pip install <whl 文件路径>` 安装。
+
+## 运行
+
+```bash
+python cli.py /path/to/project              # 交互式 CLI，新建会话
+python cli.py /path/to/project <会话id>      # 加载历史会话
+python run.py /path/to/project "列出 src 结构" verbose   # 一次性执行
+```

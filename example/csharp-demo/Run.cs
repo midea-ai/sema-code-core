@@ -9,7 +9,7 @@ namespace Sema.Example.Demo;
 /// 入口 2：一次性执行（非交互）—— <c>example/demo/src/run.ts</c> 的 C# 镜像。
 ///
 /// 用法：
-///   dotnet run -- run &lt;项目路径&gt; "&lt;用户输入&gt;" [verbose|medium|simple|minimal]
+///   dotnet run -- exec &lt;项目路径&gt; "&lt;用户输入&gt;" [verbose|medium|simple|minimal]
 ///
 /// 详略档位（所有工具都只打印「标题」）：
 ///   verbose  详细：AI 文本 + 全部工具标题 + 错误 + 子代理 + todos
@@ -42,7 +42,7 @@ public static class Run
         var rawVerbosity = positional.Count > 2 ? positional[2] : "verbose";
         if (projectPath == null || userInput == null)
         {
-            Console.Error.WriteLine("用法: dotnet run -- run <项目路径> \"<用户输入>\" [verbose|medium|simple|minimal]");
+            Console.Error.WriteLine("用法: dotnet run -- exec <项目路径> \"<用户输入>\" [verbose|medium|simple|minimal]");
             return 1;
         }
         if (!Directory.Exists(projectPath))

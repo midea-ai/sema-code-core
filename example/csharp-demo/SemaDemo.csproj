@@ -14,9 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 直接引用仓库内 SDK 工程（其构建会内嵌 ../../sdks/shared/bridge/dist 的 sidecar 产物）；
-         发布后可改为 <PackageReference Include="Semacore" /> -->
-    <ProjectReference Include="../../sdks/csharp/Semacore.csproj" />
+    <PackageReference Include="Semacore" Version="2.0.9" />
   </ItemGroup>
 
 </Project>

@@ -344,3 +344,21 @@ process.on('SIGINT', () => {
   console.log('[sema-grpc] Shutting down...');
   void manager.dispose().finally(() => server.tryShutdown(() => process.exit(0)));
 });
+
+// 孤儿自检：stdin 是 FIFO（宿主 SidecarManager 建的管道）才启用——宿主活着管道就开着，
+// 宿主死亡（含 SIGKILL / 崩溃 / IDE 停止按钮，收不到任何信号）管道必然关闭 → 自行退出，不留孤儿。
+// TTY / /dev/null 是字符设备、非 FIFO，手动跑桥调试天然不触发；SEMA_NO_PARENT_WATCH=1 可强制关闭。
+const stdinIsPipe = (() => { try { return fs.fstatSync(0).isFIFO(); } catch { return false; } })();
+if (stdinIsPipe && !process.env.SEMA_NO_PARENT_WATCH) {
+  let exiting = false;
+  const orphanExit = () => {
+    if (exiting) return;
+    exiting = true;
+    console.log('[sema-grpc] stdin closed (host gone), exiting...');
+    setTimeout(() => process.exit(0), 3000).unref(); // dispose 卡住时兜底强退
+    void manager.dispose().finally(() => process.exit(0));
+  };
+  process.stdin.resume();
+  process.stdin.on('end', orphanExit);
+  process.stdin.on('close', orphanExit);
+}

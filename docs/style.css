@@ -127,7 +127,19 @@ html { scroll-behavior: smooth; }
   font-size: .85em; font-weight: 600; color: var(--text-color-secondary);
   text-transform: uppercase; letter-spacing: .5px;
   margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color);
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; user-select: none;
 }
+.right-toc .toc-title:hover { color: var(--theme-color); }
+.right-toc .toc-toggle { font-size: 1.2em; line-height: 1; transition: transform .2s; }
+.right-toc.collapsed { width: auto; }
+.right-toc.collapsed ul { display: none; }
+.right-toc.collapsed .toc-title {
+  margin: 0; padding: 6px 12px; border: 1px solid var(--border-color);
+  border-radius: 16px; background: #fff; gap: 6px;
+}
+.right-toc.collapsed .toc-toggle { transform: rotate(180deg); }
+body.toc-collapsed .markdown-section { padding-right: 0; }
 .right-toc ul { list-style: none; margin: 0; padding: 0; }
 .right-toc ul ul { padding-left: 10px; }
 .right-toc li { margin: 0; line-height: 1.4; }
@@ -169,7 +181,10 @@ body.is-home .markdown-section a { color: var(--link-color-home); }
 .markdown-section pre code { background-color: transparent; padding: 0; color: #ccc; font-size: .9em; }
 
 /* Table */
+.markdown-section .table-wrap { overflow-x: auto; margin-bottom: 16px; }
+.markdown-section .table-wrap table { margin-bottom: 0; }
 .markdown-section table { border-collapse: collapse; width: 100%; margin-bottom: 16px; display: table; }
+.markdown-section table th { white-space: nowrap; }
 .markdown-section table th, .markdown-section table td { padding: 12px; border: 1px solid var(--border-color); text-align: left; }
 .markdown-section table th { background-color: var(--code-bg); font-weight: 600; }
 .markdown-section table tr:nth-child(even) { background-color: var(--bg-color); }

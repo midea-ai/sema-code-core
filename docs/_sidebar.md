@@ -42,4 +42,7 @@
     - [事件类型](wiki/core-concepts/event-system/event-catalog)
   - [数据持久化](wiki/core-concepts/persistent-storage/index)
   - [会话 Fork / 回滚](wiki/core-concepts/session-fork/index)
+- **SDK**
+  - [Java / Python / C# SDK](wiki/sdk/overview)
+  - [API 与事件对照](wiki/sdk/api-reference)
 

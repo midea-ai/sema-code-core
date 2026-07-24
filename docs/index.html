@@ -67,6 +67,9 @@
             var b = mathBlocks[parseInt(i)];
             return b ? b.latex : _;
           });
+        // Wrap tables so wide ones scroll horizontally instead of overflowing the content area
+        html = html.replace(/<table>/g, '<div class="table-wrap"><table>')
+                   .replace(/<\/table>/g, '</table></div>');
         return html;
       });
 
@@ -136,6 +139,12 @@
       var activeLink = nav.querySelector('li.active > a') ||
                        (hash ? nav.querySelector('a[href="' + hash + '"]') : null);
       if (activeLink) {
+        // Fallback: docsify may miss the active class on direct deep-link loads
+        var activeLi = activeLink.parentElement;
+        if (!activeLi.classList.contains('active')) {
+          activeLi.classList.add('active');
+          activeLink.scrollIntoView({ block: 'nearest' });
+        }
         var el = activeLink.parentElement;
         while (el && el !== nav) {
           if (el.tagName === 'LI' && el.classList.contains('collapsed')) {
@@ -176,7 +185,7 @@
 
       var page = window.location.hash.replace(/\?.*$/, '').replace(/^#/, '') || '/';
       var indentMap = { H2: 0, H3: 10, H4: 20, H5: 30 };
-      var html = '<div class="toc-title">目录</div><ul>';
+      var html = '<div class="toc-title"><span>目录</span><span class="toc-toggle">‹</span></div><ul>';
       headings.forEach(function(h) {
         var href = h.id ? '#' + page + '?id=' + h.id : '#' + page;
         var px = indentMap[h.tagName] || 0;
@@ -184,6 +193,18 @@
         html += '<li' + indent + '><a href="' + href + '">' + h.textContent + '</a></li>';
       });
       toc.innerHTML = html + '</ul>';
+
+      // Click title to collapse / expand, state persists across pages
+      function setTocCollapsed(c) {
+        toc.classList.toggle('collapsed', c);
+        document.body.classList.toggle('toc-collapsed', c);
+      }
+      setTocCollapsed(localStorage.getItem('rightTocCollapsed') === '1');
+      toc.querySelector('.toc-title').onclick = function() {
+        var c = !toc.classList.contains('collapsed');
+        setTocCollapsed(c);
+        try { localStorage.setItem('rightTocCollapsed', c ? '1' : '0'); } catch(e) {}
+      };
 
       window.removeEventListener('scroll', window._tocScroll);
       window._tocScroll = function() {

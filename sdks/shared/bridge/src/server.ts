@@ -310,8 +310,16 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
   });
 }
 
-const server = new grpc.Server();
+const server = new grpc.Server({
+  // 默认单条 4MB，收 BridgeCommand（含贴图 base64）时易超限断连；抬到 64MB，发送不限
+  'grpc.max_receive_message_length': 64 * 1024 * 1024,
+  'grpc.max_send_message_length': -1,
+});
 server.addService(proto.sema.SemaBridge.service, { Connect: connect });
+
+// 进程级兜底：MCP/插件/cron 的脱离上下文异步异常不再掀翻整进程（sidecar 无自愈），降级为日志。
+process.on('uncaughtException', (err) => console.error('[sema-grpc] uncaughtException（已兜底）:', err));
+process.on('unhandledRejection', (reason) => console.error('[sema-grpc] unhandledRejection（已兜底）:', reason));
 
 server.bindAsync(
   `127.0.0.1:${PORT}`,

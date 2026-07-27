@@ -180,7 +180,7 @@ find（带上一节的危险 flag 时）
 仅**项目外**文件需要权限：
 
 1. `skipExternalFileReadPermission` → 放行。
-2. 项目内 / 临时文件 → 静默放行。
+2. 项目内 / 临时文件 / SEMA_ROOT 受信内容目录（`skills`、`commands`、`agents`、`plugins`）→ 静默放行。
 3. 项目外：`AutoEdit` / `AutoRun` 档位自动放行；否则命中本会话已授权的父目录（`getAllowedExternalReadDirs`）则放行；都不满足则请求权限（`prefix` 传父目录）。选 `'allow'` → `grantExternalReadDir(父目录)`，**按父目录会话级生效，不持久化**。
 
 ### Skill / MCP / fetch_url

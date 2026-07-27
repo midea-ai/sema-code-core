@@ -10,7 +10,8 @@ import { getEventBus } from '../events/EventSystem'
 import { ToolPermissionRequestData, ToolPermissionResponse, ToolPermissionAutoData } from '../events/types'
 import { checkAbortSignal } from '../types/errors'
 import { getFilePath } from '../util/file'
-import { isAbsolute, resolve, relative, dirname } from 'path'
+import { isAbsolute, resolve, relative, dirname, join } from 'path'
+import { getSemaRootDir } from '../util/savePath'
 import { tmpdir } from 'os'
 import { normalizeCmpPath } from '../util/platform'
 import { getStateManager, MAIN_AGENT_ID } from './StateManager'
@@ -32,6 +33,16 @@ function isPathInsideRoot(filePath: string, root: string): boolean {
 // 系统临时目录：这些目录树下的文件视为临时文件，AutoEdit/AutoRun 下即便在项目外也自动放行
 // tmpdir() 已涵盖 $TMPDIR/$TEMP/$TMP；/var/folders 覆盖 macOS 临时/缓存区
 const TEMP_BASE_PATHS = [tmpdir(), '/tmp', '/var/tmp', '/var/folders']
+
+// SEMA_ROOT 下的受信内容子目录：全局 skill/命令/agent/插件均为用户自行安装的内容，读取静默放行。
+// 仅限这几个内容型目录；SEMA_ROOT 根下的 model.conf、history/ 等敏感文件仍需权限申请。
+const TRUSTED_SEMA_SUBDIRS = ['skills', 'commands', 'agents', 'plugins']
+
+function isTrustedSemaFile(filePath: string): boolean {
+  const abs = isAbsolute(filePath) ? filePath : resolve(readInitialCwd(), filePath)
+  const semaRoot = getSemaRootDir()
+  return TRUSTED_SEMA_SUBDIRS.some(sub => isPathInsideRoot(abs, join(semaRoot, sub)))
+}
 
 function isTempFile(filePath: string): boolean {
   // 相对路径按项目根解析（解析后必落在项目内，由 isPathInsideRoot 处理）；临时文件均为绝对路径
@@ -159,8 +170,8 @@ export const checkToolPermission = async (
     }
 
     const filePath = getFilePath(input)
-    // 项目内或临时文件：直接放行，保持静默
-    if (!filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath)) {
+    // 项目内、临时文件或 SEMA_ROOT 受信内容目录：直接放行，保持静默
+    if (!filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath) || isTrustedSemaFile(filePath)) {
       return { result: true }
     }
 

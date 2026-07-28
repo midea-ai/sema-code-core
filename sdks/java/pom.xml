@@ -7,7 +7,7 @@
   <!-- groupId 走 GitHub namespace：Central Portal 以 GitHub 账号登录即自动验证，无需域名所有权 -->
   <groupId>io.github.midea-ai</groupId>
   <artifactId>sema-core</artifactId>
-  <version>2.0.10</version>
+  <version>2.0.11</version>
 
   <name>Sema Java SDK</name>
   <description>Java SDK for sema-core: thin client over the sema-grpc bridge</description>

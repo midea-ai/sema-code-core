@@ -8,7 +8,7 @@
     <RootNamespace>Semacore</RootNamespace>
     <AssemblyName>Semacore</AssemblyName>
     <PackageId>Semacore</PackageId>
-    <Version>2.0.10</Version>
+    <Version>2.0.11</Version>
     <Description>C# SDK for sema-core: thin client over the sema-grpc bridge</Description>
     <Authors>SemaCode</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

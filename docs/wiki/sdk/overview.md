@@ -32,7 +32,7 @@ npm install sema-core
 <dependency>
   <groupId>io.github.midea-ai</groupId>
   <artifactId>sema-core</artifactId>
-  <version>2.0.10</version>
+  <version>{版本号}</version>
 </dependency>
 ```
 

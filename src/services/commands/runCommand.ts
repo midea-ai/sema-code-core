@@ -30,8 +30,10 @@ export async function handleCommand(input: string, sessionId: string): Promise<C
 // ─── 系统命令 ────────────────────────────────────────────────────────────────
 
 async function handleSystemCommand(input: string, sessionId: string): Promise<SystemCommandHandleResult> {
-  if (input === '/compact') {
-    await handleCompactCommand(sessionId);
+  if (input === '/compact' || input.startsWith('/compact ')) {
+    // /compact <指示>：指示作为附加要求传给摘要过程（截断至 2000 字符）；无参行为不变
+    const instructions = input.slice('/compact'.length).trim().slice(0, 2000);
+    await handleCompactCommand(sessionId, instructions || undefined);
     return true;
   }
 
@@ -64,7 +66,7 @@ async function handleClearCommand(sessionId: string): Promise<void> {
   runtime.clearAllState();
 }
 
-async function handleCompactCommand(sessionId: string): Promise<void> {
+async function handleCompactCommand(sessionId: string, customInstructions?: string): Promise<void> {
   logInfo('执行压缩命令...');
 
   // 关闭本会话的后台进程
@@ -96,6 +98,7 @@ async function handleCompactCommand(sessionId: string): Promise<void> {
 
     const result = await compactMessages(messages, runtime.currentAbortController, sessionId, {
       allowTruncationFallback: false,
+      customInstructions,
     });
 
     if (result.kind === 'unchanged') {

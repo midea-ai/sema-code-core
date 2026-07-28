@@ -6,6 +6,7 @@ import {
   TOOL_NAME_PICK_OPTION, TOOL_NAME_PLAN_TO_AGENT,
   TOOL_NAME_CREATE_TODO, TOOL_NAME_GET_TODO,
   TOOL_NAME_LIST_TODOS, TOOL_NAME_UPDATE_TODO,
+  TOOL_NAME_LOAD_TOOLS, TOOL_SEARCH_DEFAULT_TOOLS,
 } from '../../prompt/tool'
 import { RunShell } from '../RunShell'
 import { PatchFile } from '../PatchFile'
@@ -28,12 +29,14 @@ import { CreateCron } from '../CreateCron'
 import { DelCron } from '../DelCron'
 import { ListCrons } from '../ListCrons'
 import { FetchUrl } from '../FetchUrl'
+import { LoadTools } from '../LoadTools'
 import { getMCPManager } from '../../services/mcp/MCPManager'
 import { getConfManager } from '../../manager/ConfManager'
+import { getStateManager } from '../../manager/StateManager'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { memoize } from 'lodash-es'
 import { ToolInfo } from '../../types/index'
-import { logInfo } from '../../util/log'
+import { logInfo, logWarn } from '../../util/log'
 
 
 const BG_TOOLS = new Set([TOOL_NAME_RUN_SHELL, TOOL_NAME_SUB_AGENT])
@@ -44,6 +47,7 @@ export const SUBAGENT_EXCLUDED_TOOLS = new Set([
   TOOL_NAME_PICK_OPTION, TOOL_NAME_PLAN_TO_AGENT,
   TOOL_NAME_CREATE_TODO, TOOL_NAME_GET_TODO,
   TOOL_NAME_LIST_TODOS, TOOL_NAME_UPDATE_TODO,
+  TOOL_NAME_LOAD_TOOLS,
 ])
 
 
@@ -112,16 +116,89 @@ export const getAvailableBuiltinTools = memoize(
   }
 )
 
+// 工具搜索模式：解析默认加载的工具名白名单（配置未设置时用内置默认集）
+// 仅内置名与 useTools 取交集（core 级 useTools 只含内置工具名）；未知名 warn 后忽略
+// 支持 mcp__{server}__* 通配符：展开为该 server 当前全部工具（server 名用工具全名中的规范形式，冒号已转下划线）
+export function getToolSearchDefaultNames(useTools?: string[] | null): string[] {
+  const configured = getConfManager().getCoreConfig()?.toolSearchDefaultTools
+  const names = (configured && configured.length > 0) ? configured : TOOL_SEARCH_DEFAULT_TOOLS
+  const builtinNames = new Set(getAllBuiltinToolNames())
+  const hasWildcard = names.some(name => name.startsWith('mcp__') && name.endsWith('__*'))
+  const mcpNames: string[] = hasWildcard
+    ? getMCPManager().getMCPTools().map(tool => tool.name)
+    : []
+  const result: string[] = []
+  const push = (name: string) => {
+    if (!result.includes(name)) result.push(name)
+  }
+  for (const name of names) {
+    if (name === TOOL_NAME_LOAD_TOOLS || result.includes(name)) continue
+    if (name.startsWith('mcp__') && name.endsWith('__*')) {
+      const prefix = name.slice(0, -1)  // 'mcp__{server}__'
+      mcpNames.filter(mcpName => mcpName.startsWith(prefix)).forEach(push)
+      continue
+    }
+    if (!builtinNames.has(name) && !name.startsWith('mcp__')) {
+      logWarn(`toolSearchDefaultTools 含未知工具名，已忽略: ${name}`)
+      continue
+    }
+    if (useTools && builtinNames.has(name) && !useTools.includes(name)) continue
+    push(name)
+  }
+  return result
+}
+
+// 工具搜索模式：延迟池（未默认加载的内置可用工具 + MCP 工具），供 load_tools 加载
+export function getDeferredTools(useTools?: string[] | null): Tool[] {
+  if (useTools === undefined) {
+    useTools = getConfManager().getCoreConfig()?.useTools
+  }
+  const defaultNames = new Set(getToolSearchDefaultNames(useTools))
+  const all = [...getAvailableBuiltinTools(useTools), ...getMCPManager().getMCPTools()]
+  return all.filter(tool => !defaultNames.has(tool.name))
+}
+
 // 获取可用内置工具 + MCP 工具
 // useTools 不传时回退到全局默认配置
-export function getAvailableTools(useTools?: string[] | null): Tool[] {
+// opts.sessionId：工具搜索模式下用于读取会话已动态加载的工具；开关关闭或未传时走原路径
+export function getAvailableTools(useTools?: string[] | null, opts?: { sessionId?: string }): Tool[] {
   if (useTools === undefined) {
     useTools = getConfManager().getCoreConfig()?.useTools
   }
   const builtinTools = getAvailableBuiltinTools(useTools)
   const mcpTools = getMCPManager().getMCPTools()
-  const tools: Tool[] = [...builtinTools, ...mcpTools]
-  logInfo(`tools len: ${tools.length} (builtin: ${builtinTools.length}, mcp: ${mcpTools.length})`)
+  const enableToolSearch = getConfManager().getCoreConfig()?.enableToolSearch ?? false
+
+  if (!enableToolSearch || !opts?.sessionId) {
+    const tools: Tool[] = [...builtinTools, ...mcpTools]
+    logInfo(`tools len: ${tools.length} (builtin: ${builtinTools.length}, mcp: ${mcpTools.length})`)
+    return tools
+  }
+
+  // 工具搜索模式：[默认加载工具(白名单序)] + [load_tools] + [会话已加载工具(加载序)]
+  // 顺序 append-only，保证 LLM 前缀缓存稳定
+  const byName = new Map<string, Tool>()
+  builtinTools.forEach(tool => byName.set(tool.name, tool))
+  mcpTools.forEach(tool => byName.set(tool.name, tool))
+
+  const defaultNames = getToolSearchDefaultNames(useTools)
+  const defaultTools = defaultNames
+    .map(name => byName.get(name))
+    .filter((tool): tool is Tool => !!tool)
+
+  // 白名单已覆盖全部可用工具：无延迟池，不注入搜索工具
+  if (defaultTools.length === byName.size) {
+    return defaultTools
+  }
+
+  const loadedNames = getStateManager().session(opts.sessionId).getLoadedToolNames()
+  const loadedTools = loadedNames
+    .filter(name => !defaultNames.includes(name))
+    .map(name => byName.get(name))
+    .filter((tool): tool is Tool => !!tool)
+
+  const tools: Tool[] = [...defaultTools, asTool(LoadTools), ...loadedTools]
+  logInfo(`tools len: ${tools.length} (tool-search on, default: ${defaultTools.length}, loaded: ${loadedTools.length})`)
   return tools
 }
 
@@ -178,7 +255,15 @@ export const buildTools = memoize(
   },
   (tools: Tool[]) => {
     const disableBackgroundTasks = getConfManager().getCoreConfig()?.disableBackgroundTasks ?? false
-    return tools.map(tool => tool.name).sort().join(',') + (disableBackgroundTasks ? ':no-bg' : '')
+    // key 不排序：工具搜索模式下不同会话可能以不同顺序加载相同工具集合，
+    // 排序会让二者命中同一缓存条目导致 tools 数组重排，破坏 LLM 前缀缓存
+    let key = tools.map(tool => tool.name).join(',') + (disableBackgroundTasks ? ':no-bg' : '')
+    // load_tools 的描述（可加载名单）随 MCP server 连接状态动态变化，用长度作指纹避免缓存陈旧描述
+    const loadTool = tools.find(tool => tool.name === TOOL_NAME_LOAD_TOOLS)
+    if (loadTool) {
+      key += `:ts-${getToolDescription(loadTool).length}`
+    }
+    return key
   }
 )
 

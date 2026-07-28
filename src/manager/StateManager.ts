@@ -125,6 +125,10 @@ export class SessionRuntime {
   // === 会话级配置（从全局 coreConfig 下沉到会话级）===
   public agentMode: AgentMode = 'Agent';
 
+  // 工具搜索模式下本会话已动态加载的工具名（内置名或 mcp__ 全名）
+  // append-only：顺序即 tools 数组尾部的追加顺序，保证 LLM 前缀缓存稳定，不提供移除/重排
+  private loadedToolNames: string[] = [];
+
   // 会话级系统提示快照：首次构建后冻结，整个会话不再变化
   private systemPromptContent: Array<{ type: 'text'; text: string }> | null = null;
 
@@ -494,6 +498,28 @@ export class SessionRuntime {
   }
 
   // ============================================================
+  // 工具搜索：已动态加载的工具（append-only）
+  // ============================================================
+
+  getLoadedToolNames(): string[] {
+    return [...this.loadedToolNames];
+  }
+
+  /**
+   * 去重后追加工具名，返回实际新增的工具名
+   */
+  addLoadedTools(names: string[]): string[] {
+    const added: string[] = [];
+    for (const name of names) {
+      if (!this.loadedToolNames.includes(name) && !added.includes(name)) {
+        added.push(name);
+      }
+    }
+    this.loadedToolNames.push(...added);
+    return added;
+  }
+
+  // ============================================================
   // 清理
   // ============================================================
 
@@ -515,6 +541,7 @@ export class SessionRuntime {
     this.designModeInfoSent = false;
     this.foregroundAgents.clear();
     this.clearPendingUserInputs();
+    this.loadedToolNames = [];
 
     logInfo(`[${this.sessionId}] 所有状态数据已清空`);
   }

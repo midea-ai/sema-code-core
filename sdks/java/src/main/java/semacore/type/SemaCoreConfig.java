@@ -5,7 +5,7 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean disableBackgroundTasks, Long maxSessions) {
+public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean disableBackgroundTasks, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private String workingDir;
@@ -27,6 +27,8 @@ public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream,
         private AgentMode agentMode;
         private Boolean disableTopicDetection;
         private Boolean disableBackgroundTasks;
+        private Boolean enableToolSearch;
+        private List<String> toolSearchDefaultTools;
         private Long maxSessions;
         private Builder() {}
         public Builder workingDir(String workingDir) { this.workingDir = workingDir; return this; }
@@ -48,7 +50,9 @@ public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream,
         public Builder agentMode(AgentMode agentMode) { this.agentMode = agentMode; return this; }
         public Builder disableTopicDetection(Boolean disableTopicDetection) { this.disableTopicDetection = disableTopicDetection; return this; }
         public Builder disableBackgroundTasks(Boolean disableBackgroundTasks) { this.disableBackgroundTasks = disableBackgroundTasks; return this; }
+        public Builder enableToolSearch(Boolean enableToolSearch) { this.enableToolSearch = enableToolSearch; return this; }
+        public Builder toolSearchDefaultTools(List<String> toolSearchDefaultTools) { this.toolSearchDefaultTools = toolSearchDefaultTools; return this; }
         public Builder maxSessions(Long maxSessions) { this.maxSessions = maxSessions; return this; }
-        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, skipExternalFileReadPermission, enableLLMCache, useTools, disabledTools, agentMode, disableTopicDetection, disableBackgroundTasks, maxSessions); }
+        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, skipExternalFileReadPermission, enableLLMCache, useTools, disabledTools, agentMode, disableTopicDetection, disableBackgroundTasks, enableToolSearch, toolSearchDefaultTools, maxSessions); }
     }
 }

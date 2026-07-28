@@ -32,11 +32,19 @@ export interface SemaCoreConfig {
   agentMode?: AgentMode;             // 默认 'Agent'
   disableTopicDetection?: boolean;   // 是否禁用话题检测，默认 否
   disableBackgroundTasks?: boolean;  // 是否禁止后台任务（Bash后台/Agent后台/超时转后台），默认 否
+  enableToolSearch?: boolean;        // 是否开启工具搜索（延迟加载），默认 否；开启后仅默认工具集进入 LLM tools，
+                                     // 其余内置工具与 MCP 工具通过 load_tools 按名加载；
+                                     // 运行时更新于下一次用户输入生效，切换后的首次请求前缀缓存会整体失效一次
+  toolSearchDefaultTools?: string[] | null; // 仅 enableToolSearch=true 时生效，且仅构造时生效（不支持动态更新，
+                                     // 中途变更会导致 tools 数组中段增删，破坏前缀缓存）：默认加载（开场即可用）的工具白名单；
+                                     // 不传用内置默认集；可含内置工具名与 MCP 工具全名（与 LLM tools 中的 name 一致，
+                                     // 即 mcp__{server}__{tool}，如 'mcp__figma__get_file'）；
+                                     // 支持 mcp__{server}__* 通配整台 server
   maxSessions?: number;              // 同时存在的会话上限，不传则不限制
 }
 
 // 支持动态更新的核心配置字段
-export type UpdatableCoreConfigKeys = 'stream' | 'thinking' | 'systemPrompt' | 'customRules' | 'skipFileEditPermission' | 'skipShellExecPermission' | 'skipSkillPermission' | 'skipMCPToolPermission' | 'skipFetchUrlPermission' | 'skipExternalFileReadPermission' | 'enableLLMCache' | 'disableBackgroundTasks';
+export type UpdatableCoreConfigKeys = 'stream' | 'thinking' | 'systemPrompt' | 'customRules' | 'skipFileEditPermission' | 'skipShellExecPermission' | 'skipSkillPermission' | 'skipMCPToolPermission' | 'skipFetchUrlPermission' | 'skipExternalFileReadPermission' | 'enableLLMCache' | 'disableBackgroundTasks' | 'enableToolSearch';
 
 // 默认核心配置
 export const defaultCoreConfig = {
@@ -52,6 +60,7 @@ export const defaultCoreConfig = {
   customRules: "- 中文回答",
   enableLLMCache: false,
   disableBackgroundTasks: false,
+  enableToolSearch: false,
 };
 
 // 可更新的核心配置类型（基于默认配置）

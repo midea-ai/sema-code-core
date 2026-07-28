@@ -11,8 +11,8 @@ export type FullToolUseResult = {
 // 工具执行后的控制信号（用于触发上下文重建等操作）
 export type ToolControlSignal = {
   rebuildContext?: {
-    reason: 'mode_changed'
-    newMode: AgentMode
+    reason: 'mode_changed' | 'tools_loaded'
+    newMode?: AgentMode  // 仅 mode_changed 使用
     // 重建消息历史时使用的新消息内容
     rebuildMessage?: Array<{
       type: 'text'

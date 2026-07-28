@@ -48,7 +48,7 @@ UpdatableCoreConfigKeys = Literal[
     "stream", "thinking", "systemPrompt", "customRules", "skipFileEditPermission",
     "skipShellExecPermission", "skipSkillPermission", "skipMCPToolPermission",
     "skipFetchUrlPermission", "skipExternalFileReadPermission", "enableLLMCache",
-    "disableBackgroundTasks",
+    "disableBackgroundTasks", "enableToolSearch",
 ]
 
 
@@ -75,6 +75,8 @@ class SemaCoreConfig(TypedDict, total=False):
     agentMode: AgentMode
     disableTopicDetection: bool
     disableBackgroundTasks: bool
+    enableToolSearch: bool
+    toolSearchDefaultTools: Optional[List[str]]
     maxSessions: int
 
 
@@ -92,6 +94,7 @@ class UpdatableCoreConfig(TypedDict, total=False):
     skipExternalFileReadPermission: bool
     enableLLMCache: bool
     disableBackgroundTasks: bool
+    enableToolSearch: bool
 
 
 class ModelConfig(TypedDict):

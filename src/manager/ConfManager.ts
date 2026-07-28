@@ -89,7 +89,8 @@ export class ConfigManager {
       'skipFetchUrlPermission',
       'skipExternalFileReadPermission',
       'enableLLMCache',
-      'disableBackgroundTasks'
+      'disableBackgroundTasks',
+      'enableToolSearch'
     ];
 
     if (!allowedKeys.includes(key)) {

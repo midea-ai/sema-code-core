@@ -57,7 +57,7 @@ public enum TodoTaskStatus { pending, in_progress, completed }
 public enum ToolStatus { enable, disable }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum UpdatableCoreConfigKeys { stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, skipExternalFileReadPermission, enableLLMCache, disableBackgroundTasks }
+public enum UpdatableCoreConfigKeys { stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, skipExternalFileReadPermission, enableLLMCache, disableBackgroundTasks, enableToolSearch }
 
 /// <summary>判别联合（≙ core CreateSessionResult）：按 <c>Ok</c> 分派到 CreateSessionResultOk / CreateSessionResultErr。</summary>
 public abstract record CreateSessionResult
@@ -409,6 +409,8 @@ public record SemaCoreConfig
     [JsonPropertyName("agentMode")] public AgentMode? AgentMode { get; init; }
     [JsonPropertyName("disableTopicDetection")] public bool? DisableTopicDetection { get; init; }
     [JsonPropertyName("disableBackgroundTasks")] public bool? DisableBackgroundTasks { get; init; }
+    [JsonPropertyName("enableToolSearch")] public bool? EnableToolSearch { get; init; }
+    [JsonPropertyName("toolSearchDefaultTools")] public List<string>? ToolSearchDefaultTools { get; init; }
     [JsonPropertyName("maxSessions")] public long? MaxSessions { get; init; }
 }
 
@@ -483,6 +485,7 @@ public record UpdatableCoreConfig
     [JsonPropertyName("skipExternalFileReadPermission")] public bool? SkipExternalFileReadPermission { get; init; }
     [JsonPropertyName("enableLLMCache")] public bool? EnableLLMCache { get; init; }
     [JsonPropertyName("disableBackgroundTasks")] public bool? DisableBackgroundTasks { get; init; }
+    [JsonPropertyName("enableToolSearch")] public bool? EnableToolSearch { get; init; }
 }
 
 /// <summary>镜像 sema-core 从 types 入口导出的常量（≙ import { MAIN_AGENT_ID } from 'sema-core/types'）。</summary>

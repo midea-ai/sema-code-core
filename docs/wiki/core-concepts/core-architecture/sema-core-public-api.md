@@ -128,7 +128,7 @@ updateDisabledTools(toolNames: string[] | null): void
 getToolInfos(): ToolInfo[]
 ```
 
-> `updateCoreConfByKey` 仅支持以下字段的运行时更新：`stream`、`thinking`、`systemPrompt`、`customRules`、`skipFileEditPermission`、`skipShellExecPermission`、`skipSkillPermission`、`skipMCPToolPermission`、`skipFetchUrlPermission`、`skipExternalFileReadPermission`、`enableLLMCache`、`disableBackgroundTasks`。Agent 模式和权限档位属于会话级配置，请使用 `SemaSession.updateAgentMode()` / `SemaSession.updatePermissionLevel()`。
+> `updateCoreConfByKey` 仅支持以下字段的运行时更新：`stream`、`thinking`、`systemPrompt`、`customRules`、`skipFileEditPermission`、`skipShellExecPermission`、`skipSkillPermission`、`skipMCPToolPermission`、`skipFetchUrlPermission`、`skipExternalFileReadPermission`、`enableLLMCache`、`disableBackgroundTasks`、`enableToolSearch`。Agent 模式和权限档位属于会话级配置，请使用 `SemaSession.updateAgentMode()` / `SemaSession.updatePermissionLevel()`。
 
 ## 插件市场管理
 

@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid'
 import { Tool } from './base/Tool'
 import { resolveSubAgentDescription } from '../prompt/tools/subAgent'
 import { DEFAULT_BUILT_IN_AGENTS_CONFS } from '../prompt/agents'
-import { getAvailableBuiltinTools, SUBAGENT_EXCLUDED_TOOLS } from './base/tools'
+import { getAvailableBuiltinTools, getToolSearchDefaultNames, SUBAGENT_EXCLUDED_TOOLS } from './base/tools'
 import { getMCPManager } from '../services/mcp/MCPManager'
 import { ReAct } from '../core/Conversation'
 import type { AgentContext } from '../types/agent'
@@ -109,9 +109,33 @@ export const SubAgent = {
       })
 
       // 加入 MCP 工具
-      const mcpTools = getMCPManager().getMCPTools()
-      if (mcpTools.length > 0) {
-        subagentTools = [...subagentTools, ...mcpTools]
+      const enableToolSearch = getConfManager().getCoreConfig()?.enableToolSearch ?? false
+      if (enableToolSearch) {
+        // 工具搜索模式（子代理无 load_tools，SUBAGENT_EXCLUDED_TOOLS 已排除）：
+        // - agent 显式声明 tools 时，声明即按名加载，内置部分不做延迟过滤（作者点名等价于加载）；MCP 继承父会话已加载的
+        // - '*' 时内置部分收敛为默认加载集，另继承父会话已动态加载的工具（含延迟内置与 MCP，按加载序）
+        const hasExplicitTools = !!agentConfig.tools && agentConfig.tools !== '*'
+        const coreUseTools = getConfManager().getCoreConfig()?.useTools
+        const defaultNames = new Set(getToolSearchDefaultNames(coreUseTools))
+        const byName = new Map<string, Tool>()
+        subagentTools.forEach(t => byName.set(t.name, t))
+        getMCPManager().getMCPTools().forEach(t => byName.set(t.name, t))
+
+        const baseTools = hasExplicitTools
+          ? subagentTools
+          : subagentTools.filter(t => defaultNames.has(t.name))
+        const loadedTools = runtime.getLoadedToolNames()
+          .filter(name => hasExplicitTools
+            ? name.startsWith('mcp__')
+            : (!defaultNames.has(name) && !SUBAGENT_EXCLUDED_TOOLS.has(name)))
+          .map(name => byName.get(name))
+          .filter((t): t is Tool => !!t)
+        subagentTools = [...baseTools, ...loadedTools]
+      } else {
+        const mcpTools = getMCPManager().getMCPTools()
+        if (mcpTools.length > 0) {
+          subagentTools = [...subagentTools, ...mcpTools]
+        }
       }
 
       logDebug(`Subagent ${agentConfig.name} has ${subagentTools.length} tools available`)

@@ -204,8 +204,8 @@ export class SemaEngine {
 
     const agentMode = this.runtime.agentMode;
 
-    // 获取工具集（按核心级 useTools 黑名单过滤）
-    const tools = getAvailableTools();
+    // 获取工具集（按核心级 useTools 黑名单过滤；工具搜索模式下按会话组装）
+    const tools = getAvailableTools(undefined, { sessionId: this.sessionId });
 
     // 构建主代理上下文
     const agentContext: AgentContext = {

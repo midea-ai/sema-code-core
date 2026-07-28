@@ -19,3 +19,18 @@ export const TOOL_NAME_SKILL = 'skill'
 export const TOOL_NAME_SUB_AGENT = 'sub_agent'
 export const TOOL_NAME_WRITE_FILE = 'write_file'
 export const TOOL_NAME_PATCH_FILE = 'patch_file'
+export const TOOL_NAME_LOAD_TOOLS = 'load_tools'
+
+// 工具搜索模式下默认加载的内置工具集（toolSearchDefaultTools 未配置时使用）
+export const TOOL_SEARCH_DEFAULT_TOOLS = [
+  TOOL_NAME_RUN_SHELL,
+  TOOL_NAME_SEARCH_FILES,
+  TOOL_NAME_SEARCH_CONTENT,
+  TOOL_NAME_VIEW_FILE,
+  TOOL_NAME_WRITE_FILE,
+  TOOL_NAME_PATCH_FILE,
+  TOOL_NAME_SUB_AGENT,
+  TOOL_NAME_SKILL,
+  TOOL_NAME_PICK_OPTION,
+  TOOL_NAME_PLAN_TO_AGENT,
+]

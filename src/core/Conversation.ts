@@ -292,10 +292,14 @@ async function handleControlSignalRebuild(
     }
   }
 
-  logInfo(`检测到模式切换信号，重建上下文: ${rebuildSignal.newMode}`)
+  if (rebuildSignal.reason === 'tools_loaded') {
+    logInfo('检测到工具加载信号，重建上下文')
+  } else {
+    logInfo(`检测到模式切换信号，重建上下文: ${rebuildSignal.newMode}`)
+  }
 
-  // 重新获取工具集（按核心级 useTools 黑名单过滤）
-  const newTools = getAvailableTools()
+  // 重新获取工具集（按核心级 useTools 黑名单过滤；工具搜索模式下按会话组装）
+  const newTools = getAvailableTools(undefined, { sessionId: currentAgentContext.sessionId })
 
   // 更新代理上下文
   const newAgentContext: AgentContext = {

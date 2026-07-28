@@ -212,6 +212,10 @@ export class SessionRuntime {
     const currentTodos = this.todosMap.get(agentId) || [];
 
     if (newTodos.length === 0) {
+      // 本来就是空的则静默返回：压缩/清空路径固定传 []，避免"空→空"也发 todos:update
+      if (currentTodos.length === 0) {
+        return;
+      }
       this.todosMap.set(agentId, newTodos);
       logInfo(`[${agentId}] todos完全替换: ${newTodos.length} 项`);
       if (agentId === MAIN_AGENT_ID) {

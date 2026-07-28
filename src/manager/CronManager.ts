@@ -315,18 +315,23 @@ export class CronManager {
    * 传入 sessionId 时只清理该会话创建的非持久任务
    */
   clearNonDurableTasks(sessionId?: string): void {
+    let deleted = 0
     for (const [id, task] of this.tasks) {
       if (task.persist) continue
       if (sessionId && task.sessionId !== sessionId) continue
       this.tasks.delete(id)
+      deleted++
     }
 
     if (this.tasks.size === 0) {
       this.stop()
     }
 
-    this.emitUpdate()
-    logInfo(`[CronManager] Cleared non-persisted tasks`)
+    // 列表没变化时不发 cron:update：会话关闭高频路径，避免空转事件刷日志
+    if (deleted > 0) {
+      this.emitUpdate()
+      logInfo(`[CronManager] Cleared ${deleted} non-persisted tasks`)
+    }
   }
 
   // ============ 调度 ============

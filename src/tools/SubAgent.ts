@@ -5,8 +5,7 @@ import { nanoid } from 'nanoid'
 import { Tool } from './base/Tool'
 import { resolveSubAgentDescription } from '../prompt/tools/subAgent'
 import { DEFAULT_BUILT_IN_AGENTS_CONFS } from '../prompt/agents'
-import { getAvailableBuiltinTools, getToolSearchDefaultNames, SUBAGENT_EXCLUDED_TOOLS } from './base/tools'
-import { getMCPManager } from '../services/mcp/MCPManager'
+import { buildSubagentToolset } from './base/subagentTools'
 import { ReAct } from '../core/Conversation'
 import type { AgentContext } from '../types/agent'
 
@@ -22,7 +21,7 @@ import { buildAgentSystemPrompt } from '../services/agents/genSystemPrompt'
 import { generateRulesReminders } from '../services/agents/genSystemReminder'
 import { getTaskManager } from '../manager/TaskManager'
 import { getConfManager } from '../manager/ConfManager'
-import { TOOL_NAME_SUB_AGENT, TOOL_NAME_RUN_SHELL } from '../prompt/tool'
+import { TOOL_NAME_SUB_AGENT } from '../prompt/tool'
 
 const TOOL_NAME = TOOL_NAME_SUB_AGENT
 
@@ -92,51 +91,9 @@ export const SubAgent = {
       // 3. 准备子代理的系统提示（包含 agentConfig.prompt + notes + env + gitStatus）
       const systemPromptContent = await buildAgentSystemPrompt(agentConfig.prompt)
 
-      // 4. 获取子代理允许使用的工具（排除 任务与代理 工具，防止嵌套）
-      let subagentTools: Tool[]
-      if (!agentConfig.tools || agentConfig.tools === '*') {
-        subagentTools = getAvailableBuiltinTools().filter(t => !SUBAGENT_EXCLUDED_TOOLS.has(t.name))
-      } else {
-        subagentTools = getAvailableBuiltinTools(agentConfig.tools).filter(t => !SUBAGENT_EXCLUDED_TOOLS.has(t.name))
-      }
-
-      // 子代理的 run_shell 工具不支持后台执行：omit background，模型不可见此字段
-      subagentTools = subagentTools.map(t => {
-        if (t.name === TOOL_NAME_RUN_SHELL) {
-          return { ...t, toolParams: (t.toolParams as any).omit({ background: true }) }
-        }
-        return t
-      })
-
-      // 加入 MCP 工具
-      const enableToolSearch = getConfManager().getCoreConfig()?.enableToolSearch ?? false
-      if (enableToolSearch) {
-        // 工具搜索模式（子代理无 load_tools，SUBAGENT_EXCLUDED_TOOLS 已排除）：
-        // - agent 显式声明 tools 时，声明即按名加载，内置部分不做延迟过滤（作者点名等价于加载）；MCP 继承父会话已加载的
-        // - '*' 时内置部分收敛为默认加载集，另继承父会话已动态加载的工具（含延迟内置与 MCP，按加载序）
-        const hasExplicitTools = !!agentConfig.tools && agentConfig.tools !== '*'
-        const coreUseTools = getConfManager().getCoreConfig()?.useTools
-        const defaultNames = new Set(getToolSearchDefaultNames(coreUseTools))
-        const byName = new Map<string, Tool>()
-        subagentTools.forEach(t => byName.set(t.name, t))
-        getMCPManager().getMCPTools().forEach(t => byName.set(t.name, t))
-
-        const baseTools = hasExplicitTools
-          ? subagentTools
-          : subagentTools.filter(t => defaultNames.has(t.name))
-        const loadedTools = runtime.getLoadedToolNames()
-          .filter(name => hasExplicitTools
-            ? name.startsWith('mcp__')
-            : (!defaultNames.has(name) && !SUBAGENT_EXCLUDED_TOOLS.has(name)))
-          .map(name => byName.get(name))
-          .filter((t): t is Tool => !!t)
-        subagentTools = [...baseTools, ...loadedTools]
-      } else {
-        const mcpTools = getMCPManager().getMCPTools()
-        if (mcpTools.length > 0) {
-          subagentTools = [...subagentTools, ...mcpTools]
-        }
-      }
+      // 4. 获取子代理允许使用的工具（排除嵌套与任务管理工具；core 级 useTools 约束、
+      //    MCP 按声明匹配、工具搜索模式下的 load_tools 注入均在 buildSubagentToolset 内处理）
+      const { tools: subagentTools, rebuildTools } = buildSubagentToolset(agentConfig, sessionId, taskId)
 
       logDebug(`Subagent ${agentConfig.name} has ${subagentTools.length} tools available`)
 
@@ -168,6 +125,7 @@ export const SubAgent = {
             agentId: taskId,
             abortController: bgAbortController,
             tools: subagentTools,
+            rebuildTools,
             model: agentModel,
           }
           const bgResultMessages: any[] = []
@@ -250,6 +208,7 @@ export const SubAgent = {
         agentId: taskId,
         abortController: subAbortController,
         tools: subagentTools,
+        rebuildTools,
         model: agentConfig.model === 'quick' ? 'quick' : 'main'
       }
 

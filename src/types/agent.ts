@@ -23,6 +23,8 @@ export interface AgentContext {
   agentId: string
   abortController: AbortController
   tools: Tool[]
+  /** 子代理专用：上下文重建（tools_loaded 等信号）时重组自身工具集的回调；主代理不设置，走 getAvailableTools */
+  rebuildTools?: () => Tool[]
   /** 模型类型 */
   model?: 'main' | 'quick'
   /** 当前正在执行的工具调用ID（由 RunTools 注入，供工具内部发送 chunk 事件使用） */

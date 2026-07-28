@@ -25,8 +25,8 @@ interface SemaCoreConfig {
   agentMode?: 'Agent' | 'Plan' | 'Design'; // 会话默认模式，默认 'Agent'
   disableTopicDetection?: boolean;   // 是否禁用话题检测，默认 否
   disableBackgroundTasks?: boolean;  // 是否禁止后台任务（RunShell 后台 / SubAgent 后台 / 超时转后台），默认 否
-  enableToolSearch?: boolean;        // 是否开启工具搜索（延迟加载），默认 否；开启后仅默认工具集进入 LLM tools，其余内置与 MCP 工具经 load_tools 按名加载；运行时更新于下一次用户输入生效
-  toolSearchDefaultTools?: string[] | null; // 工具搜索模式下默认加载的工具白名单，不传用内置默认集；可含内置工具名与 MCP 工具全名（如 'mcp__figma__get_file'），支持 mcp__{server}__* 通配整台 server；仅构造时生效
+  enableToolSearch?: boolean;        // 是否开启工具搜索（延迟加载），默认 否；开启后仅默认工具集进入 LLM tools，其余内置与 MCP 工具经 load_tools 按名加载；子代理（tools 为 '*' 或未声明）同样按需 load_tools，加载状态子代理私有、不影响父会话；运行时更新于下一次用户输入生效
+  toolSearchDefaultTools?: string[] | null; // 工具搜索模式下默认加载的工具白名单，不传用内置默认集；可含内置工具名与 MCP 工具全名（如 'mcp__figma__get_file'），支持 mcp__{server}__* 通配整台 server、mcp__{server}__{prefix}* 前缀通配（须具体到 server，mcp__* 等不合法）；仅构造时生效
   maxSessions?: number;              // 同时存在的会话上限，不传则不限制
 }
 ```

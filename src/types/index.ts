@@ -39,7 +39,8 @@ export interface SemaCoreConfig {
                                      // 中途变更会导致 tools 数组中段增删，破坏前缀缓存）：默认加载（开场即可用）的工具白名单；
                                      // 不传用内置默认集；可含内置工具名与 MCP 工具全名（与 LLM tools 中的 name 一致，
                                      // 即 mcp__{server}__{tool}，如 'mcp__figma__get_file'）；
-                                     // 支持 mcp__{server}__* 通配整台 server
+                                     // 支持 mcp__{server}__* 通配整台 server、mcp__{server}__{prefix}* 前缀通配；
+                                     // 通配须具体到 server 且 server 后带 __（*、mcp__*、mcp__{server}* 不合法，warn 后忽略）
   maxSessions?: number;              // 同时存在的会话上限，不传则不限制
 }
 

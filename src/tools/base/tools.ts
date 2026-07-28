@@ -116,14 +116,21 @@ export const getAvailableBuiltinTools = memoize(
   }
 )
 
+// MCP 通配校验：仅 mcp__{server}__* 或 mcp__{server}__{prefix}* 合法（须具体到 server 且 server 后带 __），
+// *、mcp__*、mcp__{server}* 均不合法
+export function isValidMCPWildcard(name: string): boolean {
+  if (!name.startsWith('mcp__') || !name.endsWith('*')) return false
+  return name.slice(0, -1).indexOf('__', 5) !== -1  // 'mcp__' 之后必须还有 '__'
+}
+
 // 工具搜索模式：解析默认加载的工具名白名单（配置未设置时用内置默认集）
-// 仅内置名与 useTools 取交集（core 级 useTools 只含内置工具名）；未知名 warn 后忽略
-// 支持 mcp__{server}__* 通配符：展开为该 server 当前全部工具（server 名用工具全名中的规范形式，冒号已转下划线）
+// 仅内置名与 useTools 取交集（core 级 useTools 只含内置工具名）；未知名/不合法通配 warn 后忽略
+// MCP 通配展开为当前匹配的工具（server 名用工具全名中的规范形式，冒号已转下划线）
 export function getToolSearchDefaultNames(useTools?: string[] | null): string[] {
   const configured = getConfManager().getCoreConfig()?.toolSearchDefaultTools
   const names = (configured && configured.length > 0) ? configured : TOOL_SEARCH_DEFAULT_TOOLS
   const builtinNames = new Set(getAllBuiltinToolNames())
-  const hasWildcard = names.some(name => name.startsWith('mcp__') && name.endsWith('__*'))
+  const hasWildcard = names.some(isValidMCPWildcard)
   const mcpNames: string[] = hasWildcard
     ? getMCPManager().getMCPTools().map(tool => tool.name)
     : []
@@ -133,8 +140,12 @@ export function getToolSearchDefaultNames(useTools?: string[] | null): string[] 
   }
   for (const name of names) {
     if (name === TOOL_NAME_LOAD_TOOLS || result.includes(name)) continue
-    if (name.startsWith('mcp__') && name.endsWith('__*')) {
-      const prefix = name.slice(0, -1)  // 'mcp__{server}__'
+    if (name.startsWith('mcp__') && name.endsWith('*')) {
+      if (!isValidMCPWildcard(name)) {
+        logWarn(`toolSearchDefaultTools 通配不合法（须为 mcp__{server}__* 或 mcp__{server}__{prefix}*），已忽略: ${name}`)
+        continue
+      }
+      const prefix = name.slice(0, -1)  // 'mcp__{server}__' 或 'mcp__{server}__{prefix}'
       mcpNames.filter(mcpName => mcpName.startsWith(prefix)).forEach(push)
       continue
     }
@@ -223,6 +234,16 @@ function extractRequiredFields(schema: any): string[] {
   return []
 }
 
+// 简易字符串哈希（FNV-1a），用于 buildTools 缓存 key 中的 load_tools 描述指纹
+function hashStr(s: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(16)
+}
+
 // 使用 memoize 优化的 buildTools 函数
 export const buildTools = memoize(
   (tools: Tool[]): Anthropic.Tool[] => {
@@ -258,10 +279,11 @@ export const buildTools = memoize(
     // key 不排序：工具搜索模式下不同会话可能以不同顺序加载相同工具集合，
     // 排序会让二者命中同一缓存条目导致 tools 数组重排，破坏 LLM 前缀缓存
     let key = tools.map(tool => tool.name).join(',') + (disableBackgroundTasks ? ':no-bg' : '')
-    // load_tools 的描述（可加载名单）随 MCP server 连接状态动态变化，用长度作指纹避免缓存陈旧描述
+    // load_tools 的描述（可加载名单）随 MCP server 连接状态与各代理视角（主/子延迟池不同）变化，
+    // 用内容哈希作指纹避免缓存陈旧描述或不同视角同长度撞 key
     const loadTool = tools.find(tool => tool.name === TOOL_NAME_LOAD_TOOLS)
     if (loadTool) {
-      key += `:ts-${getToolDescription(loadTool).length}`
+      key += `:ts-${hashStr(getToolDescription(loadTool))}`
     }
     return key
   }

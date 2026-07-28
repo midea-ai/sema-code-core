@@ -298,8 +298,16 @@ async function handleControlSignalRebuild(
     logInfo(`检测到模式切换信号，重建上下文: ${rebuildSignal.newMode}`)
   }
 
-  // 重新获取工具集（按核心级 useTools 黑名单过滤；工具搜索模式下按会话组装）
-  const newTools = getAvailableTools(undefined, { sessionId: currentAgentContext.sessionId })
+  // 重新获取工具集：子代理走自身重组回调（主代理工具集会击穿子代理的工具隔离）；主代理按会话组装
+  let newTools: typeof currentAgentContext.tools
+  if (currentAgentContext.rebuildTools) {
+    newTools = currentAgentContext.rebuildTools()
+  } else if (currentAgentContext.agentId !== MAIN_AGENT_ID) {
+    logWarn(`子代理 ${currentAgentContext.agentId} 收到重建信号但无重组回调，保持原工具集`)
+    newTools = currentAgentContext.tools
+  } else {
+    newTools = getAvailableTools(undefined, { sessionId: currentAgentContext.sessionId })
+  }
 
   // 更新代理上下文
   const newAgentContext: AgentContext = {

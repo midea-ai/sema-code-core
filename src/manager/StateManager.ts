@@ -87,6 +87,10 @@ export interface AgentStateAccessor {
   deleteTodoTask(taskId: string): boolean;
   blockTask(fromId: string, toId: string): boolean;
 
+  // 工具搜索：本代理已动态加载的工具名（主代理即会话级名单）
+  getLoadedToolNames(): string[];
+  addLoadedTools(names: string[]): string[];
+
   // 清理
   clearAllState(): void;
 }
@@ -128,6 +132,10 @@ export class SessionRuntime {
   // 工具搜索模式下本会话已动态加载的工具名（内置名或 mcp__ 全名）
   // append-only：顺序即 tools 数组尾部的追加顺序，保证 LLM 前缀缓存稳定，不提供移除/重排
   private loadedToolNames: string[] = [];
+
+  // 工具搜索模式下各子代理已动态加载的工具名（agentId → append-only 名单）
+  // 主代理沿用会话级 loadedToolNames，不入此 Map；子代理结束随 clearAgentState 清理
+  private agentLoadedToolNamesMap: Map<string, string[]> = new Map();
 
   // 会话级系统提示快照：首次构建后冻结，整个会话不再变化
   private systemPromptContent: Array<{ type: 'text'; text: string }> | null = null;
@@ -519,6 +527,33 @@ export class SessionRuntime {
     return added;
   }
 
+  /** 指定代理已动态加载的工具名（主代理即会话级名单） */
+  getAgentLoadedToolNames(agentId: string): string[] {
+    if (agentId === MAIN_AGENT_ID) {
+      return this.getLoadedToolNames();
+    }
+    return [...(this.agentLoadedToolNamesMap.get(agentId) || [])];
+  }
+
+  /**
+   * 为指定代理去重后追加工具名，返回实际新增的工具名（主代理委托会话级 addLoadedTools）
+   */
+  addAgentLoadedTools(names: string[], agentId: string): string[] {
+    if (agentId === MAIN_AGENT_ID) {
+      return this.addLoadedTools(names);
+    }
+    const list = this.agentLoadedToolNamesMap.get(agentId) || [];
+    const added: string[] = [];
+    for (const name of names) {
+      if (!list.includes(name) && !added.includes(name)) {
+        added.push(name);
+      }
+    }
+    list.push(...added);
+    this.agentLoadedToolNamesMap.set(agentId, list);
+    return added;
+  }
+
   // ============================================================
   // 清理
   // ============================================================
@@ -542,6 +577,7 @@ export class SessionRuntime {
     this.foregroundAgents.clear();
     this.clearPendingUserInputs();
     this.loadedToolNames = [];
+    this.agentLoadedToolNamesMap.clear();
 
     logInfo(`[${this.sessionId}] 所有状态数据已清空`);
   }
@@ -557,6 +593,7 @@ export class SessionRuntime {
       this.todosMap.delete(agentId);
       this.todoTasksMap.delete(agentId);
       this.fileLineEndingsMap.delete(agentId);
+      this.agentLoadedToolNamesMap.delete(agentId);
       logInfo(`[${agentId}] 所有隔离状态已清理`);
     }
   }
@@ -741,6 +778,9 @@ export class SessionRuntime {
       updateTodoTask: (taskId, updates) => this.updateTodoTask(agentId, taskId, updates),
       deleteTodoTask: (taskId) => this.deleteTodoTask(agentId, taskId),
       blockTask: (fromId, toId) => this.blockTask(agentId, fromId, toId),
+
+      getLoadedToolNames: () => this.getAgentLoadedToolNames(agentId),
+      addLoadedTools: (names: string[]) => this.addAgentLoadedTools(names, agentId),
 
       clearAllState: () => {
         if (isSubagent) {

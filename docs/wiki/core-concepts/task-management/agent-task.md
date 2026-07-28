@@ -10,7 +10,7 @@ SubAgent 后台任务由 `sub_agent` 工具（`src/tools/SubAgent.ts`）与 `Tas
 | 后台 SubAgent | `sub_agent` 工具 `background: true` | `spawnAgentTask` | 当前会话主对话立即返回 |
 | 转后台 SubAgent | 前台 SubAgent 运行中调用 `transferAgentToBackground(taskId)` | `transferToBackground` | 由前台变后台 |
 
-> 子代理中会排除部分工具（`SUBAGENT_EXCLUDED_TOOLS`：含 `sub_agent`、`peek_bg_job`、`stop_bg_job`、`ask_form`、`plan_to_agent`、`create_todo`、`get_todo`、`list_todos`、`update_todo`），防止嵌套调用；子代理的 `run_shell` 工具也会 omit 掉 `background` 字段。后台任务限额 `MAX_RUNNING_TASKS = 5` 按会话独立计算。`disableBackgroundTasks: true` 时还会跳过 `spawnAgentTask` 与 `setTransferResolve`，从根本上禁用后台模式。
+> 子代理中会排除部分工具（`SUBAGENT_EXCLUDED_TOOLS`：含 `sub_agent`、`peek_bg_job`、`stop_bg_job`、`ask_form`、`plan_to_agent`、`create_todo`、`get_todo`、`list_todos`、`update_todo`、`load_tools`），防止嵌套调用；子代理的 `run_shell` 工具也会 omit 掉 `background` 字段。工具组装统一走 `buildSubagentToolset`（`src/tools/base/subagentTools.ts`）：内置部分受 core 级 `useTools` 硬约束（agent 显式声明与其求交）；MCP 部分 `'*'` 全量、显式声明时仅给声明匹配的（精确全名，或 `mcp__{server}__*` / `mcp__{server}__{prefix}*` 通配，须具体到 server）。`enableToolSearch: true` 且 agent 为 `'*'`/未声明时，会注入子代理专属 `load_tools`（延迟池非空时）：加载状态存 agent 级、随子代理结束清理，不影响父会话工具列表。后台任务限额 `MAX_RUNNING_TASKS = 5` 按会话独立计算。`disableBackgroundTasks: true` 时还会跳过 `spawnAgentTask` 与 `setTransferResolve`，从根本上禁用后台模式。
 
 ## 路径一：直接后台 spawnAgentTask
 

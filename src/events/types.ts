@@ -310,6 +310,19 @@ export interface CompactExecData {
 }
 
 /**
+ * Micro 压缩统计数据
+ * 事件: `compact:micro`
+ * 说明: 达到压缩阈值时，先把模型已消费过的旧工具结果替换为占位符（本地操作，不调模型、不删消息）。
+ * 注意: 与 `compact:exec` 不同，本事件不代表历史被摘要替换，下游 UI 不应据此隐藏 transcript。
+ */
+export interface CompactMicroData {
+  clearedCount: number;          // 本次清理的 tool_result 块数
+  estimatedSavedTokens: number;  // 估算释放的 token 数
+  estimatedTokenAfter: number;   // 清理后预估输入 token（清理前真实 usage − 估算节省，下限 0；清理前值见上一条 conversation:usage）
+  skippedFullCompact: boolean;   // 清理后是否足以跳过全量摘要
+}
+
+/**
  * 文件引用事件数据
  * 事件: `file:reference`
  */

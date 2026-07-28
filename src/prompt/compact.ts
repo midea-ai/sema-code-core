@@ -17,3 +17,20 @@ G. **Continuation path** (only if applicable) — Quote user's follow-up intent,
 - Prefer full source over vague description.
 `
 
+/**
+ * 构建压缩提示词
+ *
+ * 无参时返回 COMPRESSION_PROMPT 原文（自动压缩路径逐字节不变）；
+ * 有参时追加用户自定义指示段（/compact <指示> 手动路径）。
+ */
+export function buildCompressionPrompt(instructions?: string): string {
+  if (!instructions) {
+    return COMPRESSION_PROMPT
+  }
+  return `${COMPRESSION_PROMPT}
+
+## Additional instructions from the user
+The user has provided the following instructions for this compression. Follow them when deciding what to emphasize, keep, or omit (the Rules above still apply):
+${instructions}`
+}
+

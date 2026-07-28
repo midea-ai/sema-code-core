@@ -5,11 +5,12 @@ import { queryLLM } from '../services/api/queryLLM'
 import { getModelManager } from '../manager/ModelManager'
 import { logDebug, logError } from './log'
 import { getEventBus } from '../events/EventSystem'
-import { CompactExecData } from '../events/types'
+import { CompactExecData, CompactMicroData } from '../events/types'
+import { microCompactMessages } from './microcompact'
 import { Tool } from '../tools/base/Tool'
 import { z } from 'zod'
 import { getTokens } from './tokens'
-import { COMPRESSION_PROMPT } from '../prompt/compact'
+import { buildCompressionPrompt } from '../prompt/compact'
 
 const defaultCompactDependencies = {
   queryLLM,
@@ -264,14 +265,71 @@ function emitCompactUsage(
 /**
  * 根据令牌使用量判断是否应触发自动压缩
  * 只计算输入token数，因为API调用时主要关心的是输入token限制
+ *
+ * @param discountTokens 估算折扣：countTokens 读的是上一次 API 响应的 usage，
+ * micro 清理的节省要到下一次响应才可见，期间用该折扣修正判断。默认 0，行为与原先一致。
  */
-export function needsAutoCompact(messages: Message[]): boolean {
+export function needsAutoCompact(messages: Message[], discountTokens = 0): boolean {
   if (messages.length < 3) return false
 
   const inputTokenCount = countTokens(messages).inputTokens
   const autoCompactThreshold = getContextLimit() * AUTO_COMPACT_THRESHOLD_RATIO
 
-  return inputTokenCount >= autoCompactThreshold
+  return (inputTokenCount - discountTokens) >= autoCompactThreshold
+}
+
+export type MicroCompactApplyResult = {
+  messages: Message[]
+  needFullCompact: boolean
+  changed: boolean
+  /** 清理统计（仅 changed=true 时存在），与 compact:micro 事件载荷完全一致 */
+  stats?: CompactMicroData
+}
+
+/**
+ * Micro 压缩集成入口（全量摘要前的第一道防线）
+ *
+ * 把模型已消费过的旧 tool_result 块替换为占位符（纯本地操作，不调模型），
+ * 再用估算折扣判断清理后是否仍需全量摘要。清理无条件生效并随历史落盘，
+ * 与后续摘要成败无关。有清理时发 compact:micro 事件（便于观测节省量）。
+ *
+ * 任何异常均退回旧行为（needFullCompact: true，消息原样返回）。
+ */
+export function applyMicroCompact(messages: Message[], sessionId?: string): MicroCompactApplyResult {
+  try {
+    const result = microCompactMessages(messages)
+    if (!result.changed) {
+      return { messages, needFullCompact: true, changed: false }
+    }
+
+    const stillOver = needsAutoCompact(result.messages, result.estimatedSavedTokens)
+
+    // estimatedTokenAfter = 上次 API 响应的真实 usage − 估算节省，与"要不要全量摘要"的判断口径一致；
+    // 清理前的值不重复携带（= 紧邻上一条 conversation:usage 的 promptTokens）
+    const tokenBefore = countTokens(result.messages).inputTokens
+    const microData: CompactMicroData = {
+      clearedCount: result.clearedCount,
+      estimatedSavedTokens: result.estimatedSavedTokens,
+      estimatedTokenAfter: Math.max(0, tokenBefore - result.estimatedSavedTokens),
+      skippedFullCompact: !stillOver,
+    }
+
+    // 独立事件：绝不复用 compact:exec（该事件语义是"历史已被摘要替换"，下游会隐藏 transcript）
+    try {
+      compactDependencies.getEventBus().emit('compact:micro', microData, sessionId)
+    } catch (emitError) {
+      logError(`[MicroCompact] Failed to emit compact:micro: ${emitError}`)
+    }
+
+    logDebug(
+      `[MicroCompact] cleared=${microData.clearedCount} blocks, estimatedSaved=${microData.estimatedSavedTokens} tokens, estimatedTokenAfter=${microData.estimatedTokenAfter}, skippedFullCompact=${microData.skippedFullCompact}`
+    )
+
+    return { messages: result.messages, needFullCompact: stillOver, changed: true, stats: microData }
+  } catch (error) {
+    logError(`[MicroCompact] failed, falling back to full compact: ${error}`)
+    return { messages, needFullCompact: true, changed: false }
+  }
 }
 
 
@@ -291,7 +349,7 @@ export async function compactMessages(
   messages: Message[],
   abortController: AbortController,
   sessionId?: string,
-  options: { allowTruncationFallback?: boolean } = {}
+  options: { allowTruncationFallback?: boolean; customInstructions?: string } = {}
 ): Promise<CompactResult> {
   const allowTruncationFallback = options.allowTruncationFallback ?? true
 
@@ -300,7 +358,7 @@ export async function compactMessages(
   }
 
   try {
-    const summaryResult = await executeAutoCompact(messages, abortController)
+    const summaryResult = await executeAutoCompact(messages, abortController, sessionId, options.customInstructions)
 
     if (summaryResult.kind === 'summary') {
       emitCompactUsage(messages, summaryResult.messages, sessionId, 'summary')
@@ -467,15 +525,18 @@ export const NULL_TOOL: Tool = {
  */
 async function executeAutoCompact(
   messages: Message[],
-  abortController: AbortController
+  abortController: AbortController,
+  sessionId?: string,
+  customInstructions?: string
 ): Promise<CompactSummaryResult> {
   // 使用 null tool 作为占位，避免模型调用任何工具
   const tools = [NULL_TOOL]
 
   // 将压缩指令作为 user message 追加到要压缩的历史对话后
+  // 无自定义指示时 buildCompressionPrompt 返回 COMPRESSION_PROMPT 原文，自动压缩路径行为不变
   const messagesWithPrompt = [
     ...prepareMessagesForApi([...messages]),
-    buildUserMsg(COMPRESSION_PROMPT)
+    buildUserMsg(buildCompressionPrompt(customInstructions))
   ]
 
   const summaryResponse = await compactDependencies.queryLLM(
@@ -488,7 +549,8 @@ async function executeAutoCompact(
     ],
     abortController.signal,
     tools,
-    { modelPointer: 'main', disableChunkEvents: true }
+    // sessionId 透传：压缩的 LLM 调用日志按会话拆分（llm_logs/日期_会话id.log）
+    { modelPointer: 'main', disableChunkEvents: true, sessionId }
   )
 
   if (isInvalidCompactResponse(summaryResponse)) {

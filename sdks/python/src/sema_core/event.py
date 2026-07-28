@@ -199,6 +199,13 @@ class CompactExecData(TypedDict):
     reason: NotRequired[str]
 
 
+class CompactMicroData(TypedDict):
+    clearedCount: int
+    estimatedSavedTokens: int
+    estimatedTokenAfter: int
+    skippedFullCompact: bool
+
+
 class FileReferenceData(TypedDict):
     references: List[FileReferenceInfo]
 

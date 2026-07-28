@@ -241,6 +241,7 @@
 | `plan:exit:request` | `PlanExitRequestData` | 需 `respondToPlanExit` 应答 |
 | `plan:implement` | `PlanImplementData` | 进入计划实施（选「清理上下文并开始编辑」时触发） |
 | `compact:exec` | `CompactExecData` | 上下文压缩统计 |
+| `compact:micro` | `CompactMicroData` | Micro 压缩统计（旧工具结果替换为占位符；历史未被摘要替换，UI 不应据此隐藏 transcript） |
 | `conversation:usage` | `ConversationUsageData` | token 用量 |
 | `file:reference` | `FileReferenceData` | 文件/目录引用解析结果 |
 | `permissionLevel:update` | `PermissionLevelUpdateData` | 权限档位变更（Ask / AutoEdit / AutoRun / Bypass） |
@@ -331,7 +332,7 @@ ThinkingChunkData, TextChunkData, MessageCompleteData        // AI 消息：思�
 ToolPermissionRequestData, ToolPermissionAutoData, ToolPermissionResponse  // 工具权限：请求 / 自动放行 / 应答
 ToolExecutionCompleteData, ToolExecutionChunkData, ToolExecutionErrorData   // 工具执行：完成 / 中间态 / 错误
 TodosUpdateData, PermissionLevelUpdateData, TopicUpdateData  // 待办更新 / 档位更新 / 主题更新
-Usage, ConversationUsageData, CompactExecData               // 用量 / 对话用量 / 压缩统计
+Usage, ConversationUsageData, CompactExecData, CompactMicroData  // 用量 / 对话用量 / 压缩统计 / micro 压缩统计
 FileReferenceData                                           // 文件引用
 PickOptionQuestion, PickOptionRequestData, PickOptionResponseData  // 问答：题型(判别联合) / 请求 / 应答
 PlanExitRequestData, PlanExitResponseData, PlanImplementData       // Plan 模式：退出请求 / 应答 / 实施

@@ -42,6 +42,14 @@ public record CompactExecData
     [JsonPropertyName("reason")] public string? Reason { get; init; }
 }
 
+public record CompactMicroData
+{
+    [JsonPropertyName("clearedCount")] public long ClearedCount { get; init; }
+    [JsonPropertyName("estimatedSavedTokens")] public long EstimatedSavedTokens { get; init; }
+    [JsonPropertyName("estimatedTokenAfter")] public long EstimatedTokenAfter { get; init; }
+    [JsonPropertyName("skippedFullCompact")] public bool SkippedFullCompact { get; init; }
+}
+
 public record ConversationUsageData
 {
     [JsonPropertyName("usage")] public Usage? Usage { get; init; }

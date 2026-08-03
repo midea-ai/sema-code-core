@@ -239,3 +239,9 @@ export {
 
 export type { CreateSessionOptions, CreateSessionResult } from './session';
 
+// 导出 Hook 相关类型
+export type {
+  HooksInfo,
+  HookEntryInfo,
+} from './hook';
+

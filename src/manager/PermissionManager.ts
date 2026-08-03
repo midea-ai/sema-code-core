@@ -20,6 +20,7 @@ import { AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT } from '../prompt/permission'
 import { isReadonlySafeCommand, isUnsafeForPrefixAuth, hasDangerousCommand } from '../util/shellSafety'
 import { extractAutoRunContext, summarizeActionLine } from '../util/autoRunContext'
 import { isBlockedFetchHost } from '../util/fetchSafety'
+import { firePermissionRequest } from '../services/hooks/hookTriggers'
 
 // ==================== 辅助函数 ====================
 
@@ -645,6 +646,25 @@ async function requestPermissionViaEvent(
     }
     checkAbortSignal(abortController)
     logDebug(`[Permission][AutoRun]${tool.name} 判定有风险，转人工申请`)
+  }
+
+  // PermissionRequest hook：权限系统即将向用户发起询问前触发（AutoRun 自动放行不算询问）。
+  // allow → 等价用户 agree（不落盘 savePermission，不产生永久授权）；
+  // deny → 走自定义反馈不中断通道（自动策略拒单个动作，模型可换方案，不 abort 整个 turn）；
+  // ask/无输出/hook 失败 → 继续原询问流程
+  const hookOutcome = await firePermissionRequest(sessionId, agentId, tool.name, input, abortController.signal)
+  if (hookOutcome.decision === 'allow') {
+    checkAbortSignal(abortController)
+    logInfo(`[Permission][Hook]${tool.name} 由 PermissionRequest hook 放行`)
+    return { result: true }
+  }
+  if (hookOutcome.decision === 'deny') {
+    checkAbortSignal(abortController)
+    logInfo(`[Permission][Hook]${tool.name} 被 PermissionRequest hook 拒绝`)
+    return {
+      result: false,
+      message: getCustomFeedbackMessage(hookOutcome.reason || 'Denied by PermissionRequest hook'),
+    }
   }
 
   // 使用工具的 genToolPermission 方法获取 title 和 content

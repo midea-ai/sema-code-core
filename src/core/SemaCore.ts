@@ -15,6 +15,8 @@ import { getMemoryManager } from '../services/memory/memManager';
 import { MemoryConfig } from '../types/memory';
 import { getRuleManager } from '../services/rules/rulesManager';
 import { RuleConfig } from '../types/rule';
+import { getHooksManager } from '../services/hooks/hooksManager';
+import { HooksInfo } from '../types/hook';
 import { getDesignManager } from '../services/design/designManager';
 import { DesignSkillInfo, DesignSystemInfo } from '../types/design';
 import { getTaskManager } from '../manager/TaskManager';
@@ -43,10 +45,11 @@ export class SemaCore {
     this.configPromise = getConfManager().setCoreConfig(config || {});
 
     this.configPromise = this.configPromise.then(async () => {
-      // 触发单例初始化，后台加载 市场插件信息、memory 信息、rule 信息
+      // 触发单例初始化，后台加载 市场插件信息、memory 信息、rule 信息、hooks 配置
       getPluginsManager();
       getMemoryManager();
       getRuleManager();
+      getHooksManager();
     });
     logInfo(`初始化SemaCore: ${JSON.stringify(config, null, 2)}`)
   }
@@ -165,6 +168,10 @@ export class SemaCore {
   // ==================== Rule 管理 ====================
   getRuleInfo = (refresh?: boolean): Promise<RuleConfig | null> => getRuleManager().getRuleInfo(refresh);
 
+  // ==================== Hooks 管理 ====================
+  // 合并后的 hooks 配置视图；refresh=true 重新加载配置，下一次 hook 触发即生效
+  getHooksInfo = (refresh?: boolean): Promise<HooksInfo> => getHooksManager().getHooksInfo(refresh);
+
   // ==================== Design 设计资源 ====================
   getDesignSkillsInfo = (refresh?: boolean): Promise<DesignSkillInfo[]> => getDesignManager().getDesignSkillsInfo(refresh);
   getDesignSystemsInfo = (refresh?: boolean): Promise<DesignSystemInfo[]> => getDesignManager().getDesignSystemsInfo(refresh);
@@ -191,5 +198,6 @@ export class SemaCore {
     getMemoryManager().dispose();
     getRuleManager().dispose();
     getDesignManager().dispose();
+    getHooksManager().dispose();
   };
 }

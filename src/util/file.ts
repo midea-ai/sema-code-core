@@ -331,6 +331,42 @@ export function findJsonObjectLineRange(json: string, match: string): [number, n
 }
 
 /**
+ * 在 JSON 文本中，查找包含 match 的 key 行及其值块（对象或数组）的行范围。
+ *
+ * 与 findJsonObjectLineRange 的差异：起始行取 match 所在行本身，
+ * 结束行按 match 行缩进往下找同缩进的 ']' 或 '}' 行，适用于值为数组的 key
+ * （如 hooks.json 的事件块 "PreToolUse": [...]）。值与 key 同行闭合时返回单行范围。
+ */
+export function findJsonKeyValueLineRange(json: string, match: string): [number, number] | undefined {
+  const lines = json.split('\n')
+
+  const matchIdx = lines.findIndex(l => l.includes(match))
+  if (matchIdx === -1) return undefined
+
+  // 值在 match 行内闭合（含压缩 JSON 整文件一行的场景）：按 match 之后的括号配平判断
+  const afterMatch = lines[matchIdx].slice(lines[matchIdx].indexOf(match) + match.length)
+  let depth = 0
+  let opened = false
+  for (const ch of afterMatch) {
+    if (ch === '[' || ch === '{') { depth++; opened = true }
+    else if (ch === ']' || ch === '}') depth--
+    if (opened && depth === 0) return [matchIdx + 1, matchIdx + 1]
+  }
+  if (!opened) return [matchIdx + 1, matchIdx + 1]
+
+  // 多行值：往下找与 match 行同缩进的闭合行
+  const indent = lines[matchIdx].search(/\S/)
+  for (let i = matchIdx + 1; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart()
+    if ((trimmed.startsWith(']') || trimmed.startsWith('}')) && lines[i].search(/\S/) === indent) {
+      return [matchIdx + 1, i + 1]
+    }
+  }
+
+  return undefined
+}
+
+/**
  * 获取相对于初始工作目录的显示路径，超出范围则返回绝对路径
  */
 export function getDisplayPath(filePath: string): string {

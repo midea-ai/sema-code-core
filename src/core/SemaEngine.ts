@@ -27,6 +27,8 @@ import { getTaskManager } from '../manager/TaskManager';
 import { getCronManager } from '../manager/CronManager';
 import { handlequickchat } from '../util/quickchat';
 import { TOOL_NAME_SKILL } from '../prompt/tool';
+import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define';
+import { fireSessionStart, fireUserPromptSubmit, fireSessionEnd } from '../services/hooks/hookTriggers';
 import type { AgentMode, PermissionLevel } from '../types';
 import type { FileReferenceInfo } from '../types/index';
 import type { CreateSessionOptions } from '../types/session';
@@ -43,6 +45,9 @@ const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'im
 export class SemaEngine {
   /** 当前正在执行的 processQuery Promise（用于 dispose 时等待） */
   private currentProcessingPromise: Promise<void> | null = null
+
+  /** SessionStart hook 的 additionalContext（首轮 processQuery 消费一次，不阻塞 session:ready） */
+  private sessionStartHookPromise: Promise<string | null> | null = null
 
   private readonly runtime: SessionRuntime;
 
@@ -130,6 +135,10 @@ export class SemaEngine {
     };
 
     logInfo(`新会话创建完成，sessionId: ${this.sessionId}`);
+
+    // SessionStart hook：后台触发，additionalContext 在首轮 processQuery 时消费
+    this.sessionStartHookPromise = fireSessionStart(this.sessionId);
+
     // 延迟一拍发送 session:ready：调用方需先拿到 createSession 返回的 SemaSession
     // 并在其上注册监听器，再收到首个事件
     setImmediate(() => {
@@ -272,12 +281,42 @@ export class SemaEngine {
       const perInput: Array<{ inputId: string; blocks: Anthropic.ContentBlockParam[]; attachments?: InputImageAttachment[]; fileRefReminders: Anthropic.ContentBlockParam[] }> = [];
       // 文件引用补充信息：跨输入累加，循环后统一发一次 file:reference 事件
       const allSupplementaryInfo: FileReferenceInfo[] = [];
+      // UserPromptSubmit hook 注入的上下文（按 inputId 挂到各自输入消息上）
+      const hookCtxByInput = new Map<string, string>();
+      // 通过 UserPromptSubmit hook 的输入（仅排除被拦截项；已处理的系统命令、空内容仍保留，
+      // 供话题检测等下游使用，与改动前行为对齐）
+      const acceptedInputs: typeof inputs = [];
 
       for (const item of inputs) {
         if (agentContext.abortController.signal.aborted) {
           logInfo('processQuery: abort detected during handleCommand loop, skipping remaining');
           return;
         }
+
+        // UserPromptSubmit hook：静默输入（后台任务/定时任务通知）不触发
+        if (!item.silent) {
+          const promptHook = await fireUserPromptSubmit(this.sessionId, item.input, agentContext.abortController.signal);
+          // hook 介入期间用户可能已中断（hook 被 kill 后 fail-open 返回 blocked:false）：
+          // 与循环头的中断处理一致终止本批，避免在已中断的 turn 里继续执行系统命令
+          if (promptHook.ran && agentContext.abortController.signal.aborted) {
+            logInfo('processQuery: abort detected during UserPromptSubmit hook, skipping remaining');
+            return;
+          }
+          if (promptHook.blocked) {
+            // 丢弃本条输入，原因经 hook:notice 展示给用户（全部被拦时命中下方 perInput 空早退）
+            this.emit('hook:notice', {
+              kind: 'blocked',
+              hookEvent: 'UserPromptSubmit',
+              message: promptHook.reason || '输入被 UserPromptSubmit hook 拦截',
+            });
+            continue;
+          }
+          if (promptHook.additionalContext) {
+            hookCtxByInput.set(item.inputId, promptHook.additionalContext);
+          }
+        }
+        acceptedInputs.push(item);
+
         const commandResult = await handleCommand(item.input, this.sessionId);
         if (commandResult === null) {
           // 系统命令已处理（如 /compact, /clear），跳过
@@ -309,8 +348,9 @@ export class SemaEngine {
       }
 
       // 后台异步执行话题检测，不阻塞主流程
-      const allSilent = inputs.every(i => i.silent)
-      const allOriginalTexts = inputs.map(i => i.originalInput || i.input).join('\n');
+      // 只用通过 UserPromptSubmit hook 的输入：被拦截内容（可能涉隐私/合规）不得外发给话题检测模型
+      const allSilent = acceptedInputs.every(i => i.silent)
+      const allOriginalTexts = acceptedInputs.map(i => i.originalInput || i.input).join('\n');
       if (!allSilent && !getConfManager().getCoreConfig()?.disableTopicDetection) {
         detectTopicInBackground(
           allOriginalTexts,
@@ -340,6 +380,35 @@ export class SemaEngine {
         this.sessionId,
         hasSkillTool
       )
+
+      // SessionStart hook 的 additionalContext：仅首轮消费一次（compact/fork 后不重复注入）。
+      // 与中断信号 race：hook 卡住时用户中断可立即打断等待；中断获胜则不消费 promise，留待下一轮注入
+      if (this.sessionStartHookPromise) {
+        const abortSignal = agentContext.abortController.signal
+        const pendingHookCtx = this.sessionStartHookPromise
+        const sessionStartCtx = await new Promise<string | null>(resolve => {
+          if (abortSignal.aborted) {
+            resolve(null)
+            return
+          }
+          const onAbort = () => resolve(null)
+          abortSignal.addEventListener('abort', onAbort, { once: true })
+          pendingHookCtx.then(
+            value => { abortSignal.removeEventListener('abort', onAbort); resolve(value) },
+            () => { abortSignal.removeEventListener('abort', onAbort); resolve(null) },
+          )
+        })
+        // race 后复查信号，处理"完成与中断同时发生"的竞态：只要已中断就按中断处理
+        if (!abortSignal.aborted) {
+          this.sessionStartHookPromise = null
+          if (sessionStartCtx) {
+            turnLevelReminders.push({
+              type: 'text' as const,
+              text: `${REMINDER_SYS_OPEN}\nSessionStart hook context:\n${sessionStartCtx}\n${REMINDER_SYS_CLOSE}`,
+            })
+          }
+        }
+      }
       // 打 Fork 锚点：记录本批输入发送时已累积的文件快照数，并开启新的快照 segment
       const checkpointSeq = getCheckpointManager().beginTurn(this.sessionId)
 
@@ -356,10 +425,19 @@ export class SemaEngine {
         const textBlocks = imageBlocks.length > 0
           ? p.blocks.filter(b => !(b.type === 'text' && !b.text.trim()))
           : p.blocks
-        // 文件引用提醒（含 @图片）放在该输入文本之前；回合级提醒仅首条
+        // UserPromptSubmit hook 上下文挂到该输入自己的消息上
+        const hookCtx = hookCtxByInput.get(p.inputId)
+        const hookBlocks: Anthropic.ContentBlockParam[] = hookCtx
+          ? [{
+              type: 'text' as const,
+              text: `${REMINDER_SYS_OPEN}\nUserPromptSubmit hook context:\n${hookCtx}\n${REMINDER_SYS_CLOSE}`,
+            }]
+          : []
+        // 块序从全局到局部：回合级提醒（仅首条）→ 文件引用提醒（含 @图片）→
+        // UserPromptSubmit hook 上下文（紧贴其修饰的输入正文，与非首条输入的顺序一致）
         const head = idx === 0
-          ? [...p.fileRefReminders, ...turnLevelReminders]
-          : [...p.fileRefReminders]
+          ? [...turnLevelReminders, ...p.fileRefReminders, ...hookBlocks]
+          : [...p.fileRefReminders, ...hookBlocks]
         const blocks = [...head, ...textBlocks, ...imageBlocks]
         const msg = buildUserMsg(blocks)
         msg.uuid = p.inputId as UUID
@@ -628,6 +706,8 @@ export class SemaEngine {
    */
   dispose(): void {
     logInfo(`清理 SemaEngine 资源: ${this.sessionId}`);
+    // SessionEnd hook：fire-and-forget，不阻塞清理流程
+    fireSessionEnd(this.sessionId);
     this.abortCurrentRequest();
     this.runtime.clearPendingUserInputs();
     // 移除本会话在 Task/Cron 管理器上的通知回调

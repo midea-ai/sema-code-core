@@ -10,6 +10,16 @@ import { logError } from '../util/log'
 import { ToolExecutionCompleteData, ToolExecutionErrorData } from '../events/types'
 import { checkToolPermission } from '../manager/PermissionManager'
 import { getEventBus } from '../events/EventSystem'
+import { firePreToolUse, firePostToolUse, firePostToolUseFailure } from '../services/hooks/hookTriggers'
+import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
+
+// hook 注入的上下文文本块（包 system-reminder 壳）
+function buildHookContextBlocks(contextBlocks: string[]): Anthropic.ContentBlockParam[] {
+  return contextBlocks.map(text => ({
+    type: 'text' as const,
+    text: `${REMINDER_SYS_OPEN}\n${text}\n${REMINDER_SYS_CLOSE}`,
+  }))
+}
 
 
 // 并发运行工具
@@ -223,8 +233,47 @@ export async function* checkPermissionsAndCallTool(
     return
   }
 
-  // 权限检查
-  if (!tool.isSafe?.()) {
+  // PreToolUse hook：deny 拒绝执行并回给模型；allow 跳过权限询问直接执行；
+  // 其余（ask/无输出/hook 失败）走原权限流程。deny 独立于权限档位，Bypass 下仍生效
+  const preHook = await firePreToolUse(
+    agentContext.sessionId,
+    agentContext.agentId,
+    tool.name,
+    input,
+    abortController.signal,
+  )
+  // hook 执行期间（可能长达数十秒）用户可能已中断：仅 hook 实际进入执行链路（ran）时检查，
+  // 覆盖 hook 被 kill 后 fail-open 返回 none 的场景；未启用/未配置/未命中时 ran=false，
+  // 不走此分支，保持与原行为完全一致
+  if (preHook.ran && abortController.signal.aborted) {
+    yield buildUserMsg([{ type: 'tool_result', content: CANCEL_MSG, is_error: true, tool_use_id: toolUseID }])
+    return
+  }
+  if (preHook.decision === 'deny') {
+    const denyReason = preHook.reason || 'Blocked by PreToolUse hook'
+    const toolErrorData: ToolExecutionErrorData = {
+      agentId: agentContext.agentId,
+      toolId: toolUseID,
+      toolName: tool.name,
+      title: tool.getDisplayTitle?.(input as never) || tool.name,
+      content: denyReason,
+      input,
+    }
+    getEventBus().emit('tool:execution:error', toolErrorData, agentContext.sessionId)
+
+    yield buildUserMsg([
+      {
+        type: 'tool_result',
+        content: denyReason,
+        is_error: true,
+        tool_use_id: toolUseID,
+      },
+    ])
+    return
+  }
+
+  // 权限检查（PreToolUse hook 返回 allow 时跳过，PermissionRequest hook 亦不触发）
+  if (preHook.decision !== 'allow' && !tool.isSafe?.()) {
     // 在权限检查前，先检查是否已经被中断
     // 如果已经中断，说明是因为前面的工具被拒绝/取消，后续工具应该返回 CANCEL_MSG
     if (abortController.signal.aborted) {
@@ -282,6 +331,16 @@ export async function* checkPermissionsAndCallTool(
           // 提取控制信号（如果存在）
           const controlSignal = (result.data as any)?.controlSignal as ToolControlSignal | undefined
 
+          // PostToolUse hook：工具已执行完，exit 2 的 stderr 与 additionalContext 仅回灌模型
+          const postHook = await firePostToolUse(
+            agentContext.sessionId,
+            agentContext.agentId,
+            tool.name,
+            input,
+            result.resultForAssistant || result.data,
+            abortController.signal,
+          )
+
           // 生成工具结果消息
           const additionalBlocks = result.additionalBlocks ?? []
           yield buildUserMsg(
@@ -292,6 +351,7 @@ export async function* checkPermissionsAndCallTool(
                 tool_use_id: toolUseID,
               },
               ...additionalBlocks,
+              ...buildHookContextBlocks(postHook.contextBlocks),
             ],
             {
               data: result.data,
@@ -317,6 +377,16 @@ export async function* checkPermissionsAndCallTool(
     }
     getEventBus().emit('tool:execution:error', toolErrorData, agentContext.sessionId)
 
+    // PostToolUseFailure hook：可注入纠错提示（入参校验失败、权限被拒的早退路径不触发）
+    const failHook = await firePostToolUseFailure(
+      agentContext.sessionId,
+      agentContext.agentId,
+      tool.name,
+      input,
+      content,
+      abortController.signal,
+    )
+
     // 返回工具执行错误消息
     yield buildUserMsg([
       {
@@ -325,6 +395,7 @@ export async function* checkPermissionsAndCallTool(
         is_error: true,
         tool_use_id: toolUseID,
       },
+      ...buildHookContextBlocks(failHook.contextBlocks),
     ])
   }
 }

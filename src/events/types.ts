@@ -537,6 +537,22 @@ import type { MCPServerInfo } from '../types/mcp';
  */
 export type MCPServerStatusData = MCPServerInfo;
 
+// ==================== Hook 相关事件 ====================
+
+/**
+ * hook 提示事件
+ * 事件: `hook:notice`
+ * 说明: hook 的 systemMessage 展示通道，兼作告警通道（hook 超时被终止、配置 warning、
+ * 输入被 UserPromptSubmit hook 拦截）。展示给用户，不进模型上下文。
+ */
+export interface HookNoticeData {
+  kind: 'systemMessage' | 'warning' | 'blocked';
+  hookEvent?: string;         // 关联的 hook 事件名（SessionStart / PreToolUse / …）
+  message: string;            // 展示文本
+  command?: string;           // 关联的 hook 命令（warning / systemMessage 时提供）
+  source?: 'user' | 'project';
+}
+
 // ==================== 进程级事件白名单 ====================
 
 /**

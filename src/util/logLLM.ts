@@ -100,9 +100,9 @@ export const logLLMResponse = (assistantMessage: any, sessionId?: string): void 
       }));
 
     const responseData = {
-      ...(thinking && { thinking }),
       content,
-      ...(toolCalls.length > 0 && { toolCalls })
+      ...(toolCalls.length > 0 && { toolCalls }),
+      ...(thinking && { thinking })
     };
 
     const logLine = `[${timeStr}]${JSON.stringify(responseData)}`;

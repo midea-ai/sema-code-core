@@ -26,7 +26,7 @@ interface HistoryData {
 
 /**
  * 解析会话当前应使用的历史文件路径与命名格式。
- * 优先级：无日期 会话id.json > 当天带日期 日期_会话id.json。
+ * 优先级：无日期 会话id.json > 当天带日期 日期_会话id.json > 目录扫描任意日期 日期_会话id.json（跨天恢复）。
  * 都不存在时返回当天带日期路径，exists=false（由调用方决定新会话的命名格式）。
  */
 export function resolveHistoryFile(sessionId: string, projectPath?: string): { path: string; noDate: boolean; exists: boolean } {
@@ -35,6 +35,26 @@ export function resolveHistoryFile(sessionId: string, projectPath?: string): { p
 
   const datedPath = getHistoryFilePath(sessionId, projectPath, false);
   if (fs.existsSync(datedPath)) return { path: datedPath, noDate: false, exists: true };
+
+  // 带日期文件的日期是创建当天的，跨天恢复时上面拼"今天"必然落空，需扫描目录匹配任意日期
+  const historyDir = projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
+  try {
+    // 文件名固定为 YYYY-MM-DD_会话id.json（前缀 11 字符），用字符串比较而非拼正则，兼容含特殊字符的会话 id
+    const candidates = fs.readdirSync(historyDir).filter(file =>
+      /^\d{4}-\d{2}-\d{2}_/.test(file) && file.slice(11) === `${sessionId}.json`
+    );
+    if (candidates.length > 0) {
+      const latest = candidates
+        .map(file => {
+          const filePath = path.join(historyDir, file);
+          return { path: filePath, mtime: fs.statSync(filePath).mtime.getTime() };
+        })
+        .sort((a, b) => b.mtime - a.mtime)[0];
+      return { path: latest.path, noDate: false, exists: true };
+    }
+  } catch {
+    // 目录不存在或读取失败，按未命中处理
+  }
 
   return { path: datedPath, noDate: false, exists: false };
 }
@@ -201,7 +221,10 @@ export async function cleanupOldHistoryFiles(projectPath?: string): Promise<void
  */
 export async function saveHistory(sessionId: string, messages: Message[], todos?: TodoItem[], projectPath?: string, readFileTimestamps?: Record<string, number>, todoTasks?: TodoTask[], noDate?: boolean): Promise<void> {
   const historyDir = projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
-  const historyPath = getHistoryFilePath(sessionId, projectPath, noDate);
+  // 已有历史文件时写回原文件（旧日期文件跨天/跨零点继续沿用，不按今天日期另起新文件），
+  // 不存在时才按 noDate 决定新文件命名格式
+  const resolved = resolveHistoryFile(sessionId, projectPath);
+  const historyPath = resolved.exists ? resolved.path : getHistoryFilePath(sessionId, projectPath, noDate);
 
   try {
     // 确保目录存在

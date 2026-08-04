@@ -35,9 +35,10 @@ function isPathInsideRoot(filePath: string, root: string): boolean {
 // tmpdir() 已涵盖 $TMPDIR/$TEMP/$TMP；/var/folders 覆盖 macOS 临时/缓存区
 const TEMP_BASE_PATHS = [tmpdir(), '/tmp', '/var/tmp', '/var/folders']
 
-// SEMA_ROOT 下的受信内容子目录：全局 skill/命令/agent/插件均为用户自行安装的内容，读取静默放行。
+// SEMA_ROOT 下的受信内容子目录：全局 skill/命令/agent/插件/hooks 均为用户自行安装的内容，读取静默放行。
 // 仅限这几个内容型目录；SEMA_ROOT 根下的 model.conf、history/ 等敏感文件仍需权限申请。
-const TRUSTED_SEMA_SUBDIRS = ['skills', 'commands', 'agents', 'plugins']
+// 注意：豁免仅覆盖读取（view_file），hooks 脚本会被执行，写入仍走文件编辑权限转人工。
+const TRUSTED_SEMA_SUBDIRS = ['skills', 'commands', 'agents', 'plugins', 'hooks']
 
 function isTrustedSemaFile(filePath: string): boolean {
   const abs = isAbsolute(filePath) ? filePath : resolve(readInitialCwd(), filePath)

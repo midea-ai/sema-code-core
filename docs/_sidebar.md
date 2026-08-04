@@ -28,6 +28,7 @@
     - [工具架构](wiki/core-concepts/tool-system/tool-architecture)
     - [创建自定义工具](wiki/core-concepts/tool-system/creating-custom-tools)
     - [内置工具](wiki/core-concepts/tool-system/built-in-tools)
+    - [工具搜索（延迟加载）](wiki/core-concepts/tool-system/tool-search)
   - 权限系统
     - [权限系统概述](wiki/core-concepts/permission-system/overview)
     - [工具权限检查](wiki/core-concepts/permission-system/shell-check)

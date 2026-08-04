@@ -2,7 +2,7 @@
  * Hook 相关类型定义
  *
  * 事件名、stdin payload、输出协议对齐 Claude hooks 事实标准（详见 test/hook.md）。
- * 基础功能支持 7 个事件，配置文件为 ~/.sema/hooks/hooks.json 与 <workingDir>/.sema/hooks/hooks.json。
+ * 基础功能支持 8 个事件，配置文件为 ~/.sema/hooks/hooks.json 与 <workingDir>/.sema/hooks/hooks.json。
  */
 
 // 基础功能支持的 hook 事件
@@ -13,6 +13,7 @@ export const HOOK_EVENTS = [
   'PostToolUse',
   'PostToolUseFailure',
   'PermissionRequest',
+  'Stop',
   'SessionEnd',
 ] as const
 
@@ -103,4 +104,5 @@ export interface HookOutcome {
   additionalContext?: string
   systemMessage?: string
   suppressOutput?: boolean
+  blockIgnored?: boolean // 不可阻断事件上收到 block 输出被忽略（用于向用户告警配置不生效）
 }

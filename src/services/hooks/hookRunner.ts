@@ -21,8 +21,9 @@ const KILL_GRACE_MS = 2000
 // SIGKILL 后强制 settle 的期限（不依赖 close/exit 事件到达，保证 Promise 有界结束）
 const SETTLE_GRACE_MS = 2000
 
-// 不可阻断的事件（exit 2 / decision block 降级为 pass，stderr 仅记日志）
-const NON_BLOCKABLE_EVENTS = new Set(['SessionStart', 'SessionEnd'])
+// 不可阻断的事件（exit 2 / decision block 降级为 pass 并打 blockIgnored 标）。
+// Stop 暂不支持续驱（block stop 强迫模型继续），只作观察型埋点
+const NON_BLOCKABLE_EVENTS = new Set(['SessionStart', 'SessionEnd', 'Stop'])
 
 /**
  * 终止 hook 进程。POSIX 下 hook 以独立进程组运行（spawn detached），
@@ -167,7 +168,7 @@ export function parseHookOutput(event: string, exec: HookExecResult): HookOutcom
   if (exec.exitCode === 2) {
     if (NON_BLOCKABLE_EVENTS.has(event)) {
       logWarn(`[Hook] ${event} 不可阻断，忽略 exit 2（stderr: ${exec.stderr.trim().slice(0, 200)}）`)
-      return { kind: 'pass' }
+      return { kind: 'pass', blockIgnored: true }
     }
     return { kind: 'block', reason: exec.stderr.trim() || `Blocked by ${event} hook` }
   }
@@ -207,6 +208,7 @@ export function parseHookOutput(event: string, exec: HookExecResult): HookOutcom
   if (parsed.decision === 'block') {
     if (NON_BLOCKABLE_EVENTS.has(event)) {
       logWarn(`[Hook] ${event} 不可阻断，忽略 decision: block`)
+      outcome.blockIgnored = true
     } else {
       outcome.kind = 'block'
       outcome.reason = typeof parsed.reason === 'string' ? parsed.reason : `Blocked by ${event} hook`

@@ -94,6 +94,18 @@ async function runEventHooks(
       })
     }
 
+    // 不可阻断事件上的 block 输出被忽略：告警而非静默，
+    // 避免用户从 Claude Code 抄来的续驱配置（Stop + exit 2）看似生效实则无效
+    if (outcome.blockIgnored) {
+      emitNotice(sessionId, {
+        kind: 'warning',
+        hookEvent: event,
+        message: `${event} 事件不支持阻断，hook 的 block 输出已忽略: ${entry.command}`,
+        command: entry.command,
+        source: entry.source,
+      })
+    }
+
     if (outcome.systemMessage) {
       emitNotice(sessionId, {
         kind: 'systemMessage',
@@ -185,7 +197,7 @@ async function runToolEventHooks(
   return { ...result, ran }
 }
 
-// ==================== 7 个事件入口 ====================
+// ==================== 8 个事件入口 ====================
 
 /**
  * SessionStart：engine session 初始化成功后触发；不可阻断
@@ -324,6 +336,25 @@ export async function firePermissionRequest(
     return { decision: aggregate.decision, reason: aggregate.decisionReason }
   }
   return { decision: 'none' }
+}
+
+/**
+ * Stop：主链路一轮处理自然完成并转入 idle 时触发，fire-and-forget（观察型埋点）。
+ * 不可阻断（暂不支持续驱，block 输出忽略并告警）、不注入上下文；
+ * systemMessage 照常经 hook:notice 展示。中断的轮次与排队输入接续的轮次不触发。
+ */
+export function fireStop(sessionId: string): void {
+  void safeRun(null, async () => {
+    const manager = getHooksManager()
+    await manager.ready()
+    const entries = manager.getMatchedEntries('Stop')
+    if (entries.length === 0) return null
+
+    // stop_hook_active 对齐 Claude 字段形状（无续驱恒为 false），方便脚本跨端复用
+    const payload = { ...buildCommonPayload('Stop', sessionId, MAIN_AGENT), stop_hook_active: false }
+    await runEventHooks('Stop', sessionId, payload, entries)
+    return null
+  })
 }
 
 /**

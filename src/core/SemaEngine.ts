@@ -28,7 +28,7 @@ import { getCronManager } from '../manager/CronManager';
 import { handlequickchat } from '../util/quickchat';
 import { TOOL_NAME_SKILL } from '../prompt/tool';
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define';
-import { fireSessionStart, fireUserPromptSubmit, fireSessionEnd } from '../services/hooks/hookTriggers';
+import { fireSessionStart, fireUserPromptSubmit, fireSessionEnd, fireStop } from '../services/hooks/hookTriggers';
 import type { AgentMode, PermissionLevel } from '../types';
 import type { FileReferenceInfo } from '../types/index';
 import type { CreateSessionOptions } from '../types/session';
@@ -494,6 +494,11 @@ export class SemaEngine {
         logInfo(`处理队列中 ${batch.length} 条待处理输入`)
         this.startQuery(batch)
       } else {
+        // Stop hook：一轮处理自然完成转 idle 时触发；中断不触发（对齐 Claude 语义），
+        // 有排队输入接续时视为同一轮继续也不触发
+        if (!agentContext.abortController.signal.aborted) {
+          fireStop(this.sessionId)
+        }
         mainAgentState.updateState('idle');
       }
     }

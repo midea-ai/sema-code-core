@@ -58,9 +58,9 @@ export function isToolAlias(name: string): boolean {
   return ALIAS_LOOKUP.has(name)
 }
 
-// 内置工具名 → Claude 风格名（正向表，仅供 hook 层的 tool_name 输出与 matcher 匹配使用；
+// 内置工具名 → 通用工具名（正向表，仅供 hook 层的 tool_name 输出与 matcher 匹配使用；
 // 不进 ALIAS_LOOKUP 反向表，避免影响 agent 加载时的别名规范化）
-const CLAUDE_NAME_MAP: Record<string, string> = {
+const GENERIC_NAME_MAP: Record<string, string> = {
   ...Object.fromEntries(
     Object.entries(ALIAS_SOURCE).map(([canonical, aliases]) => [canonical, aliases[0]])
   ),
@@ -69,8 +69,8 @@ const CLAUDE_NAME_MAP: Record<string, string> = {
 }
 
 /**
- * 把内置工具名映射为 Claude 风格名；无对应者（含 MCP 工具 mcp__server__tool）原样返回。
+ * 把内置工具名映射为通用工具名；无对应者（含 MCP 工具 mcp__server__tool）原样返回。
  */
-export function toClaudeToolName(name: string): string {
-  return CLAUDE_NAME_MAP[name] ?? name
+export function toGenericToolName(name: string): string {
+  return GENERIC_NAME_MAP[name] ?? name
 }

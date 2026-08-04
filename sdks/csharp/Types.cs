@@ -27,6 +27,12 @@ public enum CronTaskStatus { running, completed, failed, killed }
 public enum ForkFileEffect { modify, recreate, delete }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
+public enum HookEntryStatus { ok, skipped, invalid }
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum HookScope { user, project }
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum MCPScopeType { local, project, user, plugin }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -236,6 +242,34 @@ public record ForkResultOk : ForkResult
 {
     [JsonPropertyName("sessionId")] public string? SessionId { get; init; }
     [JsonPropertyName("restoredFiles")] public List<string>? RestoredFiles { get; init; }
+}
+
+public record HookEntryInfo
+{
+    [JsonPropertyName("event")] public string? Event { get; init; }
+    [JsonPropertyName("source")] public HookScope? Source { get; init; }
+    [JsonPropertyName("matcher")] public string? Matcher { get; init; }
+    [JsonPropertyName("command")] public string? Command { get; init; }
+    [JsonPropertyName("timeout")] public long? Timeout { get; init; }
+    [JsonPropertyName("status")] public HookEntryStatus? Status { get; init; }
+    [JsonPropertyName("statusReason")] public string? StatusReason { get; init; }
+    [JsonPropertyName("filePath")] public string? FilePath { get; init; }
+}
+
+public record HookParseError
+{
+    [JsonPropertyName("source")] public HookScope? Source { get; init; }
+    [JsonPropertyName("message")] public string? Message { get; init; }
+}
+
+public record HooksInfo
+{
+    [JsonPropertyName("userConfigPath")] public string? UserConfigPath { get; init; }
+    [JsonPropertyName("projectConfigPath")] public string? ProjectConfigPath { get; init; }
+    [JsonPropertyName("userConfigExists")] public bool UserConfigExists { get; init; }
+    [JsonPropertyName("projectConfigExists")] public bool ProjectConfigExists { get; init; }
+    [JsonPropertyName("parseErrors")] public List<HookParseError>? ParseErrors { get; init; }
+    [JsonPropertyName("events")] public Dictionary<string, List<HookEntryInfo>>? Events { get; init; }
 }
 
 public record InputImageAttachment

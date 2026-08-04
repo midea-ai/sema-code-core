@@ -29,7 +29,7 @@ if TYPE_CHECKING:
         AdapterType, AgentConfig, AgentMode, ApiTestParams, ApiTestResult, CommandConfig,
         CreateSessionOptions, CronTask, DesignSkillInfo, DesignSystemInfo,
         FetchModelsParams, FetchModelsResult, ForkOptions, ForkPreview, ForkResult,
-        InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
+        HooksInfo, InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
         MCPServerInfo, MemoryConfig, ModelConfig, ModelUpdateData, PermissionLevel,
         RuleConfig, SemaCoreConfig, SkillConfig, TaskConfig, TaskListItem, ToolInfo,
     )
@@ -280,6 +280,9 @@ class SemaCore:
 
     async def get_rule_info(self, refresh: Optional[bool] = None) -> Optional["RuleConfig"]:
         return await self._json("getRuleInfo", _obj(refresh=refresh))
+
+    async def get_hooks_info(self, refresh: Optional[bool] = None) -> "HooksInfo":
+        return await self._json("getHooksInfo", _obj(refresh=refresh))
 
     async def get_design_skills_info(self, refresh: Optional[bool] = None) -> "List[DesignSkillInfo]":
         return await self._json("getDesignSkillsInfo", _obj(refresh=refresh))

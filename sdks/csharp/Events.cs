@@ -62,6 +62,15 @@ public record FileReferenceData
     [JsonPropertyName("references")] public List<FileReferenceInfo>? References { get; init; }
 }
 
+public record HookNoticeData
+{
+    [JsonPropertyName("kind")] public string? Kind { get; init; }
+    [JsonPropertyName("hookEvent")] public string? HookEvent { get; init; }
+    [JsonPropertyName("message")] public string? Message { get; init; }
+    [JsonPropertyName("command")] public string? Command { get; init; }
+    [JsonPropertyName("source")] public HookScope? Source { get; init; }
+}
+
 public record InputProcessingData
 {
     [JsonPropertyName("inputId")] public string? InputId { get; init; }

@@ -270,9 +270,10 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         case 'enableCronTask':   ack(id, manager.instance.enableCronTask(payload.id)); return;
         case 'disableCronTask':  ack(id, manager.instance.disableCronTask(payload.id)); return;
 
-        // Memory / Rule / Design（只读）
+        // Memory / Rule / Hooks / Design（只读）
         case 'getMemoryInfo':        ack(id, await manager.instance.getMemoryInfo(payload?.refresh)); return;
         case 'getRuleInfo':          ack(id, await manager.instance.getRuleInfo(payload?.refresh)); return;
+        case 'getHooksInfo':         ack(id, await manager.instance.getHooksInfo(payload?.refresh)); return;
         case 'getDesignSkillsInfo':  ack(id, await manager.instance.getDesignSkillsInfo(payload?.refresh)); return;
         case 'getDesignSystemsInfo': ack(id, await manager.instance.getDesignSystemsInfo(payload?.refresh)); return;
 

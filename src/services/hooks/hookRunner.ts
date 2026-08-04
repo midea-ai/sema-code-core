@@ -2,7 +2,7 @@
  * Hook 命令执行器与输出解析
  *
  * 一次性子进程执行（不复用 PersistentShell：其为单例长驻共享 shell，有状态且命令排队），
- * stdin 写入 JSON payload，输出协议对齐 Claude hooks（exit code + stdout JSON 两条通道）。
+ * stdin 写入 JSON payload，输出走通用 hooks 协议（exit code + stdout JSON 两条通道）。
  */
 
 import { spawn, ChildProcess } from 'child_process'
@@ -157,7 +157,7 @@ export function executeHookCommand(
 }
 
 /**
- * 解析单条 hook 的执行输出（exit code + stdout JSON 双通道，语义对齐 Claude）
+ * 解析单条 hook 的执行输出（exit code + stdout JSON 双通道）
  */
 export function parseHookOutput(event: string, exec: HookExecResult): HookOutcome {
   if (exec.timedOut || exec.failedToSpawn) {

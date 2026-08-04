@@ -15,6 +15,7 @@ from .types import (
     AppSessionState,
     CronTaskStatus,
     FileReferenceInfo,
+    HookScope,
     InputImageAttachment,
     MCPServerInfo,
     ModelUpdateData,
@@ -330,6 +331,15 @@ class QuickchatResponseData(TypedDict):
 
 # core 导出名为小写 quickchatResponseData，提供同名别名对齐 Node
 quickchatResponseData = QuickchatResponseData
+
+
+class HookNoticeData(TypedDict):
+    """hook:notice —— hook 的 systemMessage 展示通道，兼作告警通道（超时/配置 warning、输入被拦截）。"""
+    kind: Literal["systemMessage", "warning", "blocked"]
+    hookEvent: NotRequired[str]  # 关联的 hook 事件名（SessionStart / PreToolUse / …）
+    message: str
+    command: NotRequired[str]
+    source: NotRequired[HookScope]
 
 
 class CronUpdateData(TypedDict):

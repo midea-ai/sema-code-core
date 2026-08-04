@@ -494,7 +494,7 @@ export class SemaEngine {
         logInfo(`处理队列中 ${batch.length} 条待处理输入`)
         this.startQuery(batch)
       } else {
-        // Stop hook：一轮处理自然完成转 idle 时触发；中断不触发（对齐 Claude 语义），
+        // Stop hook：一轮处理自然完成转 idle 时触发；中断不触发，
         // 有排队输入接续时视为同一轮继续也不触发
         if (!agentContext.abortController.signal.aborted) {
           fireStop(this.sessionId)

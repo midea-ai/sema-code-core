@@ -287,6 +287,9 @@ public sealed class SemaCore : IAsyncDisposable
     public Task<RuleConfig?> GetRuleInfo(bool? refresh = null)
         => Call<RuleConfig>("getRuleInfo", Json.Obj(("refresh", refresh)));
 
+    public Task<HooksInfo?> GetHooksInfo(bool? refresh = null)
+        => Call<HooksInfo>("getHooksInfo", Json.Obj(("refresh", refresh)));
+
     public Task<List<DesignSkillInfo>> GetDesignSkillsInfo(bool? refresh = null)
         => CallList<DesignSkillInfo>("getDesignSkillsInfo", Json.Obj(("refresh", refresh)));
 

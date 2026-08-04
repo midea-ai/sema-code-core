@@ -35,6 +35,7 @@ CONVERSATION_USAGE = "conversation:usage"
 FILE_REFERENCE = "file:reference"
 PERMISSION_LEVEL_UPDATE = "permissionLevel:update"
 QUICKCHAT_RESPONSE = "quickchat:response"
+HOOK_NOTICE = "hook:notice"
 
 # ── 进程级 ────────────────────────────────────────────────────────────────
 CRON_UPDATE = "cron:update"

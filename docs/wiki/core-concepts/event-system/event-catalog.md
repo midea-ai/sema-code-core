@@ -466,6 +466,20 @@ SubAgent 执行结束。
 
 ## 其他事件
 
+### `hook:notice`
+
+hook 的提示通道：`systemMessage` 展示、超时/配置告警、输入被 `UserPromptSubmit` hook 拦截的提示。内容展示给用户，不进模型上下文。
+
+```typescript
+{
+  kind: 'systemMessage' | 'warning' | 'blocked'
+  hookEvent?: string          // 关联的 hook 事件名（SessionStart / PreToolUse / …）
+  message: string             // 展示文本
+  command?: string            // 关联的 hook 命令
+  source?: 'user' | 'project'
+}
+```
+
 ### `file:reference`
 
 解析到用户输入中的 `@文件引用`。

@@ -17,6 +17,7 @@ export const SESSION_EVENTS = [
   'compact:exec',
   'conversation:usage', 'file:reference',
   'permissionLevel:update', 'quickchat:response',
+  'hook:notice',
 ];
 
 /** 事件推送回调：把会话事件写回对应的 gRPC 流，并带上所属 session_id */

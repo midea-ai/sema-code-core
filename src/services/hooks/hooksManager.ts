@@ -31,7 +31,7 @@ const MAX_TIMEOUT_PERMISSION_REQUEST_S = 120
 
 const HOOK_EVENT_SET: ReadonlySet<string> = new Set(HOOK_EVENTS)
 
-type MatcherPredicate = (claudeName?: string, semaName?: string) => boolean
+type MatcherPredicate = (genericName?: string, semaName?: string) => boolean
 
 class HooksManager {
   private userConfigPath: string
@@ -79,9 +79,9 @@ class HooksManager {
 
   /**
    * 返回指定事件下 matcher 命中的可执行条目（仅 status === 'ok'）
-   * 工具类事件按 Claude 风格名 / 内置名匹配；其他事件忽略 matcher 总是触发
+   * 工具类事件按通用工具名 / 内置名匹配；其他事件忽略 matcher 总是触发
    */
-  getMatchedEntries(event: string, claudeToolName?: string, semaToolName?: string): LoadedHookEntry[] {
+  getMatchedEntries(event: string, genericToolName?: string, semaToolName?: string): LoadedHookEntry[] {
     const entries = this.entriesByEvent?.get(event)
     if (!entries || entries.length === 0) return []
 
@@ -89,7 +89,7 @@ class HooksManager {
     return entries.filter(entry => {
       if (entry.status !== 'ok') return false
       if (!isToolEvent) return true
-      return this.compileMatcher(entry.matcher)(claudeToolName, semaToolName)
+      return this.compileMatcher(entry.matcher)(genericToolName, semaToolName)
     })
   }
 
@@ -278,8 +278,8 @@ class HooksManager {
   /**
    * matcher 编译（结果按 matcher 字符串缓存）：
    * 1. 缺失/空串/'*' → 全匹配
-   * 2. 按 '|' 分段后每段均为简单名 → 精确集合匹配（Claude 名和内置名均可命中）
-   * 3. 否则整串按正则匹配 Claude 风格名；编译失败 logWarn 一次且该条永不匹配
+   * 2. 按 '|' 分段后每段均为简单名 → 精确集合匹配（通用工具名和内置名均可命中）
+   * 3. 否则整串按正则匹配通用工具名；编译失败 logWarn 一次且该条永不匹配
    */
   private compileMatcher(matcher?: string): MatcherPredicate {
     const key = matcher ?? ''
@@ -295,13 +295,13 @@ class HooksManager {
       const isSimple = parts.every(p => /^[A-Za-z0-9_-]+$/.test(p))
       if (isSimple) {
         const nameSet = new Set(parts)
-        predicate = (claudeName, semaName) =>
-          (claudeName !== undefined && nameSet.has(claudeName)) ||
+        predicate = (genericName, semaName) =>
+          (genericName !== undefined && nameSet.has(genericName)) ||
           (semaName !== undefined && nameSet.has(semaName))
       } else {
         try {
           const regex = new RegExp(trimmed)
-          predicate = claudeName => claudeName !== undefined && regex.test(claudeName)
+          predicate = genericName => genericName !== undefined && regex.test(genericName)
         } catch (error) {
           logWarn(`[Hook] matcher 正则编译失败，该条目永不匹配: ${trimmed} (${error})`)
           predicate = () => false

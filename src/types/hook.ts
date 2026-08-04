@@ -1,7 +1,7 @@
 /**
  * Hook 相关类型定义
  *
- * 事件名、stdin payload、输出协议对齐 Claude hooks 事实标准（详见 test/hook.md）。
+ * 事件名、stdin payload、输出协议与业界通用 hooks 格式一致（详见 test/hook.md）。
  * 基础功能支持 8 个事件，配置文件为 ~/.sema/hooks/hooks.json 与 <workingDir>/.sema/hooks/hooks.json。
  */
 
@@ -34,7 +34,7 @@ export interface RawHookCommand {
   command?: string
   timeout?: number // 秒
   failClosed?: boolean // sema 扩展：hook 执行失败时按阻断处理，缺省 false（fail-open）
-  if?: string // Claude 生态的条件过滤字段，含此字段的条目整条跳过
+  if?: string // 条件过滤字段（暂不支持），含此字段的条目整条跳过
   [k: string]: unknown
 }
 

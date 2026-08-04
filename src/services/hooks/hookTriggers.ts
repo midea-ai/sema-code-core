@@ -8,7 +8,7 @@
 
 import { getEventBus } from '../../events/EventSystem'
 import { HookNoticeData } from '../../events/types'
-import { toClaudeToolName } from '../../prompt/toolAliases'
+import { toGenericToolName } from '../../prompt/toolAliases'
 import { LoadedHookEntry } from '../../types/hook'
 import { readInitialCwd } from '../../util/cwd'
 import { logInfo, logWarn } from '../../util/log'
@@ -95,7 +95,7 @@ async function runEventHooks(
     }
 
     // 不可阻断事件上的 block 输出被忽略：告警而非静默，
-    // 避免用户从 Claude Code 抄来的续驱配置（Stop + exit 2）看似生效实则无效
+    // 避免用户从其他工具迁移来的续驱配置（Stop + exit 2）看似生效实则无效
     if (outcome.blockIgnored) {
       emitNotice(sessionId, {
         kind: 'warning',
@@ -181,14 +181,14 @@ async function runToolEventHooks(
   const result = await safeRun(neutralAggregate(), async () => {
     const manager = getHooksManager()
     await manager.ready()
-    const claudeToolName = toClaudeToolName(semaToolName)
-    const entries = manager.getMatchedEntries(event, claudeToolName, semaToolName)
+    const genericToolName = toGenericToolName(semaToolName)
+    const entries = manager.getMatchedEntries(event, genericToolName, semaToolName)
     if (entries.length === 0) return neutralAggregate()
     ran = true
 
     const payload = {
       ...buildCommonPayload(event, sessionId, agentId),
-      tool_name: claudeToolName,
+      tool_name: genericToolName,
       sema_tool_name: semaToolName,
       ...extraPayload,
     }
@@ -350,7 +350,7 @@ export function fireStop(sessionId: string): void {
     const entries = manager.getMatchedEntries('Stop')
     if (entries.length === 0) return null
 
-    // stop_hook_active 对齐 Claude 字段形状（无续驱恒为 false），方便脚本跨端复用
+    // stop_hook_active 对齐通用 hooks 字段形状（无续驱恒为 false），方便脚本跨端复用
     const payload = { ...buildCommonPayload('Stop', sessionId, MAIN_AGENT), stop_hook_active: false }
     await runEventHooks('Stop', sessionId, payload, entries)
     return null

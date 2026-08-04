@@ -9,6 +9,7 @@
     - [MCP 使用](wiki/getting-started/basic-usage/mcp-usage)
     - [Skill 使用](wiki/getting-started/basic-usage/skill-usage)
     - [Command 使用](wiki/getting-started/basic-usage/command-usage)
+    - [Hook 使用](wiki/getting-started/basic-usage/hook-usage)
     - [后台任务使用](wiki/getting-started/basic-usage/background-task-usage)
     - [定时任务使用](wiki/getting-started/basic-usage/cron-usage)
 - **扩展应用**

@@ -132,6 +132,12 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | --- | --- | --- | --- | --- | --- |
 | `await getRuleInfo` | `get_rule_info` | `getRuleInfo` | `GetRuleInfo` | `refresh: boolean` | — |
 
+### Hooks 管理
+
+| sema-core | Python | Java | C# | 参数 | 差异点备注 |
+| --- | --- | --- | --- | --- | --- |
+| `await getHooksInfo` | `get_hooks_info` | `getHooksInfo` | `GetHooksInfo` | `refresh: boolean` | 返回合并后的 hooks 配置视图 `HooksInfo`;`refresh=true` 重新加载配置 |
+
 ### Cron 定时任务管理
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
@@ -248,6 +254,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `file:reference` | `FileReferenceData` | 文件/目录引用解析结果 |
 | `permissionLevel:update` | `PermissionLevelUpdateData` | 权限档位变更(Ask / AutoEdit / AutoRun / Bypass) |
 | `quickchat:response` | `quickchatResponseData` | 旁路问答,不影响主对话 |
+| `hook:notice` | `HookNoticeData` | hook 提示(`kind`: `systemMessage` 展示 / `warning` 告警 / `blocked` 输入被拦截),展示给用户、不进模型上下文 |
 
 ### 进程级事件
 

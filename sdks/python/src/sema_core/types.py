@@ -37,6 +37,8 @@ AgentScope = Literal["user", "project", "builtin", "plugin"]
 SkillScope = Literal["user", "project", "plugin"]
 CommandScope = Literal["user", "project", "plugin"]
 RuleScope = Literal["user", "project"]
+HookScope = Literal["user", "project"]
+HookEntryStatus = Literal["ok", "skipped", "invalid"]
 ToolStatus = Literal["enable", "disable"]
 CronTaskStatus = Literal["running", "completed", "failed", "killed"]  # 后台任务状态（core: task.ts / events）
 TodoTaskStatus = Literal["pending", "in_progress", "completed"]
@@ -259,6 +261,33 @@ RuleConfig = TypedDict("RuleConfig", {
     "from": str,
     "filePath": str,
 }, total=False)
+
+
+# ==================== Hooks ====================
+
+class HookParseError(TypedDict):
+    source: HookScope
+    message: str
+
+
+class HookEntryInfo(TypedDict):
+    event: str
+    source: HookScope
+    matcher: NotRequired[str]
+    command: str
+    timeout: NotRequired[int]  # 配置原值（秒），未配则缺省（运行时默认 60s）
+    status: HookEntryStatus
+    statusReason: NotRequired[str]
+    filePath: NotRequired[str]  # "绝对路径:起始行-结束行"（事件块粒度）
+
+
+class HooksInfo(TypedDict):
+    userConfigPath: str
+    projectConfigPath: str
+    userConfigExists: bool
+    projectConfigExists: bool
+    parseErrors: List[HookParseError]
+    events: Dict[str, List[HookEntryInfo]]  # 按事件分组，用户级在前、项目级追加
 
 
 class DesignSystemColor(TypedDict):

@@ -56,6 +56,7 @@
     "disableCronTask": { "level": "core", "payload": ["id"], "ack": "value" },
     "getMemoryInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
     "getRuleInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
+    "getHooksInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
     "getDesignSkillsInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
     "getDesignSystemsInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
 
@@ -89,7 +90,8 @@
       "pick:option:request", "plan:exit:request", "plan:implement",
       "compact:exec",
       "conversation:usage", "file:reference",
-      "permissionLevel:update", "quickchat:response"
+      "permissionLevel:update", "quickchat:response",
+      "hook:notice"
     ],
     "process": ["cron:update", "mcp:server:status"],
     "synthetic": {

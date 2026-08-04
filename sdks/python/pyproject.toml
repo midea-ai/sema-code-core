@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sema-core"
-version = "2.0.11"
+version = "2.0.12"
 description = "Python SDK for sema-core: thin client over the sema-grpc bridge"
 readme = "README.md"
 license = "MIT"

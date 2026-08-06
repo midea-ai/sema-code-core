@@ -12,6 +12,7 @@ import { getStateManager } from './StateManager'
 import { getEventBus } from '../events/EventSystem'
 import { logInfo, logWarn } from '../util/log'
 import { SessionNotifyRegistry, NotifyCallback } from '../util/notifyRegistry'
+import { readSettings, writeSettings } from '../services/settings/settingsLoader'
 
 export const CRON_TASKS_FILE = '.sema/scheduled_tasks.json'
 
@@ -24,7 +25,7 @@ export class CronManager {
   private loaded = false
 
   private tasksFilePath: string      // .sema/scheduled_tasks.json
-  private settingsFilePath: string   // .sema/settings.json
+  private workingDir: string         // 项目工作目录（settings.json 所在项目）
 
   static MAX_TASKS = 20
   static TICK_INTERVAL = 60_000 // 60秒，与 cron 最小粒度一致
@@ -32,9 +33,8 @@ export class CronManager {
 
   constructor() {
     const workingDir = getConfManager().getCoreConfig()?.workingDir || process.cwd()
-    const semaDir = path.join(workingDir, '.sema')
+    this.workingDir = workingDir
     this.tasksFilePath = path.join(workingDir, CRON_TASKS_FILE)
-    this.settingsFilePath = path.join(semaDir, 'settings.json')
 
     // 后台静默加载持久化的定时任务
     this.loadingPromise = this.loadDurableTasks()
@@ -191,19 +191,12 @@ export class CronManager {
   // ============ settings.json 读写 ============
 
   private readSemaSettings(): Record<string, any> {
-    try {
-      if (!fs.existsSync(this.settingsFilePath)) return {}
-      return JSON.parse(fs.readFileSync(this.settingsFilePath, 'utf-8'))
-    } catch {
-      return {}
-    }
+    return readSettings('project', this.workingDir)
   }
 
   private writeSemaSettings(data: Record<string, any>): void {
     try {
-      const dir = path.dirname(this.settingsFilePath)
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(this.settingsFilePath, JSON.stringify(data, null, 2), 'utf-8')
+      writeSettings('project', data, this.workingDir)
     } catch (err) {
       logWarn(`[CronManager] Failed to write settings: ${err instanceof Error ? err.message : String(err)}`)
     }

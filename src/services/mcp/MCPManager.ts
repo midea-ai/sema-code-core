@@ -21,13 +21,8 @@ import { getSemaRootDir } from '../../util/savePath'
 import { readInitialCwd } from '../../util/cwd'
 import { findJsonObjectLineRange } from '../../util/file'
 import { existsSync, readFileSync } from 'fs'
-
-/** Sema settings 文件结构（部分） */
-interface SemaSettings {
-  disabledMcpServers?: string[]
-  enabledMcpServerUseTools?: Record<string, string[]>
-  [key: string]: any
-}
+import { readSettings, writeSettings } from '../settings/settingsLoader'
+import { SemaSettings } from '../../types/settings'
 
 /**
  * MCP 管理器类 - 单例模式
@@ -35,7 +30,6 @@ interface SemaSettings {
 class MCPManager {
   private semaUserConfigPath: string      // ~/.sema/.mcp.json
   private semaProjectConfigPath: string   // <project>/.sema/.mcp.json
-  private semaProjectSettingsPath: string // <project>/.sema/settings.json
 
   // Server 信息缓存
   private serverInfoCache: MCPServerInfo[] | null = null
@@ -51,7 +45,6 @@ class MCPManager {
 
     const cwd = readInitialCwd()
     this.semaProjectConfigPath = path.join(cwd, '.sema', '.mcp.json')
-    this.semaProjectSettingsPath = path.join(cwd, '.sema', 'settings.json')
 
     // 后台静默加载 MCP 配置
     this.loadingPromise = this.refreshMCPServerConfigs()
@@ -101,26 +94,14 @@ class MCPManager {
    * 读取 Sema 项目级 settings.json
    */
   private readSemaSettings(): SemaSettings {
-    try {
-      if (!fs.existsSync(this.semaProjectSettingsPath)) return {}
-      return JSON.parse(fs.readFileSync(this.semaProjectSettingsPath, 'utf8')) as SemaSettings
-    } catch {
-      return {}
-    }
+    return readSettings('project')
   }
 
   /**
    * 写入 Sema 项目级 settings.json（合并写入，保留其他字段）
    */
   private writeSemaSettings(data: SemaSettings): void {
-    try {
-      const dir = path.dirname(this.semaProjectSettingsPath)
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(this.semaProjectSettingsPath, JSON.stringify(data, null, 2), 'utf8')
-    } catch (err) {
-      logError(`写入 Sema settings 文件失败 [${this.semaProjectSettingsPath}]: ${err}`)
-      throw err
-    }
+    writeSettings('project', data)
   }
 
   // ==================== 配置解析 ====================

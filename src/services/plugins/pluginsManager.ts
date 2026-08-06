@@ -13,6 +13,7 @@ import { getSemaRootDir } from '../../util/savePath'
 import { readInitialCwd } from '../../util/cwd'
 import { execFileSafely } from '../../util/file'
 import { searchWithRipgrep } from '../../util/ripgrep'
+import { getSettingsPath, readSettingsFile, writeSettingsFile } from '../settings/settingsLoader'
 import type {
   PluginScopeKind,
   GithubSource,
@@ -101,28 +102,15 @@ class PluginsManager {
   }
 
   private getSettingsFilePath(scope: PluginScopeKind, projectPath?: string): string {
-    const cwd = projectPath || readInitialCwd()
-    switch (scope) {
-      case 'local':   return path.join(cwd, '.sema', 'settings.local.json')
-      case 'project': return path.join(cwd, '.sema', 'settings.json')
-      case 'user':    return path.join(this.semaRootDir, 'settings.json')
-    }
+    return getSettingsPath(scope, projectPath)
   }
 
   private async readSettings(filePath: string): Promise<PluginSettings> {
-    try {
-      if (!fs.existsSync(filePath)) return {}
-      const content = await fsPromises.readFile(filePath, 'utf8')
-      return JSON.parse(content) as PluginSettings
-    } catch (error) {
-      logError(`读取 settings 文件失败 [${filePath}]: ${error}`)
-      return {}
-    }
+    return readSettingsFile(filePath) as PluginSettings
   }
 
   private async writeSettings(filePath: string, data: PluginSettings): Promise<void> {
-    await fsPromises.mkdir(path.dirname(filePath), { recursive: true })
-    await fsPromises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8')
+    writeSettingsFile(filePath, data)
   }
 
   private async readMarketplaceJson(installLocation: string): Promise<MarketplaceJson | null> {

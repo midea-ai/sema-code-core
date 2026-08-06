@@ -11,6 +11,7 @@ import { logWarn } from '../../util/log'
 import { getShellForSpawn, killProcess } from '../../util/process'
 import { IS_WIN } from '../../util/platform'
 import { HookExecResult, HookOutcome } from '../../types/hook'
+import { getEffectiveEnv } from '../settings/settingsLoader'
 
 // 单流输出上限 1MB
 const MAX_STREAM_BYTES = 1024 * 1024
@@ -103,7 +104,7 @@ export function executeHookCommand(
     try {
       proc = spawn(bin, [...args, command], {
         cwd: readInitialCwd(),
-        env: process.env,
+        env: getEffectiveEnv(),
         stdio: ['pipe', 'pipe', 'pipe'],
         // POSIX 下 detached 使 hook 独占进程组，便于整组终止；
         // 子进程不会随宿主退出自动回收，与非 detached 行为一致（SessionEnd 本为尽力而为）

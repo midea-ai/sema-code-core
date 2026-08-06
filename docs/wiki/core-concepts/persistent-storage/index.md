@@ -10,6 +10,7 @@ Sema Core 的所有持久化数据存储在用户主目录的 `~/.sema/` 下，�
 ~/.sema/                          # 全局配置目录
 ├── model.conf                    # 模型配置
 ├── projects.conf                 # 项目配置（按工作目录分组）
+├── settings.json                 # 用户级设置（env 等）
 ├── .mcp.json                     # 全局 MCP 服务器配置
 ├── AGENTS.md                     # 全局 Agent 提示词/规则配置
 ├── history/                      # 会话历史
@@ -43,7 +44,7 @@ Sema Core 的所有持久化数据存储在用户主目录的 `~/.sema/` 下，�
 ```
 .sema/                            # 项目配置目录（项目根目录下）
 ├── .mcp.json                     # 项目级 MCP 服务器配置
-├── settings.json                 # 项目设置（MCP 禁用/工具白名单等）
+├── settings.json                 # 项目设置（env/MCP 禁用/工具白名单等）
 ├── skills/
 │   └── [skill-name]/
 │       └── SKILL.md              # 项目级 Skill（优先于用户级）
@@ -146,12 +147,15 @@ MCP 服务器配置（全局和项目级格式相同），支持 `.mcp.json` 和
 
 MCP 加载优先级：**插件 MCP < 用户级 < 项目级**，项目级配置可以覆盖用户级同名服务。
 
-### 项目设置 `.sema/settings.json`
+### 设置文件 `~/.sema/settings.json` 和 `.sema/settings.json`
 
-存储项目级 MCP 管理设置：
+设置文件分用户级（`~/.sema/settings.json`）和项目级（`.sema/settings.json`）两层：
 
 ```json
 {
+  "env": {
+    "HTTP_PROXY": "http://127.0.0.1:7890"
+  },
   "disabledMcpServers": ["filesystem"],
   "enabledMcpServerUseTools": {
     "context7": ["resolve-library-id", "query-docs"]
@@ -159,8 +163,9 @@ MCP 加载优先级：**插件 MCP < 用户级 < 项目级**，项目级配置�
 }
 ```
 
-- `disabledMcpServers`：已禁用的 MCP 服务名列表
-- `enabledMcpServerUseTools`：按服务名指定的可用工具白名单
+- `env`：注入到终端执行、后台任务、hooks 子进程的环境变量，合并顺序为 **进程环境 < 用户级 env < 项目级 env**（后者覆盖前者），修改后重启服务生效
+- `disabledMcpServers`：已禁用的 MCP 服务名列表（仅项目级）
+- `enabledMcpServerUseTools`：按服务名指定的可用工具白名单（仅项目级）
 
 ### 会话历史`~/.sema/history/[project-dir]/[date]_[sessionId].json`
 

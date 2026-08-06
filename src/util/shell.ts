@@ -9,6 +9,7 @@ import * as iconv from 'iconv-lite'
 import { logError, logInfo, logWarn } from './log'
 import { IS_WIN, nativeToShellPath, splitPathEntries } from './platform'
 import { readInitialCwd } from './cwd'
+import { getEffectiveEnv } from '../services/settings/settingsLoader'
 
 // 临时文件前缀
 const TEMPFILE_PREFIX = join(os.tmpdir(), 'sema-')
@@ -417,7 +418,7 @@ export class PersistentShell {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd,
       env: {
-        ...process.env,
+        ...getEffectiveEnv(),
         GIT_EDITOR: 'true',  // 禁用Git编辑器
       },
     }
@@ -860,7 +861,7 @@ export class PersistentShell {
         // 直接使用对应的 Shell 执行命令
         const childProcess = spawn(this.binShell, shellArgs, {
           cwd: this.cwd,
-          env: process.env,
+          env: getEffectiveEnv(),
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true
         })

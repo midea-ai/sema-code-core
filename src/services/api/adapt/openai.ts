@@ -29,6 +29,7 @@ async function streamChat(
   signal?: AbortSignal,
   emitChunkEvents: boolean = false,
   sessionId?: string,
+  onActivity?: () => void,
 ): Promise<OpenAI.ChatCompletion> {
   const { url, headers = {}, body } = params;
 
@@ -80,6 +81,7 @@ async function streamChat(
         logDebug('[OpenAI] Stream interrupted, stopping event processing');
         break; // 返回已累积的部分内容，而非抛出异常
       }
+      onActivity?.(); // 收到新包，重置空闲超时
 
       if (chunk.id) messageId = chunk.id;
       const delta = chunk.choices[0]?.delta;
@@ -263,15 +265,15 @@ export async function queryOpenAI(
 
   logLLMRequest(requestBody, sessionId)
 
-  // 统一使用 streamChat 处理请求（合并超时信号，最长等待 10 分钟）
-  const { signal: streamSignal, cleanup } = withStreamTimeout(signal, sessionId)
+  // 统一使用 streamChat 处理请求（合并超时信号：空闲 2min 无新数据 / 整体 10min）
+  const { signal: streamSignal, cleanup, touch } = withStreamTimeout(signal, sessionId)
   let chatCompletion: OpenAI.ChatCompletion
   try {
     chatCompletion = await streamChat({
       url: baseURL,
       headers,
       body: requestBody,
-    }, streamSignal, emitChunkEvents, sessionId)
+    }, streamSignal, emitChunkEvents, sessionId, touch)
   } finally {
     cleanup()
   }

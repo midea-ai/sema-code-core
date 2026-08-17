@@ -27,6 +27,7 @@ async function streamChat(
   signal?: AbortSignal,
   emitChunkEvents: boolean = false,
   sessionId?: string,
+  onActivity?: () => void,
 ): Promise<Anthropic.Message> {
   const { url, headers = {}, body } = params;
 
@@ -82,6 +83,7 @@ async function streamChat(
         logDebug('[Anthropic] Stream interrupted, stopping event processing');
         break; // 返回已累积的部分内容，而非抛出异常
       }
+      onActivity?.(); // 收到新包，重置空闲超时
 
       switch (event.type) {
         case 'message_start':
@@ -257,15 +259,15 @@ export async function queryAnthropic(
 
   logLLMRequest(requestBody, sessionId)
 
-  // 统一使用 streamChat 处理请求（合并超时信号，最长等待 10 分钟）
-  const { signal: streamSignal, cleanup } = withStreamTimeout(signal, sessionId)
+  // 统一使用 streamChat 处理请求（合并超时信号：空闲 2min 无新数据 / 整体 10min）
+  const { signal: streamSignal, cleanup, touch } = withStreamTimeout(signal, sessionId)
   let parsedMessage: Anthropic.Message
   try {
     parsedMessage = await streamChat({
       url: baseURL,
       headers,
       body: requestBody,
-    }, streamSignal, emitChunkEvents, sessionId)
+    }, streamSignal, emitChunkEvents, sessionId, touch)
   } finally {
     cleanup()
   }

@@ -4,6 +4,7 @@ import { getConfManager } from '../../manager/ConfManager'
 import { getSkillTypesDescription } from '../skills/skillsManager'
 import { getMemoryDescription } from '../memory/memManager'
 import { getRuleDescription } from '../rules/rulesManager'
+import { isFullReplaceMode } from './genSystemPrompt'
 import { readInitialCwd } from '../../util/cwd'
 import { PLAN_MODE_SYSTEM_REMINDER_PROMPT } from '../../prompt/plan'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../../prompt/define'
@@ -25,7 +26,8 @@ export function generateRulesReminders(): Anthropic.ContentBlockParam[] {
   const customRules = configManager.getCoreConfig()?.customRules ?? ''
   const customRulesSection = customRules ? `Custom rules (user-defined instructions):\n\n${customRules}` : ''
   const ruleSection = getRuleDescription()
-  const memorySection = getMemoryDescription()
+  // replaceAll 模式下系统提示词已无 memory 说明，reminder 也不再注入 MEMORY.md 内容
+  const memorySection = isFullReplaceMode() ? '' : getMemoryDescription()
 
   if (!customRulesSection && !ruleSection && !memorySection) {
     return []

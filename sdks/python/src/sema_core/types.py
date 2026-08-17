@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 # ==================== 字面量枚举 ====================
 
 AgentMode = Literal["Agent", "Plan", "Design"]
-SystemPromptMode = Literal["append", "replace"]
+SystemPromptMode = Literal["append", "replace", "replaceAll"]
 PermissionLevel = Literal["Ask", "AutoEdit", "AutoRun", "Bypass"]
 AdapterType = Literal["openai", "anthropic"]
 MCPTransportType = Literal["stdio", "sse", "http"]

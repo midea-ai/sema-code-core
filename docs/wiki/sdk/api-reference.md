@@ -305,7 +305,7 @@ InputImageAttachment                                         // 图片附件(pro
 MAIN_AGENT_ID                                                // 常量:主代理 agentId
 ```
 
-> `systemPromptMode`:`'append'`(默认,配置的 systemPrompt 叠加在内置提示词前)| `'replace'`(替换内置系统提示词,memory/env 上下文仍附加;未配 systemPrompt 时回落 append)。仅构造时生效,不支持动态更新。
+> `systemPromptMode`:`'append'`(默认,配置的 systemPrompt 叠加在内置提示词前)| `'replace'`(替换内置系统提示词,memory/env 上下文仍附加)| `'replaceAll'`(完全替换,系统提示词仅为 systemPrompt,不附加 memory/env/gitStatus,turn-level reminder 也不注入 MEMORY.md);replace/replaceAll 未配 systemPrompt 时回落 append。仅构造时生效,不支持动态更新。
 
 ### 事件数据 `sema-core/event`
 

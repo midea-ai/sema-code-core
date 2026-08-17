@@ -54,7 +54,7 @@ public enum RuleScope { user, project }
 public enum SkillScope { user, project, plugin }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum SystemPromptMode { append, replace }
+public enum SystemPromptMode { append, replace, replaceAll }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TodoTaskStatus { pending, in_progress, completed }

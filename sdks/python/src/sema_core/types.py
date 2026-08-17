@@ -431,6 +431,9 @@ class CreateSessionOptions(TypedDict, total=False):
     sessionId: str
     agentMode: AgentMode
     permissionLevel: PermissionLevel
+    # 会话级模型覆盖（profile 名，同 switch_model 参数），仅本会话生效、不持久化；不传沿用全局配置
+    mainModel: str
+    quickModel: str
 
 
 class CreateSessionResultOk(TypedDict):

@@ -119,6 +119,10 @@ public record CreateSessionOptions
     [JsonPropertyName("sessionId")] public string? SessionId { get; init; }
     [JsonPropertyName("agentMode")] public AgentMode? AgentMode { get; init; }
     [JsonPropertyName("permissionLevel")] public PermissionLevel? PermissionLevel { get; init; }
+    /// <summary>会话级主要模型（profile 名，同 SwitchModel 参数），仅本会话生效、不持久化；null 沿用全局配置。</summary>
+    [JsonPropertyName("mainModel")] public string? MainModel { get; init; }
+    /// <summary>会话级快速模型，语义同 MainModel。</summary>
+    [JsonPropertyName("quickModel")] public string? QuickModel { get; init; }
 }
 
 public record CreateSessionResultErr : CreateSessionResult

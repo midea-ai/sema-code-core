@@ -6,6 +6,7 @@ import { generateSessionId } from '../util/session';
 import { getStateManager } from '../manager/StateManager';
 import { getCheckpointManager } from '../manager/CheckpointManager';
 import { getTaskManager } from '../manager/TaskManager';
+import { getModelManager } from '../manager/ModelManager';
 import { ToolPermissionResponse, PickOptionResponseData, PlanExitResponseData } from '../events/types';
 import { TaskListItem } from '../types/task';
 import type { AgentMode, PermissionLevel } from '../types';
@@ -35,7 +36,13 @@ export class SemaSession {
     const session = new SemaSession(sessionId, engine, bus);
 
     try {
-      await engine.createSession({ sessionId: opts.sessionId, agentMode: opts.agentMode, permissionLevel: opts.permissionLevel });
+      await engine.createSession({
+        sessionId: opts.sessionId,
+        agentMode: opts.agentMode,
+        permissionLevel: opts.permissionLevel,
+        mainModel: opts.mainModel,
+        quickModel: opts.quickModel,
+      });
     } catch (error) {
       session.dispose();
       throw error;
@@ -96,6 +103,7 @@ export class SemaSession {
     this.engine.dispose();
     getTaskManager().disposeSession(this.sessionId);
     getStateManager().removeSession(this.sessionId);
+    getModelManager().clearSessionModelOverride(this.sessionId);
     getCheckpointManager().forgetSession(this.sessionId);
     this.bus.dispose();
   };

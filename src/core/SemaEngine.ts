@@ -78,6 +78,11 @@ export class SemaEngine {
    * 初始化会话：加载历史、发送 session:ready
    */
   async createSession(opts: CreateSessionOptions = {}): Promise<void> {
+    // 会话级模型覆盖（仅本会话、不落盘）：先设置再做模型检查，使 initialize 校验的是本会话实际使用的 main
+    if (opts.mainModel || opts.quickModel) {
+      getModelManager().setSessionModelOverride(this.sessionId, { main: opts.mainModel, quick: opts.quickModel });
+    }
+
     // 初始化系统配置与模型检查
     await this.initialize();
 
@@ -121,7 +126,7 @@ export class SemaEngine {
 
     const projectConfig = getConfManager().getProjectConfig();
     const projectInputHistory = projectConfig?.history || [];
-    const usage = getTokens(mainAgentState.getMessageHistory())
+    const usage = getTokens(mainAgentState.getMessageHistory(), this.sessionId)
 
     const sessionData = {
       pid: process.pid,
@@ -667,7 +672,7 @@ export class SemaEngine {
 
     try {
       const modelManager = getModelManager();
-      const modelProfile = modelManager.getModel('main')
+      const modelProfile = modelManager.getModel('main', this.sessionId)
       if (!modelProfile) {
         // 延迟一拍：等调用方在返回的 SemaSession 上注册监听器
         setImmediate(() => {

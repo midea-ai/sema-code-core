@@ -15,6 +15,8 @@ const result = await core.createSession({
   sessionId: 'existing-session-id', // 可选：恢复已有历史
   agentMode: 'Agent',               // 可选：'Agent' | 'Plan' | 'Design'
   permissionLevel: 'Ask',           // 可选：'Ask' | 'AutoEdit' | 'AutoRun' | 'Bypass'，默认 'Ask'
+  mainModel: 'gpt-4o[openai]',      // 可选：会话级主要模型（profile 名），仅本会话生效、不持久化
+  quickModel: 'gpt-4o-mini[openai]',// 可选：会话级快速模型，不传沿用全局配置
 })
 
 if (!result.ok) {

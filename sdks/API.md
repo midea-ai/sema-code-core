@@ -30,7 +30,7 @@
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await createSession` | `create_session` | `createSession` | `CreateSession` | `opts: CreateSessionOptions` | — |
+| `await createSession` | `create_session` | `createSession` | `CreateSession` | `opts: CreateSessionOptions` | `opts` 含 `sessionId?/agentMode?/permissionLevel?/mainModel?/quickModel?`；`mainModel`/`quickModel` 为会话级模型覆盖（profile 名，同 switchModel 参数），仅本会话生效、不持久化 |
 | `getSession` | `session` / `get_session` | `session` / `getSession` | `Session` / `GetSession` | `sessionId: string`(必填) | core 查池、无则 `undefined`；SDK 只造句柄、恒有返回，用时才校验存在 |
 | `listSessions` | `list_sessions` | `listSessions` | `ListSessions` | — | — |
 | `setActiveSession` | `set_active_session` | `setActiveSession` | `SetActiveSession` | `sessionId: string`(必填) | — |

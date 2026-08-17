@@ -62,7 +62,7 @@ async function handleClearCommand(sessionId: string): Promise<void> {
   mainAgentState.setMessageHistory([]);
   mainAgentState.updateState('idle');
   eventBus.emit('session:cleared', { sessionId }, sessionId);
-  eventBus.emit('conversation:usage', { usage: getTokens([]) }, sessionId);
+  eventBus.emit('conversation:usage', { usage: getTokens([], sessionId) }, sessionId);
   runtime.clearAllState();
 }
 

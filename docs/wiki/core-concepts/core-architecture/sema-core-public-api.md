@@ -52,6 +52,8 @@ interface CreateSessionOptions {
   sessionId?: string             // 可选：恢复指定历史会话；不传则新建
   agentMode?: 'Agent' | 'Plan' | 'Design'
   permissionLevel?: 'Ask' | 'AutoEdit' | 'AutoRun' | 'Bypass'   // 可选：会话初始权限档位，默认 'Ask'
+  mainModel?: string             // 可选：会话级主要模型（profile 名，同 switchModel 参数），仅本会话生效、不持久化
+  quickModel?: string            // 可选：会话级快速模型，同上；不传沿用全局模型配置
 }
 
 type CreateSessionResult =

@@ -144,7 +144,7 @@ class SemaCore:
         return bool((ack or {}).get("ok"))
 
     async def create_session(self, opts: Optional["CreateSessionOptions"] = None) -> "SemaSession":
-        """opts 可选 {sessionId, permissionLevel, agentMode}（字段名与 core createSession 一致）。"""
+        """opts 可选 {sessionId, permissionLevel, agentMode, mainModel, quickModel}（字段名与 core createSession 一致；mainModel/quickModel 为会话级模型覆盖，不持久化）。"""
         data = await self._json("createSession", opts or {})
         return SemaSession(self._client, data["sessionId"])
 

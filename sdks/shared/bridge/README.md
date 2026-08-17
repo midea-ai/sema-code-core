@@ -82,7 +82,7 @@ service SemaBridge {
 | `getModelData`   | 获取模型信息（数据随 `ack` 的 `data` 返回）                  |
 | `updateCoreConfig` | 更新核心配置                                             |
 | `listSessions`   | 列出会话 ID（随 `ack` 的 `data.sessions` 返回）             |
-| `createSession`  | 创建会话，可选 `{ sessionId?, permissionLevel?, mode? }`；`ack` 回 `{ sessionId }`，随后触发 `session:ready` |
+| `createSession`  | 创建会话，可选 `{ sessionId?, permissionLevel?, agentMode?, mainModel?, quickModel? }`（`mainModel`/`quickModel` 为会话级模型覆盖，profile 名，仅本会话生效、不持久化）；`ack` 回 `{ sessionId }`，随后触发 `session:ready` |
 | `closeSession`   | 关闭指定会话（需带 `session_id`，不销毁 Core）              |
 
 #### 会话级（Session，需 session_id）

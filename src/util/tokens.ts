@@ -55,13 +55,13 @@ export function countTokens(messages: Message[]): { inputTokens: number; outputT
   return { inputTokens: 0, outputTokens: 0 }
 }
 
-export function getTokens(messages: Message[]): Usage {
+export function getTokens(messages: Message[], sessionId?: string): Usage {
   const tokens = countTokens(messages);
   const useTokens = tokens.inputTokens + tokens.outputTokens;
   const promptTokens = tokens.inputTokens;
 
   const modelManager = getModelManager()
-  const modelProfile = modelManager.getModel('main') // 获取主模型配置
+  const modelProfile = modelManager.getModel('main', sessionId) // 获取主模型配置（含会话级覆盖）
 
   // 如果没有找到模型配置，使用默认值
   const maxTokens = modelProfile?.contextLength || 128000;

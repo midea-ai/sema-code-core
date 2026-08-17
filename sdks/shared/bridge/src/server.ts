@@ -150,6 +150,9 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
           if (payload?.sessionId) createOpts.sessionId = payload.sessionId;
           if (payload?.permissionLevel) createOpts.permissionLevel = payload.permissionLevel;
           if (payload?.agentMode) createOpts.agentMode = payload.agentMode;
+          // 会话级模型覆盖（仅本会话生效、不落盘），值为 profile 名（同 switchModel 参数）
+          if (payload?.mainModel) createOpts.mainModel = payload.mainModel;
+          if (payload?.quickModel) createOpts.quickModel = payload.quickModel;
           const result = await manager.instance.createSession(
             Object.keys(createOpts).length ? createOpts : undefined,
           );

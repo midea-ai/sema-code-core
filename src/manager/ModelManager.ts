@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { ModelConfiguration, ModelProfile, ModelPointerType } from '../types/model';
+import { ModelConfiguration, ModelProfile, ModelPointerType, ModelPointers } from '../types/model';
 import { ModelConfig, TaskConfig, ModelUpdateData } from '../types';
 import { testApiConnection } from '../services/api/apiUtil';
 import { getModelConfigFilePath } from '../util/savePath';
@@ -15,6 +15,8 @@ import { logWarn, logError } from '../util/log';
 export class ModelManager {
   private config: ModelConfiguration;
   private readonly configPath: string;
+  /** 会话级模型指针覆盖（纯内存、不落盘）：sessionId → { main?, quick? }，值为 profile 名 */
+  private sessionOverrides = new Map<string, Partial<ModelPointers>>();
 
   constructor(initialConfig: ModelConfiguration) {
     this.configPath = getModelConfigFilePath();
@@ -199,10 +201,55 @@ export class ModelManager {
     };
   }
 
+  // ===================== 会话级模型覆盖（仅内存，不持久化） =====================
+
+  /**
+   * 设置会话级模型覆盖：只对该会话生效，不写 model.conf。
+   * 传入的模型名必须存在于 modelProfiles，否则抛错；main/quick 都未传时不记录。
+   */
+  setSessionModelOverride(sessionId: string, override: Partial<ModelPointers>): void {
+    const result: Partial<ModelPointers> = {};
+    for (const pointer of ['main', 'quick'] as ModelPointerType[]) {
+      const name = override[pointer];
+      if (!name) continue;
+      if (!findModelProfile(name, this.config.modelProfiles)) {
+        throw new Error(`模型不存在: ${name}`);
+      }
+      result[pointer] = name;
+    }
+    if (result.main || result.quick) {
+      this.sessionOverrides.set(sessionId, result);
+    } else {
+      this.sessionOverrides.delete(sessionId);
+    }
+  }
+
+  /** 清除会话级模型覆盖（会话 dispose 时调用） */
+  clearSessionModelOverride(sessionId: string): void {
+    this.sessionOverrides.delete(sessionId);
+  }
+
+  /** 查询会话级模型覆盖（无覆盖返回 undefined） */
+  getSessionModelOverride(sessionId: string): Partial<ModelPointers> | undefined {
+    return this.sessionOverrides.get(sessionId);
+  }
+
   /**
    * 获取指定类型的模型配置
+   * 传入 sessionId 时优先使用该会话的覆盖；覆盖的模型已不存在则告警并回退全局指针
    */
-  getModel(pointer: ModelPointerType): ModelProfile | null {
+  getModel(pointer: ModelPointerType, sessionId?: string): ModelProfile | null {
+    if (sessionId) {
+      const overrideName = this.sessionOverrides.get(sessionId)?.[pointer];
+      if (overrideName) {
+        const overrideProfile = findModelProfile(overrideName, this.config.modelProfiles);
+        if (overrideProfile) {
+          return overrideProfile;
+        }
+        logWarn(`会话 ${sessionId} 的 ${pointer} 模型覆盖 ${overrideName} 已不存在，回退全局配置`);
+      }
+    }
+
     const pointerId = this.config.modelPointers?.[pointer];
     if (!pointerId) {
       return null;
@@ -215,8 +262,8 @@ export class ModelManager {
   /**
    * 获取指定类型的模型名称
    */
-  getModelName(pointer: ModelPointerType): string | null {
-    const profile = this.getModel(pointer);
+  getModelName(pointer: ModelPointerType, sessionId?: string): string | null {
+    const profile = this.getModel(pointer, sessionId);
     return profile ? profile.modelName : null;
   }
 

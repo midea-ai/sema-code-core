@@ -47,10 +47,11 @@ export async function queryLLM(
     sessionId,
   } = options
 
-  const modelProfile = getModelManager().getModel(modelPointer)
+  // 传入 sessionId：优先命中会话级模型覆盖（createSession 的 mainModel/quickModel）
+  const modelProfile = getModelManager().getModel(modelPointer, sessionId)
 
   if (!modelProfile) {
-    throw new Error(`解析模型失败: ${modelPointer}`)
+    throw new Error(`解析模型失败: ${modelPointer}${sessionId ? ` (session=${sessionId})` : ''}`)
   }
 
   try {

@@ -19,7 +19,7 @@
     "getModelAdapter": { "level": "core", "payload": ["provider", "modelName", "baseURL"], "ack": "value" },
     "listSessions": { "level": "core", "payload": [], "ack": "value", "note": "ack {sessions}" },
     "setActiveSession": { "level": "core", "payload": ["sessionId"], "ack": "value", "note": "ack {ok}" },
-    "createSession": { "level": "core", "payload": ["sessionId", "permissionLevel", "mode"], "ack": "value", "note": "ack {sessionId}；创建期事件缓存重放" },
+    "createSession": { "level": "core", "payload": ["sessionId", "permissionLevel", "agentMode", "mainModel", "quickModel"], "ack": "value", "note": "ack {sessionId}；创建期事件缓存重放；mainModel/quickModel 为会话级模型覆盖(profile 名，不持久化)" },
     "closeSession": { "level": "core", "payload": ["sessionId"], "ack": "delivery" },
     "getToolInfos": { "level": "core", "payload": [], "ack": "value" },
     "updateDisabledTools": { "level": "core", "payload": ["disabledTools"], "ack": "delivery" },

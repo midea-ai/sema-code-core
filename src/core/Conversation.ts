@@ -41,7 +41,7 @@ export async function* ReAct(
 
   // 自动压缩检查（子代理不进行压缩）
   // 在处理新消息前检查，如果需要压缩，会分离出最新的用户消息
-  if (!isSubagent && await needsAutoCompact(messages)) {
+  if (!isSubagent && await needsAutoCompact(messages, 0, sessionId)) {
     // 第一道防线：micro 清理（本地替换模型已消费的旧工具结果，不调模型）。
     // 清理无条件生效并随历史落盘；估算显示空间足够时直接跳过全量摘要。
     const micro = applyMicroCompact(messages, sessionId)
@@ -165,7 +165,7 @@ export async function* ReAct(
   // 在每次 message:complete 事件后立即发送完整的 conversation:usage 事件（子代理不触发）
   const updatedMessages = [...messages, assistantMessage]
   if (!isSubagent) {
-    const usage = getTokens(updatedMessages)
+    const usage = getTokens(updatedMessages, sessionId)
     getEventBus().emit('conversation:usage', { usage }, sessionId)
   }
 
@@ -215,7 +215,7 @@ export async function* ReAct(
     // 先发送完整对话的usage事件 (包含工具执行的token消耗)，子代理不触发
     const fullMessages = [...messages, assistantMessage, ...toolResults]
     if (!isSubagent) {
-      const usage = getTokens(fullMessages)
+      const usage = getTokens(fullMessages, sessionId)
       getEventBus().emit('conversation:usage', { usage }, sessionId)
     }
 

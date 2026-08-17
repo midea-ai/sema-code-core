@@ -84,9 +84,9 @@ type CompactSummaryResult =
       reason: Exclude<CompactTruncatedReason, 'COMPACT_ERROR'>
     }
 
-function getContextLimit(): number {
+function getContextLimit(sessionId?: string): number {
   try {
-    return compactDependencies.getModelManager().getModel('main')?.contextLength ?? 128_000
+    return compactDependencies.getModelManager().getModel('main', sessionId)?.contextLength ?? 128_000
   } catch {
     return 128_000
   }
@@ -244,7 +244,7 @@ function emitCompactUsage(
 
     const tokensBeforeInfo = countTokens(messagesBefore)
     const tokenBefore = tokensBeforeInfo.inputTokens + tokensBeforeInfo.outputTokens
-    const usage = getTokens(messagesAfter)
+    const usage = getTokens(messagesAfter, sessionId)
     const eventBus = compactDependencies.getEventBus()
     const compactExecData: CompactExecData = {
       tokenBefore,
@@ -269,11 +269,11 @@ function emitCompactUsage(
  * @param discountTokens 估算折扣：countTokens 读的是上一次 API 响应的 usage，
  * micro 清理的节省要到下一次响应才可见，期间用该折扣修正判断。默认 0，行为与原先一致。
  */
-export function needsAutoCompact(messages: Message[], discountTokens = 0): boolean {
+export function needsAutoCompact(messages: Message[], discountTokens = 0, sessionId?: string): boolean {
   if (messages.length < 3) return false
 
   const inputTokenCount = countTokens(messages).inputTokens
-  const autoCompactThreshold = getContextLimit() * AUTO_COMPACT_THRESHOLD_RATIO
+  const autoCompactThreshold = getContextLimit(sessionId) * AUTO_COMPACT_THRESHOLD_RATIO
 
   return (inputTokenCount - discountTokens) >= autoCompactThreshold
 }
@@ -302,7 +302,7 @@ export function applyMicroCompact(messages: Message[], sessionId?: string): Micr
       return { messages, needFullCompact: true, changed: false }
     }
 
-    const stillOver = needsAutoCompact(result.messages, result.estimatedSavedTokens)
+    const stillOver = needsAutoCompact(result.messages, result.estimatedSavedTokens, sessionId)
 
     // estimatedTokenAfter = 上次 API 响应的真实 usage − 估算节省，与"要不要全量摘要"的判断口径一致；
     // 清理前的值不重复携带（= 紧邻上一条 conversation:usage 的 promptTokens）
@@ -373,7 +373,7 @@ export async function compactMessages(
       }
     }
 
-    const contextLimit = getContextLimit()
+    const contextLimit = getContextLimit(sessionId)
     const targetLimit = contextLimit * 0.5 // 截断到50%容量
     const truncatedMessages = truncateMessages(messages, targetLimit)
     emitCompactUsage(messages, truncatedMessages, sessionId, 'truncated', summaryResult.reason)
@@ -396,7 +396,7 @@ export async function compactMessages(
     logError(`Compact failed, attempting truncation fallback: ${error}`)
 
     try {
-      const contextLimit = getContextLimit()
+      const contextLimit = getContextLimit(sessionId)
       const targetLimit = contextLimit * 0.5 // 截断到50%容量
 
       const truncatedMessages = truncateMessages(messages, targetLimit)

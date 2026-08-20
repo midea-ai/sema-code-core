@@ -1,0 +1,194 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, Settings, ChevronDown, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
+import { useApp } from '../../store/app';
+import { useSessions } from '../../store/sessions';
+import { pendingBlocks } from '../../../../shared/transcript';
+import type { ProjectRecord, SessionRecord } from '../../../../shared/types';
+import { Popover, MenuItem, MenuSep, useContextMenu, useDialog, cn, relTime } from '../../common/ui';
+import { t } from '../../i18n';
+import { CreateProjectDialog } from '../../common/CreateProjectDialog';
+
+export function Sidebar({ width }: { width: number }) {
+  const registry = useApp(s => s.registry);
+  const view = useApp(s => s.view);
+  const setView = useApp(s => s.setView);
+  const setSidebarCollapsed = useApp(s => s.setSidebarCollapsed);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [projectsOpen, setProjectsOpen] = useState(true);
+  const [sessionsOpen, setSessionsOpen] = useState(true);
+
+  const projects = useMemo(() => [...registry.projects].sort((a, b) => b.lastActiveAt - a.lastActiveAt), [registry.projects]);
+  const standalone = useMemo(() => registry.sessions.filter(s => !s.projectId).sort((a, b) => b.lastActiveAt - a.lastActiveAt), [registry.sessions]);
+  const byProject = useMemo(() => {
+    const m: Record<string, SessionRecord[]> = {};
+    for (const s of registry.sessions) if (s.projectId) (m[s.projectId] ||= []).push(s);
+    for (const k of Object.keys(m)) m[k].sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+    return m;
+  }, [registry.sessions]);
+
+  // 新会话只切到草稿页，首次发送时才创建记录（避免堆积空会话）
+  const newSession = (projectId?: string) => {
+    if (projectId) setExpanded(e => ({ ...e, [projectId]: true }));
+    setView({ type: 'draft', projectId });
+  };
+
+  // 新建项目弹窗（名称 + 可选源文件夹，覆盖原「新建 / 导入」两个入口）
+  const [creating, setCreating] = useState(false);
+
+  const activeId = view.type === 'chat' ? view.sessionId : undefined;
+
+  return (
+    <aside style={{ width }} className="shrink-0 h-full flex flex-col border-r border-border bg-panel">
+      <div className="p-2 flex flex-col gap-0.5">
+        <div className="flex items-center justify-between px-2 h-8 mb-1.5">
+          <span className="text-base font-semibold tracking-wide">{t('app.name')}</span>
+          <button onClick={() => setSidebarCollapsed(true)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title="隐藏侧边栏"><PanelLeft size={15} /></button>
+        </div>
+        <NavItem icon={<Plus size={15} />} label={t('sidebar.newSession')} active={view.type === 'draft' && !view.projectId} onClick={() => newSession()} />
+        <NavItem icon={<Settings size={15} />} label={t('sidebar.settings')} active={view.type === 'settings'} onClick={() => setView({ type: 'settings', tab: 'models' })} />
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3">
+        {/* 项目 */}
+        <SectionHeader label={t('sidebar.projects')} className="mt-2" open={projectsOpen} onToggle={() => setProjectsOpen(v => !v)} action={
+          <button onClick={() => setCreating(true)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newProject')}><Plus size={14} /></button>
+        } />
+        <CreateProjectDialog open={creating} onClose={() => setCreating(false)} onCreated={p => { setProjectsOpen(true); setExpanded(e => ({ ...e, [p.id]: true })); }} />
+        {projectsOpen && projects.length === 0 && <div className="px-2 py-1 text-xs text-muted">{t('sidebar.noProjects')}</div>}
+        {projectsOpen && projects.map(p => (
+          <ProjectNode key={p.id} project={p} sessions={byProject[p.id] || []} expanded={!!expanded[p.id]}
+            onToggle={() => setExpanded(e => ({ ...e, [p.id]: !e[p.id] }))} activeId={activeId} onNewSession={() => newSession(p.id)} />
+        ))}
+
+        {/* 独立会话 */}
+        <SectionHeader label={t('sidebar.sessions')} className="mt-4" open={sessionsOpen} onToggle={() => setSessionsOpen(v => !v)} action={
+          <button onClick={() => newSession()} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newSession')}><Plus size={14} /></button>
+        } />
+        {sessionsOpen && standalone.length === 0 && <div className="px-2 py-1 text-xs text-muted">{t('sidebar.noSessions')}</div>}
+        {sessionsOpen && standalone.map(s => <SessionItem key={s.id} session={s} active={s.id === activeId} />)}
+      </div>
+    </aside>
+  );
+}
+
+function NavItem({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean }) {
+  return (
+    <button onClick={onClick} className={cn('flex items-center gap-2 h-8 px-2 rounded-md text-sm w-full text-left hover:bg-black/[0.05]', active ? 'bg-black/[0.06] text-fg' : 'text-fg/90')}>
+      {icon}<span>{label}</span>
+    </button>
+  );
+}
+
+/** 分组标题：标题 + 折叠箭头（悬浮显示，折叠时常显）；右侧操作（如新建）悬浮显示 */
+function SectionHeader({ label, action, className, open = true, onToggle }: { label: string; action?: React.ReactNode; className?: string; open?: boolean; onToggle?: () => void }) {
+  return (
+    <div className={cn('group flex items-center h-7 px-2 text-sm text-dim select-none', className)}>
+      <button onClick={onToggle} className="inline-flex items-center gap-1">
+        <span>{label}</span>
+        <ChevronDown size={12} className={cn('transition-transform', !open && '-rotate-90', open && 'opacity-0 group-hover:opacity-100')} />
+      </button>
+      <span className="flex-1" />
+      <span className="inline-flex items-center gap-0.5 opacity-0 group-hover:opacity-100">{action}</span>
+    </div>
+  );
+}
+
+/** 项目节点默认展示的会话数 */
+const PROJECT_SESSIONS_PREVIEW = 5;
+
+function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSession }: {
+  project: ProjectRecord; sessions: SessionRecord[]; expanded: boolean; onToggle: () => void; activeId?: string; onNewSession: () => void;
+}) {
+  const menu = useContextMenu();
+  const dialog = useDialog();
+  const toast = useApp(s => s.toast);
+  const app = useApp.getState;
+  // 默认只显示前 N 个会话，点「展开显示」看全部；当前会话不在前 N 个时自动展开
+  const [showAllManual, setShowAll] = useState(false);
+  // 项目收起后重置，再展开时回到只显示前 N 个
+  useEffect(() => { if (!expanded) setShowAll(false); }, [expanded]);
+  const showAll = showAllManual || sessions.findIndex(s => s.id === activeId) >= PROJECT_SESSIONS_PREVIEW;
+  const rename = async () => {
+    const name = await dialog.prompt({ title: t('menu.rename'), defaultValue: project.name });
+    if (name && name !== project.name) app().renameProject(project.id, name).catch(e => toast(e.message, 'error'));
+  };
+  const remove = async () => {
+    if (await dialog.confirm({ title: t('menu.remove'), message: t('dialog.confirmRemoveProject', { name: project.name }), danger: true, okText: t('menu.remove') })) {
+      app().removeProject(project.id).catch(e => toast(e.message, 'error'));
+    }
+  };
+  return (
+    <div>
+      <div onContextMenu={menu.open} onClick={onToggle}
+        className="group flex items-center gap-1.5 h-7 px-2 rounded-md text-sm hover:bg-black/[0.05] cursor-pointer select-none" title={project.workingDir}>
+        <Folder size={14} className="text-muted shrink-0" />
+        <span className="truncate flex-1">{project.name}</span>
+        <button onClick={e => { e.stopPropagation(); onNewSession(); }} className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted hover:text-fg" title={t('menu.newSessionHere')}><Plus size={13} /></button>
+        <button onClick={e => { e.stopPropagation(); menu.open(e); }} className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted hover:text-fg"><MoreHorizontal size={13} /></button>
+      </div>
+      {expanded && (
+        <div className="ml-4 pl-1">
+          {sessions.length === 0 && <div className="px-2 py-1 text-xs text-muted">{t('sidebar.projectSessionsEmpty')}</div>}
+          {(showAll ? sessions : sessions.slice(0, PROJECT_SESSIONS_PREVIEW)).map(s => <SessionItem key={s.id} session={s} active={s.id === activeId} />)}
+          {sessions.length > PROJECT_SESSIONS_PREVIEW && !showAll && (
+            <button onClick={() => setShowAll(true)} className="h-7 px-2 text-xs text-dim hover:text-fg text-left w-full">{t('sidebar.showAll')}</button>
+          )}
+        </div>
+      )}
+      <Popover anchor={menu.pos} onClose={menu.close}>
+        <MenuItem onClick={() => { menu.close(); onNewSession(); }}>{t('menu.newSessionHere')}</MenuItem>
+        <MenuItem onClick={() => { menu.close(); rename(); }}>{t('menu.rename')}</MenuItem>
+        <MenuItem onClick={() => { menu.close(); app().revealProject(project.id).catch(e => toast(e.message, 'error')); }}>{t('menu.reveal')}</MenuItem>
+        <MenuSep />
+        <MenuItem danger onClick={() => { menu.close(); remove(); }}>{t('menu.remove')}</MenuItem>
+      </Popover>
+    </div>
+  );
+}
+
+function SessionItem({ session, active }: { session: SessionRecord; active: boolean }) {
+  const setView = useApp(s => s.setView);
+  const snap = useSessions(s => s.snapshots[session.id]);
+  const status = useApp(s => s.status[session.id]);
+  const menu = useContextMenu();
+  const dialog = useDialog();
+  const toast = useApp(s => s.toast);
+  const app = useApp.getState;
+
+  const state = snap?.state ?? status?.state;
+  const pending = snap ? pendingBlocks(snap).length : (status?.pending ?? 0);
+  const hasError = snap ? snap.blocks.slice(-3).some(b => b.kind === 'notice' && b.level === 'error') : false;
+
+  const rename = async () => {
+    const title = await dialog.prompt({ title: t('menu.rename'), defaultValue: session.title });
+    if (title !== null && title !== session.title) app().renameSession(session.id, title).catch(e => toast(e.message, 'error'));
+  };
+  const remove = async () => {
+    const ok = await dialog.confirm({
+      title: t('menu.delete'), danger: true, okText: t('menu.delete'),
+      message: `${t('dialog.confirmDeleteSession', { name: session.title || t('chat.untitled') })}\n${session.projectId ? t('dialog.deleteProjectSessionHint') : t('dialog.deleteStandaloneHint')}`,
+    });
+    if (ok) app().deleteSession(session.id).catch(e => toast(e.message, 'error'));
+  };
+
+  return (
+    <>
+      <div onClick={() => setView({ type: 'chat', sessionId: session.id })} onContextMenu={menu.open}
+        className={cn('group flex items-center gap-1.5 h-7 px-1.5 rounded-md text-sm cursor-pointer select-none', active ? 'bg-black/[0.07]' : 'hover:bg-black/[0.05]')}>
+        <MessageSquare size={13} className="text-muted shrink-0" />
+        <span className="truncate flex-1">{session.title || t('chat.untitled')}</span>
+        {pending > 0 ? <span className="h-2 w-2 rounded-full bg-warn shrink-0" title="待应答" />
+          : state === 'processing' ? <span className="h-2 w-2 rounded-full bg-accent pulse shrink-0" title="处理中" />
+            : hasError ? <span className="h-2 w-2 rounded-full bg-danger shrink-0" title="出错" /> : null}
+        <span className="text-[10px] text-muted shrink-0 group-hover:hidden">{relTime(session.lastActiveAt)}</span>
+        <button onClick={e => { e.stopPropagation(); menu.open(e); }} className="hidden group-hover:block p-0.5 rounded text-muted hover:text-fg"><MoreHorizontal size={13} /></button>
+      </div>
+      <Popover anchor={menu.pos} onClose={menu.close}>
+        <MenuItem onClick={() => { menu.close(); rename(); }}>{t('menu.rename')}</MenuItem>
+        <MenuItem onClick={() => { menu.close(); app().revealSession(session.id).catch(e => toast(e.message, 'error')); }}>{t('menu.reveal')}</MenuItem>
+        <MenuSep />
+        <MenuItem danger onClick={() => { menu.close(); remove(); }}>{t('menu.delete')}</MenuItem>
+      </Popover>
+    </>
+  );
+}

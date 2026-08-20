@@ -1,0 +1,261 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FolderOpen, Pencil, AlertTriangle, ChevronDown, ChevronRight, Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react';
+import type { Block } from '../../../../shared/types';
+import { useApp } from '../../store/app';
+import { useSessions } from '../../store/sessions';
+import { BlockRenderer, renderBlockList, type BlockCtx } from './Blocks';
+import { Composer } from './Composer';
+import { Button, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
+import { t } from '../../i18n';
+
+export function ChatView({ sessionId }: { sessionId: string }) {
+  const record = useApp(s => s.registry.sessions.find(x => x.id === sessionId));
+  const registry = useApp(s => s.registry);
+  const snap = useSessions(s => s.snapshots[sessionId]);
+  const loading = useSessions(s => s.loading[sessionId]);
+  const open = useSessions(s => s.open);
+  const toast = useApp(s => s.toast);
+  const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
+  const dialog = useDialog();
+  const listRef = useRef<HTMLDivElement>(null);
+  const [stick, setStick] = useState(true);
+  const [rewind, setRewind] = useState<{ inputId: string; preview?: any; restore: boolean; busy: boolean } | null>(null);
+
+  useEffect(() => { open(sessionId).catch(e => toast(e.message, 'error')); }, [sessionId, open, toast]);
+
+  // 自动滚动：贴底时跟随
+  const blocks = snap?.blocks;
+  useEffect(() => {
+    if (stick && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [blocks, stick]);
+  const onScroll = () => {
+    const el = listRef.current; if (!el) return;
+    setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+  };
+
+  const sameProjectRunning = useMemo(() => {
+    if (!record?.projectId) return false;
+    const status = useApp.getState().status;
+    const snaps = useSessions.getState().snapshots;
+    return registry.sessions.some(s => s.id !== sessionId && s.projectId === record.projectId && ((snaps[s.id]?.state ?? status[s.id]?.state) === 'processing'));
+  }, [record?.projectId, registry.sessions, sessionId, snap?.state]);
+
+  const onRewind = useCallback(async (inputId: string) => {
+    setRewind({ inputId, restore: true, busy: false });
+    try {
+      const preview = await useSessions.getState().getForkPreview(sessionId, inputId);
+      setRewind(r => r && r.inputId === inputId ? { ...r, preview, restore: !!preview?.canRestoreFiles && preview.files?.length > 0 } : r);
+    } catch (e: any) { toast(e.message, 'error'); }
+  }, [sessionId, toast]);
+
+  const doRewind = async () => {
+    if (!rewind) return;
+    setRewind({ ...rewind, busy: true });
+    try {
+      const r = await useSessions.getState().fork(sessionId, rewind.inputId, rewind.restore && !!rewind.preview?.canRestoreFiles);
+      if (r && r.ok === false) throw new Error(r.error);
+      setRewind(null);
+      await useSessions.getState().loadSnapshot(sessionId);
+    } catch (e: any) { toast(e.message, 'error'); setRewind(r => r ? { ...r, busy: false } : r); }
+  };
+
+  const ctx = useMemo(() => ({ sessionId, onRewind }), [sessionId, onRewind]);
+  const turns = useMemo(() => groupTurns(snap?.blocks || []), [snap?.blocks]);
+  // 正在运行的一轮：最后一个非排队的用户消息所在组
+  const runningIdx = useMemo(() => { for (let i = turns.length - 1; i >= 0; i--) if (turns[i].user && !turns[i].user!.queued) return i; return -1; }, [turns]);
+
+  const renameTitle = async () => {
+    const title = await dialog.prompt({ title: t('menu.rename'), defaultValue: record?.title || '' });
+    if (title !== null) useApp.getState().renameSession(sessionId, title).catch(e => toast(e.message, 'error'));
+  };
+
+  if (!record) return <div className="flex-1 flex items-center justify-center text-muted">会话不存在</div>;
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      {/* 头部 */}
+      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && 'pl-12')}>
+        <button onClick={renameTitle} className="group inline-flex items-center gap-2 min-w-0 max-w-[60%]" title={record.workingDir}>
+          <span className="truncate font-medium">{record.title || t('chat.untitled')}</span>
+          <Pencil size={12} className="text-muted opacity-0 group-hover:opacity-100 shrink-0" />
+        </button>
+        <span className="text-xs text-muted truncate hidden md:inline" title={record.workingDir}>{shortPath(record.workingDir)}</span>
+        <span className="flex-1" />
+        {sameProjectRunning && <span className="inline-flex items-center gap-1 text-[11px] text-warn" title={t('chat.sameProjectRunning')}><AlertTriangle size={12} />{t('chat.sameProjectRunning')}</span>}
+        <Button size="sm" variant="outline" onClick={() => useApp.getState().revealSession(sessionId).catch(e => toast(e.message, 'error'))}><FolderOpen size={13} />{t('chat.openLocation')}</Button>
+      </div>
+
+      {/* 消息流 */}
+      <div ref={listRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          {!snap && loading && <div className="flex items-center gap-2 text-muted text-sm"><Spinner />{t('common.loading')}</div>}
+          {snap && snap.blocks.length === 0 && (
+            <div className="text-center text-muted text-sm mt-24">
+              <div className="text-lg text-fg mb-1">{t('chat.emptyTitle')}</div>
+              <div>{t('chat.emptyHint')}</div>
+            </div>
+          )}
+          {turns.map((turn, i) => (
+            <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx} active={snap!.state === 'processing' && i === runningIdx} />
+          ))}
+        </div>
+      </div>
+
+      {/* 输入区 */}
+      <Composer sessionId={sessionId} />
+
+      {/* 回退对话框 */}
+      <Modal open={!!rewind} onClose={() => !rewind?.busy && setRewind(null)} title={t('chat.rewindTitle')}>
+        <p className="text-sm text-muted mb-3">{t('chat.rewindDesc')}</p>
+        {!rewind?.preview ? <div className="text-sm text-muted flex items-center gap-2"><Spinner />{t('common.loading')}</div> : (
+          rewind.preview.files?.length ? (
+            <div>
+              <label className={cn('inline-flex items-center gap-2 text-sm', !rewind.preview.canRestoreFiles && 'opacity-50')}>
+                <input type="checkbox" disabled={!rewind.preview.canRestoreFiles} checked={rewind.restore} onChange={e => setRewind({ ...rewind, restore: e.target.checked })} />
+                {t('chat.restoreFiles')}
+              </label>
+              <ul className="mt-2 max-h-48 overflow-auto text-xs font-mono flex flex-col gap-0.5">
+                {rewind.preview.files.map((f: any) => (
+                  <li key={f.filePath} className="flex gap-2"><span className="text-muted w-14 shrink-0">{f.effect}</span><span className="truncate flex-1">{f.displayPath}</span><span><span className="text-ok">+{f.additions}</span> <span className="text-danger">-{f.removals}</span></span></li>
+                ))}
+              </ul>
+            </div>
+          ) : <div className="text-sm text-muted">{t('chat.rewindNoFiles')}</div>
+        )}
+        <div className="flex justify-end gap-2 mt-4">
+          <Button variant="ghost" disabled={rewind?.busy} onClick={() => setRewind(null)}>{t('dialog.cancel')}</Button>
+          <Button variant="danger" disabled={!rewind?.preview || rewind.busy} onClick={doRewind}>{rewind?.busy ? <Spinner /> : null}{t('chat.rewind')}</Button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+function fmtDuration(ms: number) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}秒`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}分钟 ${s % 60}秒`;
+  return `${Math.floor(m / 60)}小时 ${m % 60}分钟`;
+}
+
+/** 一轮对话：以用户消息为界切分（会话开头无用户消息的前置块单独成组） */
+interface Turn { blocks: Block[]; user?: Extract<Block, { kind: 'user' }> }
+
+function groupTurns(blocks: Block[]): Turn[] {
+  const turns: Turn[] = [];
+  let cur: Turn | null = null;
+  for (const b of blocks) {
+    if (b.kind === 'user') { cur = { blocks: [b], user: b }; turns.push(cur); continue; }
+    if (!cur) { cur = { blocks: [] }; turns.push(cur); }
+    cur.blocks.push(b);
+  }
+  return turns;
+}
+
+const isWork = (b: Block) => b.kind === 'tool' || b.kind === 'agent';
+const isText = (b: Block) => b.kind === 'assistant' && !!b.text;
+
+/**
+ * 一轮的渲染。
+ * 运行中：用户气泡 →（有文字/工具后）「已处理 N秒」分隔 → 全部块按原顺序（连续 ≥2 工具收成 live 组，组头为最后一个工具的摘要）
+ * →（仅当最后一个可见块是已完成的文字或本轮尚无输出时）「正在思考」状态行。
+ * 结束后：「耗时 N秒 ›」分隔 → 最终结论（最后一段文字）+ 其后的非工具块 + 文件改动卡片 → 复制行；中间过程默认折叠。
+ * 展开时按原顺序显示全部块（组头为类别文案），与运行中渲染仅差组名与状态行。
+ */
+function TurnGroup({ turn, ctx, active }: { turn: Turn; ctx: BlockCtx; active: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const user = turn.user;
+  const rest = user ? turn.blocks.slice(1) : turn.blocks;
+  const running = active && !!user && !user.doneTs;
+
+  if (!user) return <>{renderBlockList(rest, ctx)}</>;
+
+  let lastTextIdx = -1;
+  for (let i = rest.length - 1; i >= 0; i--) if (isText(rest[i])) { lastTextIdx = i; break; }
+  const lastText = lastTextIdx >= 0 ? rest[lastTextIdx] as Extract<Block, { kind: 'assistant' }> : null;
+  const before = lastTextIdx >= 0 ? rest.slice(0, lastTextIdx) : [];
+  const after = lastTextIdx >= 0 ? rest.slice(lastTextIdx + 1) : rest;
+
+  // 折叠视图：文件改动卡片 + 最后一段文字 + 其后的非工具块
+  const collapsedView: Block[] = [
+    ...before.filter(b => b.kind === 'file-changes'),
+    ...(lastText ? [lastText] : []),
+    ...after.filter(b => !isWork(b)),
+  ];
+  const hidden = rest.filter(b => !collapsedView.includes(b));
+  // 运行中不折叠过程（工具全部可见），结束后才收成摘要视图
+  const collapsible = !running && hidden.length > 0;
+  const hasWork = rest.some(isWork);
+  const started = !!lastText || hasWork;
+
+  // 状态行：仅「正在思考」——最后一个可见块是已完成的文字、或本轮尚无输出时显示；
+  // 最后是工具/工具组/子代理时由其行内 spinner 表达状态；文字流式输出中不显示
+  let showThinking = false;
+  if (running) {
+    const lastVisible = [...rest].reverse().find(b => isWork(b) || isText(b));
+    showThinking = !lastVisible || (lastVisible.kind === 'assistant' && lastVisible.done);
+  }
+
+  return (
+    <div>
+      <BlockRenderer block={user} ctx={ctx} />
+      {!user.queued && (running ? started : true) && (hasWork || collapsible) && (
+        <TurnDivider start={user.ts} end={user.doneTs ?? (running ? undefined : (rest[rest.length - 1]?.ts ?? user.ts))} active={running} collapsible={collapsible} expanded={expanded} onToggle={() => setExpanded(v => !v)} />
+      )}
+      {running ? renderBlockList(rest, ctx, true) : (expanded && collapsible) ? renderBlockList(rest, ctx) : renderBlockList(collapsedView, ctx)}
+      {showThinking && <StatusLine text={t('chat.thinking')} />}
+      {!running && lastText && <FinalActions text={lastText.text} ts={lastText.ts} />}
+    </div>
+  );
+}
+
+function StatusLine({ text }: { text: string }) {
+  return (
+    <div className="my-3 inline-flex items-center gap-1.5 text-[13px]">
+      <span className="shimmer-text">{text}</span>
+    </div>
+  );
+}
+
+function FinalActions({ text, ts }: { text: string; ts: number }) {
+  const { copied, copy } = useCopy();
+  // 点赞/踩：仅前端本地状态，无后端处理
+  const [vote, setVote] = useState<'up' | 'down' | null>(null);
+  const d = new Date(ts);
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const btn = 'p-1 rounded hover:bg-black/[0.05] hover:text-fg';
+  return (
+    <div className="group flex items-center gap-1 -mt-1 mb-2 text-xs text-muted">
+      <button onClick={() => copy(text)} className={btn} title={t('chat.copy')}>
+        {copied ? <Check size={13} className="text-ok" /> : <Copy size={13} />}
+      </button>
+      <button onClick={() => setVote(v => v === 'up' ? null : 'up')} className={cn(btn, vote === 'up' && 'text-fg')} title={t('chat.good')}>
+        <ThumbsUp size={13} fill={vote === 'up' ? 'currentColor' : 'none'} />
+      </button>
+      <button onClick={() => setVote(v => v === 'down' ? null : 'down')} className={cn(btn, vote === 'down' && 'text-fg')} title={t('chat.bad')}>
+        <ThumbsDown size={13} fill={vote === 'down' ? 'currentColor' : 'none'} />
+      </button>
+      <span className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity">{time}</span>
+    </div>
+  );
+}
+
+function TurnDivider({ start, end, active, collapsible, expanded, onToggle }: { start: number; end?: number; active: boolean; collapsible: boolean; expanded: boolean; onToggle: () => void }) {
+  const [, tick] = useState(0);
+  useEffect(() => { if (!active) return; const id = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(id); }, [active]);
+  return (
+    <div className="my-3 text-[13px] text-dim">
+      <button onClick={collapsible ? onToggle : undefined} className={cn('inline-flex items-center gap-1.5', collapsible ? 'hover:text-fg cursor-pointer' : 'cursor-default')} title={collapsible ? t('chat.toggleProcess') : undefined}>
+        <span>{active ? t('chat.processed') : t('chat.elapsed')} {fmtDuration((end ?? Date.now()) - start)}</span>
+        {collapsible && (expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
+      </button>
+      <div className="border-t border-border mt-1.5" />
+    </div>
+  );
+}
+
+function shortPath(p: string) {
+  const home = p.match(/^\/Users\/[^/]+|^\/home\/[^/]+|^[A-Z]:\\Users\\[^\\]+/);
+  return home ? '~' + p.slice(home[0].length) : p;
+}

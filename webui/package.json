@@ -1,0 +1,21 @@
+{
+  "name": "semawork",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SemaWork — sema-core 的本地 Web 界面（server + client），不进入 sema-core npm 包",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "engines": {
+    "node": ">=20.18.1"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace=server & npm run dev --workspace=client & wait",
+    "dev:server": "npm run dev --workspace=server",
+    "dev:client": "npm run dev --workspace=client",
+    "build": "npm run build --workspace=server && npm run build --workspace=client",
+    "typecheck": "npm run typecheck --workspace=server && npm run typecheck --workspace=client",
+    "start": "node server/dist/index.js"
+  }
+}

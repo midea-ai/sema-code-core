@@ -28,6 +28,7 @@ import { getConfManager } from '../manager/ConfManager';
 import { getModelManager } from '../manager/ModelManager';
 import { getAllBuiltinToolInfos } from '../tools/base/tools';
 import { inferAdapter } from '../util/adapter';
+import { deleteProjectHistory, deleteSessionHistory } from '../util/history';
 import { getEventBus } from '../events/EventSystem';
 import { ProcessEvent } from '../events/types';
 import { logInfo } from '../util/log';
@@ -124,6 +125,10 @@ export class SemaCore {
   fetchAvailableModels = (params: FetchModelsParams): Promise<FetchModelsResult> => fetchModels(params);
   testApiConnection = (params: ApiTestParams): Promise<ApiTestResult> => testApiConnection(params);
   getModelAdapter = (provider: string, modelName: string, baseURL: string) => inferAdapter({ provider, modelName, baseURL });
+  // 删除指定项目的全部历史与快照目录（外部主动清理，如 webui 会话级项目退场）
+  deleteProjectHistory = (projectPath: string): void => deleteProjectHistory(projectPath);
+  // 删除单个会话的历史文件（无日期与任意日期命名均清理）
+  deleteSessionHistory = (sessionId: string, projectPath?: string): void => deleteSessionHistory(sessionId, projectPath);
 
   // ==================== 插件市场管理 ====================
   addMarketplaceFromGit = (repo: string): Promise<MarketplacePluginsInfo> => getPluginsManager().addMarketplaceFromGit(repo);

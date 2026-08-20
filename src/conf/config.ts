@@ -6,7 +6,7 @@ export const MODEL_CONF_FILE_PATH = 'model.conf'
 
 // 项目配置文件
 export const PROJECT_CONF_FILE_PATH = 'projects.conf'
-export const PROJECT_LENGTH_LIMIT = 20  // 项目数量限制
+export const PROJECT_LENGTH_LIMIT = 100  // 项目数量限制
 export const PROJECT_HISTORY_LENGTH_LIMIT = 30  // 项目历史输入限制
 
 // 会话历史记录

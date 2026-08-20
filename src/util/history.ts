@@ -4,7 +4,7 @@ import { TodoTask } from '../types/todoTask';
 import { logDebug, logInfo, logWarn } from './log';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getHistoryDir, getHistoryFilePath, getProjectHistoryDir, getSnapshotsDir } from './savePath';
+import { getHistoryDir, getHistoryFilePath, getProjectHistoryDir, getProjectSnapshotsDir, getSnapshotsDir } from './savePath';
 import { cleanupProjectSnapshots } from './snapshotStore';
 import {
   PER_PROJECT_HISTORY_LENGTH_LIMIT,
@@ -214,6 +214,58 @@ export async function cleanupOldHistoryFiles(projectPath?: string): Promise<void
     cleanupProjectSnapshots(projectPath);
   }
   cleanupInactiveProjects();
+}
+
+/**
+ * 删除指定项目的全部历史与快照目录（~/.sema/history/<项目目录名> + ~/.sema/snapshots/<项目目录名>）。
+ * 供外部（如 webui 会话级项目退场）主动清理使用。
+ */
+export function deleteProjectHistory(projectPath: string): void {
+  const targets = [
+    { dir: getProjectHistoryDir(projectPath), root: getHistoryDir(), label: '历史' },
+    { dir: getProjectSnapshotsDir(projectPath), root: getSnapshotsDir(), label: '快照' }
+  ];
+  for (const { dir, root, label } of targets) {
+    // 护栏：目标必须严格位于对应根目录之内，防止异常路径误删
+    const rel = path.relative(root, dir);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+      logWarn(`删除项目${label}目录被拒绝（路径越界）: ${dir}`);
+      continue;
+    }
+    try {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        logInfo(`删除项目${label}目录: ${dir}`);
+      }
+    } catch (error) {
+      logWarn(`删除项目${label}目录失败 ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
+
+/**
+ * 删除单个会话的历史文件（无日期 会话id.json 与任意日期 日期_会话id.json 全部清理）。
+ * 供外部（如 webui 项目内会话退场）主动清理使用。
+ */
+export function deleteSessionHistory(sessionId: string, projectPath?: string): void {
+  const historyDir = projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
+  try {
+    if (!fs.existsSync(historyDir)) return;
+    const targets = fs.readdirSync(historyDir).filter(file =>
+      file === `${sessionId}.json` ||
+      (/^\d{4}-\d{2}-\d{2}_/.test(file) && file.slice(11) === `${sessionId}.json`)
+    );
+    for (const file of targets) {
+      try {
+        fs.unlinkSync(path.join(historyDir, file));
+        logInfo(`删除会话历史文件: ${file}`);
+      } catch (error) {
+        logWarn(`删除会话历史文件失败 ${file}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  } catch (error) {
+    logWarn(`删除会话历史失败 ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**

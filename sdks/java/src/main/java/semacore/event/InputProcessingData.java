@@ -5,5 +5,5 @@ package semacore.event;
 import java.util.List;
 import java.util.Map;
 
-public record InputProcessingData(String inputId, String input, String originalInput, List<semacore.type.InputImageAttachment> attachments) {
+public record InputProcessingData(String inputId, String input, String originalInput, List<semacore.type.InputImageAttachment> attachments, String source) {
 }

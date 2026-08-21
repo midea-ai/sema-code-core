@@ -9,7 +9,7 @@
 
 ## 共享机制：通知注入
 
-无论后台任务完成，还是定时任务到点，最终都通过 `SessionNotifyRegistry` 把一段文本作为 `silent` 用户输入注入目标会话：
+无论后台任务完成，还是定时任务到点，最终都通过 `SessionNotifyRegistry` 把一段文本作为用户输入注入目标会话（后台任务为 `silent` 不可见输入；定时任务为 `source='cron'` 可见输入，UI 加来源标签）：
 
 ```
 TaskManager._notify(record)          CronManager.fire(task)
@@ -19,12 +19,12 @@ TaskManager._notify(record)          CronManager.fire(task)
         │                                     │
         └──────────────┬──────────────────────┘
                        ▼
-   SemaEngine.processUserInput(msg, undefined, silent=true)
+   SemaEngine.processUserInput(...)   // 后台任务 silent=true；定时任务 source='cron'
                        ▼
         会话忙 → 入队；会话空闲 → 立即起一轮
 ```
 
-`silent` 注入保证：任务结果/触发不会打断当前轮次，但会在目标会话下一轮自然进入 LLM 视野。两套系统都在 `SemaEngine` 构造时各自调用 `setNotifyCallback(sessionId, cb)` 完成注册。
+两种注入都不会打断当前轮次（忙时入队），并在目标会话下一轮自然进入 LLM 视野；`source='cron'` 输入与真实用户输入一样发出 `input:received` / `input:processing` 事件，但不进输入框上翻历史（会话消息历史正常保存）、不参与话题检测。两套系统都在 `SemaEngine` 构造时各自调用 `setNotifyCallback(sessionId, cb)` 完成注册。
 
 ## 后台任务 vs 定时任务
 
@@ -37,7 +37,7 @@ TaskManager._notify(record)          CronManager.fire(task)
 | 持久化 | 不持久化（随会话） | 可选 `persist` 到 `.sema/scheduled_tasks.json` |
 | 通知文本 | `task-notification`（结束时） | `cron-notification`（到点时） |
 | 注入路由 | 严格按归属 `sessionId` | 来源优先、活跃会话兜底 |
-| 共用机制 | 均经 `SessionNotifyRegistry` 注入会话 silent 输入 | 同左 |
+| 共用机制 | 经 `SessionNotifyRegistry` 注入 silent 输入（UI 不可见） | 经同一注册表注入 `source='cron'` 输入（UI 显示为带标签的用户消息） |
 
 ## 子页面
 

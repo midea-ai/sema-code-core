@@ -14,7 +14,7 @@ import { getConfManager } from '../manager/ConfManager';
 import { getModelManager } from '../manager/ModelManager';
 import { SessionEventBus } from '../events/EventSystem';
 import { isInterruptedException } from '../types/errors';
-import type { Message, UserMsg, InputImageAttachment } from '../types/message';
+import type { Message, UserMsg, InputImageAttachment, InputSource } from '../types/message';
 import { compressImage } from '../util/imageCompress';
 import type { UUID } from '../types/uuid';
 import type { ForkOptions, ForkResult } from '../types/fork';
@@ -68,9 +68,10 @@ export class SemaEngine {
       this.processUserInput(msg, undefined, true)
     })
 
-    // 注入 Cron 定时任务通知回调
-    getCronManager().setNotifyCallback(sessionId, (msg: string) => {
-      this.processUserInput(msg, undefined, true)
+    // 注入 Cron 定时任务通知回调：以用户输入形态展示（source='cron'，UI 据此加标签）
+    // originalInput 取干净的任务文本用于气泡展示，模型收到的仍是完整通知消息
+    getCronManager().setNotifyCallback(sessionId, (msg: string, opts?: { display?: string }) => {
+      this.processUserInput(msg, opts?.display, false, undefined, 'cron')
     })
   }
 
@@ -156,7 +157,7 @@ export class SemaEngine {
    * 处理用户输入
    * 如果当前正在处理中，将输入加入队列等待
    */
-  processUserInput(input: string, originalInput?: string, silent?: boolean, attachments?: InputImageAttachment[]): void {
+  processUserInput(input: string, originalInput?: string, silent?: boolean, attachments?: InputImageAttachment[], source?: InputSource): void {
     const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
     // inputId 同时作为该用户输入持久化消息的 uuid，UI 据此调用 fork
     const inputId = randomUUID()
@@ -176,13 +177,14 @@ export class SemaEngine {
 
     if (mainAgentState.getCurrentState() === 'processing') {
       const type: PendingUserInput['type'] = trimmedInput.startsWith('/') ? 'command' : 'inject'
-      this.runtime.addPendingUserInput({ inputId, input: trimmedInput, originalInput, silent, type, attachments })
+      this.runtime.addPendingUserInput({ inputId, input: trimmedInput, originalInput, silent, type, attachments, source })
       logInfo(`输入已入队(${type})，队列长度: ${this.runtime.getPendingUserInputsLength()}`)
       if (!silent) {
         this.emit('input:received', {
           inputId,
           input: trimmedInput,
           originalInput,
+          source: source ?? 'user',
           queued: true,
           inject: type === 'inject',
           queueLength: this.runtime.getPendingUserInputsLength(),
@@ -196,18 +198,19 @@ export class SemaEngine {
         inputId,
         input: trimmedInput,
         originalInput,
+        source: source ?? 'user',
         queued: false,
         inject: false,
         queueLength: 0,
       })
     }
-    this.startQuery([{ inputId, input: trimmedInput, originalInput, silent, attachments }]);
+    this.startQuery([{ inputId, input: trimmedInput, originalInput, silent, attachments, source }]);
   }
 
   /**
    * 启动一次查询（构建上下文并调用 processQuery）
    */
-  private startQuery(inputs: Array<{ inputId: string; input: string; originalInput?: string; silent?: boolean; attachments?: InputImageAttachment[] }>): void {
+  private startQuery(inputs: Array<{ inputId: string; input: string; originalInput?: string; silent?: boolean; attachments?: InputImageAttachment[]; source?: InputSource }>): void {
     const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
     mainAgentState.updateState('processing');
 
@@ -248,7 +251,7 @@ export class SemaEngine {
    * 处理查询逻辑
    */
   private async processQuery(
-    inputs: Array<{ inputId: string; input: string; originalInput?: string; silent?: boolean; attachments?: InputImageAttachment[] }>,
+    inputs: Array<{ inputId: string; input: string; originalInput?: string; silent?: boolean; attachments?: InputImageAttachment[]; source?: InputSource }>,
     agentContext: AgentContext,
     agentMode: AgentMode
   ): Promise<void> {
@@ -269,21 +272,22 @@ export class SemaEngine {
           inputId: item.inputId,
           input: item.input,
           originalInput: item.originalInput,
+          source: item.source ?? 'user',
           attachments: attachments && attachments.length > 0 ? attachments : undefined,
         })
       }
     }
 
     try {
-      // 将每条用户输入保存到项目配置的 history（静默输入跳过）
+      // 将每条用户输入保存到项目配置的 history（静默输入/自动来源输入跳过，避免污染上翻输入历史）
       for (const item of inputs) {
-        if (!item.silent) {
+        if (!item.silent && (item.source ?? 'user') === 'user') {
           getConfManager().saveUserInputToHistory(item.originalInput || item.input);
         }
       }
 
       // 处理命令，按输入分别收集 blocks（每条输入对应一条持久化消息）
-      const perInput: Array<{ inputId: string; blocks: Anthropic.ContentBlockParam[]; attachments?: InputImageAttachment[]; fileRefReminders: Anthropic.ContentBlockParam[] }> = [];
+      const perInput: Array<{ inputId: string; blocks: Anthropic.ContentBlockParam[]; attachments?: InputImageAttachment[]; fileRefReminders: Anthropic.ContentBlockParam[]; source?: InputSource }> = [];
       // 文件引用补充信息：跨输入累加，循环后统一发一次 file:reference 事件
       const allSupplementaryInfo: FileReferenceInfo[] = [];
       // UserPromptSubmit hook 注入的上下文（按 inputId 挂到各自输入消息上）
@@ -298,8 +302,8 @@ export class SemaEngine {
           return;
         }
 
-        // UserPromptSubmit hook：静默输入（后台任务/定时任务通知）不触发
-        if (!item.silent) {
+        // UserPromptSubmit hook：静默输入与自动来源输入（后台任务/定时任务通知）不触发
+        if (!item.silent && (item.source ?? 'user') === 'user') {
           const promptHook = await fireUserPromptSubmit(this.sessionId, item.input, agentContext.abortController.signal);
           // hook 介入期间用户可能已中断（hook 被 kill 后 fail-open 返回 blocked:false）：
           // 与循环头的中断处理一致终止本批，避免在已中断的 turn 里继续执行系统命令
@@ -334,7 +338,7 @@ export class SemaEngine {
         const attachments = normalizedAttachments.get(item.inputId) ?? [];
         // 文本块 / 图片附件 / 文件引用提醒 任一存在即生成一条持久化消息
         if (commandResult.blocks.length > 0 || attachments.length > 0 || fileRef.systemReminders.length > 0) {
-          perInput.push({ inputId: item.inputId, blocks: commandResult.blocks, attachments, fileRefReminders: fileRef.systemReminders });
+          perInput.push({ inputId: item.inputId, blocks: commandResult.blocks, attachments, fileRefReminders: fileRef.systemReminders, source: item.source });
         }
       }
 
@@ -354,9 +358,10 @@ export class SemaEngine {
 
       // 后台异步执行话题检测，不阻塞主流程
       // 只用通过 UserPromptSubmit hook 的输入：被拦截内容（可能涉隐私/合规）不得外发给话题检测模型
-      const allSilent = acceptedInputs.every(i => i.silent)
-      const allOriginalTexts = acceptedInputs.map(i => i.originalInput || i.input).join('\n');
-      if (!allSilent && !getConfManager().getCoreConfig()?.disableTopicDetection) {
+      // 且只用真实用户输入：静默/自动来源（cron 等）不参与，避免自动触发的 prompt 改写会话标题
+      const topicInputs = acceptedInputs.filter(i => !i.silent && (i.source ?? 'user') === 'user')
+      const allOriginalTexts = topicInputs.map(i => i.originalInput || i.input).join('\n');
+      if (topicInputs.length > 0 && !getConfManager().getCoreConfig()?.disableTopicDetection) {
         detectTopicInBackground(
           allOriginalTexts,
           this.runtime.currentAbortController,
@@ -447,6 +452,8 @@ export class SemaEngine {
         const msg = buildUserMsg(blocks)
         msg.uuid = p.inputId as UUID
         msg.checkpointSeq = checkpointSeq
+        // 非 user 来源写入持久化元数据，历史重放时可还原来源标签
+        if (p.source && p.source !== 'user') msg.source = p.source
         return msg
       })
 
@@ -485,6 +492,7 @@ export class SemaEngine {
           originalInput: item.originalInput,
           silent: item.silent,
           attachments: item.attachments,
+          source: item.source,
         }))
         const batch = takeNextBatch(pending)
 

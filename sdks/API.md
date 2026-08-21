@@ -226,8 +226,8 @@
 | `session:interrupted` | `SessionInterruptedData` | 会话被中断（如用户取消） |
 | `session:cleared` | `SessionClearedData` | 会话历史被清空 |
 | `state:update` | `StateUpdateData` | `idle` / `processing` |
-| `input:received` | `InputReceivedData` | 收到用户输入（处理中则入队等待） |
-| `input:processing` | `InputProcessingData` | 开始处理该用户输入 |
+| `input:received` | `InputReceivedData` | 收到用户输入（处理中则入队等待）；`source` 标记来源（缺省 `user`，`cron`=定时任务自动发送） |
+| `input:processing` | `InputProcessingData` | 开始处理该用户输入；`source` 含义同上 |
 | `message:text:chunk` | `TextChunkData` | 回复文本流式增量 |
 | `message:thinking:chunk` | `ThinkingChunkData` | 思考内容流式增量 |
 | `message:complete` | `MessageCompleteData` | 一条 AI 消息完成（完整内容 + 工具调用） |

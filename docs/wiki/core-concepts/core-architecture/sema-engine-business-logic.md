@@ -38,7 +38,7 @@ getCronManager().setNotifyCallback(sessionId, (msg) => {
 })
 ```
 
-后台任务或定时任务触发后，只会把 `silent` 输入注入目标会话。
+后台任务触发后把 `silent` 输入注入目标会话；定时任务注入 `source='cron'` 的可见输入（UI 加来源标签）。
 
 ## 会话初始化
 
@@ -80,7 +80,7 @@ async createSession(opts?: CreateSessionOptions): Promise<void>
 ## 用户输入处理流程
 
 ```javascript
-processUserInput(input: string, originalInput?: string, silent?: boolean): void
+processUserInput(input: string, originalInput?: string, silent?: boolean, attachments?: InputImageAttachment[], source?: InputSource): void
 ```
 
 入口分流：
@@ -92,13 +92,13 @@ processUserInput(input: string, originalInput?: string, silent?: boolean): void
    - 以 / 开头 → type='command'
    - 普通消息 → type='inject'
    - 写入当前会话 pendingUserInputs
-   - 非 silent 输入发送 input:received { queued: true }
+   - 非 silent 输入发送 input:received { queued: true, source }
 4. 若当前会话空闲
-   - 非 silent 输入发送 input:received { queued: false }
-   - startQuery([{ inputId, input, originalInput, silent }])
+   - 非 silent 输入发送 input:received { queued: false, source }
+   - startQuery([{ inputId, input, originalInput, silent, source }])
 ```
 
-`silent` 输入用于后台任务与 Cron 通知，不触发用户可见的输入接收/处理事件，也不会保存到输入历史。
+`silent` 输入用于后台任务通知，不触发用户可见的输入接收/处理事件，也不保存到输入历史。Cron 通知则以 `source='cron'` 非静默注入：正常发出输入事件（UI 显示为带标签的用户消息），但与 silent 一样不进输入历史、不触发 UserPromptSubmit hook、不参与话题检测。
 
 ## startQuery：构建执行上下文
 
@@ -123,12 +123,12 @@ processUserInput(input: string, originalInput?: string, silent?: boolean): void
 ## processQuery：执行查询
 
 ```
-1. 对每条非 silent 输入发送 input:processing
-2. 保存非 silent 输入到项目历史
+1. 对每条非 silent 输入发送 input:processing（携带 source）
+2. 保存输入到项目历史（silent 或非 user 来源跳过）
 3. handleCommand(input, sessionId)
    - 系统命令返回 null，跳过该输入；若本批没有任何 blocks，则跳过本轮 LLM 调用
    - 其它命令返回 processedText + blocks
-4. 后台执行话题检测（silent 输入不更新话题）
+4. 后台执行话题检测（silent 及非 user 来源输入不参与）
 5. processFileReferences(combinedProcessedText, agentContext)
 6. 读取会话级系统提示快照；缺失时兜底构建一次并写回 runtime
 7. buildAdditionalReminders(..., sessionId, hasSkillTool)

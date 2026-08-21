@@ -93,6 +93,7 @@
   originalInput?: string   // 原始输入内容
   queued: boolean          // 是否入队等待（true 表示当前正在处理中，输入已入队）
   queueLength: number      // 当前队列长度（入队后的长度）
+  source?: 'user' | 'cron' // 输入来源，缺省 'user'；'cron' 为定时任务自动发送，UI 按用户输入渲染并加来源标签
 }
 ```
 
@@ -105,6 +106,7 @@
   inputId: string          // 输入唯一标识，与 input:received 中的 inputId 对应
   input: string            // 正在处理的输入内容
   originalInput?: string   // 原始输入内容
+  source?: 'user' | 'cron' // 输入来源，含义同 input:received
 }
 ```
 

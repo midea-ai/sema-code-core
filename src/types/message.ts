@@ -21,6 +21,10 @@ export type ToolControlSignal = {
   }
 }
 
+// 输入来源：user=真实用户输入；cron=定时任务自动触发。
+// 后续新增自动来源（如后台任务通知）时在此扩展枚举，UI 按来源渲染标签
+export type InputSource = 'user' | 'cron'
+
 // 用户粘贴的图片附件（base64，无系统文件路径）
 export interface InputImageAttachment {
   type: 'image';
@@ -37,6 +41,8 @@ export type UserMsg = {
   // Fork 锚点：仅打在真实用户输入消息上，记录该输入发送时本会话已累积的文件快照记录数。
   // 缺失（旧历史 / 工具结果等合成消息）表示该消息不可作为"恢复文件"的 fork 点。
   checkpointSeq?: number
+  // 输入来源：仅非 user 来源（如 cron）写入，缺失表示真实用户输入
+  source?: InputSource
 }
 
 export type AiMessage = {

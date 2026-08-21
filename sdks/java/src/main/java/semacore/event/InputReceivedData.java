@@ -5,5 +5,5 @@ package semacore.event;
 import java.util.List;
 import java.util.Map;
 
-public record InputReceivedData(String inputId, String input, boolean queued, long queueLength, String originalInput) {
+public record InputReceivedData(String inputId, String input, boolean queued, long queueLength, String originalInput, String source) {
 }

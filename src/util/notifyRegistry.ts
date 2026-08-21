@@ -1,5 +1,5 @@
-/** 通知回调：向某个会话推送一条消息 */
-export type NotifyCallback = (msg: string) => void
+/** 通知回调：向某个会话推送一条消息；display 为 UI 气泡展示用的干净文本（缺省不展示或展示 msg，由注册方决定） */
+export type NotifyCallback = (msg: string, opts?: { display?: string }) => void
 
 /**
  * 按 sessionId 注册/查询通知回调的注册表。

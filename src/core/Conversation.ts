@@ -367,14 +367,17 @@ async function injectPendingInputsIntoToolResult(
   const lastResult = orderedToolResults[orderedToolResults.length - 1]
 
   for (const item of injectItems) {
-    // 非静默：发送 input:processing 事件 + 保存到项目输入历史
+    // 非静默：发送 input:processing 事件；仅真实用户输入保存到项目输入历史（自动来源如 cron 不入历史）
     if (!item.silent) {
       getEventBus().emit('input:processing', {
         inputId: item.inputId,
         input: item.input,
         originalInput: item.originalInput,
+        source: item.source ?? 'user',
       }, agentContext.sessionId)
-      getConfManager().saveUserInputToHistory(item.originalInput || item.input)
+      if ((item.source ?? 'user') === 'user') {
+        getConfManager().saveUserInputToHistory(item.originalInput || item.input)
+      }
     }
 
     // 处理文件引用

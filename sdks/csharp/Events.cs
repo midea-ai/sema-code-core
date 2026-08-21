@@ -77,6 +77,8 @@ public record InputProcessingData
     [JsonPropertyName("input")] public string? Input { get; init; }
     [JsonPropertyName("originalInput")] public string? OriginalInput { get; init; }
     [JsonPropertyName("attachments")] public List<InputImageAttachment>? Attachments { get; init; }
+    /// <summary>输入来源，缺省 "user"；"cron" 表示定时任务自动触发</summary>
+    [JsonPropertyName("source")] public string? Source { get; init; }
 }
 
 public record InputReceivedData
@@ -86,6 +88,8 @@ public record InputReceivedData
     [JsonPropertyName("queued")] public bool Queued { get; init; }
     [JsonPropertyName("queueLength")] public long QueueLength { get; init; }
     [JsonPropertyName("originalInput")] public string? OriginalInput { get; init; }
+    /// <summary>输入来源，缺省 "user"；"cron" 表示定时任务自动触发</summary>
+    [JsonPropertyName("source")] public string? Source { get; init; }
 }
 
 public record MCPServerStatusData

@@ -136,7 +136,7 @@ sema.on('cron:update', () => {
 The above scheduled task has been triggered. Please execute the prompt.
 ```
 
-> **注意**：会话忙时，Cron 通知会通过 `processUserInput(..., silent=true)` 进入该会话输入队列，等待当前轮次结束后处理，不会打断正在进行的对话。
+> **注意**：Cron 通知以 `source='cron'` 的用户输入注入，`input:received` / `input:processing` 事件携带 `source: 'cron'`，UI 可渲染为带"定时任务"标签的用户气泡（`originalInput` 为干净的任务文本）；它不进上翻输入历史，也不参与话题检测。会话忙时进入输入队列，等待当前轮次结束后处理，不会打断正在进行的对话。
 
 ## 主要限制
 

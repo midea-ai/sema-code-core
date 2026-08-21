@@ -16,11 +16,11 @@
        │  cron-notification 注入目标会话   │  - notifyRegistry │
        │ ◄────────────────────────────────┤  - tick()         │
        ▼                                  └─────────┬─────────┘
-processUserInput(msg, undefined,                    │ tick 每 60s 扫描
-                 silent=true)              到点 → resolveTarget → fire
+processUserInput(msg, task.task,                    │ tick 每 60s 扫描
+                 source='cron')            到点 → resolveTarget → fire
 ```
 
-`SemaEngine` 在构造时调用 `getCronManager().setNotifyCallback(sessionId, cb)`，把"定时任务触发"作为 `silent` 用户输入注入会话队列。会话忙时入队、空闲时立即起一轮，因此 cron 触发不会打断当前轮次。
+`SemaEngine` 在构造时调用 `getCronManager().setNotifyCallback(sessionId, cb)`，把"定时任务触发"作为 `source='cron'` 的用户输入注入会话队列：UI 将其渲染为带"定时任务"标签的用户消息（气泡显示干净的任务文本，模型收到完整通知消息），但不进上翻输入历史、不触发 UserPromptSubmit hook、不参与话题检测。会话忙时入队、空闲时立即起一轮，因此 cron 触发不会打断当前轮次。
 
 ## 任务数据结构
 
@@ -95,7 +95,7 @@ interface CronTask {
 The above scheduled task has been triggered. Please execute the prompt.
 ```
 
-回调即 `SemaEngine` 注册的 `processUserInput(msg, undefined, silent=true)`：忙时入队为 inject、空闲时立即 `startQuery`，与后台任务的通知注入路径一致。
+回调即 `SemaEngine` 注册的 `processUserInput(msg, task.task, false, undefined, 'cron')`：忙时入队为 inject、空闲时立即 `startQuery`，注入路径与后台任务一致（后台任务为 silent 不可见，cron 为可见并带来源标签）。
 
 ## 事件
 
@@ -112,7 +112,7 @@ The above scheduled task has been triggered. Please execute the prompt.
 | 生命周期 | 任务结束即归档 | 周期任务反复触发，直至删除或 10 天过期 |
 | 限额 | 按会话 5 个 running | 全局 20 个 |
 | 通知 | `task-notification`（结束时） | `cron-notification`（到点时） |
-| 共用机制 | 均通过 `SessionNotifyRegistry` 注入会话 silent 输入 | 同左 |
+| 共用机制 | 经 `SessionNotifyRegistry` 注入 silent 输入（UI 不可见） | 经同一注册表注入 `source='cron'` 输入（UI 显示为带标签的用户消息） |
 
 ## 进一步了解
 

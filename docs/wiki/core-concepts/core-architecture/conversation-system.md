@@ -210,7 +210,7 @@ controlSignal: {
 ```
 1. consumeInjectInputsBeforeNextCommand() —— 从队头连续取 inject 类型，遇 command 停止
 2. 对每条 inject 输入：
-   - 非 silent → emit input:processing + saveUserInputToHistory
+   - 非 silent → emit input:processing（携带 source）；仅 user 来源写入输入框上翻历史（saveUserInputToHistory，非会话消息历史，cron 输入仍正常进入消息历史与模型上下文）
    - processFileReferences（必要时 emit file:reference）
    - 拼接 system-reminder 文本，追加到最后一条工具结果的 content 末尾
 ```

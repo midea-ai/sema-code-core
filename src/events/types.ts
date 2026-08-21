@@ -1,6 +1,8 @@
 import type { TodoItem } from '../types/todoTask';
 import type { PermissionLevel } from '../types';
-import type { InputImageAttachment } from '../types/message';
+import type { InputImageAttachment, InputSource } from '../types/message';
+
+export type { InputSource } from '../types/message';
 
 // Sema-Core 事件系统类型定义
 
@@ -120,6 +122,7 @@ export interface InputReceivedData {
   originalInput?: string;     // 原始输入内容
   queued: boolean;            // 是否入队等待（true 表示当前正在处理中，输入已入队）
   queueLength: number;        // 当前队列长度（入队后的长度）
+  source?: InputSource;       // 输入来源，缺省 'user'；非 user 来源（如 'cron'）由系统自动发送，UI 按用户输入渲染并加来源标签
 }
 
 /**
@@ -132,6 +135,7 @@ export interface InputProcessingData {
   input: string;              // 正在处理的输入内容
   originalInput?: string;     // 原始输入内容
   attachments?: InputImageAttachment[]; // 该输入规范化后的图片附件（已过滤非法类型、已压缩），用于气泡回显
+  source?: InputSource;       // 输入来源，缺省 'user'；非 user 来源（如 'cron'）由系统自动发送，UI 按用户输入渲染并加来源标签
 }
 
 // ==================== AI消息事件 ====================

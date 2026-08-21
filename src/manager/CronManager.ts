@@ -426,14 +426,15 @@ export class CronManager {
     return false
   }
 
-  private fire(task: CronTask, cb: (msg: string) => void): void {
+  private fire(task: CronTask, cb: NotifyCallback): void {
     const msg = `[cron-notification] task_id=${task.id} schedule=${task.schedule} repeat=${task.repeat}
 - schedule: ${task.describeCronExpression}
 - task: ${task.task}
 The above scheduled task has been triggered. Please execute the prompt.`
 
     logInfo(`[CronManager] Firing task ${task.id}: ${task.task.slice(0, 100)}`)
-    cb(msg)
+    // display 为 UI 气泡展示的干净任务文本；模型收到的仍是带 [cron-notification] 包裹的完整消息
+    cb(msg, { display: task.task })
   }
 
   // ============ 生命周期 ============

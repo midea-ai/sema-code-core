@@ -75,12 +75,17 @@ class StateUpdateData(TypedDict):
 
 # ==================== 用户输入 ====================
 
+# 输入来源：user=真实用户输入；cron=定时任务自动触发（UI 按来源加标签展示）
+InputSource = Literal["user", "cron"]
+
+
 class InputReceivedData(TypedDict):
     inputId: str
     input: str
     queued: bool
     queueLength: int
     originalInput: NotRequired[str]
+    source: NotRequired[InputSource]  # 缺省 'user'
 
 
 class InputProcessingData(TypedDict):
@@ -88,6 +93,7 @@ class InputProcessingData(TypedDict):
     input: str
     originalInput: NotRequired[str]
     attachments: NotRequired[List[InputImageAttachment]]
+    source: NotRequired[InputSource]  # 缺省 'user'
 
 
 # ==================== AI 消息 ====================

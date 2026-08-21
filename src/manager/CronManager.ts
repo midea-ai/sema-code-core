@@ -28,6 +28,7 @@ export class CronManager {
   private workingDir: string         // 项目工作目录（settings.json 所在项目）
 
   static MAX_TASKS = 20
+  static TITLE_MAX = 30
   static TICK_INTERVAL = 60_000 // 60秒，与 cron 最小粒度一致
   static RECURRING_EXPIRE_MS = 10 * 24 * 60 * 60 * 1000 // 循环任务10天过期
 
@@ -56,7 +57,7 @@ export class CronManager {
 
   // ============ CRUD ============
 
-  createTask(schedule: string, task: string, repeat: boolean, persist: boolean, sessionId?: string): string {
+  createTask(schedule: string, task: string, title: string, repeat: boolean, persist: boolean, sessionId?: string): string {
     if (this.tasks.size >= CronManager.MAX_TASKS) {
       throw new Error(`Maximum number of cron tasks (${CronManager.MAX_TASKS}) reached`)
     }
@@ -73,6 +74,7 @@ export class CronManager {
       sessionId,
       schedule,
       task,
+      title: title.trim() || undefined,
       repeat,
       persist,
       status: true,
@@ -217,6 +219,7 @@ export class CronManager {
           id: t.id,
           schedule: t.schedule,
           task: t.task,
+          title: t.title,
           repeat: t.repeat,
           createdAt: t.createdAt,
           lastFiredAt: t.lastFiredAt,

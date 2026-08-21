@@ -7,6 +7,7 @@ export interface CronTask {
   sessionId?: string        // 创建该任务的会话 ID（触发时优先注入该会话）
   schedule: string          // 5字段 cron 表达式（本地时间）
   task: string              // 触发时执行的提示词/指令
+  title?: string            // 短标题（创建时由模型必填生成，≤30 字符）；旧持久化任务缺失时留空，UI 回退显示任务 id
   repeat: boolean           // true=周期执行, false=一次性触发后删除
   persist: boolean          // true=持久化到文件, false=仅内存
   status: boolean           // true=启用, false=禁用
@@ -20,5 +21,5 @@ export interface CronTask {
 
 // 持久化文件格式（仅保留核心字段，运行时字段在加载时自动生成）
 export interface CronTaskFile {
-  tasks: Pick<CronTask, 'id' | 'schedule' | 'task' | 'repeat' | 'createdAt' | 'lastFiredAt'>[]
+  tasks: Pick<CronTask, 'id' | 'schedule' | 'task' | 'title' | 'repeat' | 'createdAt' | 'lastFiredAt'>[]
 }

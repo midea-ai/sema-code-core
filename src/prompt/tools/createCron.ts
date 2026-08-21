@@ -4,6 +4,7 @@ export const TOOL_DESCRIPTION = `Enqueue a prompt to fire on a cron schedule. Re
 
 Schedule: 5-field cron (min hour dom month dow), local timezone.
 
+
 # repeat
 - false (prefer this for reminders): fires once, auto-deletes. Lock all 4 of min/hour/dom/month.
 - true: repeats until cancelled or 10-day auto-expiry. Use only when the user asks for a repeating schedule.

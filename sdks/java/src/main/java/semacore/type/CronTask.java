@@ -5,5 +5,5 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record CronTask(String id, String schedule, String task, boolean repeat, boolean persist, boolean status, long createdAt, String describeCronExpression, long activatedAt, List<Long> nextFireAt, String sessionId, String filePath, Long lastFiredAt) {
+public record CronTask(String id, String schedule, String task, String title, boolean repeat, boolean persist, boolean status, long createdAt, String describeCronExpression, long activatedAt, List<Long> nextFireAt, String sessionId, String filePath, Long lastFiredAt) {
 }

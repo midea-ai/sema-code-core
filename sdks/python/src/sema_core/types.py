@@ -367,6 +367,7 @@ class CronTask(TypedDict):
     id: str
     schedule: str
     task: str
+    title: NotRequired[str]  # 短标题（创建时生成，≤30 字符）；旧任务可能缺失，UI 回退显示任务 id
     repeat: bool
     persist: bool
     status: bool
@@ -384,6 +385,7 @@ class CronTaskFileEntry(TypedDict):
     id: str
     schedule: str
     task: str
+    title: NotRequired[str]  # 旧文件可能缺失
     repeat: bool
     createdAt: int
     lastFiredAt: NotRequired[int]

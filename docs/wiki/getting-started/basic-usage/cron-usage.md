@@ -55,6 +55,7 @@ Sema Core 内置定时任务（Cron）系统，支持周期性任务和一次性
 {
   "schedule": "57 8 * * *",
   "task": "检查昨日构建是否成功，如果失败请汇总原因",
+  "title": "构建状态检查",
   "repeat": true,
   "persist": false
 }
@@ -66,6 +67,7 @@ Sema Core 内置定时任务（Cron）系统，支持周期性任务和一次性
 |------|------|------|------|
 | `schedule` | `string` | ✓ | 标准 5 字段 cron 表达式（本地时区） |
 | `task` | `string` | ✓ | 每次触发时要执行的提示词 |
+| `title` | `string` | ✓ | 短标题（几个字，≤30 字符），供 UI 任务列表展示 |
 | `repeat` | `boolean` | — | `true`（默认）= 周期性执行；`false` = 一次性触发 |
 | `persist` | `boolean` | — | `true` = 持久化到文件；`false`（默认）= 仅内存 |
 
@@ -82,6 +84,7 @@ Sema Core 内置定时任务（Cron）系统，支持周期性任务和一次性
 | `id` | `string` | 任务唯一标识 |
 | `schedule` | `string` | cron 表达式 |
 | `task` | `string` | 触发时执行的提示词 |
+| `title` | `string` | 短标题（旧持久化任务可能缺失，UI 回退显示任务 id） |
 | `repeat` | `boolean` | 是否为周期性任务 |
 | `persist` | `boolean` | 是否持久化 |
 | `sessionId` | `string` | 创建任务的会话 ID（可选，主要用于触发投递路由） |

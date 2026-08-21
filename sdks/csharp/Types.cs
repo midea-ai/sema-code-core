@@ -140,6 +140,8 @@ public record CronTask
     [JsonPropertyName("id")] public string? Id { get; init; }
     [JsonPropertyName("schedule")] public string? Schedule { get; init; }
     [JsonPropertyName("task")] public string? Task { get; init; }
+    /// <summary>短标题（创建时生成，≤30 字符）；旧任务可能为 null，UI 回退显示任务 id</summary>
+    [JsonPropertyName("title")] public string? Title { get; init; }
     [JsonPropertyName("repeat")] public bool Repeat { get; init; }
     [JsonPropertyName("persist")] public bool Persist { get; init; }
     [JsonPropertyName("status")] public bool Status { get; init; }
@@ -162,6 +164,7 @@ public record CronTaskFileEntry
     [JsonPropertyName("id")] public string? Id { get; init; }
     [JsonPropertyName("schedule")] public string? Schedule { get; init; }
     [JsonPropertyName("task")] public string? Task { get; init; }
+    [JsonPropertyName("title")] public string? Title { get; init; }
     [JsonPropertyName("repeat")] public bool Repeat { get; init; }
     [JsonPropertyName("createdAt")] public long CreatedAt { get; init; }
     [JsonPropertyName("lastFiredAt")] public long? LastFiredAt { get; init; }

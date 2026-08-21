@@ -5,5 +5,5 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record CronTaskFileEntry(String id, String schedule, String task, boolean repeat, long createdAt, Long lastFiredAt) {
+public record CronTaskFileEntry(String id, String schedule, String task, String title, boolean repeat, long createdAt, Long lastFiredAt) {
 }

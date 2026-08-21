@@ -30,6 +30,7 @@ interface CronTask {
   sessionId?: string         // 创建该任务的会话 ID（触发时优先注入该会话）
   schedule: string           // 5 字段 cron 表达式（用户本地时间）
   task: string               // 触发时执行的提示词/指令
+  title?: string             // 短标题（创建时必填，≤30 字符）；旧持久化任务缺失时留空，UI 回退显示任务 id
   repeat: boolean            // true=周期执行；false=一次性触发后删除
   persist: boolean           // true=持久化到文件；false=仅内存
   status: boolean            // true=启用；false=禁用
@@ -42,7 +43,7 @@ interface CronTask {
 }
 ```
 
-持久化文件（`.sema/scheduled_tasks.json`）只落盘核心字段（`id / schedule / task / repeat / createdAt / lastFiredAt`），运行时字段（`nextFireAt`、`describeCronExpression`、`activatedAt` 等）在加载时重新计算。
+持久化文件（`.sema/scheduled_tasks.json`）只落盘核心字段（`id / schedule / task / title / repeat / createdAt / lastFiredAt`），运行时字段（`nextFireAt`、`describeCronExpression`、`activatedAt` 等）在加载时重新计算。旧文件可能没有 `title` 字段，保持缺失，由 UI 回退显示任务 id。
 
 ## 关键参数
 

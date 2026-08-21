@@ -11,7 +11,7 @@ import { randomBytes } from 'crypto';
 import { WebSocketServer } from 'ws';
 import { RegistryStore, WEBUI_HOME } from './registry/registry';
 import { SessionManager } from './sessions';
-import { Router, json, openExternal } from './http/router';
+import { Router, json, openExternal, sendFile } from './http/router';
 import { attachWs } from './ws/handler';
 import { TerminalManager } from './terminal/manager';
 import { attachTermWs } from './ws/terminal';
@@ -70,13 +70,35 @@ function authorized(req: http.IncomingMessage, url: URL): boolean {
   return url.searchParams.get('token') === token;
 }
 
+// 本地文件代理：右栏浏览器内嵌 file:// 页面用（iframe 无法直接加载 file://）。
+// 形如 /api/local/<token>/<绝对路径>：token 嵌在路径前缀，页面内相对资源解析后仍落在该前缀下，
+// 因此 iframe 可用无 allow-same-origin 的沙箱（不透明源，防内嵌页脚本借同源偷 token 调 API）
+const LOCAL_MIME: Record<string, string> = {
+  ...MIME, '.htm': 'text/html; charset=utf-8', '.mjs': 'application/javascript; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.pdf': 'application/pdf',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.bmp': 'image/bmp',
+  '.woff': 'font/woff', '.ttf': 'font/ttf', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+};
+function serveLocalFile(res: http.ServerResponse, pathname: string) {
+  const rest = pathname.slice('/api/local/'.length);
+  const slash = rest.indexOf('/');
+  const tok = decodeURIComponent(slash >= 0 ? rest.slice(0, slash) : rest);
+  if (tok !== token) { json(res, 401, { ok: false, error: 'unauthorized' }); return; }
+  const abs = path.resolve('/', decodeURIComponent(slash >= 0 ? rest.slice(slash + 1) : ''));
+  if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) { json(res, 404, { ok: false, error: '文件不存在' }); return; }
+  const st = fs.statSync(abs);
+  sendFile(res, abs, {
+    'Content-Type': LOCAL_MIME[path.extname(abs).toLowerCase()] || 'application/octet-stream',
+    'Content-Length': st.size, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff',
+  });
+}
+
 function serveStatic(res: http.ServerResponse, pathname: string) {
   if (!CLIENT_DIST) { json(res, 503, { ok: false, error: 'client 未构建：请在 webui/ 执行 npm run build，或用 npm run dev 走 vite' }); return; }
   let file = path.join(CLIENT_DIST, pathname === '/' ? 'index.html' : pathname);
   if (!file.startsWith(CLIENT_DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(CLIENT_DIST, 'index.html');
   const ext = path.extname(file);
-  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': ext === '.html' ? 'no-store' : 'public, max-age=31536000, immutable' });
-  fs.createReadStream(file).pipe(res);
+  sendFile(res, file, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': ext === '.html' ? 'no-store' : 'public, max-age=31536000, immutable' });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -84,6 +106,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
     if (pathname.startsWith('/api/')) {
+      if (pathname.startsWith('/api/local/')) { serveLocalFile(res, pathname); return; } // 鉴权走路径内嵌 token
       if (!authorized(req, url)) { json(res, 401, { ok: false, error: 'unauthorized' }); return; }
       if (!(await router.handle(req, res, pathname))) json(res, 404, { ok: false, error: 'not found' });
       return;
@@ -128,5 +151,8 @@ async function shutdown() {
   server.close();
   process.exit(0);
 }
+// 兜底：异步回调里漏掉的异常只打日志，不让单个请求的错误把整个服务（含所有会话 worker/终端）拖垮
+process.on('uncaughtException', (err) => { console.error('[server] uncaughtException:', err); });
+process.on('unhandledRejection', (reason) => { console.error('[server] unhandledRejection:', reason); });
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

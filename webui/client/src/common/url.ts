@@ -19,10 +19,17 @@ export function isPrivateUrl(u: string): boolean {
   } catch { return false; }
 }
 
+/** file:// 地址 → 服务端本地文件代理路径（iframe 无法直接加载 file://，由 /api/local/<token> 只读代理） */
+export function fileUrlToProxy(u: string, token: string): string {
+  try { return `/api/local/${encodeURIComponent(token)}${new URL(u).pathname}`; } catch { return u; }
+}
+
 export function normalizeUrl(input: string): string {
   const s = input.trim();
   if (!s) return s;
   if (/^https?:\/\//i.test(s)) return s;
+  if (/^file:\/\//i.test(s)) return s;
+  if (s.startsWith('/')) return `file://${encodeURI(s)}`; // 绝对路径视为本地文件
   if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/.test(s)) return `http://${s}`;
   return `http://${s}`;
 }

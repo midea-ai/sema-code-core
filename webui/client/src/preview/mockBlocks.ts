@@ -474,6 +474,11 @@ python3 SKILL_DIR/scripts/xlsx_insert_row.py /tmp/work/ --at 6 ...  # insert row
     { ...base(), kind: 'todos', todos: MOCK_TODOS },
   ],
 
+  CronPanel: [
+    { ...base(), kind: 'cron', action: 'create', taskId: 'a1b2c3d4', title: '构建状态检查', schedule: '每天 09:00' },
+    { ...base(), kind: 'cron', action: 'delete', taskId: 'a1b2c3d4' },
+  ],
+
   FileChangesPanel: [
     {
       ...base(), kind: 'file-changes',

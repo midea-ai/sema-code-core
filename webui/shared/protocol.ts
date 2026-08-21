@@ -59,6 +59,10 @@ export const SESSION_ACTIONS = [
   'session.getForkPreview',
   'session.fork',
   'session.getCommandsInfo',
+  'session.getCronTasks',
+  'session.deleteCronTask',
+  'session.enableCronTask',
+  'session.disableCronTask',
 ] as const;
 
 export const MAIN_AGENT_ID = 'main';
@@ -66,3 +70,5 @@ export const MAIN_AGENT_ID = 'main';
 /** 编辑类工具：其执行结果汇入"文件改动卡片" */
 export const FILE_EDIT_TOOLS = new Set(['write_file', 'patch_file', 'edit_notebook']);
 export const SHELL_TOOL = 'run_shell';
+/** 定时任务增删工具：成功结果落成"定时任务卡片"（list_crons 只读，保留普通工具行） */
+export const CRON_TOOLS = new Set(['create_cron', 'del_cron']);

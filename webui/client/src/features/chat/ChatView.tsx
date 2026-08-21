@@ -3,7 +3,7 @@ import { FolderOpen, Pencil, AlertTriangle, ChevronDown, ChevronRight, Copy, Che
 import type { Block } from '../../../../shared/types';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
-import { BlockRenderer, renderBlockList, type BlockCtx } from './Blocks';
+import { BlockRenderer, renderBlockList, htmlFilesOf, HtmlSiteCard, type BlockCtx } from './Blocks';
 import { Composer } from './Composer';
 import { Button, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { t } from '../../i18n';
@@ -160,7 +160,7 @@ const isText = (b: Block) => b.kind === 'assistant' && !!b.text;
  * 一轮的渲染。
  * 运行中：用户气泡 →（有文字/工具后）「已处理 N秒」分隔 → 全部块按原顺序（连续 ≥2 工具收成 live 组，组头为最后一个工具的摘要）
  * →（仅当最后一个可见块是已完成的文字或本轮尚无输出时）「正在思考」状态行。
- * 结束后：「耗时 N秒 ›」分隔 → 最终结论（最后一段文字）+ 其后的非工具块 + 文件改动卡片 → 复制行；中间过程默认折叠。
+ * 结束后：「耗时 N秒 ›」分隔 → 文件改动卡片 + 最终结论（最后一段文字）+ 其后的非工具块 + 定时任务卡片 → 复制行；中间过程默认折叠。
  * 展开时按原顺序显示全部块（组头为类别文案），与运行中渲染仅差组名与状态行。
  */
 function TurnGroup({ turn, ctx, active }: { turn: Turn; ctx: BlockCtx; active: boolean }) {
@@ -177,11 +177,15 @@ function TurnGroup({ turn, ctx, active }: { turn: Turn; ctx: BlockCtx; active: b
   const before = lastTextIdx >= 0 ? rest.slice(0, lastTextIdx) : [];
   const after = lastTextIdx >= 0 ? rest.slice(lastTextIdx + 1) : rest;
 
-  // 折叠视图：文件改动卡片 + 最后一段文字 + 其后的非工具块
+  // 定时任务卡片与文件改动卡片一样始终排在本轮末尾（运行中/展开/折叠三种视图一致），不按工具调用发生的位置插在过程里
+  const cronCards = rest.filter(b => b.kind === 'cron');
+  const ordered = [...rest.filter(b => b.kind !== 'cron'), ...cronCards];
+  // 折叠视图：文件改动卡片 + 最后一段文字 + 其后的非工具块 + 定时任务卡片
   const collapsedView: Block[] = [
     ...before.filter(b => b.kind === 'file-changes'),
     ...(lastText ? [lastText] : []),
-    ...after.filter(b => !isWork(b)),
+    ...after.filter(b => !isWork(b) && b.kind !== 'cron'),
+    ...cronCards,
   ];
   const hidden = rest.filter(b => !collapsedView.includes(b));
   // 运行中不折叠过程（工具全部可见），结束后才收成摘要视图
@@ -203,7 +207,9 @@ function TurnGroup({ turn, ctx, active }: { turn: Turn; ctx: BlockCtx; active: b
       {!user.queued && (running ? started : true) && (hasWork || collapsible) && (
         <TurnDivider start={user.ts} end={user.doneTs ?? (running ? undefined : (rest[rest.length - 1]?.ts ?? user.ts))} active={running} collapsible={collapsible} expanded={expanded} onToggle={() => setExpanded(v => !v)} />
       )}
-      {running ? renderBlockList(rest, ctx, true) : (expanded && collapsible) ? renderBlockList(rest, ctx) : renderBlockList(collapsedView, ctx)}
+      {running ? renderBlockList(ordered, ctx, true) : (expanded && collapsible) ? renderBlockList(ordered, ctx) : renderBlockList(collapsedView, ctx)}
+      {/* 本轮新建/修改的 html 文件：结论之后给「网站卡片」，默认右栏浏览器预览（本轮结束后显示，避免半成品页面） */}
+      {!running && htmlFilesOf(rest).map(p => <HtmlSiteCard key={`site:${p}`} sessionId={ctx.sessionId} path={p} />)}
       {showThinking && <StatusLine text={t('chat.thinking')} />}
       {!running && lastText && <FinalActions text={lastText.text} ts={lastText.ts} />}
     </div>

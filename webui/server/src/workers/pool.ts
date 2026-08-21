@@ -30,12 +30,28 @@ export interface PoolOptions {
   getCoreConfig: () => Record<string, any>;
   /** 会话是否忙（processing / 有未决请求），忙则不回收 */
   isSessionBusy: (sessionId: string) => boolean;
+  /** 带着持久化定时任务的 worker 被回收后的通知（reason：idle=空闲超时 / stale=配置变更重启 / evict=触顶淘汰） */
+  onCronWorkerReclaimed?: (workingDir: string, sessions: string[], reason: 'idle' | 'stale' | 'evict') => void;
 }
+
+/** worker.stats 返回的守护信息 */
+export interface WorkerGuard {
+  /** 有运行中后台任务，或存在非持久化定时任务：等同忙，不可回收 */
+  busy: boolean;
+  /** 只有持久化定时任务：弱守护，临近触发时不回收，其余时间可回收（由 keeper 临近触发再拉起） */
+  cronWeak: boolean;
+  nextFireAt: number | null;
+}
+
+/** 弱守护 worker：距下次触发不足该时长时不做空闲回收 */
+const CRON_IDLE_GUARD_MS = 10 * 60_000;
+/** 弱守护 worker：距下次触发不足该时长时不做 stale 重启 */
+const CRON_STALE_GUARD_MS = 2 * 60_000;
 
 /**
  * 事件：
  *  'event'      (workingDir, sessionId, event, data)
- *  'proc-event' (event, data)
+ *  'proc-event' (workingDir, event, data)
  *  'exit'       (workingDir, sessions: string[], code)  worker 退出（含崩溃）
  */
 export class WorkerPool extends EventEmitter {
@@ -126,7 +142,7 @@ export class WorkerPool extends EventEmitter {
       } else if (m.type === 'event') {
         this.emit('event', workingDir, m.sessionId, m.event, m.data);
       } else if (m.type === 'proc-event') {
-        this.emit('proc-event', m.event, m.data);
+        this.emit('proc-event', workingDir, m.event, m.data);
       }
     });
     child.on('exit', (code) => {
@@ -181,39 +197,59 @@ export class WorkerPool extends EventEmitter {
     return true;
   }
 
-  /** worker 上是否有运行中的后台任务（查询失败视为无：无响应的 worker 本就该回收） */
-  private async hasRunningTasks(w: WorkerHandle): Promise<boolean> {
+  /** 查询 worker 守护信息（查询失败视为无守护：无响应的 worker 本就该回收） */
+  async guardOf(w: WorkerHandle): Promise<WorkerGuard> {
     try {
       const stats = await this.request(w, 'worker.stats', undefined, {}, 5_000, { bump: false });
-      return Object.values(stats?.runningTasks || {}).some((n) => Number(n) > 0);
-    } catch { return false; }
+      const running = Object.values(stats?.runningTasks || {}).some((n) => Number(n) > 0);
+      const cron = stats?.cron || {};
+      const nonPersisted = Object.values(cron.nonPersisted || {}).some((n) => Number(n) > 0);
+      return { busy: running || nonPersisted, cronWeak: !nonPersisted && Number(cron.active) > 0, nextFireAt: cron.nextFireAt ?? null };
+    } catch { return { busy: false, cronWeak: false, nextFireAt: null }; }
   }
 
-  /** 尝试回收一个空闲 worker（先确认无运行中后台任务）；成功回收返回 true */
-  private async tryReclaim(w: WorkerHandle): Promise<boolean> {
+  /**
+   * 尝试回收一个空闲 worker；成功回收返回 true。
+   * - busy（后台任务 / 非持久化定时任务）：不回收
+   * - cronWeak（仅持久化定时任务）：距触发不足 guardMs 不回收；回收后通知 onCronWorkerReclaimed（keeper 临近触发再拉起）
+   */
+  private async tryReclaim(w: WorkerHandle, reason: 'idle' | 'stale' | 'evict', guardMs: number): Promise<boolean> {
     if (!w.alive || !this.isIdle(w)) return false;
-    if (await this.hasRunningTasks(w)) return false;
+    const g = await this.guardOf(w);
+    if (g.busy) return false;
+    if (g.cronWeak && g.nextFireAt != null && g.nextFireAt - Date.now() < guardMs) return false;
     if (!w.alive || !this.isIdle(w)) return false; // RPC 期间状态可能已变化
+    const sids = [...w.sessions];
     await this.kill(w);
+    if (g.cronWeak) this.opts.onCronWorkerReclaimed?.(w.workingDir, sids, reason);
     return true;
   }
 
-  /** 标记除 except 外所有 worker 为 stale，空闲者立即重启（实际是杀掉，下次按需拉起） */
+  /**
+   * 标记除 except 外所有 worker 为 stale，空闲者立即重启（实际是杀掉，下次按需拉起）。
+   * 持久化定时任务 worker：距触发不足 2 分钟先不动，触发完由 reap 按 stale 重启；非持久化任务 worker 保持 stale，等降级后再处理
+   */
   markStale(except?: WorkerHandle) {
     for (const w of this.workers.values()) {
       if (w === except) continue;
       w.stale = true;
-      if (this.isIdle(w)) void this.tryReclaim(w);
+      if (this.isIdle(w)) void this.tryReclaim(w, 'stale', CRON_STALE_GUARD_MS);
     }
   }
 
-  /** 淘汰一个最久未用且可回收的 worker（豁免目录除外）；无可回收返回 false */
+  /**
+   * 淘汰一个最久未用且可回收的 worker（豁免目录除外）；无可回收返回 false。
+   * 两轮：先只淘汰无定时任务的；都不行再淘汰只有持久化定时任务的（触顶场景下不看临近触发，由 keeper 补拉）
+   */
   private async evictOne(): Promise<boolean> {
     const candidates = [...this.workers.values()]
       .filter(w => w.alive && !this.opts.exemptDirs?.has(w.workingDir) && this.isIdle(w))
       .sort((a, b) => a.lastUsed - b.lastUsed);
     for (const w of candidates) {
-      if (await this.tryReclaim(w)) return true;
+      if (await this.tryReclaim(w, 'evict', Infinity)) return true;
+    }
+    for (const w of candidates) {
+      if (await this.tryReclaim(w, 'evict', -Infinity)) return true;
     }
     return false;
   }
@@ -223,7 +259,8 @@ export class WorkerPool extends EventEmitter {
     const idleMs = this.opts.idleMs ?? 30 * 60_000;
     for (const w of this.workers.values()) {
       if (!this.isIdle(w)) continue;
-      if (w.stale || now - w.lastUsed > idleMs) void this.tryReclaim(w);
+      if (w.stale) void this.tryReclaim(w, 'stale', CRON_STALE_GUARD_MS);
+      else if (now - w.lastUsed > idleMs) void this.tryReclaim(w, 'idle', CRON_IDLE_GUARD_MS);
     }
   }
 

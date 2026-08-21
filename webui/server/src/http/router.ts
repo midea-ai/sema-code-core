@@ -16,6 +16,92 @@ export const HANDLED = Symbol('handled');
 
 const faviconCache = new Map<string, { type: string; buf: Buffer }>();
 
+/** 抓取页面 HTML 头部（最多 64KB / 读到 </head> 即停，5s 超时；非 HTML 或失败返回空） */
+async function fetchHtmlHead(url: string): Promise<string> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 5000);
+  try {
+    const r = await fetch(url, { redirect: 'follow', signal: ctl.signal, headers: { Accept: 'text/html' } });
+    if (!r.ok || !/text\/html/i.test(r.headers.get('content-type') || '') || !r.body) return '';
+    const reader = r.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (size < 64 * 1024) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      chunks.push(value); size += value.length;
+      if (/<\/head>/i.test(Buffer.concat(chunks).toString('utf8'))) break;
+    }
+    reader.cancel().catch(() => {});
+    return Buffer.concat(chunks).toString('utf8');
+  } catch { return ''; }
+  finally { clearTimeout(timer); }
+}
+
+function decodeEntities(s: string): string {
+  return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+}
+
+interface PageMeta { title: string; icon: string }
+const metaCache = new Map<string, PageMeta>();
+const LOCAL_RE = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|10\.|192\.168\.|172\.)/i;
+
+/** 从 HTML 头部解析 <title> 与 <link rel="icon">（优先 rel=icon，apple-touch-icon 兜底），icon 为绝对地址 */
+function parsePageMeta(html: string, baseUrl: string): PageMeta {
+  const tm = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = tm ? decodeEntities(tm[1]).replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  let best = '';
+  for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = m[0];
+    const rel = (tag.match(/\brel=["']([^"']*)["']/i)?.[1] || '').toLowerCase();
+    if (!/(^|\s)(icon|shortcut icon|apple-touch-icon)(\s|$)/.test(rel)) continue;
+    const href = tag.match(/\bhref=["']([^"']+)["']/i)?.[1];
+    if (!href) continue;
+    best = decodeEntities(href);
+    if (/(^|\s)icon(\s|$)/.test(rel)) break;
+  }
+  let icon = '';
+  try { if (best) icon = new URL(best, baseUrl).href; } catch { /* ignore */ }
+  if (!/^https?:\/\//i.test(icon)) icon = '';
+  return { title, icon };
+}
+
+/**
+ * 取页面元信息（右栏浏览器标签的标题与图标；iframe 跨域读不到 document.title / <link rel=icon>）。
+ * 未声明图标时回退 origin/favicon.ico；失败返回空由前端回退。本机/局域网开发服务器不缓存（内容随改动变化）。
+ */
+async function fetchPageMeta(url: string): Promise<PageMeta> {
+  // file://：读本地 html 头部解析标题（图标不代理本地文件，留空由前端回退）
+  if (/^file:\/\//i.test(url)) {
+    try {
+      const fp = decodeURIComponent(new URL(url).pathname);
+      const fd = fs.openSync(fp, 'r');
+      try {
+        const buf = Buffer.alloc(64 * 1024);
+        const n = fs.readSync(fd, buf, 0, buf.length, 0);
+        return { title: parsePageMeta(buf.subarray(0, n).toString('utf8'), url).title, icon: '' };
+      } finally { fs.closeSync(fd); }
+    } catch { return { title: '', icon: '' }; }
+  }
+  if (!/^https?:\/\//i.test(url)) return { title: '', icon: '' };
+  const key = url.replace(/#.*$/, '');
+  const hit = metaCache.get(key);
+  if (hit) return hit;
+  const meta = parsePageMeta(await fetchHtmlHead(key), key);
+  if (!meta.icon) { try { meta.icon = new URL('/favicon.ico', key).href; } catch { /* ignore */ } }
+  if (!LOCAL_RE.test(key)) metaCache.set(key, meta);
+  return meta;
+}
+
+async function fetchIcon(url: string, signal: AbortSignal): Promise<{ type: string; buf: Buffer } | null> {
+  const r = await fetch(url, { redirect: 'follow', signal });
+  const type = r.headers.get('content-type') || '';
+  if (!r.ok || !/image\//i.test(type)) return null;
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.length > 512 * 1024) return null;
+  return { type, buf };
+}
+
 /** 探测 URL 能否被 iframe 内嵌：看 X-Frame-Options / CSP frame-ancestors（5s 超时，失败视为不可嵌） */
 async function probeEmbeddable(url: string): Promise<{ embeddable: boolean; reason?: string }> {
   if (!/^https?:\/\//i.test(url)) return { embeddable: false, reason: 'scheme' };
@@ -124,6 +210,12 @@ export class Router {
     });
 
     // ---- 会话 ----
+    // 面板类路由（文件/终端/打开等）同时服务项目草稿页：id 可为会话或项目，两者都有 workingDir
+    const resolveScope = (id: string) => {
+      const rec = reg.getSession(id) || reg.getProject(id);
+      if (!rec) throw new Error('会话不存在');
+      return rec;
+    };
     this.add('POST', '/api/sessions', async (_r, _s, _p, body) => sm.createSession({ projectId: body?.projectId || undefined }));
     this.add('GET', '/api/sessions/:id/snapshot', (_r, _s, p) => sm.getSnapshot(p.id));
     this.add('PATCH', '/api/sessions/:id', (_r, _s, p, body) => {
@@ -139,12 +231,12 @@ export class Router {
       return true;
     });
     this.add('POST', '/api/sessions/:id/reveal', async (_r, _s, p) => {
-      const rec = reg.getSession(p.id); if (!rec) throw new Error('会话不存在');
+      const rec = resolveScope(p.id);
       await revealInFileManager(rec.workingDir); return true;
     });
     // 在文件管理器中定位会话目录内的某个文件（相对路径；realpath 必须落在 workingDir 内）
     this.add('POST', '/api/sessions/:id/reveal-file', async (_r, _s, p, body) => {
-      const rec = reg.getSession(p.id); if (!rec) throw new Error('会话不存在');
+      const rec = resolveScope(p.id);
       const rel = String(body?.path || '');
       if (!rel) throw new Error('缺少 path');
       await revealInFileManager(resolvePath(rec.workingDir, rel).abs); return true;
@@ -152,37 +244,36 @@ export class Router {
 
     // ---- 文件查看：读取文件（相对路径限定会话目录内，绝对路径只读放行）/ 列目录 / 批量 stat / 原始字节 ----
     this.add('POST', '/api/sessions/:id/file', async (_r, _s, p, body) => {
-      const rec = reg.getSession(p.id); if (!rec) throw new Error('会话不存在');
+      const rec = resolveScope(p.id);
       return readFileInDir(rec.workingDir, String(body?.path || ''));
     });
     this.add('POST', '/api/sessions/:id/files/stat', async (_r, _s, p, body) => {
-      const rec = reg.getSession(p.id); if (!rec) throw new Error('会话不存在');
+      const rec = resolveScope(p.id);
       const paths = Array.isArray(body?.paths) ? body.paths.map(String) : [];
       return statPaths(rec.workingDir, paths);
     });
     this.add('GET', '/api/sessions/:id/raw', async (req, res, p) => {
-      const rec = reg.getSession(p.id); if (!rec) throw new Error('会话不存在');
+      const rec = resolveScope(p.id);
       const q = new URL(req.url || '/', 'http://x').searchParams;
       const { abs, size, mime } = rawFileInDir(rec.workingDir, q.get('path') || '');
-      res.writeHead(200, { 'Content-Type': mime, 'Content-Length': size, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
-      fs.createReadStream(abs).pipe(res);
+      sendFile(res, abs, { 'Content-Type': mime, 'Content-Length': size, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
       return HANDLED;
     });
     this.add('POST', '/api/sessions/:id/ls', async (_r, _s, p, body) => {
-      const rec = reg.getSession(p.id); if (!rec) throw new Error('会话不存在');
+      const rec = resolveScope(p.id);
       return listDir(rec.workingDir, String(body?.path || ''));
     });
 
     // ---- 终端（node-pty；数据流走 /ws/term） ----
     this.add('POST', '/api/sessions/:id/terminals', async (_r, _s, p, body) => {
       if (!this.tm) throw new Error('终端不可用');
-      const rec = reg.getSession(p.id); if (!rec) throw new Error('会话不存在');
+      const rec = resolveScope(p.id);
       return this.tm.create(p.id, rec.workingDir, Number(body?.cols) || 80, Number(body?.rows) || 24);
     });
     this.add('DELETE', '/api/terminals/:id', async (_r, _s, p) => { this.tm?.kill(p.id); return true; });
     // 用系统默认程序打开会话目录内的文件
     this.add('POST', '/api/sessions/:id/open-file', async (_r, _s, p, body) => {
-      const rec = reg.getSession(p.id); if (!rec) throw new Error('会话不存在');
+      const rec = resolveScope(p.id);
       const { abs } = resolvePath(rec.workingDir, String(body?.path || ''));
       const app = body?.app ? String(body.app) : '';
       if (IS_MAC) await run('open', app ? ['-a', app, abs] : [abs]); else if (IS_WIN) await run('cmd', ['/c', 'start', '', abs]); else await run('xdg-open', [abs]);
@@ -190,22 +281,21 @@ export class Router {
     });
     // 「打开方式」候选应用（仅 macOS 有结果）与应用图标
     this.add('POST', '/api/sessions/:id/open-with', async (_r, _s, p, body) => {
-      const rec = reg.getSession(p.id); if (!rec) throw new Error('会话不存在');
+      const rec = resolveScope(p.id);
       return listOpenWithApps(resolvePath(rec.workingDir, String(body?.path || '')).abs);
     });
     this.add('GET', '/api/app-icon', async (req, res) => {
       const id = new URL(req.url || '/', 'http://x').searchParams.get('id') || '';
       const file = appIconPath(id);
       if (!file) throw new Error('无图标');
-      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
-      fs.createReadStream(file).pipe(res);
+      sendFile(res, file, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
       return HANDLED;
     });
 
     // ---- 文件搜索（输入框 @ 引用）：按会话或项目定位 workingDir，结果为相对路径 ----
     this.add('POST', '/api/files/search', async (_r, _s, _p, body) => {
       let dir: string | undefined;
-      if (body?.sessionId) dir = reg.getSession(String(body.sessionId))?.workingDir;
+      if (body?.sessionId) dir = resolveScope(String(body.sessionId)).workingDir;
       else if (body?.projectId) dir = reg.getProject(String(body.projectId))?.workingDir;
       if (!dir) throw new Error('会话或项目不存在');
       return searchFiles(dir, String(body?.query ?? ''), Number(body?.limit) || 50);
@@ -213,24 +303,31 @@ export class Router {
 
     // ---- 系统 ----
     this.add('POST', '/api/open-external', async (_r, _s, _p, body) => { await openExternal(String(body?.url || '')); return true; });
-    // 站点图标代理：取 origin/favicon.ico，内存缓存；失败返回 404 由前端回退为通用图标
+    // 站点图标代理（内存缓存；失败返回 404 由前端回退为通用图标）
     this.add('GET', '/api/favicon', async (req, res) => {
-      const origin = new URL(req.url || '/', 'http://x').searchParams.get('origin') || '';
-      if (!/^https?:\/\/[^/]+$/i.test(origin)) throw new Error('bad origin');
-      let hit = faviconCache.get(origin);
+      const q = new URL(req.url || '/', 'http://x').searchParams;
+      const origin = q.get('origin') || '';
+      const direct = q.get('url') || '';
+      // url= 直接取指定图标地址（页面元信息解析出的 <link rel=icon>）；origin= 按站点取 /favicon.ico → 首页声明的图标
+      const cacheKey = direct || origin;
+      if (direct ? !/^https?:\/\/[^/]+\//i.test(direct) : !/^https?:\/\/[^/]+$/i.test(origin)) throw new Error('bad url');
+      let hit = faviconCache.get(cacheKey);
       if (!hit) {
         const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), 4000);
+        const timer = setTimeout(() => ctl.abort(), 8000);
         try {
-          const r = await fetch(`${origin}/favicon.ico`, { redirect: 'follow', signal: ctl.signal });
-          const type = r.headers.get('content-type') || '';
-          if (!r.ok || !/image\//i.test(type)) throw new Error('no icon');
-          const buf = Buffer.from(await r.arrayBuffer());
-          if (buf.length > 512 * 1024) throw new Error('too large');
-          hit = { type, buf };
+          if (direct) hit = (await fetchIcon(direct, ctl.signal).catch(() => null)) || undefined;
+          else {
+            hit = (await fetchIcon(`${origin}/favicon.ico`, ctl.signal).catch(() => null)) || undefined;
+            if (!hit) {
+              const declared = (await fetchPageMeta(origin + '/')).icon;
+              if (declared) hit = (await fetchIcon(declared, ctl.signal).catch(() => null)) || undefined;
+            }
+          }
+          if (!hit) throw new Error('no icon');
         } catch { hit = { type: '', buf: Buffer.alloc(0) }; }
         finally { clearTimeout(timer); }
-        faviconCache.set(origin, hit);
+        faviconCache.set(cacheKey, hit);
       }
       if (!hit.buf.length) { json(res, 404, { ok: false, error: 'no icon' }); return HANDLED; }
       res.writeHead(200, { 'Content-Type': hit.type, 'Content-Length': hit.buf.length, 'Cache-Control': 'public, max-age=86400' });
@@ -238,7 +335,16 @@ export class Router {
       return HANDLED;
     });
     // 探测 URL 是否允许 iframe 内嵌，前端据此决定右栏预览还是系统浏览器
+    // 日程：全部目录的定时任务 / 启停删除
+    this.add('GET', '/api/cron', () => sm.listAllCron());
+    this.add('POST', '/api/cron/:action', (_r, _s, p, body) => {
+      if (p.action !== 'delete' && p.action !== 'enable' && p.action !== 'disable') throw new Error(`未知操作: ${p.action}`);
+      if (!body?.workingDir || !body?.id) throw new Error('缺少 workingDir / id');
+      return sm.cronAction(String(body.workingDir), p.action, String(body.id));
+    });
     this.add('POST', '/api/probe-url', async (_r, _s, _p, body) => probeEmbeddable(String(body?.url || '')));
+    // 页面元信息：标题 + 图标地址（右栏浏览器标签）
+    this.add('POST', '/api/page-meta', async (_r, _s, _p, body) => fetchPageMeta(String(body?.url || '')));
   }
 
   private add(method: string, pattern: string, handler: Handler) {
@@ -267,6 +373,21 @@ export class Router {
     }
     return false;
   }
+}
+
+/**
+ * 以流方式回写本地文件。响应头在流成功 open 之后才写，这样 EPERM/ENOENT 等打开失败能返回 JSON 错误；
+ * 任何阶段的流错误都被捕获（不挂 error 监听会变成 Unhandled 'error' event 把整个进程打挂）。
+ */
+export function sendFile(res: http.ServerResponse, file: string, headers: Record<string, string | number>) {
+  const stream = fs.createReadStream(file);
+  stream.on('open', () => { res.writeHead(200, headers); stream.pipe(res); });
+  stream.on('error', (err: NodeJS.ErrnoException) => {
+    console.error(`[http] 读取文件失败 ${file}: ${err.message}`);
+    if (!res.headersSent) json(res, err.code === 'ENOENT' ? 404 : 500, { ok: false, error: `读取文件失败: ${err.message}` });
+    else res.destroy();
+  });
+  res.on('close', () => stream.destroy());
 }
 
 export function json(res: http.ServerResponse, status: number, data: any) {

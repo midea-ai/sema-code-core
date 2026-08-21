@@ -4,6 +4,7 @@ import hljs from 'highlight.js/lib/common';
 import { api, getToken } from '../../api/http';
 import { useApp, PanelTab } from '../../store/app';
 import { cn, Popover, MenuItem, MenuSep, Spinner, useCopy, Dropdown } from '../../common/ui';
+import { OpenWithItems, appIconUrl, useOpenWithApps } from '../../common/openWith';
 
 type Zoom = 'fit' | '25' | '50' | '100' | '150' | '200';
 const ZOOM_OPTIONS = (['25', '50', '100', '150', '200'] as Zoom[]).map(v => ({ value: v, label: `${v}%` }));
@@ -13,10 +14,14 @@ import { FileIcon } from '../../common/fileicon/FileIcon';
 import { usePanelWidth, ResizeHandle } from '../../common/Resizer';
 import { t } from '../../i18n';
 import { langOf, escapeHtml } from '../../common/text';
+import { Markdown } from '../chat/Markdown';
 
 interface FileData { path: string; abs?: string; inside?: boolean; image?: boolean; size: number; mtime: number; truncated: boolean; binary: boolean; content: string }
 
 function isAbsPath(p: string) { return p.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('~'); }
+/** 可预览类型：仅 markdown（html 在文件标签里只看源码，预览走右栏浏览器） */
+function previewKind(p: string): 'md' | null { return /\.(md|markdown)$/i.test(p) ? 'md' : null; }
+const PREFER_SOURCE_KEY = 'file.preferSource';
 interface DirItem { name: string; isDirectory: boolean }
 
 const MAX_HL = 200 * 1024; // 超过 200KB 不做高亮
@@ -27,7 +32,8 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
   const revealFile = useApp(s => s.revealFile);
   const openFileExternal = useApp(s => s.openFileExternal);
   const toast = useApp(s => s.toast);
-  const record = useApp(s => s.registry.sessions.find(x => x.id === sessionId));
+  // 草稿页面板时 sessionId 实为项目 id，回退到项目记录取目录
+  const record = useApp(s => s.registry.sessions.find(x => x.id === sessionId) || s.registry.projects.find(x => x.id === sessionId));
   const rootName = record?.workingDir.split(/[\\/]/).filter(Boolean).pop() || '';
   const [data, setData] = useState<FileData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,16 +44,7 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
   const [treeW, setTreeW] = usePanelWidth('fileTree', 256, 160, 520);
   const relPath = tab.path || '';
   // 「打开方式」候选应用：文件切换时预取，「打开」按钮用第一个（默认应用）的图标
-  const [apps, setApps] = useState<OpenWithApp[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    setApps(null);
-    if (!relPath) return;
-    api<{ apps: OpenWithApp[] }>('POST', `/api/sessions/${sessionId}/open-with`, { path: relPath })
-      .then(r => { if (alive) setApps(r.apps); })
-      .catch(() => { if (alive) setApps([]); });
-    return () => { alive = false; };
-  }, [sessionId, relPath]);
+  const apps = useOpenWithApps(sessionId, relPath);
   const defaultApp = apps?.[0];
   // 「缩放至合适」时显示实际缩放百分比：监听图片渲染尺寸 / 原始尺寸
   const [fitPct, setFitPct] = useState<number | null>(null);
@@ -94,6 +91,14 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
     row?.scrollIntoView({ block: 'center' });
   }, [data, tab.lineSeq]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 预览 / 源代码切换：可预览类型默认预览（记住用户上次选择）；带行号定位打开时强制源代码
+  const kind = previewKind(relPath);
+  const [preferSource, setPreferSource] = useState(() => { try { return localStorage.getItem(PREFER_SOURCE_KEY) === '1'; } catch { return false; } });
+  const [sourceOverride, setSourceOverride] = useState<boolean | null>(null);
+  useEffect(() => { setSourceOverride(null); }, [relPath, tab.lineSeq]);
+  const showSource = !kind || (sourceOverride ?? (!!tab.line || preferSource));
+  const toggleSource = () => { const v = !showSource; setSourceOverride(v); setPreferSource(v); try { localStorage.setItem(PREFER_SOURCE_KEY, v ? '1' : '0'); } catch { /* ignore */ } };
+
   const outside = isAbsPath(relPath);
   const crumbs = relPath.split(/[\\/]/).filter(Boolean);
   return (
@@ -108,7 +113,10 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
           </span>
         ))}
         <span className="flex-1" />
-        {data?.image ? (
+        {kind && data && !data.binary && (
+          <button onClick={toggleSource} className="px-1.5 h-7 rounded text-muted hover:text-fg hover:bg-black/[0.05]">{t(showSource ? 'file.viewPreview' : 'file.viewSource')}</button>
+        )}
+        {data?.image && (
           <Dropdown value={zoom} options={ZOOM_OPTIONS} onChange={setZoom} minWidth={140}
             renderValue={v => <span>{v === 'fit' ? (fitPct !== null ? `${fitPct}%` : t('file.zoomFit')) : `${v}%`}</span>}
             footer={close => (
@@ -117,9 +125,8 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
                 {zoom === 'fit' && <svg width="14" height="14" viewBox="0 0 24 24" className="text-ok shrink-0"><path d="M5 12l5 5L20 7" stroke="currentColor" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
               </button>
             )} />
-        ) : (
-          <button onClick={() => setTree(v => !v)} className={cn('p-1.5 rounded hover:bg-black/[0.05]', tree ? 'text-fg bg-black/[0.06]' : 'text-muted hover:text-fg')} title={t('file.tree')}><FolderTree size={14} /></button>
         )}
+        <button onClick={() => setTree(v => !v)} className={cn('p-1.5 rounded hover:bg-black/[0.05]', tree ? 'text-fg bg-black/[0.06]' : 'text-muted hover:text-fg')} title={t('file.tree')}><FolderTree size={14} /></button>
         {/* 分体按钮：左半「打开」直接用默认程序打开；右半下拉展开更多操作 */}
         {relPath && (
           <div className="h-7 inline-flex items-stretch rounded-md border border-border text-fg overflow-hidden">
@@ -155,6 +162,7 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
               </div>
             )
             : data.binary ? <div className="p-4 text-sm text-muted">{t('file.binary')}</div>
+            : !showSource && kind === 'md' ? <div className="p-4 font-sans text-sm"><Markdown text={data.content} sessionId={sessionId} /></div>
             : (
               <table className="border-collapse min-w-full">
                 <tbody>
@@ -253,27 +261,6 @@ function DirNode({ sessionId, path, depth, current, onPick, onMenu }: {
   );
 }
 
-interface OpenWithApp { id: string; name: string; path: string; icon: boolean }
-
-function appIconUrl(id: string) { return `/api/app-icon?id=${encodeURIComponent(id)}&token=${encodeURIComponent(getToken())}`; }
-
-/** 「打开方式」菜单项：macOS 列出可打开该文件的应用（默认应用置顶，带图标）；无结果时退化为「用默认程序打开」 */
-function OpenWithItems({ sessionId, path, apps, onDone }: { sessionId: string; path: string; apps: OpenWithApp[] | null; onDone: () => void }) {
-  const run = (app?: string) => { onDone(); useApp.getState().openFileExternal(sessionId, path, app).catch(e => useApp.getState().toast(e.message, 'error')); };
-  if (apps === null) return <div className="px-3 py-1.5 text-sm text-muted flex items-center gap-2"><Spinner />{t('common.loading')}</div>;
-  if (apps.length === 0) return <MenuItem onClick={() => run()}>{t('file.openDefault')}</MenuItem>;
-  return (
-    <>
-      {apps.map(a => (
-        <button key={a.id} onClick={() => run(a.path)} className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded hover:bg-black/[0.06] text-sm text-fg">
-          {a.icon ? <img src={appIconUrl(a.id)} alt="" className="w-5 h-5 shrink-0" /> : <span className="w-5 h-5 shrink-0" />}
-          <span className="truncate">{a.name}</span>
-        </button>
-      ))}
-    </>
-  );
-}
-
 /** 浏览器是否支持系统「另存为」对话框（File System Access API，Chromium + secure context） */
 const canSaveAs = typeof (window as any).showSaveFilePicker === 'function';
 
@@ -306,7 +293,8 @@ function FileMenu({ sessionId, menu, onClose, onPick }: {
   };
 
   const copyPath = (abs: boolean) => {
-    const wd = useApp.getState().registry.sessions.find(s => s.id === sessionId)?.workingDir || '';
+    const reg = useApp.getState().registry;
+    const wd = (reg.sessions.find(s => s.id === sessionId) || reg.projects.find(p => p.id === sessionId))?.workingDir || '';
     copy(abs && wd ? `${wd.replace(/[\\/]$/, '')}/${path}` : path);
     useApp.getState().toast(t('file.copied'));
   };

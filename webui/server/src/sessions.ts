@@ -8,9 +8,10 @@ import path from 'path';
 import { EventEmitter } from 'events';
 import { WorkerPool, WorkerHandle } from './workers/pool';
 import { RegistryStore, TRANSCRIPT_DIR, CONFIG_WORKSPACE, SEMA_DOCS_ROOT, writeJsonAtomic } from './registry/registry';
-import type { EventFrame, SessionRecord, SessionSnapshot } from '../../shared/types';
+import type { CronGroup, CronTask, EventFrame, SessionRecord, SessionSnapshot } from '../../shared/types';
 import { applyEvent, applyLocal, createSnapshot, pendingBlocks } from '../../shared/transcript';
 import { SERVER_EVENTS } from '../../shared/protocol';
+import { readPersistedCron, readPersistedTasks } from './workers/cronFile';
 
 const BUFFER_MAX = 3000;
 const SAVE_DEBOUNCE_MS = 500;
@@ -18,6 +19,12 @@ const SAVE_DEBOUNCE_MS = 500;
 const SESSION_IDLE_MS = 20 * 60_000;
 /** 每个 worker 常驻 SemaSession 上限，超出部分按最旧优先回收 */
 const MAX_LIVE_SESSIONS = 8;
+/** cron keeper：持久化定时任务距触发不足该时长时，提前拉起 worker + 一个会话以便注入 */
+const CRON_KEEPER_LEAD_MS = 3 * 60_000;
+/** 已过触发时刻多久以内仍尝试拉起（core 加载时周期任务从 now 重算，一次性任务过期即丢，只是兜底） */
+const CRON_KEEPER_LATE_MS = 60_000;
+/** keeper 拉起的会话在触发时刻之后再保活多久（覆盖 core 60s tick + 执行排队的时间） */
+const CRON_KEEP_AFTER_FIRE_MS = 5 * 60_000;
 const CORE_WRITE_ACTIONS = new Set(['core.switchModel', 'core.addModel', 'core.delModel', 'core.applyTaskModel']);
 
 /** 退场上限：项目数、每项目会话数、独立会话数，超出按 lastActiveAt LRU 淘汰 */
@@ -36,12 +43,15 @@ interface Runtime {
   saveTimer?: NodeJS.Timeout;
   /** 正在拉起 worker/创建会话的 promise（去重） */
   ensuring?: Promise<WorkerHandle>;
+  /** cron keeper 为注入定时任务拉起的会话：该时刻前不做会话回收/退场（不改 lastActiveAt，不影响侧边栏排序） */
+  keepUntil?: number;
 }
 
 export class SessionManager extends EventEmitter {
   private runtimes = new Map<string, Runtime>();
   readonly pool: WorkerPool;
   private sessionReapTimer: NodeJS.Timeout;
+  private cronKeeperTimer: NodeJS.Timeout;
   /** 退场时清理会话关联终端的钩子（由入口注入 TerminalManager.killBySession） */
   killTerminals?: (sid: string) => void;
   private evicting = false;
@@ -57,11 +67,16 @@ export class SessionManager extends EventEmitter {
         const rt = this.runtimes.get(sid);
         return !!rt && (rt.snapshot.state === 'processing' || pendingBlocks(rt.snapshot).length > 0);
       },
+      onCronWorkerReclaimed: (dir, sids, reason) => this.onCronWorkerReclaimed(dir, sids, reason),
     });
     this.sessionReapTimer = setInterval(() => { void this.reapSessions().catch(() => undefined); }, 60_000);
     this.sessionReapTimer.unref?.();
+    this.cronKeeperTimer = setInterval(() => { void this.cronKeeperTick().catch(() => undefined); }, 60_000);
+    this.cronKeeperTimer.unref?.();
+    // 启动即跑一轮：服务重启期间临近触发的持久化任务尽快接管
+    setTimeout(() => { void this.cronKeeperTick().catch(() => undefined); }, 2_000).unref?.();
     this.pool.on('event', (dir: string, sid: string, event: string, data: any) => this.onEvent(sid, event, data));
-    this.pool.on('proc-event', (event: string, data: any) => this.broadcastAll({ event, data }));
+    this.pool.on('proc-event', (workingDir: string, event: string, data: any) => this.broadcastAll({ event, data, workingDir }));
     this.pool.on('exit', (dir: string, sids: string[], code: number | null) => this.onWorkerExit(sids, code));
   }
 
@@ -118,9 +133,15 @@ export class SessionManager extends EventEmitter {
     if (event === 'topic:update' && data?.title) {
       this.registry.updateSession(sid, { title: String(data.title) });
       this.broadcastRegistry();
+    } else if (event === 'input:received' && data?.source === 'cron') {
+      // 定时任务触发：给所在 worker 续命（LRU/空闲判定用），但不更新会话 lastActiveAt（自动输入不算用户活跃）
+      const rec = this.registry.getSession(sid);
+      const w = rec ? this.pool.get(rec.workingDir) : undefined;
+      if (w?.alive) w.lastUsed = Date.now();
     } else if (event === 'input:processing') {
       const rec = this.registry.getSession(sid);
-      if (rec && !rec.title) {
+      // 自动来源输入（cron 等）不作为会话标题
+      if (rec && !rec.title && (!data?.source || data.source === 'user')) {
         const t = String(data?.originalInput || data?.input || '').replace(/\s+/g, ' ').trim().slice(0, 40);
         if (t) this.registry.updateSession(sid, { title: t });
       }
@@ -331,9 +352,38 @@ export class SessionManager extends EventEmitter {
 
   // ==================== 超限退场 ====================
 
-  /** 忙碌中或有前端订阅的会话不参与退场 */
-  private isEvictable(sid: string): boolean {
-    return !this.isBusy(sid) && (this.runtimes.get(sid)?.subscribers.size ?? 0) === 0;
+  /** 忙碌中、有前端订阅、或名下有非持久化定时任务的会话不参与退场 */
+  private isEvictable(sid: string, cronGuard?: Set<string>): boolean {
+    return !this.isBusy(sid) && (this.runtimes.get(sid)?.subscribers.size ?? 0) === 0 && !cronGuard?.has(sid) && !this.isKept(sid);
+  }
+
+  /** keeper 保活期内的会话（等待定时任务注入/执行） */
+  private isKept(sid: string): boolean {
+    const until = this.runtimes.get(sid)?.keepUntil;
+    return until != null && until > Date.now();
+  }
+
+  /** 各存活 worker 的 worker.stats（失败的 worker 跳过） */
+  private async workerStats(): Promise<Map<WorkerHandle, any>> {
+    const out = new Map<WorkerHandle, any>();
+    await Promise.all(this.pool.list().filter(w => w.alive).map(async w => {
+      try { out.set(w, await this.pool.request(w, 'worker.stats', undefined, {}, 5_000, { bump: false })); } catch { /* 忙或已退出 */ }
+    }));
+    return out;
+  }
+
+  /** 名下有非持久化定时任务的会话集合（丢了就是真丢，退场/回收一律跳过） */
+  private cronGuardedSessions(stats: Map<WorkerHandle, any>): Set<string> {
+    const out = new Set<string>();
+    for (const st of stats.values()) {
+      for (const [sid, n] of Object.entries(st?.cron?.nonPersisted || {})) if (Number(n) > 0) out.add(sid);
+    }
+    return out;
+  }
+
+  /** 目录下是否仍有启用的持久化定时任务（退场项目时跳过，留给更旧的无任务项目先退） */
+  private hasPersistedCron(workingDir: string): boolean {
+    try { return readPersistedCron(workingDir).active > 0; } catch { return false; }
   }
 
   /** 退场一个会话：杀终端 → 关 worker 会话（独立会话等 worker 退出）→ 删 transcript → 移除注册表记录 */
@@ -354,12 +404,13 @@ export class SessionManager extends EventEmitter {
     this.evicting = true;
     try {
       let changed = false;
+      const cronGuard = this.cronGuardedSessions(await this.workerStats());
       const byActiveDesc = (a: { lastActiveAt: number }, b: { lastActiveAt: number }) => b.lastActiveAt - a.lastActiveAt;
 
       // 1) 独立会话
       const standalone = this.registry.listSessions().filter(s => !s.projectId).sort(byActiveDesc);
       for (const rec of standalone.slice(STANDALONE_SESSION_LIMIT)) {
-        if (!this.isEvictable(rec.id)) continue;
+        if (!this.isEvictable(rec.id, cronGuard)) continue;
         await this.evictSession(rec.id);
         // 独占目录必须位于 ~/Documents/Sema 之下才删磁盘和 history，防御异常数据
         if (rec.workingDir.startsWith(SEMA_DOCS_ROOT + path.sep)) {
@@ -383,7 +434,7 @@ export class SessionManager extends EventEmitter {
         const proj = this.registry.getProject(pid);
         list.sort(byActiveDesc);
         for (const rec of list.slice(SESSIONS_PER_PROJECT_LIMIT)) {
-          if (!this.isEvictable(rec.id)) continue;
+          if (!this.isEvictable(rec.id, cronGuard)) continue;
           await this.evictSession(rec.id);
           await this.dispatch('core.deleteSessionHistory', undefined, { sessionId: rec.id, projectPath: proj?.workingDir || rec.workingDir })
             .catch((e: any) => console.error('[evict] 删除会话历史失败:', e?.message || e));
@@ -396,7 +447,8 @@ export class SessionManager extends EventEmitter {
       const projects = [...this.registry.snapshot().projects].sort(byActiveDesc);
       for (const proj of projects.slice(PROJECT_LIMIT)) {
         const sess = this.registry.listSessions().filter(s => s.projectId === proj.id);
-        if (sess.some(s => !this.isEvictable(s.id))) continue;
+        if (sess.some(s => !this.isEvictable(s.id, cronGuard))) continue;
+        if (this.hasPersistedCron(proj.workingDir)) continue;
         for (const s of sess) { this.killTerminals?.(s.id); await this.closeSession(s.id); }
         this.registry.removeProject(proj.id);
         console.log(`[evict] 项目索引退场: ${proj.name}（磁盘与 history 保留）`);
@@ -420,9 +472,15 @@ export class SessionManager extends EventEmitter {
     const now = Date.now();
     for (const w of this.pool.list()) {
       if (!w.alive) continue;
+      // 名下有非持久化定时任务的会话不回收（关闭会话会连带清掉这些任务）
+      let guarded = new Set<string>();
+      try {
+        const st = await this.pool.request(w, 'worker.stats', undefined, {}, 5_000, { bump: false });
+        guarded = this.cronGuardedSessions(new Map([[w, st]]));
+      } catch { continue; }
       const total = w.sessions.size;
       const idle = [...w.sessions]
-        .filter(sid => !this.isBusy(sid))
+        .filter(sid => !this.isBusy(sid) && !guarded.has(sid) && !this.isKept(sid))
         .map(sid => ({ sid, t: this.registry.getSession(sid)?.lastActiveAt ?? 0 }))
         .sort((a, b) => a.t - b.t);
       const excess = Math.max(0, total - MAX_LIVE_SESSIONS);
@@ -441,6 +499,113 @@ export class SessionManager extends EventEmitter {
     }
   }
 
+  // ==================== 定时任务守护 ====================
+
+  /**
+   * 持久化定时任务 worker 被回收后的处理：
+   * - evict（触顶淘汰）：向该 worker 上的会话注入提示，用户能看到任务为何暂停
+   * - idle / stale：正常路径，由 keeper 临近触发再拉起，不打扰用户
+   */
+  private onCronWorkerReclaimed(workingDir: string, sids: string[], reason: 'idle' | 'stale' | 'evict') {
+    console.log(`[cron] worker 已回收（${reason}）dir=${workingDir}，持久化定时任务将在临近触发时由 keeper 拉起`);
+    if (reason !== 'evict') return;
+    for (const sid of sids) {
+      if (!this.registry.getSession(sid)) continue;
+      this.onEvent(sid, 'hook:notice', { kind: 'systemMessage', message: '进程数已达上限，本项目的定时任务进程已被回收；临近触发时会自动拉起，也可打开本项目任一会话立即恢复' });
+    }
+  }
+
+  /**
+   * cron keeper（每分钟）：扫描注册表里所有目录的持久化定时任务文件，
+   * 距最近触发不足 {@link CRON_KEEPER_LEAD_MS} 且该目录没有"活着且带会话"的 worker 时，
+   * 拉起该目录最近活跃的会话（worker + session.create），让 core 重载任务并按时触发。
+   * 受 maxWorkers 约束：拉起失败只记日志，下一轮重试。
+   */
+  private async cronKeeperTick() {
+    const now = Date.now();
+    // 扫描范围 = 项目目录 ∪ 会话目录：项目下会话全被删/退场时任务文件仍在，也要能触发
+    const dirs = new Map<string, { projectId?: string; sessions: SessionRecord[] }>();
+    for (const p of this.registry.snapshot().projects) dirs.set(p.workingDir, { projectId: p.id, sessions: [] });
+    for (const rec of this.registry.listSessions()) {
+      const e = dirs.get(rec.workingDir) || { projectId: rec.projectId, sessions: [] };
+      e.sessions.push(rec);
+      dirs.set(rec.workingDir, e);
+    }
+    for (const [dir, { projectId, sessions }] of dirs) {
+      if (!fs.existsSync(path.join(dir, '.sema', 'scheduled_tasks.json'))) continue;
+      const sum = readPersistedCron(dir, now);
+      if (!sum.active || sum.nextFireAt == null) continue;
+      const delta = sum.nextFireAt - now;
+      if (delta > CRON_KEEPER_LEAD_MS || delta < -CRON_KEEPER_LATE_MS) continue;
+
+      const w = this.pool.get(dir);
+      if (w?.alive && w.sessions.size > 0) {
+        // 已有会话在 worker 里：仍给其中最近活跃的一个打保活标记，防止 reapSessions 在触发前把它关掉
+        const live = [...w.sessions].map(id => this.registry.getSession(id)).filter((r): r is SessionRecord => !!r).sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
+        if (live) this.loadRuntime(live.id).keepUntil = sum.nextFireAt + CRON_KEEP_AFTER_FIRE_MS;
+        continue;
+      }
+
+      let target = [...sessions].sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
+      try {
+        if (!target) {
+          // 项目下没有会话：新建一个作为注入目标（独立会话目录没有 projectId，不会走到这里）
+          if (!projectId) continue;
+          target = this.registry.createSession({ projectId });
+          this.loadRuntime(target.id);
+          this.broadcastRegistry();
+          console.log(`[cron] keeper 为项目 ${dir} 新建会话 ${target.id} 以承接定时任务`);
+        }
+        const rt = this.loadRuntime(target.id);
+        rt.keepUntil = sum.nextFireAt + CRON_KEEP_AFTER_FIRE_MS;
+        await this.ensureLive(target.id);
+        console.log(`[cron] keeper 已拉起 ${dir}（会话 ${target.id}），${Math.round(delta / 1000)}s 后触发`);
+      } catch (e: any) {
+        console.warn(`[cron] keeper 拉起失败 ${dir}: ${e?.message || e}`);
+      }
+    }
+  }
+
+  /**
+   * 日程页：全部目录的定时任务。worker 存活 → 问 worker（含非持久化任务）；未拉起 → 读持久化文件。
+   * 无任务的目录不返回；按最近触发时间升序。
+   */
+  async listAllCron(): Promise<CronGroup[]> {
+    const now = Date.now();
+    const dirs = new Map<string, SessionRecord[]>();
+    for (const rec of this.registry.listSessions()) {
+      const list = dirs.get(rec.workingDir) || [];
+      list.push(rec);
+      dirs.set(rec.workingDir, list);
+    }
+    for (const p of this.registry.snapshot().projects) if (!dirs.has(p.workingDir)) dirs.set(p.workingDir, []);
+    const out: CronGroup[] = [];
+    await Promise.all([...dirs].map(async ([dir, sessions]) => {
+      const w = this.pool.get(dir);
+      let tasks: CronTask[] = [];
+      let live = false;
+      if (w?.alive) {
+        try { tasks = await this.pool.request(w, 'session.getCronTasks', undefined, {}, 5_000, { bump: false }); live = true; }
+        catch { tasks = readPersistedTasks(dir, now); }
+      } else {
+        tasks = readPersistedTasks(dir, now);
+      }
+      if (!tasks.length) return;
+      const latest = [...sessions].sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
+      const proj = latest?.projectId ? this.registry.getProject(latest.projectId) : this.registry.snapshot().projects.find(p => p.workingDir === dir);
+      out.push({ workingDir: dir, projectId: proj?.id, projectName: proj?.name || (latest?.title || path.basename(dir)), live, latestSessionId: latest?.id, tasks });
+    }));
+    const soonest = (g: CronGroup) => Math.min(...g.tasks.filter(t => t.status).map(t => t.nextFireAt[0] ?? Infinity), Infinity);
+    return out.sort((a, b) => soonest(a) - soonest(b));
+  }
+
+  /** 日程页操作：worker 存活直接发；未拉起则临时拉起（之后按空闲规则回收），保证文件/disabled 记录由 core 统一改写 */
+  async cronAction(workingDir: string, action: 'delete' | 'enable' | 'disable', id: string): Promise<boolean> {
+    const w = await this.pool.acquire(workingDir);
+    const act = action === 'delete' ? 'session.deleteCronTask' : action === 'enable' ? 'session.enableCronTask' : 'session.disableCronTask';
+    return this.pool.request(w, act, undefined, { id });
+  }
+
   /** 会话状态摘要（左侧角标用） */
   statusMap(): Record<string, { state: string; pending: number }> {
     const out: Record<string, { state: string; pending: number }> = {};
@@ -450,6 +615,7 @@ export class SessionManager extends EventEmitter {
 
   async dispose() {
     clearInterval(this.sessionReapTimer);
+    clearInterval(this.cronKeeperTimer);
     for (const rt of this.runtimes.values()) {
       if (rt.saveTimer) { clearTimeout(rt.saveTimer); try { writeJsonAtomic(this.transcriptPath(rt.snapshot.sessionId), rt.snapshot); } catch { /* ignore */ } }
     }

@@ -91,6 +91,11 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'session.getCommandsInfo':
       // 命令/技能/子代理清单是项目作用域（cwd/.sema + ~/.sema）：session.* 变体由该会话目录的 worker 回答；core.* 变体走配置 worker（草稿页占位）
       return getCommandsInfo();
+    // 定时任务是项目级（workingDir 作用域）：以 session.* 形态路由到该会话目录的 worker，再调 core 全局接口
+    case 'session.getCronTasks': return core.getCronTasks();
+    case 'session.deleteCronTask': return core.deleteCronTask(p.id);
+    case 'session.enableCronTask': return core.enableCronTask(p.id);
+    case 'session.disableCronTask': return core.disableCronTask(p.id);
     case 'session.create': {
       const r = await core.createSession({
         sessionId: p.sessionId, agentMode: p.agentMode, permissionLevel: p.permissionLevel,
@@ -112,7 +117,17 @@ async function handle(action: string, sessionId: string | undefined, payload: an
         try { runningTasks[id] = (s.getTaskList() || []).filter(t => t.status === 'running').length; }
         catch { runningTasks[id] = 0; }
       }
-      return { sessions: [...sessions.keys()], runningTasks };
+      // cron：worker 的"守护义务"——非持久化任务绑定会话/进程，丢了即丢；持久化任务只需临近触发时进程活着
+      const cron = { active: 0, nonPersisted: {} as Record<string, number>, nextFireAt: null as number | null };
+      try {
+        for (const t of await core.getCronTasks()) {
+          if (!t.status || !t.nextFireAt?.length) continue;
+          cron.active++;
+          if (cron.nextFireAt == null || t.nextFireAt[0] < cron.nextFireAt) cron.nextFireAt = t.nextFireAt[0];
+          if (!t.persist && t.sessionId) cron.nonPersisted[t.sessionId] = (cron.nonPersisted[t.sessionId] || 0) + 1;
+        }
+      } catch { /* 视为无任务 */ }
+      return { sessions: [...sessions.keys()], runningTasks, cron };
     }
   }
 

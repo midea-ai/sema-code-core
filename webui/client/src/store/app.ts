@@ -4,22 +4,24 @@ import { api } from '../api/http';
 import { wsClient, type WsStatus } from '../api/ws';
 import type { Registry, WebUISettings, ProjectRecord, SessionRecord } from '../../../shared/types';
 import { SERVER_EVENTS } from '../../../shared/protocol';
-import { isPrivateUrl } from '../common/url';
+import { isPrivateUrl, normalizeUrl } from '../common/url';
 
-/** URL 可嵌入探测结果缓存（会话期内有效） */
-const probeCache = new Map<string, boolean>();
 
 export type View =
   | { type: 'empty' }
   /** 新会话草稿页：首次发送时才真正创建会话记录 */
   | { type: 'draft'; projectId?: string }
   | { type: 'chat'; sessionId: string }
-  | { type: 'settings'; tab: 'models' | 'system' };
+  | { type: 'settings'; tab: 'models' | 'system' }
+  /** 日程：全局定时任务视图 */
+  | { type: 'schedule' };
 
 export interface ModelData { modelName: string; modelList: string[]; taskConfig: { main: string; quick: string } }
 
 export interface PanelTab {
-  id: string; type: 'browser' | 'files' | 'review' | 'terminal' | 'agent'; url?: string; title?: string; history: string[]; index: number;
+  id: string; type: 'browser' | 'files' | 'review' | 'terminal' | 'agent' | 'cron'; url?: string; title?: string; history: string[]; index: number;
+  /** browser：页面声明的图标地址（服务端解析），导航时清空 */
+  icon?: string;
   /** review：定位到的 file-changes 块 id（空=最新一轮）；agent：子代理块 id */
   blockId?: string;
   /** review：定位并展开的单个文件路径（focusSeq 变化时重新定位） */
@@ -33,6 +35,8 @@ export interface PanelTab {
   line?: number;
   endLine?: number;
   lineSeq?: number;
+  /** cron：定位并展开的任务 id（focusSeq 变化时重新定位） */
+  focusId?: string;
 }
 export interface PanelState { tabs: PanelTab[]; activeId?: string; collapsed: boolean }
 
@@ -50,6 +54,8 @@ interface AppState {
   toasts: Toast[];
   wsStatus: WsStatus;
   sidebarCollapsed: boolean;
+  /** 各项目目录的定时任务变更计数（收到 cron:update 自增），定时任务标签据此重拉列表 */
+  cronUpdates: Record<string, number>;
 
   bootstrap(): Promise<void>;
   setView(v: View): void;
@@ -78,12 +84,16 @@ interface AppState {
   openReviewTab(sessionId: string, blockId?: string, focusPath?: string): void;
   /** 打开/复用本会话唯一的「子智能体」标签，并定位到指定 agent 块 */
   openAgentTab(sessionId: string, blockId: string): void;
+  /** 打开/复用本会话唯一的「定时任务」标签，可选定位到指定任务 */
+  openCronTab(sessionId: string, focusId?: string): void;
   revealFile(sessionId: string, relPath: string): Promise<void>;
   /** 用系统默认程序打开；app 为 macOS 应用 bundle 路径时用指定应用打开 */
   openFileExternal(sessionId: string, relPath: string, app?: string): Promise<void>;
   /** 在右侧栏打开文件（同路径标签已存在则激活），可选定位行范围 */
   openFileTab(sessionId: string, relPath: string, line?: number, endLine?: number): void;
-  /** 打开链接：本机/局域网地址直接右栏内嵌；其他地址经服务端探测，可嵌则右栏，否则系统浏览器 */
+  /** 聊天里点文件引用：html 在右栏浏览器预览（指定行号时仍看源码），其他类型打开文件标签 */
+  openFileRef(sessionId: string, relPath: string, line?: number, endLine?: number): void;
+  /** 打开链接：本地文件/本机/局域网地址右栏内嵌；其他地址系统浏览器 */
   openLink(sessionId: string, url: string): Promise<void>;
   updatePanel(sessionId: string, fn: (p: PanelState) => PanelState): void;
 }
@@ -116,6 +126,7 @@ export const useApp = create<AppState>((set, get) => ({
   toasts: [],
   wsStatus: 'closed',
   sidebarCollapsed: false,
+  cronUpdates: {},
 
   async bootstrap() {
     const data = await api<{ registry: Registry; settings: WebUISettings; status: any; platform: string }>('GET', '/api/bootstrap');
@@ -130,6 +141,10 @@ export const useApp = create<AppState>((set, get) => ({
       if ('sessionId' in frame && frame.sessionId) return; // 会话事件由 sessions store 处理
       if (frame.event === SERVER_EVENTS.registryUpdate) set({ registry: frame.data });
       else if (frame.event === SERVER_EVENTS.modelUpdate) set({ modelData: frame.data });
+      else if (frame.event === 'cron:update') {
+        const dir = (frame as any).workingDir || '';
+        set(s => ({ cronUpdates: { ...s.cronUpdates, [dir]: (s.cronUpdates[dir] || 0) + 1 } }));
+      }
     });
     wsClient.onOpen(() => {
       const tryLoad = (n: number) => get().refreshModelData().catch(e => {
@@ -142,8 +157,8 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setView(v) {
-    // 只持久化会话/空白视图：配置页是临时进入的，刷新或下次启动不应停留在配置页
-    if (v.type !== 'settings') localStorage.setItem(VIEW_KEY, JSON.stringify(v));
+    // 只持久化会话/空白视图：配置页/日程页是临时进入的，刷新或下次启动不应停留在这些页面
+    if (v.type !== 'settings' && v.type !== 'schedule') localStorage.setItem(VIEW_KEY, JSON.stringify(v));
     set({ view: v });
   },
 
@@ -172,6 +187,15 @@ export const useApp = create<AppState>((set, get) => ({
   async revealProject(id) { await api('POST', `/api/projects/${id}/reveal`); },
   async createSession(projectId) {
     const r = await api<{ record: SessionRecord }>('POST', '/api/sessions', { projectId });
+    // 项目草稿页开的面板标签（终端/文件等）随首次发送迁移到新会话
+    if (projectId && get().panels[projectId]) {
+      set(s => {
+        const { [projectId]: draftPanel, ...rest } = s.panels;
+        const panels = { ...rest, [r.record.id]: draftPanel };
+        localStorage.setItem(PANEL_KEY, JSON.stringify(panels));
+        return { panels };
+      });
+    }
     return r.record;
   },
   async renameSession(id, title) { await api('PATCH', `/api/sessions/${id}`, { title }); },
@@ -192,16 +216,19 @@ export const useApp = create<AppState>((set, get) => ({
       return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
     });
   },
-  async openLink(sessionId, url) {
-    const external = () => get().openExternal(url).catch(() => { window.open(url, '_blank', 'noopener'); });
-    if (isPrivateUrl(url)) { get().openBrowserTab(sessionId, url); return; }
-    const key = `probe:${url}`;
-    let embeddable = probeCache.get(key);
-    if (embeddable === undefined) {
-      try { embeddable = (await api<{ embeddable: boolean }>('POST', '/api/probe-url', { url })).embeddable; } catch { embeddable = false; }
-      probeCache.set(key, embeddable);
+  openFileRef(sessionId, relPath, line, endLine) {
+    if (!line && /\.html?$/i.test(relPath)) {
+      const rec = get().registry.sessions.find(x => x.id === sessionId) || get().registry.projects.find(x => x.id === sessionId);
+      const abs = /^(\/|[a-zA-Z]:[\\/])/.test(relPath) ? relPath : `${rec?.workingDir || ''}/${relPath}`;
+      get().openBrowserTab(sessionId, normalizeUrl(abs));
+      return;
     }
-    if (embeddable) get().openBrowserTab(sessionId, url); else await external();
+    get().openFileTab(sessionId, relPath, line, endLine);
+  },
+  async openLink(sessionId, url) {
+    // 本地文件 / 本机 / 局域网地址右栏内嵌预览；其他一律系统浏览器（不做可嵌探测：有延迟、行为不可预期，且右栏定位是本地预览）
+    if (url.startsWith('file://') || isPrivateUrl(url)) { get().openBrowserTab(sessionId, url); return; }
+    await get().openExternal(url).catch(() => { window.open(url, '_blank', 'noopener'); });
   },
   async saveSettings(patch) {
     const s = await api<WebUISettings>('PUT', '/api/settings', patch);
@@ -225,7 +252,7 @@ export const useApp = create<AppState>((set, get) => ({
       if (same) {
         if (same.url === url) return { ...p, collapsed: false, activeId: same.id };
         const history = [...same.history.slice(0, same.index + 1), url];
-        const tab = { ...same, url, history, index: history.length - 1 };
+        const tab = { ...same, url, title: undefined, icon: undefined, history, index: history.length - 1 };
         return { ...p, collapsed: false, activeId: tab.id, tabs: p.tabs.map(t => t.id === tab.id ? tab : t) };
       }
       const tab: PanelTab = { id: `b${Date.now()}`, type: 'browser', url, history: [url], index: 0 };
@@ -252,6 +279,18 @@ export const useApp = create<AppState>((set, get) => ({
         return { ...p, collapsed: false, tabs: p.tabs.map(t => t.id === tab.id ? tab : t), activeId: tab.id };
       }
       const tab: PanelTab = { id: `a${Date.now()}`, type: 'agent', history: [], index: -1, blockId };
+      return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
+    });
+  },
+  openCronTab(sessionId, focusId) {
+    get().updatePanel(sessionId, p => {
+      const exist = p.tabs.find(t => t.type === 'cron');
+      const focus = focusId ? { focusId, focusSeq: Date.now() } : {};
+      if (exist) {
+        const tab = { ...exist, ...focus };
+        return { ...p, collapsed: false, tabs: p.tabs.map(t => t.id === tab.id ? tab : t), activeId: tab.id };
+      }
+      const tab: PanelTab = { id: `c${Date.now()}`, type: 'cron', history: [], index: -1, ...focus };
       return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
     });
   },

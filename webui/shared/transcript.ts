@@ -7,7 +7,7 @@
 import type {
   AgentBlock, Block, FileChange, NoticeBlock, PermissionBlock, SessionSnapshot, ToolBlock,
 } from './types';
-import { FILE_EDIT_TOOLS, MAIN_AGENT_ID } from './protocol';
+import { CRON_TOOLS, FILE_EDIT_TOOLS, MAIN_AGENT_ID } from './protocol';
 
 export function createSnapshot(init: Pick<SessionSnapshot, 'sessionId' | 'workingDir' | 'agentMode' | 'permissionLevel'>): SessionSnapshot {
   return {
@@ -144,6 +144,27 @@ function voidPending(snap: SessionSnapshot) {
  * 应用一条 core 事件。会**就地修改** snap 的顶层字段（blocks 数组本身按不可变方式替换）。
  * 调用方应先浅拷贝 snapshot 再传入（前端 store 里如此），服务端直接持有可变快照。
  */
+/**
+ * create_cron / del_cron 成功结果 → 定时任务卡片。
+ * 工具 UI 结果无结构化字段，从 title/summary 解析：
+ *   create: title=`<cron表达式>: <短标题>`，summary=`Scheduled <id> (<人话计划>)`
+ *   delete: title=<id>
+ */
+function pushCronBlock(snap: SessionSnapshot, toolId: string, now: number, data: any): void {
+  const title = String(data?.title || '');
+  const summary = String(data?.summary || '');
+  if (data?.toolName === 'create_cron') {
+    const m = /^Scheduled\s+(\S+)\s*(?:\((.*)\))?/.exec(summary);
+    if (!m) return;
+    const colon = title.indexOf(': ');
+    pushBlock(snap, { kind: 'cron', id: `cron:${toolId}`, ts: now, action: 'create', taskId: m[1], title: colon >= 0 ? title.slice(colon + 2) : undefined, schedule: m[2] || undefined });
+  } else {
+    const taskId = title.trim();
+    if (!taskId) return;
+    pushBlock(snap, { kind: 'cron', id: `cron:${toolId}`, ts: now, action: 'delete', taskId });
+  }
+}
+
 export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq: number): SessionSnapshot {
   snap.seq = seq;
   const now = Date.now();
@@ -175,6 +196,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       pushBlock(snap, {
         kind: 'user', id: `user:${data?.inputId || seq}`, ts: now,
         inputId: data?.inputId, text: data?.originalInput || data?.input || '', queued: !!data?.queued,
+        ...(data?.source && data.source !== 'user' ? { source: data.source } : {}),
       });
       break;
     }
@@ -184,9 +206,10 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       const attachments = Array.isArray(data?.attachments)
         ? data.attachments.map((a: any) => ({ media_type: a.media_type, dataUrl: a.data ? `data:${a.media_type};base64,${a.data}` : undefined }))
         : undefined;
-      const hit = updateBlock(snap, b => b.kind === 'user' && b.inputId === inputId, b => ({ ...b, queued: false, ...(attachments?.length ? { attachments } : {}) } as Block));
+      const src = data?.source && data.source !== 'user' ? { source: data.source } : {};
+      const hit = updateBlock(snap, b => b.kind === 'user' && b.inputId === inputId, b => ({ ...b, queued: false, ...src, ...(attachments?.length ? { attachments } : {}) } as Block));
       if (!hit) {
-        pushBlock(snap, { kind: 'user', id: `user:${inputId || seq}`, ts: now, inputId, text: data?.originalInput || data?.input || '', attachments });
+        pushBlock(snap, { kind: 'user', id: `user:${inputId || seq}`, ts: now, inputId, text: data?.originalInput || data?.input || '', attachments, ...src });
       }
       // 新一轮：上一轮若未收尾（异常路径）先落文件卡片
       if (snap.turn && Object.keys(snap.turn.files).length) finishTurn(snap, seq);
@@ -258,6 +281,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
         pushBlock(snap, { kind: 'tool', id: toolId, ts: now, agentId: data?.agentId || MAIN_AGENT_ID, toolName: data?.toolName, ...patch }, data?.agentId);
       }
       if (FILE_EDIT_TOOLS.has(data?.toolName)) mergeFileChange(snap, data.toolName, data?.title || '', data?.content);
+      if (CRON_TOOLS.has(data?.toolName)) pushCronBlock(snap, toolId, now, data);
       break;
     }
 

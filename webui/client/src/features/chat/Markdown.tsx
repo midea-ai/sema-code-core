@@ -27,7 +27,7 @@ const Ctx = createContext<MdCtx>({ stat: () => undefined });
 
 /**
  * Markdown 渲染：禁原始 HTML；支持 GFM 与 KaTeX 公式（$...$ / $$...$$）；
- * - 链接：http(s) 走 openLink（本机/局域网内嵌，其他探测后决定）；本地路径经 stat 确认后在右栏打开
+ * - 链接：http(s) 走 openLink（本机/局域网右栏内嵌，其他系统浏览器）；本地路径经 stat 确认后在右栏打开
  * - 行内代码：形如路径且真实存在 → 带文件图标、可点击在右栏打开（支持 :行 / :起-止）
  * - 图片：本地路径经服务端 raw 接口内嵌显示，点击在右栏打开
  * done=false（流式中）不发起文件确认，避免半截路径抖动
@@ -54,8 +54,8 @@ function Table({ children }: any) {
 /** 可点击的文件引用（行内代码 / 链接共用） */
 function FileRef({ path, line, endLine, label, asCode }: { path: string; line?: number; endLine?: number; label: ReactNode; asCode?: boolean }) {
   const { sessionId } = useContext(Ctx);
-  const openFileTab = useApp(s => s.openFileTab);
-  const onClick = (e: MouseEvent) => { e.preventDefault(); if (sessionId) openFileTab(sessionId, path, line, endLine); };
+  const openFileRef = useApp(s => s.openFileRef);
+  const onClick = (e: MouseEvent) => { e.preventDefault(); if (sessionId) openFileRef(sessionId, path, line, endLine); };
   const Tag: any = asCode ? 'code' : 'a';
   return (
     <Tag className={cn('md-file', asCode && 'md-file-code')} title={`${t('md.openFile')}: ${path}`} onClick={onClick} href={asCode ? undefined : '#'}>
@@ -127,7 +127,21 @@ function MdImage({ src, alt }: any) {
   try { p = decodeURIComponent(src); } catch { /* keep */ }
   const s = sessionId ? stat(p) : undefined;
   if (!sessionId || !s?.exists || s.isDir) return <span className="text-muted">{`![${alt || ''}](${src})`}</span>;
-  return <img src={rawFileUrl(sessionId, p)} alt={alt} className="cursor-pointer md-local-img" title={`${t('md.openImage')}: ${p}`} onClick={() => openFileTab(sessionId, p)} />;
+  return <LocalImage sessionId={sessionId} path={p} alt={alt} onOpen={() => openFileTab(sessionId, p)} />;
+}
+
+/** 本地图片：加载失败（如系统权限拒绝读取）时显示可点击的失败占位而不是裂图，右栏打开后能看到具体错误 */
+function LocalImage({ sessionId, path, alt, onOpen }: { sessionId: string; path: string; alt?: string; onOpen: () => void }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span className="md-file md-img-failed" title={`${t('md.openImage')}: ${path}`} onClick={onOpen}>
+        <FileIcon fileName={path} size={13} className="md-file-icon" />{alt || path.split(/[\\/]/).pop()}
+        <span className="text-muted">（{t('md.imageLoadFailed')}）</span>
+      </span>
+    );
+  }
+  return <img src={rawFileUrl(sessionId, path)} alt={alt} className="cursor-pointer md-local-img" title={`${t('md.openImage')}: ${path}`} onClick={onOpen} onError={() => setFailed(true)} />;
 }
 
 /** 围栏代码块：右上角悬浮工具栏（自动换行开关、复制），复制内容取自渲染后的纯文本 */

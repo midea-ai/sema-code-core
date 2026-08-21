@@ -6,6 +6,7 @@ import { Sidebar } from '../features/sidebar/Sidebar';
 import { ChatView } from '../features/chat/ChatView';
 import { RightPanel } from '../features/panel/RightPanel';
 import { SettingsPage } from '../features/settings/SettingsPage';
+import { SchedulePage } from '../features/schedule/SchedulePage';
 import { DraftView } from '../features/chat/DraftView';
 import { DialogProvider, cn, Spinner } from '../common/ui';
 import { t } from '../i18n';
@@ -21,7 +22,9 @@ export function App() {
   const setSidebarCollapsed = useApp(s => s.setSidebarCollapsed);
   const [sidebarW, setSidebarW] = usePanelWidth('sidebar', 256, 180, 480);
   const [panelW, setPanelW] = usePanelWidth('panel', 520, 320, 1200);
-  const panelCollapsed = useApp(s => view.type === 'chat' ? (s.panels[view.sessionId]?.collapsed ?? true) : true);
+  // 右面板作用域：聊天页 = 会话 id；项目草稿页 = 项目 id（首次发送创建会话时面板随之迁移）
+  const panelScopeId = view.type === 'chat' ? view.sessionId : view.type === 'draft' ? view.projectId : undefined;
+  const panelCollapsed = useApp(s => panelScopeId ? (s.panels[panelScopeId]?.collapsed ?? true) : true);
 
   useEffect(() => {
     initToken();
@@ -58,6 +61,7 @@ export function App() {
             </button>
           )}
           {view.type === 'settings' && <SettingsPage tab={view.tab} />}
+          {view.type === 'schedule' && <SchedulePage />}
           {view.type === 'chat' && (
             <div className="flex-1 min-h-0 flex">
               <div className="flex-1 min-w-0 flex flex-col"><ChatView key={view.sessionId} sessionId={view.sessionId} /></div>
@@ -65,7 +69,13 @@ export function App() {
               <RightPanel sessionId={view.sessionId} width={panelW} />
             </div>
           )}
-          {view.type === 'draft' && <DraftView key={view.projectId || ''} projectId={view.projectId} />}
+          {view.type === 'draft' && (view.projectId ? (
+            <div className="flex-1 min-h-0 flex">
+              <div className="flex-1 min-w-0 flex flex-col"><DraftView key={view.projectId} projectId={view.projectId} /></div>
+              {!panelCollapsed && <ResizeHandle side="right" width={panelW} onResize={setPanelW} />}
+              <RightPanel sessionId={view.projectId} width={panelW} draft />
+            </div>
+          ) : <DraftView key="" />)}
           {view.type === 'empty' && <DraftView />}
         </div>
         <Toasts />

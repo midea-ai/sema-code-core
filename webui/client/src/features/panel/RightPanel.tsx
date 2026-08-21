@@ -1,27 +1,39 @@
 import { useEffect, useRef, useState } from 'react';
-import { Globe, Files, GitCompare, TerminalSquare, Bot, X, Plus, ChevronLeft, ChevronRight, RotateCw, ExternalLink, PanelRight } from 'lucide-react';
+import { Globe, Files, GitCompare, TerminalSquare, Bot, Clock, X, Plus, ChevronLeft, ChevronRight, RotateCw, ExternalLink, PanelRight } from 'lucide-react';
 import { useApp, PanelTab } from '../../store/app';
 import { cn, Popover, MenuItem } from '../../common/ui';
 import { FileIcon } from '../../common/fileicon/FileIcon';
-import { api } from '../../api/http';
-import { isPrivateUrl, normalizeUrl } from '../../common/url';
+import { api, getToken } from '../../api/http';
+import { fileUrlToProxy, isPrivateUrl, normalizeUrl } from '../../common/url';
 import { t } from '../../i18n';
 import { ReviewTab } from './ReviewTab';
 import { FileTab } from './FileTab';
 import { TerminalTab } from './TerminalTab';
 import { AgentTab } from './AgentTab';
+import { CronTab } from './CronTab';
 
 function TabIcon({ tab, size = 12, className }: { tab: PanelTab; size?: number; className?: string }) {
   // 文件标签已打开具体文件时用文件类型 logo，未选文件时仍用统一 Files 图标
   if (tab.type === 'files' && tab.path) return <FileIcon fileName={tab.path} size={size} className={className} />;
-  const Icon = tab.type === 'review' ? GitCompare : tab.type === 'files' ? Files : tab.type === 'terminal' ? TerminalSquare : tab.type === 'agent' ? Bot : Globe;
+  if (tab.type === 'browser' && tab.icon) return <SiteFavicon url={tab.icon} size={size} className={className} />;
+  const Icon = tab.type === 'review' ? GitCompare : tab.type === 'files' ? Files : tab.type === 'terminal' ? TerminalSquare : tab.type === 'agent' ? Bot : tab.type === 'cron' ? Clock : Globe;
   return <Icon size={size} className={className} />;
 }
 
-export function RightPanel({ sessionId, width }: { sessionId: string; width: number }) {
+/** 浏览器标签的站点图标：经服务端代理加载页面声明的图标，失败回退地球 */
+function SiteFavicon({ url, size, className }: { url: string; size: number; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [url]);
+  if (failed) return <Globe size={size} className={className} />;
+  return <img src={`/api/favicon?url=${encodeURIComponent(url)}&token=${encodeURIComponent(getToken())}`} alt="" width={size} height={size} className={cn('rounded-sm', className)} onError={() => setFailed(true)} />;
+}
+
+/** draft：项目草稿页模式，sessionId 实为项目 id，隐藏依赖会话的评审/定时任务入口 */
+export function RightPanel({ sessionId, width, draft }: { sessionId: string; width: number; draft?: boolean }) {
   const panel = useApp(s => s.panels[sessionId]) || { tabs: [], collapsed: true };
   const updatePanel = useApp(s => s.updatePanel);
   const openReviewTab = useApp(s => s.openReviewTab);
+  const openCronTab = useApp(s => s.openCronTab);
   const active = panel.tabs.find(t => t.id === panel.activeId) || panel.tabs[0];
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -58,7 +70,8 @@ export function RightPanel({ sessionId, width }: { sessionId: string; width: num
       <MenuItem onClick={() => { setMenu(null); addTab('terminal'); }}><span className="inline-flex items-center gap-2"><TerminalSquare size={14} />{t('panel.terminal')}</span></MenuItem>
       <MenuItem onClick={() => { setMenu(null); addTab('browser'); }}><span className="inline-flex items-center gap-2"><Globe size={14} />{t('panel.browser')}</span></MenuItem>
       <MenuItem onClick={() => { setMenu(null); addTab('files'); }}><span className="inline-flex items-center gap-2"><Files size={14} />{t('panel.files')}</span></MenuItem>
-      <MenuItem onClick={() => { setMenu(null); openReviewTab(sessionId); }}><span className="inline-flex items-center gap-2"><GitCompare size={14} />{t('panel.review')}</span></MenuItem>
+      {!draft && <MenuItem onClick={() => { setMenu(null); openReviewTab(sessionId); }}><span className="inline-flex items-center gap-2"><GitCompare size={14} />{t('panel.review')}</span></MenuItem>}
+      {!draft && <MenuItem onClick={() => { setMenu(null); openCronTab(sessionId); }}><span className="inline-flex items-center gap-2"><Clock size={14} />{t('panel.cron')}</span></MenuItem>}
     </Popover>
   );
 
@@ -107,6 +120,7 @@ export function RightPanel({ sessionId, width }: { sessionId: string; width: num
           : active?.type === 'files' ? <FileTab key={active.id} sessionId={sessionId} tab={active} />
           : active?.type === 'terminal' ? <TerminalTab key={active.id} sessionId={sessionId} tab={active} />
           : active?.type === 'agent' ? <AgentTab key={active.id} sessionId={sessionId} tab={active} />
+          : active?.type === 'cron' ? <CronTab key={active.id} sessionId={sessionId} tab={active} />
           : active ? <BrowserTab key={active.id} sessionId={sessionId} tab={active} /> : (
             <div className="flex-1 flex flex-col items-center justify-center text-center text-sm text-muted p-6 gap-4">
               <div className="text-base font-medium text-fg">{t('panel.emptyTitle')}</div>
@@ -128,8 +142,13 @@ function tabLabel(tab: PanelTab) {
   if (tab.type === 'files') return tab.path?.split('/').pop() || t('panel.files');
   if (tab.type === 'terminal') return t('panel.terminal');
   if (tab.type === 'agent') return t('panel.agent');
+  if (tab.type === 'cron') return t('panel.cron');
   if (!tab.url) return t('panel.browser');
-  try { const u = new URL(tab.url); return u.host + (u.pathname !== '/' ? u.pathname : ''); } catch { return tab.url; }
+  try {
+    const u = new URL(tab.url);
+    if (u.protocol === 'file:') return decodeURIComponent(u.pathname.split('/').pop() || tab.url);
+    return u.host + (u.pathname !== '/' ? u.pathname : '');
+  } catch { return tab.url; }
 }
 
 function BrowserTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }) {
@@ -149,17 +168,18 @@ function BrowserTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }) {
   const navigate = async (raw: string) => {
     const url = normalizeUrl(raw);
     if (!url) return;
-    // 本机/局域网直接内嵌；其他地址先探测能否内嵌，不能则系统浏览器
-    if (!isPrivateUrl(url)) {
-      let embeddable = false;
-      try { embeddable = (await api<{ embeddable: boolean }>('POST', '/api/probe-url', { url })).embeddable; } catch { /* 视为不可嵌 */ }
-      if (!embeddable) { openExternal(url).catch(() => window.open(url, '_blank', 'noopener')); return; }
-    }
+    // 手动输入的地址一律在面板内加载，不跳系统浏览器；禁止内嵌的站点（X-Frame-Options / CSP）由探测结果
+    // 直接显示「禁止内嵌」占位和「在系统浏览器打开」按钮（跨域 iframe 加载失败前端感知不到，只能靠探测）
     setBlocked(false);
-    setTab(x => { const history = [...x.history.slice(0, x.index + 1), url]; return { ...x, url, history, index: history.length - 1 }; });
+    setTab(x => { const history = [...x.history.slice(0, x.index + 1), url]; return { ...x, url, title: undefined, icon: undefined, history, index: history.length - 1 }; });
     setLoadKey(k => k + 1);
+    if (!url.startsWith('file://') && !isPrivateUrl(url)) {
+      let embeddable = true;
+      try { embeddable = (await api<{ embeddable: boolean }>('POST', '/api/probe-url', { url })).embeddable; } catch { /* 探测失败不打扰，交给 iframe 自行加载 */ }
+      if (!embeddable) setBlocked(true);
+    }
   };
-  const go = (delta: number) => setTab(x => { const index = Math.max(0, Math.min(x.history.length - 1, x.index + delta)); return { ...x, index, url: x.history[index] }; });
+  const go = (delta: number) => setTab(x => { const index = Math.max(0, Math.min(x.history.length - 1, x.index + delta)); return { ...x, index, url: x.history[index], title: undefined, icon: undefined }; });
   const reload = () => { setBlocked(false); setLoadKey(k => k + 1); };
 
   // 加载检测：无法读取跨域 iframe 的成功状态，用超时 + load 事件近似
@@ -170,6 +190,17 @@ function BrowserTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }) {
     timerRef.current = window.setTimeout(() => setLoading(false), 8000);
     return () => window.clearTimeout(timerRef.current);
   }, [tab.url, loadKey]);
+
+  // 标签名与图标：iframe 跨域读不到 document.title / <link rel=icon>，由服务端抓页面头部解析；取不到时回退 host+path / 地球
+  useEffect(() => {
+    if (!tab.url || !/^(https?|file):\/\//i.test(tab.url)) return;
+    const url = tab.url;
+    let alive = true;
+    api<{ title: string; icon: string }>('POST', '/api/page-meta', { url })
+      .then(r => { if (alive) setTab(x => x.url === url ? { ...x, title: r.title || x.title, icon: r.icon || x.icon } : x); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [tab.url, loadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onLoad = () => {
     setLoading(false);
@@ -193,8 +224,10 @@ function BrowserTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }) {
       <div className="flex-1 min-h-0 relative bg-white">
         {tab.url ? (
           <>
-            <iframe ref={iframeRef} key={loadKey} src={tab.url} onLoad={onLoad} title="preview" className="w-full h-full border-0"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" />
+            {/* 本地文件走 /api/local 代理；且不给 allow-same-origin（不透明源），防内嵌页脚本借同源拿 token 调 API */}
+            <iframe ref={iframeRef} key={loadKey} onLoad={onLoad} title="preview" className="w-full h-full border-0"
+              src={tab.url.startsWith('file://') ? fileUrlToProxy(tab.url, getToken()) : tab.url}
+              sandbox={tab.url.startsWith('file://') ? 'allow-scripts allow-popups allow-modals allow-downloads' : 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads'} />
             {blocked && (
               <div className="absolute inset-0 bg-white flex flex-col items-center justify-center text-sm text-muted gap-3 p-6 text-center">
                 <div>{t('panel.blocked')}</div>

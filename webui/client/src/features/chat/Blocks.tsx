@@ -1,14 +1,17 @@
-import React, { memo, useState, useMemo, useRef, useLayoutEffect } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe } from 'lucide-react';
-import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, TodosBlock } from '../../../../shared/types';
+import React, { memo, useState, useMemo, useRef, useLayoutEffect, useEffect } from 'react';
+import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock } from 'lucide-react';
+import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, TodosBlock, CronBlock } from '../../../../shared/types';
+import { CRON_TOOLS } from '../../../../shared/protocol';
 import { Markdown } from './Markdown';
 import { DiffView, CodeView, Collapsible } from './DiffView';
 import { PickCard } from './PickCard';
 import { AgentCard } from './AgentCard';
 import { PlanExitCard, PlanImplementCard } from './PlanCards';
-import { Button, cn, Spinner, useCopy } from '../../common/ui';
+import { Button, cn, Spinner, useCopy, Popover, MenuSep } from '../../common/ui';
+import { OpenWithItems, useOpenWithApps } from '../../common/openWith';
+import { api } from '../../api/http';
 import { contentToString, toolDisplayName, stripAnsi } from '../../common/text';
-import { extractLocalUrls } from '../../common/url';
+import { extractLocalUrls, normalizeUrl } from '../../common/url';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { t } from '../../i18n';
@@ -26,7 +29,8 @@ export const BlockRenderer = memo(function BlockRenderer({ block, ctx }: { block
   switch (block.kind) {
     case 'user': return <UserBubble block={block} ctx={ctx} />;
     case 'assistant': return <AssistantMsg block={block} ctx={ctx} />;
-    case 'tool': return <ToolCard block={block} ctx={ctx} />;
+    // 定时任务增删成功后由 CronCard 展示，工具行不再重复（失败仍显示工具行以便看报错）
+    case 'tool': return CRON_TOOLS.has(block.toolName) && block.status === 'done' ? null : <ToolCard block={block} ctx={ctx} />;
     case 'permission': return <PermissionCard block={block} ctx={ctx} />;
     case 'pick': return <PickCard block={block} ctx={ctx} />;
     case 'plan-exit': return <PlanExitCard block={block} ctx={ctx} />;
@@ -34,6 +38,7 @@ export const BlockRenderer = memo(function BlockRenderer({ block, ctx }: { block
     case 'agent': return <AgentCard block={block} ctx={ctx} />;
     case 'notice': return block.noticeType === 'plan-implement' ? <PlanImplementCard block={block} ctx={ctx} /> : <NoticeBar block={block} />;
     case 'file-changes': return <FileChangesCard block={block} ctx={ctx} />;
+    case 'cron': return <CronCard block={block} ctx={ctx} />;
     default: return null;
   }
 });
@@ -61,6 +66,11 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   return (
     <div className="group flex justify-end my-3">
       <div className="max-w-[80%] flex flex-col items-end gap-1">
+        {block.source === 'cron' && (
+          <button onClick={() => useApp.getState().openCronTab(ctx.sessionId)} className="flex items-center gap-1 text-xs text-muted hover:text-fg hover:underline underline-offset-2" title={t('panel.cron')}>
+            <Clock size={12} />{t('chat.sourceCron')}
+          </button>
+        )}
         {block.attachments && block.attachments.length > 0 && (
           <div className="flex gap-1.5 flex-wrap justify-end">
             {block.attachments.map((a, i) => a.dataUrl
@@ -113,6 +123,60 @@ function AssistantMsg({ block, ctx }: { block: AssistantBlock; ctx: BlockCtx }) 
   return (
     <div className="my-3">
       <Markdown text={block.text} sessionId={ctx.sessionId} done={block.done} />
+    </div>
+  );
+}
+
+// ==================== 网站卡片（本轮新建/修改了 html 文件） ====================
+
+export const HTML_RE = /\.html?$/i;
+
+/** 从本轮 file-changes 块中提取 html 文件（去重、保持顺序） */
+export function htmlFilesOf(blocks: Block[]): string[] {
+  const out: string[] = [];
+  for (const b of blocks) if (b.kind === 'file-changes') for (const f of b.files) if (HTML_RE.test(f.path) && !out.includes(f.path)) out.push(f.path);
+  return out;
+}
+
+/**
+ * 网站卡片：标题取页面 <title>（没有则文件名），默认在右栏浏览器打开（SemaWork），下拉可选系统应用（与文件标签「打开方式」同源）。
+ */
+export function HtmlSiteCard({ sessionId, path }: { sessionId: string; path: string }) {
+  const workingDir = useApp(s => s.registry.sessions.find(x => x.id === sessionId)?.workingDir || '');
+  const abs = absPathOf(path, workingDir);
+  const fileUrl = normalizeUrl(abs);
+  const [meta, setMeta] = useState<{ title: string } | null>(null);
+  const [menu, setMenu] = useState<DOMRect | null>(null);
+  const apps = useOpenWithApps(sessionId, path);
+  useEffect(() => {
+    let alive = true;
+    api<{ title: string }>('POST', '/api/page-meta', { url: fileUrl }).then(r => { if (alive) setMeta(r); }).catch(() => { if (alive) setMeta({ title: '' }); });
+    return () => { alive = false; };
+  }, [fileUrl]);
+  const name = path.split(/[\\/]/).pop() || path;
+  const openInSema = () => { setMenu(null); useApp.getState().openBrowserTab(sessionId, fileUrl); };
+  return (
+    <div className="my-3 rounded-xl border border-border bg-white text-sm">
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <span className="h-9 w-9 rounded-lg bg-panel flex items-center justify-center shrink-0"><Globe size={16} className="text-fg" /></span>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={openInSema} title={abs}>
+          <div className="font-medium truncate">{meta?.title || name}</div>
+          <div className="text-xs text-muted truncate">{meta?.title ? name : t('card.site')}</div>
+        </div>
+        {/* 分体按钮：左半「打开方式」= 默认项（右栏浏览器），右半箭头才展开下拉（与文件标签顶栏一致） */}
+        <div className="h-7 inline-flex items-stretch rounded-md border border-border text-fg overflow-hidden text-xs">
+          <button onClick={openInSema} className="px-2 inline-flex items-center hover:bg-black/[0.05]" title="SemaWork">{t('card.openWith')}</button>
+          <button onClick={e => setMenu(e.currentTarget.getBoundingClientRect())} className="px-1 inline-flex items-center text-muted hover:text-fg hover:bg-black/[0.05]"><ChevronDown size={11} /></button>
+        </div>
+        <Popover anchor={menu} onClose={() => setMenu(null)} align="right">
+          <button onClick={openInSema} className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded hover:bg-black/[0.06] text-sm text-fg">
+            <img src="/icon.svg" alt="" className="w-5 h-5 shrink-0" />
+            <span className="truncate">SemaWork</span>
+          </button>
+          <MenuSep />
+          <OpenWithItems sessionId={sessionId} path={path} apps={apps} onDone={() => setMenu(null)} />
+        </Popover>
+      </div>
     </div>
   );
 }
@@ -212,7 +276,7 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   const Icon = toolIcon(block.toolName);
   const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
   const filePath = filePathOf(block, workingDir);
-  const openFileTab = useApp(s => s.openFileTab);
+  const openFileRef = useApp(s => s.openFileRef);
 
   return (
     <div className="my-0.5 text-[13px] text-dim">
@@ -221,7 +285,7 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
         {block.status === 'running' ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : block.status === 'error' ? <X size={14} className="text-danger shrink-0" /> : <Icon size={14} className="shrink-0" />}
         {isSearch ? <span className="truncate">{searchLabel(block, block.status === 'running')}</span> : <span className="shrink-0">{toolVerb(block, diff)}</span>}
         {isSearch || isGeneric ? null : filePath
-          ? <span onClick={e => { e.stopPropagation(); openFileTab(ctx.sessionId, filePath); }} className="truncate underline decoration-border underline-offset-2 cursor-pointer hover:text-fg hover:decoration-fg" title={absPathOf(filePath, workingDir)}>{isRead ? filePath.split('/').pop() : block.title}</span>
+          ? <span onClick={e => { e.stopPropagation(); openFileRef(ctx.sessionId, filePath); }} className="truncate underline decoration-border underline-offset-2 cursor-pointer hover:text-fg hover:decoration-fg" title={absPathOf(filePath, workingDir)}>{isRead ? filePath.split('/').pop() : block.title}</span>
           : <span className={cn('truncate', isShell && 'font-mono text-[12.5px]')}>{block.title}</span>}
         {block.summary && !isShell && !isEdit && !isRead && !isSearch && !isGeneric && <span className="text-xs truncate max-w-[40%]">{block.summary}</span>}
         {isEdit && diff && <DiffStat patch={diff.patch} />}
@@ -443,6 +507,25 @@ function NoticeBar({ block }: { block: NoticeBlock }) {
             {open && <pre className="mt-1 whitespace-pre-wrap max-h-60 overflow-auto text-muted">{block.detail}</pre>}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ==================== 定时任务卡片 ====================
+
+function CronCard({ block, ctx }: { block: CronBlock; ctx: BlockCtx }) {
+  const openCron = () => useApp.getState().openCronTab(ctx.sessionId, block.action === 'create' ? block.taskId : undefined);
+  const name = block.title || block.taskId;
+  return (
+    <div className="my-3 rounded-xl border border-border bg-white text-sm">
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <span className="h-9 w-9 rounded-lg bg-panel flex items-center justify-center shrink-0"><Clock size={16} className="text-fg" /></span>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium">{t(block.action === 'create' ? 'card.cronCreated' : 'card.cronDeleted')}</div>
+          <div className="text-xs text-muted truncate" title={name}>{name}{block.schedule ? ` · ${block.schedule}` : ''}</div>
+        </div>
+        <Button size="sm" variant="outline" onClick={openCron}>{t('card.cronOpen')}</Button>
       </div>
     </div>
   );

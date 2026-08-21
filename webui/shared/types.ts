@@ -136,6 +136,8 @@ export interface UserBlock extends BlockBase {
   text: string;
   attachments?: ImageAttachmentMeta[];
   queued?: boolean;
+  /** 输入来源，缺省 user；cron=定时任务自动发送（气泡加标签） */
+  source?: 'user' | 'cron';
   /** 本轮结束时间（state 回到 idle 时打上），用于展示耗时分隔 */
   doneTs?: number;
 }
@@ -232,6 +234,47 @@ export interface FileChangesBlock extends BlockBase {
   files: FileChange[];
 }
 
+/** 定时任务增删卡片（由 create_cron / del_cron 成功结果生成） */
+export interface CronBlock extends BlockBase {
+  kind: 'cron';
+  action: 'create' | 'delete';
+  taskId: string;
+  /** 任务短标题（删除时可能缺省） */
+  title?: string;
+  /** 人话计划描述，如「每天 09:00」 */
+  schedule?: string;
+}
+
+/** 日程页：按目录聚合的定时任务（live=worker 存活，列表含非持久化任务；否则来自持久化文件） */
+export interface CronGroup {
+  workingDir: string;
+  projectId?: string;
+  projectName: string;
+  live: boolean;
+  /** 该目录最近活跃的会话（"打开会话"/定位文件用） */
+  latestSessionId?: string;
+  tasks: CronTask[];
+}
+
+/** 定时任务详情（与 core CronTask 字段一致） */
+export interface CronTask {
+  id: string;
+  sessionId?: string;
+  schedule: string;
+  task: string;
+  title?: string;
+  repeat: boolean;
+  persist: boolean;
+  status: boolean;
+  /** 持久化任务所在文件（绝对路径，可带 :起始行-结束行） */
+  filePath?: string;
+  createdAt: number;
+  describeCronExpression: string;
+  activatedAt: number;
+  lastFiredAt?: number;
+  nextFireAt: number[];
+}
+
 export type Block =
   | UserBlock
   | AssistantBlock
@@ -242,7 +285,8 @@ export type Block =
   | TodosBlock
   | AgentBlock
   | NoticeBlock
-  | FileChangesBlock;
+  | FileChangesBlock
+  | CronBlock;
 
 // ==================== 会话快照 ====================
 
@@ -292,10 +336,11 @@ export interface EventFrame {
   data: any;
 }
 
-/** 进程级 / 服务端合成事件帧（无 sessionId、无 seq） */
+/** 进程级 / 服务端合成事件帧（无 sessionId、无 seq）；workingDir=发出事件的 core worker 目录（cron:update 等） */
 export interface ProcEventFrame {
   event: string;
   data: any;
+  workingDir?: string;
 }
 
 export type ServerFrame = ResFrame | EventFrame | ProcEventFrame;

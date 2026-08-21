@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Plus, Settings, ChevronDown, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Plus, Settings, CalendarClock, ChevronDown, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { pendingBlocks } from '../../../../shared/transcript';
@@ -39,16 +40,19 @@ export function Sidebar({ width }: { width: number }) {
 
   return (
     <aside style={{ width }} className="shrink-0 h-full flex flex-col border-r border-border bg-panel">
-      <div className="p-2 flex flex-col gap-0.5">
+      <div className="p-2 pb-0.5 flex flex-col gap-0.5">
         <div className="flex items-center justify-between px-2 h-8 mb-1.5">
           <span className="text-base font-semibold tracking-wide">{t('app.name')}</span>
           <button onClick={() => setSidebarCollapsed(true)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title="隐藏侧边栏"><PanelLeft size={15} /></button>
         </div>
         <NavItem icon={<Plus size={15} />} label={t('sidebar.newSession')} active={view.type === 'draft' && !view.projectId} onClick={() => newSession()} />
-        <NavItem icon={<Settings size={15} />} label={t('sidebar.settings')} active={view.type === 'settings'} onClick={() => setView({ type: 'settings', tab: 'models' })} />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3">
+        {/* 非固定入口：配置及后续新增入口，随列表一起滚动 */}
+        <NavItem icon={<Settings size={15} />} label={t('sidebar.settings')} active={view.type === 'settings'} onClick={() => setView({ type: 'settings', tab: 'models' })} />
+        <NavItem icon={<CalendarClock size={15} />} label={t('sidebar.schedule')} active={view.type === 'schedule'} onClick={() => setView({ type: 'schedule' })} />
+
         {/* 项目 */}
         <SectionHeader label={t('sidebar.projects')} className="mt-2" open={projectsOpen} onToggle={() => setProjectsOpen(v => !v)} action={
           <button onClick={() => setCreating(true)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newProject')}><Plus size={14} /></button>
@@ -146,14 +150,35 @@ function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSes
   );
 }
 
+/** 悬浮多久后弹出会话详情面板 */
+const HOVER_CARD_DELAY = 450;
+
 function SessionItem({ session, active }: { session: SessionRecord; active: boolean }) {
   const setView = useApp(s => s.setView);
   const snap = useSessions(s => s.snapshots[session.id]);
   const status = useApp(s => s.status[session.id]);
+  const project = useApp(s => session.projectId ? s.registry.projects.find(p => p.id === session.projectId) : undefined);
   const menu = useContextMenu();
   const dialog = useDialog();
   const toast = useApp(s => s.toast);
   const app = useApp.getState;
+
+  // 悬浮：标题溢出时由右向左滑动显示全文；延时弹出详情面板（完整标题 / 时间 / 所在项目）
+  const rowRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+  const [card, setCard] = useState<DOMRect | null>(null);
+  const timer = useRef<number>();
+  const onEnter = () => {
+    const el = titleRef.current;
+    const overflow = el ? Math.max(0, el.scrollWidth - el.clientWidth) : 0;
+    setShift(overflow);
+    // 标题未溢出（不跑马灯）时不弹详情面板
+    if (!overflow) return;
+    timer.current = window.setTimeout(() => { if (rowRef.current) setCard(rowRef.current.getBoundingClientRect()); }, HOVER_CARD_DELAY);
+  };
+  const onLeave = () => { setShift(0); setCard(null); window.clearTimeout(timer.current); };
+  useEffect(() => () => window.clearTimeout(timer.current), []);
 
   const state = snap?.state ?? status?.state;
   const pending = snap ? pendingBlocks(snap).length : (status?.pending ?? 0);
@@ -173,10 +198,16 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
 
   return (
     <>
-      <div onClick={() => setView({ type: 'chat', sessionId: session.id })} onContextMenu={menu.open}
+      <div ref={rowRef} onClick={() => setView({ type: 'chat', sessionId: session.id })} onContextMenu={menu.open}
+        onMouseEnter={onEnter} onMouseLeave={onLeave}
         className={cn('group flex items-center gap-1.5 h-7 px-1.5 rounded-md text-sm cursor-pointer select-none', active ? 'bg-black/[0.07]' : 'hover:bg-black/[0.05]')}>
         <MessageSquare size={13} className="text-muted shrink-0" />
-        <span className="truncate flex-1">{session.title || t('chat.untitled')}</span>
+        <span className="flex-1 min-w-0 overflow-hidden">
+          <span ref={titleRef} className={cn('block whitespace-nowrap', shift ? 'w-max' : 'truncate')}
+            style={{ transform: `translateX(-${shift}px)`, transition: shift ? `transform ${Math.max(0.6, shift / 40)}s linear 0.3s` : 'none' }}>
+            {session.title || t('chat.untitled')}
+          </span>
+        </span>
         {pending > 0 ? <span className="h-2 w-2 rounded-full bg-warn shrink-0" title="待应答" />
           : state === 'processing' ? <span className="h-2 w-2 rounded-full bg-accent pulse shrink-0" title="处理中" />
             : hasError ? <span className="h-2 w-2 rounded-full bg-danger shrink-0" title="出错" /> : null}
@@ -189,6 +220,19 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
         <MenuSep />
         <MenuItem danger onClick={() => { menu.close(); remove(); }}>{t('menu.delete')}</MenuItem>
       </Popover>
+      {card && !menu.pos && createPortal(
+        <div style={{ position: 'fixed', left: card.right + 8, top: card.top - 8, zIndex: 1200, width: 260 }}
+          className="pointer-events-none bg-white border border-border rounded-lg shadow-xl px-3 py-2 text-sm">
+          <div className="break-words whitespace-pre-wrap leading-snug">{session.title || t('chat.untitled')}</div>
+          {project && (
+            <div className="flex items-center gap-1.5 mt-2 text-xs text-dim" title={project.workingDir}>
+              <Folder size={12} className="shrink-0" /><span className="truncate">{project.name}</span>
+            </div>
+          )}
+          <div className="mt-1 text-[10px] text-dim">{relTime(session.lastActiveAt)}</div>
+        </div>,
+        document.body,
+      )}
     </>
   );
 }

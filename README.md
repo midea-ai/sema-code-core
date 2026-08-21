@@ -76,41 +76,27 @@ A Skill web application based on Sema Code Core, integrating Agent Skill Browser
 
 ## 🚀 Quick Start
 
-### 1. Create a project and install dependencies
+[SemaWork](./webui/README.md) is a local web UI built on Sema Code Core — chat with the Agent in your browser and watch tool calls and file changes as they happen.
+
+### 1. Clone and build
 
 ```bash
-mkdir my-app && cd my-app
-npm init -y
-npm install sema-core
+git clone https://github.com/midea-ai/sema-code-core.git
+cd sema-code-core && npm install && npm run build
 ```
 
-### 2. Download the example file
-
-Download [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs) to the `my-app` directory, then modify the following two configurations:
-
-```js
-const core = new SemaCore({
-  workingDir: '/path/to/your/project', // Target repository path for the Agent to operate on
-  ...
-});
-
-const modelConfig = {
-  apiKey: 'sk-your-api-key', // Replace with your API Key
-  ...
-};
-```
-
-For more model configuration options, see [Model Management](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/basic-usage/add-new-model)
-
-### 3. Run
+### 2. Start SemaWork
 
 ```bash
-node quickstart.mjs
+cd webui && npm install && npm run build
+npm start -- --open
 ```
 
-<img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/quick-start.gif" alt="miniCli" />
+### 3. Configure a model
 
-Cross-Language Integration Reference [README.md](./example/README.md)
+Once the browser opens, go to Settings to add a model and API Key, then start chatting. For more model configuration options, see [Model Management](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/basic-usage/add-new-model)
+
+To embed in your own app (Node.js / Java / Python / C#), see the [Quick Start guide](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/quick-start)
 
 ## 🛠 Development
 

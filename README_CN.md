@@ -76,41 +76,27 @@
 
 ## 🚀 快速开始
 
-### 1. 新建项目并安装依赖
+[SemaWork](./webui/README.md) 是基于 Sema Code Core 的本地 Web 界面，在浏览器中与 Agent 对话、查看工具调用与文件改动。
+
+### 1. 克隆并构建
 
 ```bash
-mkdir my-app && cd my-app
-npm init -y
-npm install sema-core
+git clone https://github.com/midea-ai/sema-code-core.git
+cd sema-code-core && npm install && npm run build
 ```
 
-### 2. 下载示例文件
-
-将 [quickstart.mjs](https://github.com/midea-ai/sema-code-core/tree/main/example/quickstart.mjs) 下载到 `my-app` 目录，然后修改以下两处配置：
-
-```js
-const core = new SemaCore({
-  workingDir: '/path/to/your/project', // Agent 将操作的目标代码仓库路径
-  ...
-});
-
-const modelConfig = {
-  apiKey: 'sk-your-api-key', // 替换为你的 API Key
-  ...
-};
-```
-
-更多模型配置参考[模型管理](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/basic-usage/add-new-model)
-
-### 3. 运行
+### 2. 启动 SemaWork
 
 ```bash
-node quickstart.mjs
+cd webui && npm install && npm run build
+npm start -- --open
 ```
 
-<img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/quick-start.gif" alt="miniCli" />
+### 3. 配置模型
 
-跨语言集成参考 [README.md](./example/README.md)
+浏览器打开后，进入「设置」添加模型与 API Key，即可开始对话。更多模型配置参考[模型管理](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/basic-usage/add-new-model)
+
+集成到自己的应用（Node.js / Java / Python / C#）参考[快速开始文档](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/quick-start)
 
 ## 🛠️ 开发
 

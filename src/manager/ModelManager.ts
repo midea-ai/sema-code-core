@@ -4,7 +4,7 @@ import { ModelConfiguration, ModelProfile, ModelPointerType, ModelPointers } fro
 import { ModelConfig, TaskConfig, ModelUpdateData } from '../types';
 import { testApiConnection } from '../services/api/apiUtil';
 import { getModelConfigFilePath } from '../util/savePath';
-import { convertToModelProfile, findModelProfile, parseModelName, createDefaultConfig } from '../util/model';
+import { convertToModelProfile, findModelProfile, parseModelName, createDefaultConfig, validateProviderName } from '../util/model';
 import { logWarn, logError } from '../util/log';
 
 
@@ -48,6 +48,10 @@ export class ModelManager {
    * 添加新模型
    */
   async addNewModel(config: ModelConfig, skipValidation: boolean = false): Promise<ModelUpdateData> {
+    const providerError = validateProviderName(config.provider);
+    if (providerError) {
+      throw new Error(`服务商名称不合法: ${providerError}`);
+    }
     const profile = convertToModelProfile(config);
     const existingModelIndex = this.config.modelProfiles.findIndex(p => p.name === profile.name);
 

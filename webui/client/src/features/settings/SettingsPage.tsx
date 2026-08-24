@@ -6,7 +6,7 @@ import { wsClient } from '../../api/ws';
 import { Button, Modal, Toggle, Spinner, Dropdown, cn, useDialog } from '../../common/ui';
 import ProviderLogo, { parseProviderKey, stripProviderSuffix } from '../../common/ProviderLogo';
 import { t } from '../../i18n';
-import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, AdapterType } from './providers';
+import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, AdapterType } from './providers';
 import { PERMISSION_LEVELS } from '../../../../shared/types';
 import type { WebUISettings } from '../../../../shared/types';
 
@@ -82,7 +82,7 @@ function ModelsSettings() {
                   const task = taskOf(name);
                   return (
                     <tr key={name} className="hover:bg-black/[0.02]">
-                      <td className="px-4 py-2.5"><span className="inline-flex items-center gap-2"><ProviderLogo provider={provider} />{PROVIDERS[provider]?.name || provider}</span></td>
+                      <td className="px-4 py-2.5"><span className="inline-flex items-center gap-2"><ProviderLogo provider={provider} />{provider === 'custom' ? provider : (PROVIDERS[provider]?.name || provider)}</span></td>
                       <td className="px-4 py-2.5 font-mono text-[13px]">{stripProviderSuffix(name)}</td>
                       <td className="px-4 py-2.5">
                         {task === 'main' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">{t('settings.mainModel')}</span>}
@@ -136,6 +136,7 @@ interface FetchedModel { id: string; name?: string; ownedBy?: string; key_doc_ur
 function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
   const toast = useApp(s => s.toast);
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
+  const [customProviderName, setCustomProviderName] = useState('');  // 打开弹窗时由 onProvider 重置
   const [baseURL, setBaseURL] = useState(PROVIDERS[DEFAULT_PROVIDER].baseURL);
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -160,7 +161,7 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
 
   const onProvider = (k: string) => {
     const d = PROVIDERS[k];
-    setProvider(k); setBaseURL(d.baseURL); setApiKey(''); setModelName(''); setSelectedModel(''); setModels([]); setFetchFailed(false); setManual(false);
+    setProvider(k); setCustomProviderName(k === 'custom' ? 'custom' : ''); setBaseURL(d.baseURL); setApiKey(''); setModelName(''); setSelectedModel(''); setModels([]); setFetchFailed(false); setManual(false);
     setMaxTokens(String(d.defaultMaxTokens ?? DEFAULT_MAX_TOKENS)); setModelMaxTokens(null); setContextLength(String(d.defaultContextLength ?? DEFAULT_CONTEXT_LENGTH));
     setAdapt(d.defaultAdapt || 'openai'); setStatus(null); invalidate();
   };
@@ -213,9 +214,11 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
     if (!currentModel) { setStatus({ type: 'error', text: '请先获取模型或手动输入模型名称' }); return; }
     if (tested === 'none') { setStatus({ type: 'error', text: '请先点击「测试连接」验证配置' }); return; }
     if (tested === 'fail') { setStatus({ type: 'error', text: '连接测试未通过，请修正配置后重新测试' }); return; }
+    const aliasError = provider === 'custom' ? validateCustomProviderName(customProviderName) : null;
+    if (aliasError) { setStatus({ type: 'error', text: `服务商名称不合法: ${aliasError}` }); return; }
     setSaving(true);
     try {
-      await wsClient.request('core.addModel', undefined, { config: { provider, modelName: currentModel, baseURL, apiKey, maxTokens: parseInt(maxTokens), contextLength: parseInt(contextLength), adapt }, skipValidation: true });
+      await wsClient.request('core.addModel', undefined, { config: { provider: provider === 'custom' && customProviderName ? customProviderName : provider, modelName: currentModel, baseURL, apiKey, maxTokens: parseInt(maxTokens), contextLength: parseInt(contextLength), adapt }, skipValidation: true });
       toast(t('settings.saved'));
       onSaved();
     } catch (e: any) { setStatus({ type: 'error', text: e.message }); } finally { setSaving(false); }
@@ -231,6 +234,16 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
           <IconSelect value={provider} onChange={onProvider}
             options={PROVIDER_ORDER.filter(k => PROVIDERS[k]).map(k => ({ value: k, label: PROVIDERS[k].name, icon: <ProviderLogo provider={k} /> }))} />
         </Field>
+        {provider === 'custom' && (
+          <Field label={t('settings.providerName')}>
+            <input value={customProviderName} onChange={e => { setCustomProviderName(e.target.value.trim()); invalidate(); }}
+              placeholder="为该服务命名以区分多个自定义服务，小写字母/数字/短横线，2~20 字符，留空默认为 custom"
+              className="w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent" />
+            {validateCustomProviderName(customProviderName) && (
+              <div className="text-xs text-danger">{validateCustomProviderName(customProviderName)}</div>
+            )}
+          </Field>
+        )}
         <Field label={t('settings.baseURL')}>
           <input value={baseURL} onChange={e => { setBaseURL(e.target.value); invalidate(); }} placeholder={p.baseURLPlaceholder || p.baseURL} className="w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent" />
         </Field>

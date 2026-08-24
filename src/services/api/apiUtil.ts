@@ -213,7 +213,7 @@ const MODEL_MAP = {
 /**
  * 获取可用模型列表
  *
- * - adapt === 'anthropic'：Anthropic 协议无标准 /models 接口，返回 provider 的预设列表（无预设则报错）
+ * - adapt === 'anthropic'：Anthropic 协议无标准 /models 接口，命中预设 provider 时返回预设列表，否则同 openai 流程
  * - adapt === 'openai'  ：调用标准 /models 端点
  */
 export async function fetchModels(params: FetchModelsParams): Promise<FetchModelsResult> {
@@ -221,12 +221,12 @@ export async function fetchModels(params: FetchModelsParams): Promise<FetchModel
 
   let result: FetchModelsResult;
 
-  if (adapt === 'anthropic' && provider !== 'custom' && !modelsUrl) {
+  // 命中预设 provider 时直接返回预设列表；custom 及自定义别名走下方 /models 请求
+  if (adapt === 'anthropic' && !modelsUrl) {
     const providerConfig = MODEL_MAP[provider as keyof typeof MODEL_MAP];
     if (providerConfig) {
       return { success: true, models: providerConfig.models };
     }
-    return { success: false, message: 'Anthropic 协议暂不支持自动获取模型列表，请手动填写模型名' };
   }
 
   // 优先使用 modelsUrl，否则按 OpenAI 协议拼接 /models 端点

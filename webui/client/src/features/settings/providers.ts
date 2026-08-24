@@ -31,6 +31,18 @@ export const PROVIDERS: Record<string, ProviderDefaults> = {
   custom: { name: '自定义 LLM 接口', baseURL: '', baseURLPlaceholder: 'https://your-api.com/v1', apiKeyPlaceholder: '输入您的 API Key', defaultAdapt: 'openai' },
 };
 
+/** 预设服务商名称，自定义别名不允许与之重名（custom 本身除外，等价于不填） */
+export const RESERVED_PROVIDERS = PROVIDER_ORDER.filter(key => key !== 'custom');
+
+/** 校验自定义服务商别名：留空合法（回退 custom），否则 2~20 位小写字母/数字/短横线，字母开头、不以短横线结尾 */
+export function validateCustomProviderName(name: string): string | null {
+  if (!name) return null;
+  if (name.length < 2 || name.length > 20) return '长度需为 2~20 个字符';
+  if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(name)) return '仅支持小写字母、数字和短横线(-)，需以字母开头且不能以短横线结尾';
+  if (RESERVED_PROVIDERS.includes(name)) return `"${name}" 是预设服务商名称，请换一个`;
+  return null;
+}
+
 /** 模型 profile 名 "modelName[provider]" 解析 */
 export function parseProfileName(name: string): { modelName: string; provider: string } {
   const m = /^(.*)\[([^\]]+)\]$/.exec(name);

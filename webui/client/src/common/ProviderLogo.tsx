@@ -106,7 +106,8 @@ const ProviderLogo: React.FC<ProviderLogoProps> = ({ provider, className = 'h-4 
                 </svg>
             );
         case 'custom':
-            // 自定义 LLM 接口：AIMP（aimp.midea.com）favicon 蓝色马赛克方块，中央圆角镂空
+        default:
+            // 自定义 LLM 接口（含用户自定义服务商别名）：AIMP（aimp.midea.com）favicon 蓝色马赛克方块，中央圆角镂空
             return (
                 <svg {...svgProps} fill="#3167F6">
                     <rect x="7" y="0.3" width="5.7" height="5.4" rx="1.7" />
@@ -115,16 +116,6 @@ const ProviderLogo: React.FC<ProviderLogoProps> = ({ provider, className = 'h-4 
                     <path fillRule="evenodd" d="M9.3,7.5h4.5a2.8,2.8 0 0 1 2.8,2.8v3.8a2.8,2.8 0 0 1 -2.8,2.8h-4.5a2.8,2.8 0 0 1 -2.8,-2.8v-3.8a2.8,2.8 0 0 1 2.8,-2.8zM10.8,10.4h1.5a1.2,1.2 0 0 1 1.2,1.2v1.1a1.2,1.2 0 0 1 -1.2,1.2h-1.5a1.2,1.2 0 0 1 -1.2,-1.2v-1.1a1.2,1.2 0 0 1 1.2,-1.2z" />
                     <rect x="0.2" y="15.8" width="7.8" height="7.2" rx="2.2" />
                     <rect x="10.6" y="18.8" width="5.6" height="4.9" rx="1.6" />
-                </svg>
-            );
-        default:
-            // 未知提供商：通用芯片图标（stroke 放在 g 上，避免被外层 CSS 的 stroke 规则覆盖）
-            return (
-                <svg {...svgProps} fill="none">
-                    <g stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                        <rect x="5" y="5" width="14" height="14" rx="2" />
-                        <path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4" />
-                    </g>
                 </svg>
             );
     }

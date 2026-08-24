@@ -28,9 +28,10 @@ export function Popover({ anchor, onClose, children, align = 'left', className }
     if (!anchor) return;
     const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('mousedown', onDown);
+    // 捕获阶段：避免被 Modal 等容器上的 onMouseDown={stopPropagation} 截断，导致嵌套在弹窗里的面板点外部不关闭
+    document.addEventListener('mousedown', onDown, true);
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+    return () => { document.removeEventListener('mousedown', onDown, true); document.removeEventListener('keydown', onKey); };
   }, [anchor, onClose]);
   if (!anchor) return null;
   const isRect = 'width' in anchor;
@@ -203,7 +204,7 @@ export function relTime(ts: number): string {
   if (d < 60_000) return '刚刚';
   if (d < 3600_000) return `${Math.floor(d / 60_000)} 分钟前`;
   if (d < 86400_000) return `${Math.floor(d / 3600_000)} 小时前`;
-  if (d < 7 * 86400_000) return `${Math.floor(d / 86400_000)} 天前`;
-  const dt = new Date(ts);
-  return `${dt.getMonth() + 1}/${dt.getDate()}`;
+  if (d < 30 * 86400_000) return `${Math.floor(d / 86400_000)} 天前`;
+  if (d < 365 * 86400_000) return `${Math.floor(d / (30 * 86400_000))} 个月前`;
+  return `${Math.floor(d / (365 * 86400_000))} 年前`;
 }

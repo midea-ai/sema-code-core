@@ -1,6 +1,6 @@
 import React, { memo, useState, useMemo, useRef, useLayoutEffect, useEffect } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock } from 'lucide-react';
-import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, TodosBlock, CronBlock } from '../../../../shared/types';
+import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch } from 'lucide-react';
+import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, TodosBlock, CronBlock, BranchOriginBlock } from '../../../../shared/types';
 import { CRON_TOOLS } from '../../../../shared/protocol';
 import { Markdown } from './Markdown';
 import { DiffView, CodeView, Collapsible } from './DiffView';
@@ -36,12 +36,36 @@ export const BlockRenderer = memo(function BlockRenderer({ block, ctx }: { block
     case 'plan-exit': return <PlanExitCard block={block} ctx={ctx} />;
     case 'todos': return <TodosCard block={block} />;
     case 'agent': return <AgentCard block={block} ctx={ctx} />;
+    case 'branch-origin': return <BranchOrigin block={block} />;
     case 'notice': return block.noticeType === 'plan-implement' ? <PlanImplementCard block={block} ctx={ctx} /> : <NoticeBar block={block} />;
     case 'file-changes': return <FileChangesCard block={block} ctx={ctx} />;
     case 'cron': return <CronCard block={block} ctx={ctx} />;
     default: return null;
   }
 });
+
+/** 分支来源边界：固定在继承历史之后，点击返回原聊天。 */
+function BranchOrigin({ block }: { block: BranchOriginBlock }) {
+  const source = useApp(s => s.registry.sessions.find(x => x.id === block.sourceSessionId));
+  const setView = useApp(s => s.setView);
+  const available = !!source;
+  return (
+    <div className="my-5 flex items-center gap-3 text-sm">
+      <span className="h-px flex-1 bg-border" />
+      <button
+        type="button"
+        disabled={!available}
+        onClick={() => available && setView({ type: 'chat', sessionId: block.sourceSessionId })}
+        className={cn('inline-flex items-center gap-2 font-medium', available ? 'text-accent hover:underline underline-offset-2' : 'text-muted cursor-default')}
+        title={available ? `打开原聊天：${source.title || block.sourceTitle}` : t('chat.branchSourceDeleted')}
+      >
+        <GitBranch size={16} />
+        <span>{available ? t('chat.branchFrom') : t('chat.branchSourceDeleted')}</span>
+      </button>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
 
 // ==================== 用户 ====================
 
@@ -259,7 +283,7 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   const isSearch = block.toolName === 'search_files' || block.toolName === 'search_content';
   /** MCP 工具：行内只显示「已调用 server · tool」，标题/摘要/内容都放展开区 */
   const isGeneric = block.toolName.startsWith('mcp__') || block.toolName === 'ask_form';
-  const [open, setOpen] = useState(block.status === 'error');
+  const [open, setOpen] = useState(false);
   const openBrowserTab = useApp(s => s.openBrowserTab);
 
   const bodyText = useMemo(() => {
@@ -339,8 +363,11 @@ export function renderBlockList(blocks: Block[], ctx: BlockCtx, live = false) {
     let j = i;
     while (j < blocks.length && isToolGroupable(blocks[j])) j++;
     const run = blocks.slice(i, j);
-    if (run.filter(b => b.kind === 'tool').length >= 2) out.push(<ToolGroup key={`group:${run[0].id}`} blocks={run} ctx={ctx} live={live} />);
-    else run.forEach(b => out.push(<BlockRenderer key={b.id} block={b} ctx={ctx} />));
+    if (run.filter(b => b.kind === 'tool').length >= 2) {
+      // 组头是否仍在增长：只有其后再无新文字/工具调用（真正的末尾组）才用「最后一个工具」当标题，否则回退为整体描述
+      const isTailGroup = !blocks.slice(j).some(b => b.kind === 'tool' || (b.kind === 'assistant' && !!b.text));
+      out.push(<ToolGroup key={`group:${run[0].id}`} blocks={run} ctx={ctx} live={live && isTailGroup} />);
+    } else run.forEach(b => out.push(<BlockRenderer key={b.id} block={b} ctx={ctx} />));
     i = j;
   }
   return out;

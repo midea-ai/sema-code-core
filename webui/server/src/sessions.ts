@@ -55,6 +55,7 @@ export class SessionManager extends EventEmitter {
   /** 退场时清理会话关联终端的钩子（由入口注入 TerminalManager.killBySession） */
   killTerminals?: (sid: string) => void;
   private evicting = false;
+  private branching = new Set<string>();
 
   constructor(readonly registry: RegistryStore, entryPath: string) {
     super();
@@ -328,6 +329,77 @@ export class SessionManager extends EventEmitter {
     return { record: rec, snapshot: rt.snapshot };
   }
 
+  /** 分支到新聊天：core 复制模型历史，WebUI 复制展示快照，并在同目录 worker 中创建新的 SemaSession。 */
+  async branchSession(sourceId: string): Promise<{ record: SessionRecord; snapshot: SessionSnapshot }> {
+    if (this.branching.has(sourceId)) throw new Error('正在创建分支，请勿重复操作');
+    const source = this.registry.getSession(sourceId);
+    if (!source) throw new Error('源会话不存在');
+    const sourceRt = this.loadRuntime(sourceId);
+    if (sourceRt.snapshot.state !== 'idle' || pendingBlocks(sourceRt.snapshot).length > 0
+      || sourceRt.snapshot.blocks.some(b => b.kind === 'user' && b.queued)) {
+      throw new Error('会话处理中，请等待空闲后再分支');
+    }
+
+    this.branching.add(sourceId);
+    let targetId: string | undefined;
+    let targetOwned = false;
+    try {
+      const worker = await this.ensureLive(sourceId);
+      const result = await this.pool.request(worker, 'session.branch', sourceId, {});
+      if (!result?.ok) throw new Error(result?.error || '分支失败');
+      targetId = String(result.sessionId || '');
+      if (!targetId || this.registry.getSession(targetId)) throw new Error('分支会话 ID 无效或已存在');
+      targetOwned = true;
+
+      const record = this.registry.createBranchedSession(sourceId, targetId);
+      const cloned = structuredClone(sourceRt.snapshot);
+      const snapshot: SessionSnapshot = {
+        ...cloned,
+        sessionId: record.id,
+        workingDir: record.workingDir,
+        seq: 0,
+        state: 'idle',
+        agentMode: record.agentMode,
+        permissionLevel: record.permissionLevel,
+        blocks: [...cloned.blocks, {
+          kind: 'branch-origin', id: `branch-origin:${record.id}`, ts: Date.now(),
+          sourceSessionId: source.id, sourceTitle: source.title || '原聊天',
+        }],
+        turn: null,
+        streamingId: undefined,
+        historyLoaded: true,
+        quickchats: undefined,
+      };
+      const targetRt: Runtime = { snapshot, buffer: [], subscribers: new Set() };
+      this.runtimes.set(record.id, targetRt);
+      writeJsonAtomic(this.transcriptPath(record.id), snapshot);
+
+      // record 与 runtime 已建立，session:ready 等事件可安全落入目标快照。
+      await this.ensureLive(record.id);
+      this.broadcastRegistry();
+      void this.evictOverflow();
+      return { record, snapshot: targetRt.snapshot };
+    } catch (error) {
+      if (targetId && targetOwned) {
+        const targetRt = this.runtimes.get(targetId);
+        if (targetRt?.saveTimer) clearTimeout(targetRt.saveTimer);
+        this.runtimes.delete(targetId);
+        this.registry.removeSession(targetId);
+        try { fs.unlinkSync(this.transcriptPath(targetId)); } catch { /* ignore */ }
+        const worker = this.pool.get(source.workingDir);
+        if (worker?.alive && worker.sessions.has(targetId)) {
+          await this.pool.request(worker, 'session.close', targetId, {}).catch(() => null);
+          worker.sessions.delete(targetId);
+        }
+        await this.dispatch('core.deleteSessionHistory', undefined, { sessionId: targetId, projectPath: source.workingDir }).catch(() => null);
+        this.broadcastRegistry();
+      }
+      throw error;
+    } finally {
+      this.branching.delete(sourceId);
+    }
+  }
+
   async closeSession(sid: string) {
     const rec = this.registry.getSession(sid);
     if (rec) {
@@ -336,8 +408,9 @@ export class SessionManager extends EventEmitter {
         await this.pool.request(w, 'session.close', sid, {}).catch(() => null);
         w.sessions.delete(sid);
       }
-      // 独立会话独占目录：目录随后会被移入废纸篓，必须先等以它为 cwd 的 worker 真正退出
-      if (w?.alive && !rec.projectId) await this.pool.kill(w);
+      // 目录即将删除且已无其他会话/项目引用时，必须先等以它为 cwd 的 worker 真正退出。
+      if (w?.alive && (rec.managedWorkingDir ?? !rec.projectId)
+        && !this.registry.hasWorkingDirReference(rec.workingDir, sid)) await this.pool.kill(w);
     }
     const rt = this.runtimes.get(sid);
     if (rt?.saveTimer) clearTimeout(rt.saveTimer);
@@ -386,7 +459,7 @@ export class SessionManager extends EventEmitter {
     try { return readPersistedCron(workingDir).active > 0; } catch { return false; }
   }
 
-  /** 退场一个会话：杀终端 → 关 worker 会话（独立会话等 worker 退出）→ 删 transcript → 移除注册表记录 */
+  /** 退场一个会话：杀终端 → 关闭对应 SemaSession → 删 transcript → 移除注册表记录 */
   private async evictSession(sid: string): Promise<SessionRecord | undefined> {
     this.killTerminals?.(sid);
     await this.closeSession(sid);
@@ -412,11 +485,16 @@ export class SessionManager extends EventEmitter {
       for (const rec of standalone.slice(STANDALONE_SESSION_LIMIT)) {
         if (!this.isEvictable(rec.id, cronGuard)) continue;
         await this.evictSession(rec.id);
-        // 独占目录必须位于 ~/Documents/Sema 之下才删磁盘和 history，防御异常数据
-        if (rec.workingDir.startsWith(SEMA_DOCS_ROOT + path.sep)) {
+        const hasOtherRef = this.registry.hasWorkingDirReference(rec.workingDir);
+        // 仅 WebUI 管理且已无引用的目录可硬删；共享目录只清理本会话产物。
+        const managedRoot = path.resolve(SEMA_DOCS_ROOT) + path.sep;
+        if ((rec.managedWorkingDir ?? !rec.projectId) && !hasOtherRef && path.resolve(rec.workingDir).startsWith(managedRoot)) {
           try { fs.rmSync(rec.workingDir, { recursive: true, force: true }); } catch { /* ignore */ }
           await this.dispatch('core.deleteProjectHistory', undefined, { projectPath: rec.workingDir })
             .catch((e: any) => console.error('[evict] 删除 history 项目失败:', e?.message || e));
+        } else {
+          await this.dispatch('core.deleteSessionHistory', undefined, { sessionId: rec.id, projectPath: rec.workingDir })
+            .catch((e: any) => console.error('[evict] 删除会话历史失败:', e?.message || e));
         }
         console.log(`[evict] 独立会话退场: ${rec.id}`);
         changed = true;

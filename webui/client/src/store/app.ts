@@ -56,9 +56,12 @@ interface AppState {
   sidebarCollapsed: boolean;
   /** 各项目目录的定时任务变更计数（收到 cron:update 自增），定时任务标签据此重拉列表 */
   cronUpdates: Record<string, number>;
+  /** 后台完成未读：会话在非当前查看时从处理中转为空闲（侧栏绿灯），点开会话即清除 */
+  doneUnread: Record<string, true>;
 
   bootstrap(): Promise<void>;
   setView(v: View): void;
+  markDoneUnread(sessionId: string): void;
   refreshModelData(): Promise<void>;
   toast(text: string, level?: Toast['level']): void;
   dismissToast(id: number): void;
@@ -129,6 +132,7 @@ export const useApp = create<AppState>((set, get) => ({
   wsStatus: 'closed',
   sidebarCollapsed: false,
   cronUpdates: {},
+  doneUnread: {},
 
   async bootstrap() {
     const data = await api<{ registry: Registry; settings: WebUISettings; status: any; platform: string }>('GET', '/api/bootstrap');
@@ -162,6 +166,14 @@ export const useApp = create<AppState>((set, get) => ({
     // 只持久化会话/空白视图：配置页/日程页是临时进入的，刷新或下次启动不应停留在这些页面
     if (v.type !== 'settings' && v.type !== 'schedule') localStorage.setItem(VIEW_KEY, JSON.stringify(v));
     set({ view: v });
+    // 打开会话即视为已阅，清除「后台完成」绿灯
+    if (v.type === 'chat' && get().doneUnread[v.sessionId]) {
+      const sid = v.sessionId;
+      set(s => { const { [sid]: _, ...rest } = s.doneUnread; return { doneUnread: rest }; });
+    }
+  },
+  markDoneUnread(sessionId) {
+    set(s => (s.doneUnread[sessionId] ? s : { doneUnread: { ...s.doneUnread, [sessionId]: true } }));
   },
 
   async refreshModelData() {
@@ -210,6 +222,10 @@ export const useApp = create<AppState>((set, get) => ({
   async revealFile(sessionId, relPath) { await api('POST', `/api/sessions/${sessionId}/reveal-file`, { path: relPath }); },
   async openFileExternal(sessionId, relPath, app) { await api('POST', `/api/sessions/${sessionId}/open-file`, { path: relPath, app }); },
   openFileTab(sessionId, relPath, line, endLine) {
+    // 会话目录内的绝对路径转为相对路径展示（面包屑/标题/文件树定位都按相对路径工作）
+    const rec = get().registry.sessions.find(x => x.id === sessionId) || get().registry.projects.find(x => x.id === sessionId);
+    const wd = (rec?.workingDir || '').replace(/[\\/]+$/, '');
+    if (wd && (relPath.startsWith(wd + '/') || relPath.startsWith(wd + '\\'))) relPath = relPath.slice(wd.length + 1);
     get().updatePanel(sessionId, p => {
       const loc = line ? { line, endLine, lineSeq: Date.now() } : {};
       const exist = p.tabs.find(t => t.type === 'files' && t.path === relPath);

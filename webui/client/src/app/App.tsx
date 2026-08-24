@@ -73,7 +73,7 @@ export function App() {
             <div className="flex-1 min-h-0 flex">
               <div className="flex-1 min-w-0 flex flex-col"><DraftView key={view.projectId} projectId={view.projectId} /></div>
               {!panelCollapsed && <ResizeHandle side="right" width={panelW} onResize={setPanelW} />}
-              <RightPanel sessionId={view.projectId} width={panelW} draft />
+              <RightPanel sessionId={view.projectId} width={panelW} />
             </div>
           ) : <DraftView key="" />)}
           {view.type === 'empty' && <DraftView />}

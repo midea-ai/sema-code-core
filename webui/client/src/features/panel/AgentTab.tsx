@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot } from 'lucide-react';
 import type { AgentBlock, Block } from '../../../../shared/types';
+import { pendingIn } from '../../../../shared/transcript';
 import type { PanelTab } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { cn } from '../../common/ui';
+import { usePausableElapsed } from '../../common/useElapsed';
 import { renderBlockList, type BlockCtx } from '../chat/Blocks';
 import { STATUS_TEXT, statusTone } from '../chat/AgentCard';
 
@@ -39,14 +41,14 @@ export function AgentTab({ sessionId, tab }: { sessionId: string; tab: PanelTab 
   const blocks = useSessions(s => s.snapshots[sessionId]?.blocks);
   const block = tab.blockId && blocks ? findAgent(blocks, tab.blockId) : undefined;
 
-  // 运行中每秒刷新一次耗时
-  const [, setTick] = useState(0);
   const running = block?.status === 'running';
-  useEffect(() => {
-    if (!running) return;
-    const id = window.setInterval(() => setTick(n => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [running]);
+  const awaitingTs = useMemo(() => {
+    if (!running || !block) return undefined;
+    const pending = pendingIn(block.blocks);
+    return pending.length ? Math.min(...pending.map(b => b.ts)) : undefined;
+  }, [running, block]);
+  // 运行中每秒刷新一次耗时；等待用户处理权限确认/快速确认/计划退出时计时定格，恢复后从暂停前的已耗时继续累加
+  const elapsed = usePausableElapsed(block?.ts ?? 0, running, awaitingTs, tab.blockId);
 
   const ref = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
@@ -72,7 +74,7 @@ export function AgentTab({ sessionId, tab }: { sessionId: string; tab: PanelTab 
 
   const tone = statusTone(block.status);
   const title = `${block.agentType}(${block.title})`;
-  const end = block.status === 'running' ? Date.now() : Math.max(block.ts, maxTs(block.blocks));
+  const elapsedMs = block.status === 'running' ? elapsed(Date.now()) : Math.max(block.ts, maxTs(block.blocks)) - block.ts;
   const ctx: BlockCtx = { sessionId, noAutoOpenAgent: true };
 
   return (
@@ -80,7 +82,7 @@ export function AgentTab({ sessionId, tab }: { sessionId: string; tab: PanelTab 
       <div className="h-9 shrink-0 flex items-center gap-2 px-3 border-b border-border">
         <span className={cn('text-xs px-1.5 py-0.5 rounded shrink-0', tone === 'warn' && 'bg-warn/10 text-warn', tone === 'ok' && 'bg-ok/10 text-ok', tone === 'danger' && 'bg-danger/10 text-danger')}>{STATUS_TEXT[block.status]}</span>
         <span className="font-medium text-sm truncate flex-1" title={title}>{title}</span>
-        <span className="text-xs text-muted shrink-0">耗时 {fmtDur(end - block.ts)}</span>
+        <span className="text-xs text-muted shrink-0">耗时 {fmtDur(elapsedMs)}</span>
       </div>
       <div ref={ref} onScroll={onScroll} className="flex-1 min-h-0 overflow-auto px-4 py-3">
         {block.instructions && <div className="text-xs text-muted whitespace-pre-wrap mb-2 pb-2 border-b border-border/60">{block.instructions}</div>}

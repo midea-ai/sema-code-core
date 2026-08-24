@@ -50,3 +50,9 @@ export function fmtTime(ts: number): string {
   if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
 }
+
+/** 绝对路径缩写为 ~ 相对形式：/Users/xxx/Documents → ~/Documents */
+export function shortPath(p: string): string {
+  const home = p.match(/^\/Users\/[^/]+|^\/home\/[^/]+|^[A-Z]:\\Users\\[^\\]+/);
+  return home ? '~' + p.slice(home[0].length) : p;
+}

@@ -144,6 +144,7 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'session.updatePermissionLevel': s.updatePermissionLevel(p.level); return true;
     case 'session.getForkPreview': return s.getForkPreview(p.messageUuid);
     case 'session.fork': return s.fork(p.messageUuid, p.options);
+    case 'session.branch': return s.branch(p.beforeMessageUuid);
     case 'session.getTaskList': return s.getTaskList();
     case 'session.stopTask': return s.stopTask(p.taskId);
     case 'session.stopAllTasks': return s.stopAllTasks();

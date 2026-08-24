@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { api } from '../api/http';
 import { wsClient } from '../api/ws';
-import type { SessionSnapshot, AgentMode, PermissionLevel, EventFrame } from '../../../shared/types';
+import type { SessionSnapshot, SessionRecord, AgentMode, PermissionLevel, EventFrame } from '../../../shared/types';
 import { applyEvent, applyLocal, LocalAction } from '../../../shared/transcript';
 import { SERVER_EVENTS } from '../../../shared/protocol';
 import { useApp } from './app';
@@ -14,6 +14,8 @@ interface SessionsState {
   loading: Record<string, boolean>;
   subscribed: Set<string>;
   drafts: Record<string, Draft>;
+  /** 新会话草稿页预选的模式（提升到 store 供 DraftView 切换 Design 样式），发送建会话后下发并复位 */
+  draftAgentMode: AgentMode;
   /** 会话级临时错误提示 */
   errors: Record<string, string | undefined>;
 
@@ -23,6 +25,7 @@ interface SessionsState {
   applyFrame(frame: EventFrame): void;
   local(sessionId: string, action: LocalAction): void;
   setDraft(sessionId: string, fn: (d: Draft) => Draft): void;
+  setDraftAgentMode(mode: AgentMode): void;
 
   send(sessionId: string, text: string, images?: Draft['images']): Promise<void>;
   /** 快问面板提问：与主输入框输入「/quickchat 问题」同一条发送链路，仅代拼前缀、不动聊天草稿 */
@@ -35,6 +38,7 @@ interface SessionsState {
   setPermissionLevel(sessionId: string, level: PermissionLevel): Promise<void>;
   getForkPreview(sessionId: string, messageUuid: string): Promise<any>;
   fork(sessionId: string, messageUuid: string, restoreFiles: boolean): Promise<any>;
+  branchToNewChat(sessionId: string): Promise<SessionRecord>;
 }
 
 const emptyDraft = (): Draft => ({ text: '', images: [] });
@@ -45,6 +49,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
   loading: {},
   subscribed: new Set(),
   drafts: {},
+  draftAgentMode: 'Agent',
   errors: {},
 
   async open(sessionId) {
@@ -101,6 +106,11 @@ export const useSessions = create<SessionsState>((set, get) => ({
     }
     const next = applyEvent({ ...cur }, frame.event, frame.data, frame.seq);
     set(s => ({ snapshots: { ...s.snapshots, [frame.sessionId]: next } }));
+    // 处理中 → 空闲且该会话不在当前页面：标记「后台完成」绿灯，打开会话时清除
+    if (cur.state === 'processing' && next.state !== 'processing') {
+      const app = useApp.getState();
+      if (!(app.view.type === 'chat' && app.view.sessionId === frame.sessionId)) app.markDoneUnread(frame.sessionId);
+    }
     // quickchat 回答到达：自动展开右侧「快问」标签
     if (frame.event === 'quickchat:response' && frame.data?.question) {
       useApp.getState().openQuickchatTab(frame.sessionId);
@@ -119,6 +129,8 @@ export const useSessions = create<SessionsState>((set, get) => ({
   setDraft(sessionId, fn) {
     set(s => ({ drafts: { ...s.drafts, [sessionId]: fn(s.drafts[sessionId] || emptyDraft()) } }));
   },
+
+  setDraftAgentMode(mode) { set({ draftAgentMode: mode }); },
 
   async send(sessionId, text, images = []) {
     const attachments = images.map(i => ({ type: 'image', data: i.data, media_type: i.media_type }));
@@ -153,4 +165,18 @@ export const useSessions = create<SessionsState>((set, get) => ({
   },
   async getForkPreview(sessionId, messageUuid) { return wsClient.request('session.getForkPreview', sessionId, { messageUuid }); },
   async fork(sessionId, messageUuid, restoreFiles) { return wsClient.request('session.fork', sessionId, { messageUuid, options: { restoreFiles } }); },
+  async branchToNewChat(sessionId) {
+    const result = await api<{ record: SessionRecord; snapshot: SessionSnapshot }>('POST', `/api/sessions/${sessionId}/branch`);
+    set(s => ({ snapshots: { ...s.snapshots, [result.record.id]: result.snapshot } }));
+    // registry:update 通常先到；本地 upsert 兜底，保证切换视图时记录一定存在。
+    useApp.setState(s => ({
+      registry: {
+        ...s.registry,
+        sessions: s.registry.sessions.some(x => x.id === result.record.id)
+          ? s.registry.sessions.map(x => x.id === result.record.id ? result.record : x)
+          : [...s.registry.sessions, result.record],
+      },
+    }));
+    return result.record;
+  },
 }));

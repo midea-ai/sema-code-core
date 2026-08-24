@@ -250,19 +250,22 @@ export function deleteProjectHistory(projectPath: string): void {
 export function deleteSessionHistory(sessionId: string, projectPath?: string): void {
   const historyDir = projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
   try {
-    if (!fs.existsSync(historyDir)) return;
-    const targets = fs.readdirSync(historyDir).filter(file =>
-      file === `${sessionId}.json` ||
-      (/^\d{4}-\d{2}-\d{2}_/.test(file) && file.slice(11) === `${sessionId}.json`)
-    );
-    for (const file of targets) {
-      try {
-        fs.unlinkSync(path.join(historyDir, file));
-        logInfo(`删除会话历史文件: ${file}`);
-      } catch (error) {
-        logWarn(`删除会话历史文件失败 ${file}: ${error instanceof Error ? error.message : String(error)}`);
+    if (fs.existsSync(historyDir)) {
+      const targets = fs.readdirSync(historyDir).filter(file =>
+        file === `${sessionId}.json` ||
+        (/^\d{4}-\d{2}-\d{2}_/.test(file) && file.slice(11) === `${sessionId}.json`)
+      );
+      for (const file of targets) {
+        try {
+          fs.unlinkSync(path.join(historyDir, file));
+          logInfo(`删除会话历史文件: ${file}`);
+        } catch (error) {
+          logWarn(`删除会话历史文件失败 ${file}: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
+    // 项目级快照按剩余 history 做标记清除，会同步移除该会话的 editlog 和无引用 blobs。
+    if (projectPath) cleanupProjectSnapshots(projectPath);
   } catch (error) {
     logWarn(`删除会话历史失败 ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
   }

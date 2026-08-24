@@ -1,5 +1,5 @@
 import { createContext, memo, useContext, useMemo, useRef, useState, type ReactNode, type MouseEvent } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import remarkMath from 'remark-math';
@@ -18,6 +18,8 @@ import { isLocalHref, isPathCandidate, parsePathRef, rawFileUrl, useFileStats, t
 const remarkPlugins: any[] = [remarkGfm, remarkMath, remarkBreaks];
 // KaTeX：公式出错时原样显示而不抛错；trust:false 关闭 \href 等危险命令
 const rehypePlugins: any[] = [[rehypeKatex, { throwOnError: false, strict: 'ignore', trust: false }], rehypeHighlight];
+// 默认 urlTransform 白名单不含 file:，会把 file:// 链接的 href 清空；这里放行 file://（Anchor 里在右栏浏览器打开），其余仍走默认清洗
+const urlTransform = (url: string) => (/^file:\/\//i.test(url) ? url : defaultUrlTransform(url));
 
 /** 围栏代码块内的 code 不做文件识别 */
 const InPre = createContext(false);
@@ -38,7 +40,7 @@ export const Markdown = memo(function Markdown({ text, sessionId, className, don
   return (
     <Ctx.Provider value={ctx}>
       <div className={`md ${className || ''}`}>
-        <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} skipHtml components={components}>{preprocess(text)}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} skipHtml urlTransform={urlTransform} components={components}>{preprocess(text)}</ReactMarkdown>
       </div>
     </Ctx.Provider>
   );
@@ -83,6 +85,16 @@ function Anchor({ href, children }: any) {
   const openLink = useApp(s => s.openLink);
   const openExternal = useApp(s => s.openExternal);
   if (!href) return <a>{children}</a>;
+  // file:// 链接：不带图标，点击在右栏内嵌浏览器打开（openLink 对 file:// 走 openBrowserTab）
+  if (/^file:\/\//i.test(href)) {
+    return (
+      <a href={href} title={href} onClick={e => {
+        e.preventDefault();
+        if (sessionId) openLink(sessionId, href);
+        else openExternal(href).catch(() => { /* ignore */ });
+      }}>{children}</a>
+    );
+  }
   if (isLocalHref(href)) {
     let p = href;
     try { p = decodeURIComponent(href); } catch { /* keep */ }

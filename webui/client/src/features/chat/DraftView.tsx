@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Folder, Search, Check, Plus, X } from 'lucide-react';
 import { useApp } from '../../store/app';
+import { useSessions } from '../../store/sessions';
 import { Composer } from './Composer';
 import { Popover, cn } from '../../common/ui';
 import { CreateProjectDialog } from '../../common/CreateProjectDialog';
@@ -12,6 +13,8 @@ export function DraftView({ projectId }: { projectId?: string }) {
   const modelData = useApp(s => s.modelData);
   const setView = useApp(s => s.setView);
   const hasModel = !!modelData?.modelList?.length;
+  // Design 是新会话页的一种形态：Composer 里切模式即就地切换本页文案，会话仍在首次发送时创建
+  const isDesign = useSessions(s => s.draftAgentMode) === 'Design';
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border">
@@ -19,16 +22,20 @@ export function DraftView({ projectId }: { projectId?: string }) {
         {project && <span className="text-xs text-muted truncate hidden md:inline" title={project.workingDir}>{project.workingDir}</span>}
       </div>
       <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center gap-3 p-8">
-        <div className="text-2xl font-semibold">{t('chat.emptyTitle')}</div>
-        <div className="text-muted max-w-md">{project ? t('draft.projectHint', { name: project.name }) : t('chat.emptyHint')}</div>
+        <div className="text-2xl font-semibold inline-flex items-center gap-2">
+          {isDesign ? t('chat.emptyTitleDesign') : t('chat.emptyTitle')}
+          {isDesign && <span className="text-[11px] leading-none px-1.5 py-1 rounded bg-design/10 text-design font-medium">Design</span>}
+        </div>
+        <div className="text-muted max-w-md">{isDesign ? t('chat.emptyHintDesign') : project ? t('draft.projectHint', { name: project.name }) : t('chat.emptyHint')}</div>
         {!hasModel && modelData && (
           <button onClick={() => setView({ type: 'settings', tab: 'models' })} className="h-9 px-4 rounded-md border border-border text-sm hover:bg-black/[0.05]">{t('chat.goConfigModel')}</button>
         )}
       </div>
-      {/* 输入框上方：浅灰底带 + 项目选择胶囊，底带与下方输入卡片相接（对齐参考效果） */}
+      {/* 输入框上方：浅灰底带 + 项目选择胶囊，底带与下方输入卡片相接（对齐参考效果）；
+          未配置模型警告条会插在两者之间时，去掉负 margin 避免贴住警告条 */}
       <div className="shrink-0 px-4">
         <div className="max-w-3xl mx-auto px-3">
-          <div className="rounded-t-xl bg-black/[0.035] px-2.5 pt-2 pb-5 -mb-4 flex items-center gap-2">
+          <div className={cn('rounded-t-xl bg-black/[0.035] px-2.5 pt-2 pb-5 flex items-center gap-2', !hasModel && modelData ? undefined : '-mb-4')}>
             <ProjectPicker projectId={projectId} onChange={id => setView({ type: 'draft', projectId: id })} />
           </div>
         </div>

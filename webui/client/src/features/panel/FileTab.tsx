@@ -101,20 +101,36 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
 
   const outside = isAbsPath(relPath);
   const crumbs = relPath.split(/[\\/]/).filter(Boolean);
+  // 路径过长时默认滚到最右端：文件名可见，左侧路径左右滑动查看。
+  // 刚建标签 / 面板展开时容器宽度可能还是 0，此时 scrollLeft 赋值无效，用 ResizeObserver 在尺寸就绪后再吸右
+  const crumbRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = crumbRef.current;
+    if (!el) return;
+    const pin = () => { el.scrollLeft = el.scrollWidth; };
+    pin();
+    const ro = new ResizeObserver(pin);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [relPath]);
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {/* 面包屑 + 操作 */}
       <div className="h-9 shrink-0 flex items-center gap-1 px-3 border-b border-border text-xs">
-        <span className="text-muted" title={outside ? t('file.outside') : undefined}>{outside ? '/' : rootName}</span>
-        {crumbs.map((c, i) => (
-          <span key={i} className="inline-flex items-center gap-1 min-w-0">
-            <ChevronRight size={11} className="text-muted shrink-0" />
-            <span className={cn('truncate', i === crumbs.length - 1 ? 'text-fg' : 'text-muted')}>{c}</span>
-          </span>
-        ))}
+        {/* 路径不省略、始终单行：容器可横向滚动，默认滚到最右端露出文件名（左侧路径滑动可见） */}
+        <div ref={crumbRef} className="flex items-center gap-1 min-w-0 overflow-x-auto scrollbar-none whitespace-nowrap" title={relPath ? (outside ? `${t('file.outside')}: ${relPath}` : relPath) : undefined}>
+          {/* 未选文件时显示项目名占位；目录内不重复项目名（会话顶部已可见），目录外直接从首段（如 Users）开始 */}
+          {!relPath && <span className="text-muted shrink-0">{rootName}</span>}
+          {crumbs.map((c, i) => (
+            <span key={i} className="inline-flex items-center gap-1 shrink-0">
+              {i > 0 && <ChevronRight size={11} className="text-muted" />}
+              <span className={cn(i === crumbs.length - 1 ? 'text-fg' : 'text-muted')}>{c}</span>
+            </span>
+          ))}
+        </div>
         <span className="flex-1" />
         {kind && data && !data.binary && (
-          <button onClick={toggleSource} className="px-1.5 h-7 rounded text-muted hover:text-fg hover:bg-black/[0.05]">{t(showSource ? 'file.viewPreview' : 'file.viewSource')}</button>
+          <button onClick={toggleSource} className="px-1.5 h-7 shrink-0 whitespace-nowrap rounded text-muted hover:text-fg hover:bg-black/[0.05]">{t(showSource ? 'file.viewPreview' : 'file.viewSource')}</button>
         )}
         {data?.image && (
           <Dropdown value={zoom} options={ZOOM_OPTIONS} onChange={setZoom} minWidth={140}
@@ -126,10 +142,10 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
               </button>
             )} />
         )}
-        <button onClick={() => setTree(v => !v)} className={cn('p-1.5 rounded hover:bg-black/[0.05]', tree ? 'text-fg bg-black/[0.06]' : 'text-muted hover:text-fg')} title={t('file.tree')}><FolderTree size={14} /></button>
+        <button onClick={() => setTree(v => !v)} className={cn('p-1.5 shrink-0 rounded hover:bg-black/[0.05]', tree ? 'text-fg bg-black/[0.06]' : 'text-muted hover:text-fg')} title={t('file.tree')}><FolderTree size={14} /></button>
         {/* 分体按钮：左半「打开」直接用默认程序打开；右半下拉展开更多操作 */}
         {relPath && (
-          <div className="h-7 inline-flex items-stretch rounded-md border border-border text-fg overflow-hidden">
+          <div className="h-7 shrink-0 inline-flex items-stretch rounded-md border border-border text-fg overflow-hidden">
             <button onClick={() => openFileExternal(sessionId, relPath, defaultApp?.path).catch(e => toast(e.message, 'error'))} className="px-2 inline-flex items-center gap-1 hover:bg-black/[0.05]" title={defaultApp ? defaultApp.name : t('file.openDefault')}>
               {defaultApp?.icon ? <img src={appIconUrl(defaultApp.id)} alt="" className="w-4 h-4" /> : <ExternalLink size={12} />}{t('file.open')}
             </button>
@@ -162,7 +178,7 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
               </div>
             )
             : data.binary ? <div className="p-4 text-sm text-muted">{t('file.binary')}</div>
-            : !showSource && kind === 'md' ? <div className="p-4 font-sans text-sm"><Markdown text={data.content} sessionId={sessionId} /></div>
+            : !showSource && kind === 'md' ? <MdPreview content={data.content} sessionId={sessionId} />
             : (
               <table className="border-collapse min-w-full">
                 <tbody>
@@ -183,6 +199,33 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
           <FileTree sessionId={sessionId} current={relPath} onPick={setPath} width={treeW} />
         </>}
       </div>
+    </div>
+  );
+}
+
+/** md 预览的 YAML 头（frontmatter）：只取 name / description 两个字段，其余忽略；正文剥掉整段头不再渲染 */
+function parseFrontmatter(src: string): { name?: string; description?: string; body: string } {
+  const m = src.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
+  if (!m) return { body: src };
+  const pick = (key: string) => {
+    const km = m[1].match(new RegExp(`^${key}[ \\t]*:[ \\t]*(.+)$`, 'm'));
+    return km ? km[1].trim().replace(/^(['"])(.*)\1$/, '$2') : undefined;
+  };
+  return { name: pick('name'), description: pick('description'), body: src.slice(m[0].length) };
+}
+
+/** md 预览：frontmatter 的 name/description 作为吸顶头部，正文渲染剥掉头后的内容 */
+function MdPreview({ content, sessionId }: { content: string; sessionId: string }) {
+  const fm = useMemo(() => parseFrontmatter(content), [content]);
+  return (
+    <div className="font-sans text-sm">
+      {(fm.name || fm.description) && (
+        <div className="sticky top-0 z-10 bg-bg border-b border-border px-4 py-2.5">
+          {fm.name && <div className="font-medium text-fg truncate">{fm.name}</div>}
+          {fm.description && <div className="text-xs text-muted mt-0.5">{fm.description}</div>}
+        </div>
+      )}
+      <div className="p-4"><Markdown text={fm.body} sessionId={sessionId} /></div>
     </div>
   );
 }

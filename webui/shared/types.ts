@@ -29,6 +29,10 @@ export interface SessionRecord {
   title: string;
   projectId?: string;
   workingDir: string;
+  /** 目录由 WebUI 创建并管理；仅最后一个目录引用删除时才可清理 */
+  managedWorkingDir?: boolean;
+  /** 从哪个聊天分支而来（用于来源跳转） */
+  branchedFromSessionId?: string;
   createdAt: number;
   lastActiveAt: number;
   agentMode: AgentMode;
@@ -208,6 +212,13 @@ export interface AgentBlock extends BlockBase {
   blocks: Block[];
 }
 
+/** 分支会话中继承历史与新消息之间的来源边界 */
+export interface BranchOriginBlock extends BlockBase {
+  kind: 'branch-origin';
+  sourceSessionId: string;
+  sourceTitle: string;
+}
+
 export type NoticeType =
   | 'error'
   | 'interrupted'
@@ -226,6 +237,8 @@ export interface NoticeBlock extends BlockBase {
   noticeType: NoticeType;
   text: string;
   detail?: string;
+  /** 仅 noticeType==='plan-implement' 使用：作为轮次开头时的结束时间（state 回到 idle 时打上），用于展示耗时分隔 */
+  doneTs?: number;
 }
 
 export interface FileChangesBlock extends BlockBase {
@@ -284,6 +297,7 @@ export type Block =
   | PlanExitBlock
   | TodosBlock
   | AgentBlock
+  | BranchOriginBlock
   | NoticeBlock
   | FileChangesBlock
   | CronBlock;

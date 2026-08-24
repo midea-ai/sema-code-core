@@ -29,13 +29,9 @@ function SiteFavicon({ url, size, className }: { url: string; size: number; clas
   return <img src={`/api/favicon?url=${encodeURIComponent(url)}&token=${encodeURIComponent(getToken())}`} alt="" width={size} height={size} className={cn('rounded-sm', className)} onError={() => setFailed(true)} />;
 }
 
-/** draft：项目草稿页模式，sessionId 实为项目 id，隐藏依赖会话的评审/定时任务入口 */
-export function RightPanel({ sessionId, width, draft }: { sessionId: string; width: number; draft?: boolean }) {
+export function RightPanel({ sessionId, width }: { sessionId: string; width: number }) {
   const panel = useApp(s => s.panels[sessionId]) || { tabs: [], collapsed: true };
   const updatePanel = useApp(s => s.updatePanel);
-  const openReviewTab = useApp(s => s.openReviewTab);
-  const openCronTab = useApp(s => s.openCronTab);
-  const openQuickchatTab = useApp(s => s.openQuickchatTab);
   const active = panel.tabs.find(t => t.id === panel.activeId) || panel.tabs[0];
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -72,9 +68,6 @@ export function RightPanel({ sessionId, width, draft }: { sessionId: string; wid
       <MenuItem onClick={() => { setMenu(null); addTab('terminal'); }}><span className="inline-flex items-center gap-2"><TerminalSquare size={14} />{t('panel.terminal')}</span></MenuItem>
       <MenuItem onClick={() => { setMenu(null); addTab('browser'); }}><span className="inline-flex items-center gap-2"><Globe size={14} />{t('panel.browser')}</span></MenuItem>
       <MenuItem onClick={() => { setMenu(null); addTab('files'); }}><span className="inline-flex items-center gap-2"><Files size={14} />{t('panel.files')}</span></MenuItem>
-      {!draft && <MenuItem onClick={() => { setMenu(null); openReviewTab(sessionId); }}><span className="inline-flex items-center gap-2"><GitCompare size={14} />{t('panel.review')}</span></MenuItem>}
-      {!draft && <MenuItem onClick={() => { setMenu(null); openCronTab(sessionId); }}><span className="inline-flex items-center gap-2"><Clock size={14} />{t('panel.cron')}</span></MenuItem>}
-      {!draft && <MenuItem onClick={() => { setMenu(null); openQuickchatTab(sessionId); }}><span className="inline-flex items-center gap-2"><MessageCircleQuestion size={14} />{t('panel.quickchat')}</span></MenuItem>}
     </Popover>
   );
 

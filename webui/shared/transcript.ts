@@ -188,6 +188,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
         finishTurn(snap, seq);
         voidPending(snap);
         updateBlock(snap, b => b.kind === 'user' && !b.doneTs, b => ({ ...b, doneTs: now } as Block));
+        updateBlock(snap, b => b.kind === 'notice' && b.noticeType === 'plan-implement' && !b.doneTs, b => ({ ...b, doneTs: now } as Block));
       }
       break;
     }
@@ -311,7 +312,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
 
     case 'task:start':
     case 'task:transfer':
-      notice(snap, seq, 'info', 'info', `后台任务${event === 'task:transfer' ? '（已转后台）' : ''}：${data?.command || data?.taskId || ''}`);
+      notice(snap, seq, 'info', 'info', `后台任务${event === 'task:transfer' ? '（已转后台）' : '启动'}：${data?.command || data?.taskId || ''}`);
       break;
     case 'task:end':
       notice(snap, seq, 'info', data?.status === 'failed' ? 'warn' : 'info', `后台任务结束（${data?.status}）：${data?.summary || ''}`);
@@ -352,6 +353,12 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       break;
 
     case 'plan:implement':
+      // clearContextAndStart 会在 core 侧重建模型上下文；消息流也从实施计划重新开始，
+      // 保证实时画面和服务端落盘快照都不再保留 Plan 阶段的旧块。
+      snap.blocks = [];
+      snap.todos = [];
+      snap.turn = null;
+      snap.streamingId = undefined;
       notice(snap, seq, 'plan-implement', 'info', `已清理上下文，开始实施计划：${data?.planFilePath || ''}`, data?.planContent);
       break;
 
@@ -449,18 +456,23 @@ export function applyLocal(snap: SessionSnapshot, action: LocalAction): SessionS
 
 // ==================== 派生 ====================
 
-export function pendingBlocks(snap: SessionSnapshot): Block[] {
+/** 递归收集给定块列表中未决的权限确认/快速确认/计划退出块（含嵌套子代理） */
+export function pendingIn(blocks: Block[]): Block[] {
   const out: Block[] = [];
-  const walk = (blocks: Block[]) => {
-    for (const b of blocks) {
+  const walk = (bs: Block[]) => {
+    for (const b of bs) {
       if (b.kind === 'permission' && !b.resolved) out.push(b);
       else if (b.kind === 'pick' && !b.answered) out.push(b);
       else if (b.kind === 'plan-exit' && !b.resolved) out.push(b);
       else if (b.kind === 'agent') walk(b.blocks);
     }
   };
-  walk(snap.blocks);
+  walk(blocks);
   return out;
+}
+
+export function pendingBlocks(snap: SessionSnapshot): Block[] {
+  return pendingIn(snap.blocks);
 }
 
 export function firstUserText(snap: SessionSnapshot): string | undefined {

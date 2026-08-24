@@ -11,14 +11,15 @@ import { PERMISSION_LEVELS, normalizeLevel } from '../../../../shared/types';
 import type { AgentMode, PermissionLevel, FileSearchItem, SlashItem } from '../../../../shared/types';
 import { CommandPanel, FilePicker, filterSlash, findAtTrigger, findSlashTrigger, formatFileRef, useCommands, useFileSearch, type PickerTrigger } from './InputPickers';
 
-const MODES: AgentMode[] = ['Agent', 'Plan'];
+const MODES: AgentMode[] = ['Agent', 'Plan', 'Design'];
 const LEVELS = PERMISSION_LEVELS;
 const ACCEPT = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-// 模式/档位按钮状态色（对齐插件：Agent/Ask 灰，Plan/AutoRun 黄，AutoEdit 绿，Bypass 红）
+// 模式/档位按钮状态色（对齐插件：Agent/Ask 灰，Plan/AutoRun 黄，AutoEdit 绿，Bypass 红，Design 紫）
 const NEUTRAL_TONE = 'bg-black/[0.04] text-muted hover:text-fg hover:bg-black/[0.07]';
 const MODE_TONE: Partial<Record<AgentMode, string>> = {
   Agent: NEUTRAL_TONE,
   Plan: 'bg-warn/10 text-warn hover:bg-warn/15',
+  Design: 'bg-design/10 text-design hover:bg-design/15',
 };
 const LEVEL_TONE: Record<PermissionLevel, string> = {
   AutoEdit: 'bg-ok/10 text-ok hover:bg-ok/15',
@@ -46,8 +47,9 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  // 草稿模式下模式/档位先记在本地，创建会话后再下发
-  const [draftMode, setDraftMode] = useState<AgentMode>('Agent');
+  // 草稿模式下模式/档位先记着，创建会话后再下发；模式提在 store 里，DraftView 据此切换 Design 版新会话样式
+  const draftMode = useSessions(s => s.draftAgentMode);
+  const setDraftMode = useSessions(s => s.setDraftAgentMode);
   const defaultLevel = normalizeLevel(useApp(s => s.settings?.defaultPermissionLevel));
   const [draftLevel, setDraftLevel] = useState<PermissionLevel>(defaultLevel);
   // @ 文件选择器 / 斜杠命令面板：由光标位置的文本判定是否打开；selIdx 为当前高亮项
@@ -65,7 +67,18 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const disabled = (isDraft ? false : !snap || pending > 0) || wsStatus !== 'open';
   const agentMode = isDraft ? draftMode : (snap?.agentMode || 'Agent');
   const permissionLevel = isDraft ? draftLevel : normalizeLevel(snap?.permissionLevel || defaultLevel);
-  const changeMode = (m: AgentMode) => { if (isDraft) setDraftMode(m); else setAgentMode(sessionId!, m).catch(e => toast(e.message, 'error')); };
+  // Design 模式与 Agent/Plan 不同：不能在已有会话里就地切入，选中后回到新会话草稿页并预选 Design，
+  // 与默认新会话一致：首次发送时才真正创建会话
+  const changeMode = (m: AgentMode) => {
+    if (isDraft) { setDraftMode(m); return; }
+    if (m === 'Design' && agentMode !== 'Design') {
+      const pid = useApp.getState().registry.sessions.find(s => s.id === sessionId)?.projectId;
+      setDraftMode('Design');
+      setView({ type: 'draft', projectId: pid });
+      return;
+    }
+    setAgentMode(sessionId!, m).catch(e => toast(e.message, 'error'));
+  };
   const changeLevel = (l: PermissionLevel) => { if (isDraft) setDraftLevel(l); else setPermissionLevel(sessionId!, l).catch(e => toast(e.message, 'error')); };
 
   // 自动高度
@@ -147,6 +160,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
         if (draftLevel !== defaultLevel) await sessions.setPermissionLevel(rec.id, draftLevel);
         await sessions.send(rec.id, text, images);
         sessions.setDraft(DRAFT_KEY, () => ({ text: '', images: [] }));
+        sessions.setDraftAgentMode('Agent');
         setView({ type: 'chat', sessionId: rec.id });
       } else {
         await send(sessionId!, text, images);
@@ -225,7 +239,12 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
             className="w-full bg-transparent resize-none px-3.5 pt-3.5 pb-1.5 text-sm leading-[22px] min-h-[52px] placeholder:text-muted/60 max-h-60" />
           {/* 底栏：左侧裸按钮 28px 等高，右侧用量 + 32px 发送键，全部垂直居中 */}
           <div className="h-11 flex items-center gap-0.5 pl-2 pr-2">
-            <Dropdown value={agentMode} title={t('chat.mode')} options={MODES.map(m => ({ value: m, label: t(`mode.${m}` as any) }))}
+            <Dropdown value={agentMode} title={t('chat.mode')} options={MODES.map(m => ({
+              value: m,
+              label: m === 'Design'
+                ? <span className="inline-flex items-center gap-1.5">{t('mode.Design')}<span className="text-[9px] leading-none px-1 py-0.5 rounded bg-black/[0.06] text-muted font-medium">beta</span></span>
+                : t(`mode.${m}` as any),
+            }))}
               onChange={changeMode} compact tone={MODE_TONE[agentMode] || NEUTRAL_TONE}
               renderValue={v => <span>{t(`mode.${v}` as any)}</span>} />
             <span className="mx-1 h-4 border-l border-border" />

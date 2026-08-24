@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
 import { SessionManager } from '../sessions';
-import { TRASH_DIR } from '../registry/registry';
+import { SEMA_DOCS_ROOT, TRASH_DIR } from '../registry/registry';
 import { searchFiles } from '../files/search';
 import { readFileInDir, listDir, resolvePath, statPaths, rawFileInDir } from '../files/read';
 import { listOpenWithApps, appIconPath } from '../files/apps';
@@ -199,8 +199,9 @@ export class Router {
     this.add('POST', '/api/projects/pick-directory', async () => ({ path: await pickDirectory() }));
     this.add('PATCH', '/api/projects/:id', (_r, _s, p, body) => { const r = reg.renameProject(p.id, String(body?.name || '')); sm.broadcastRegistry(); return r; });
     this.add('DELETE', '/api/projects/:id', async (_r, _s, p) => {
+      const sessions = reg.listSessions().filter(s => s.projectId === p.id);
+      for (const s of sessions) await sm.closeSession(s.id);
       const removed = reg.removeProject(p.id);
-      for (const s of removed) await sm.closeSession(s.id);
       sm.broadcastRegistry();
       return { removed: removed.length };
     });
@@ -217,6 +218,7 @@ export class Router {
       return rec;
     };
     this.add('POST', '/api/sessions', async (_r, _s, _p, body) => sm.createSession({ projectId: body?.projectId || undefined }));
+    this.add('POST', '/api/sessions/:id/branch', async (_r, _s, p) => sm.branchSession(p.id));
     this.add('GET', '/api/sessions/:id/snapshot', (_r, _s, p) => sm.getSnapshot(p.id));
     this.add('PATCH', '/api/sessions/:id', (_r, _s, p, body) => {
       const r = reg.updateSession(p.id, { title: String(body?.title || '') }); sm.broadcastRegistry(); return r;
@@ -226,7 +228,14 @@ export class Router {
       this.tm?.killBySession(p.id);
       await sm.closeSession(p.id);
       reg.removeSession(p.id);
-      if (!rec.projectId) await trashDir(rec.workingDir);
+      const hasOtherRef = reg.hasWorkingDirReference(rec.workingDir);
+      const managedRoot = path.resolve(SEMA_DOCS_ROOT) + path.sep;
+      if ((rec.managedWorkingDir ?? !rec.projectId) && !hasOtherRef && path.resolve(rec.workingDir).startsWith(managedRoot)) {
+        await sm.dispatch('core.deleteProjectHistory', undefined, { projectPath: rec.workingDir });
+        await trashDir(rec.workingDir);
+      } else {
+        await sm.dispatch('core.deleteSessionHistory', undefined, { sessionId: rec.id, projectPath: rec.workingDir });
+      }
       sm.broadcastRegistry();
       return true;
     });

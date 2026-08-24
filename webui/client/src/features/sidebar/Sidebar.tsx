@@ -40,6 +40,18 @@ export function Sidebar({ width }: { width: number }) {
 
   return (
     <aside style={{ width }} className="shrink-0 h-full flex flex-col border-r border-border bg-panel">
+      {/* Design 模式会话图标的七彩渐变描边（跨 svg 引用，仅需定义一次） */}
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+        <defs>
+          <linearGradient id="design-session-gradient" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#ff5c5c" />
+            <stop offset="25%" stopColor="#ffb648" />
+            <stop offset="50%" stopColor="#5cd68c" />
+            <stop offset="75%" stopColor="#4ea1ff" />
+            <stop offset="100%" stopColor="#9575ff" />
+          </linearGradient>
+        </defs>
+      </svg>
       <div className="p-2 pb-0.5 flex flex-col gap-0.5">
         <div className="flex items-center justify-between px-2 h-8 mb-1.5">
           <span className="text-base font-semibold tracking-wide">{t('app.name')}</span>
@@ -182,7 +194,7 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
 
   const state = snap?.state ?? status?.state;
   const pending = snap ? pendingBlocks(snap).length : (status?.pending ?? 0);
-  const hasError = snap ? snap.blocks.slice(-3).some(b => b.kind === 'notice' && b.level === 'error') : false;
+  const doneUnread = useApp(s => !!s.doneUnread[session.id]);
 
   const rename = async () => {
     const title = await dialog.prompt({ title: t('menu.rename'), defaultValue: session.title });
@@ -201,7 +213,8 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
       <div ref={rowRef} onClick={() => setView({ type: 'chat', sessionId: session.id })} onContextMenu={menu.open}
         onMouseEnter={onEnter} onMouseLeave={onLeave}
         className={cn('group flex items-center gap-1.5 h-7 px-1.5 rounded-md text-sm cursor-pointer select-none', active ? 'bg-black/[0.07]' : 'hover:bg-black/[0.05]')}>
-        <MessageSquare size={13} className="text-muted shrink-0" />
+        <MessageSquare size={13} className={cn('shrink-0', session.agentMode !== 'Design' && 'text-muted')}
+          color={session.agentMode === 'Design' ? 'url(#design-session-gradient)' : undefined} />
         <span className="flex-1 min-w-0 overflow-hidden">
           <span ref={titleRef} className={cn('block whitespace-nowrap', shift ? 'w-max' : 'truncate')}
             style={{ transform: `translateX(-${shift}px)`, transition: shift ? `transform ${Math.max(0.6, shift / 40)}s linear 0.3s` : 'none' }}>
@@ -210,7 +223,7 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
         </span>
         {pending > 0 ? <span className="h-2 w-2 rounded-full bg-warn shrink-0" title="待应答" />
           : state === 'processing' ? <span className="h-2 w-2 rounded-full bg-accent pulse shrink-0" title="处理中" />
-            : hasError ? <span className="h-2 w-2 rounded-full bg-danger shrink-0" title="出错" /> : null}
+            : doneUnread ? <span className="h-2 w-2 rounded-full bg-ok shrink-0" title="已完成" /> : null}
         <span className="text-[10px] text-muted shrink-0 group-hover:hidden">{relTime(session.lastActiveAt)}</span>
         <button onClick={e => { e.stopPropagation(); menu.open(e); }} className="hidden group-hover:block p-0.5 rounded text-muted hover:text-fg"><MoreHorizontal size={13} /></button>
       </div>

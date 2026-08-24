@@ -7,6 +7,7 @@ import { BlockRenderer, renderBlockList, htmlFilesOf, HtmlSiteCard, type BlockCt
 import { Composer } from './Composer';
 import { Button, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { t } from '../../i18n';
+import { fmtTime } from '../../common/text';
 
 export function ChatView({ sessionId }: { sessionId: string }) {
   const record = useApp(s => s.registry.sessions.find(x => x.id === sessionId));
@@ -154,13 +155,15 @@ function groupTurns(blocks: Block[]): Turn[] {
 }
 
 const isWork = (b: Block) => b.kind === 'tool' || b.kind === 'agent';
+/** 末尾卡片：待办面板与定时任务卡片，恒排在本轮所有块之后 */
+const isTail = (b: Block) => b.kind === 'todos' || b.kind === 'cron';
 const isText = (b: Block) => b.kind === 'assistant' && !!b.text;
 
 /**
  * 一轮的渲染。
  * 运行中：用户气泡 →（有文字/工具后）「已处理 N秒」分隔 → 全部块按原顺序（连续 ≥2 工具收成 live 组，组头为最后一个工具的摘要）
  * →（仅当最后一个可见块是已完成的文字或本轮尚无输出时）「正在思考」状态行。
- * 结束后：「耗时 N秒 ›」分隔 → 文件改动卡片 + 最终结论（最后一段文字）+ 其后的非工具块 + 定时任务卡片 → 复制行；中间过程默认折叠。
+ * 结束后：「耗时 N秒 ›」分隔 → 文件改动卡片 + 最终结论（最后一段文字）+ 其后的非工具块 + 待办/定时任务卡片 → 复制行；中间过程默认折叠。
  * 展开时按原顺序显示全部块（组头为类别文案），与运行中渲染仅差组名与状态行。
  */
 function TurnGroup({ turn, ctx, active }: { turn: Turn; ctx: BlockCtx; active: boolean }) {
@@ -177,15 +180,15 @@ function TurnGroup({ turn, ctx, active }: { turn: Turn; ctx: BlockCtx; active: b
   const before = lastTextIdx >= 0 ? rest.slice(0, lastTextIdx) : [];
   const after = lastTextIdx >= 0 ? rest.slice(lastTextIdx + 1) : rest;
 
-  // 定时任务卡片与文件改动卡片一样始终排在本轮末尾（运行中/展开/折叠三种视图一致），不按工具调用发生的位置插在过程里
-  const cronCards = rest.filter(b => b.kind === 'cron');
-  const ordered = [...rest.filter(b => b.kind !== 'cron'), ...cronCards];
-  // 折叠视图：文件改动卡片 + 最后一段文字 + 其后的非工具块 + 定时任务卡片
+  // 待办面板 / 定时任务卡片与文件改动卡片一样始终排在本轮末尾（运行中/展开/折叠三种视图一致），不按工具调用发生的位置插在过程里
+  const tailCards = rest.filter(isTail);
+  const ordered = [...rest.filter(b => !isTail(b)), ...tailCards];
+  // 折叠视图：文件改动卡片 + 最后一段文字 + 其后的非工具块 + 待办/定时任务卡片
   const collapsedView: Block[] = [
     ...before.filter(b => b.kind === 'file-changes'),
     ...(lastText ? [lastText] : []),
-    ...after.filter(b => !isWork(b) && b.kind !== 'cron'),
-    ...cronCards,
+    ...after.filter(b => !isWork(b) && !isTail(b)),
+    ...tailCards,
   ];
   const hidden = rest.filter(b => !collapsedView.includes(b));
   // 运行中不折叠过程（工具全部可见），结束后才收成摘要视图
@@ -224,15 +227,15 @@ function StatusLine({ text }: { text: string }) {
   );
 }
 
-function FinalActions({ text, ts }: { text: string; ts: number }) {
+/** 文字回答下方的操作行：复制 · 赞 · 踩，悬浮显示时间（chat 主流与快问面板共用） */
+export function FinalActions({ text, ts, className }: { text: string; ts?: number; className?: string }) {
   const { copied, copy } = useCopy();
   // 点赞/踩：仅前端本地状态，无后端处理
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
-  const d = new Date(ts);
-  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const time = ts ? fmtTime(ts) : '';
   const btn = 'p-1 rounded hover:bg-black/[0.05] hover:text-fg';
   return (
-    <div className="group flex items-center gap-1 -mt-1 mb-2 text-xs text-muted">
+    <div className={cn('group flex items-center gap-1 text-xs text-muted', className ?? '-mt-1 mb-2')}>
       <button onClick={() => copy(text)} className={btn} title={t('chat.copy')}>
         {copied ? <Check size={13} className="text-ok" /> : <Copy size={13} />}
       </button>
@@ -242,7 +245,7 @@ function FinalActions({ text, ts }: { text: string; ts: number }) {
       <button onClick={() => setVote(v => v === 'down' ? null : 'down')} className={cn(btn, vote === 'down' && 'text-fg')} title={t('chat.bad')}>
         <ThumbsDown size={13} fill={vote === 'down' ? 'currentColor' : 'none'} />
       </button>
-      <span className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity">{time}</span>
+      {time && <span className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity">{time}</span>}
     </div>
   );
 }

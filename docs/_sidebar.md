@@ -13,7 +13,9 @@
     - [后台任务使用](wiki/getting-started/basic-usage/background-task-usage)
     - [定时任务使用](wiki/getting-started/basic-usage/cron-usage)
 - **扩展应用**
-  - [IDE 插件（VSCode / JetBrains）](wiki/scenarios/vscode-extension)
+  - [SemaCode（VSCode / JetBrains）](wiki/scenarios/vscode-extension)
+  - [SemaWork](wiki/scenarios/semawork)
+  - [SemaPLC](wiki/scenarios/semaplc)
   - [SemaClaw](wiki/scenarios/semaclaw)
   - [Code2Skill](wiki/scenarios/code2skill)
 - **核心概念**

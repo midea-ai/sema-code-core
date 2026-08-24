@@ -10,7 +10,7 @@ import { PlanExitCard, PlanImplementCard } from './PlanCards';
 import { Button, cn, Spinner, useCopy, Popover, MenuSep } from '../../common/ui';
 import { OpenWithItems, useOpenWithApps } from '../../common/openWith';
 import { api } from '../../api/http';
-import { contentToString, toolDisplayName, stripAnsi } from '../../common/text';
+import { contentToString, toolDisplayName, stripAnsi, fmtTime } from '../../common/text';
 import { extractLocalUrls, normalizeUrl } from '../../common/url';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
@@ -64,7 +64,7 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   }, [block.text]);
   const collapsed = overflowing && !expanded;
   return (
-    <div className="group flex justify-end my-3">
+    <div className="group flex justify-end user-sticky pt-3 pb-1 mb-2">
       <div className="max-w-[80%] flex flex-col items-end gap-1">
         {block.source === 'cron' && (
           <button onClick={() => useApp.getState().openCronTab(ctx.sessionId)} className="flex items-center gap-1 text-xs text-muted hover:text-fg hover:underline underline-offset-2" title={t('panel.cron')}>
@@ -98,7 +98,7 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
 /** 用户消息悬浮工具栏：时间 · 复制 · 回退 */
 function UserBubbleBar({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   const { copied, copy } = useCopy();
-  const time = useMemo(() => new Date(block.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), [block.ts]);
+  const time = useMemo(() => fmtTime(block.ts), [block.ts]);
   const btn = 'text-muted hover:text-fg inline-flex items-center p-0.5 rounded';
   return (
     <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1.5 text-[11px] text-muted">

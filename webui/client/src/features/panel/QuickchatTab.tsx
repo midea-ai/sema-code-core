@@ -3,6 +3,7 @@ import { MessageCircleQuestion, Send } from 'lucide-react';
 import { useSessions } from '../../store/sessions';
 import { useApp } from '../../store/app';
 import { Markdown } from '../chat/Markdown';
+import { FinalActions } from '../chat/ChatView';
 import { Spinner } from '../../common/ui';
 import { t } from '../../i18n';
 
@@ -63,6 +64,7 @@ export function QuickchatTab({ sessionId }: { sessionId: string }) {
             </div>
             <div className="px-3 py-2 text-sm">
               <Markdown text={q.content} sessionId={sessionId} />
+              <FinalActions text={q.content} ts={q.ts} className="mt-1.5 -mb-0.5" />
             </div>
           </div>
         ))}

@@ -50,12 +50,28 @@
 
 ## 💼 Use Cases
 
-### IDE Extension (VSCode / JetBrains)
+### SemaCode Extension (VSCode / JetBrains)
 
-[Sema Code Extension](https://github.com/midea-ai/sema-code-vscode-extension) is an intelligent programming plugin based on the Sema Code Core engine, supporting both the VSCode extension and JetBrains plugins (IntelliJ IDEA / PyCharm / GoLand / WebStorm / CLion, etc.).
+[Sema Code Extension](https://github.com/midea-ai/sema-code-vscode-extension) is an intelligent programming plugin based on the Sema Core engine, supporting both the VSCode extension and JetBrains plugins (IntelliJ IDEA / PyCharm / GoLand / WebStorm / CLion, etc.).
 
 <p align="center">
   <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/plan-mode.gif" alt="Sema Code VSCode Extension"/>
+</p>
+
+### SemaWork
+
+[SemaWork](./webui/README.md) is a local web UI built on Sema Core — chat with the Agent in your browser and watch tool calls and file changes as they happen. See [Quick Start](#-quick-start) below.
+
+<p align="center">
+  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.png" alt="SemaWork"/>
+</p>
+
+### SemaPLC
+
+[SemaPLC](https://github.com/midea-ai/SemaPLC) is an Agent-driven IDE for industrial PLC programming — describe a control task in natural language and watch it become a running PLC program, powered by the embedded sema-core Agent.
+
+<p align="center">
+  <img src="https://github.com/midea-ai/SemaPLC/raw/main/docs/images/demo.gif" alt="SemaPLC"/>
 </p>
 
 ### SemaClaw 
@@ -76,7 +92,7 @@ A Skill web application based on Sema Code Core, integrating Agent Skill Browser
 
 ## 🚀 Quick Start
 
-[SemaWork](./webui/README.md) is a local web UI built on Sema Code Core — chat with the Agent in your browser and watch tool calls and file changes as they happen.
+Get [SemaWork](./webui/README.md) running locally in two steps:
 
 ### 1. Clone and build
 
@@ -92,12 +108,6 @@ cd webui && npm install && npm run build
 npm start -- --open
 ```
 
-### 3. Configure a model
-
-Once the browser opens, go to Settings to add a model and API Key, then start chatting. For more model configuration options, see [Model Management](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/basic-usage/add-new-model)
-
-To embed in your own app (Node.js / Java / Python / C#), see the [Quick Start guide](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/quick-start)
-
 ## 🛠 Development
 
 ```bash
@@ -107,6 +117,8 @@ npm install
 # 2. Build
 npm run build
 
+# 3. Pack (optional): creates sema-core-x.y.z.tgz for local testing via npm install <tgz>
+npm pack
 ```
 
 ## 📜 License & Third-Party Dependencies

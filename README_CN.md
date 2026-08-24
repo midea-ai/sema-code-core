@@ -50,12 +50,28 @@
 
 ## 💼 使用案例
 
-### IDE 插件（VSCode / JetBrains）
+### SemaCode 插件（VSCode / JetBrains）
 
-[Sema Code Extension](https://github.com/midea-ai/sema-code-vscode-extension) 是基于 Sema Code Core 引擎的智能编程插件，支持 VSCode 插件和 JetBrains 插件（IntelliJ IDEA / PyCharm / GoLand / WebStorm / CLion 等）。
+[Sema Code Extension](https://github.com/midea-ai/sema-code-vscode-extension) 是基于 Sema Core 引擎的智能编程插件，支持 VSCode 插件和 JetBrains 插件（IntelliJ IDEA / PyCharm / GoLand / WebStorm / CLion 等）。
 
 <p align="center">
   <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/plan-mode.gif" alt="Sema Code VSCode Extension"/>
+</p>
+
+### SemaWork
+
+[SemaWork](./webui/README.md) 是基于 Sema Core 的本地 Web 界面，在浏览器中与 Agent 对话、查看工具调用与文件改动，见下方[快速开始](#-快速开始)。
+
+<p align="center">
+  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.png" alt="SemaWork"/>
+</p>
+
+### SemaPLC
+
+[SemaPLC](https://github.com/midea-ai/SemaPLC) 是一个 Agent 驱动的工业 PLC 编程 IDE：用自然语言描述控制任务，由内置的 sema-core Agent 端到端地生成、编译、部署并验证 PLC 程序。
+
+<p align="center">
+  <img src="https://github.com/midea-ai/SemaPLC/raw/main/docs/images/demo.gif" alt="SemaPLC"/>
 </p>
 
 ### SemaClaw 
@@ -76,7 +92,7 @@
 
 ## 🚀 快速开始
 
-[SemaWork](./webui/README.md) 是基于 Sema Code Core 的本地 Web 界面，在浏览器中与 Agent 对话、查看工具调用与文件改动。
+以 [SemaWork](./webui/README.md) 为例，两步在本地跑起来：
 
 ### 1. 克隆并构建
 
@@ -92,12 +108,6 @@ cd webui && npm install && npm run build
 npm start -- --open
 ```
 
-### 3. 配置模型
-
-浏览器打开后，进入「设置」添加模型与 API Key，即可开始对话。更多模型配置参考[模型管理](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/basic-usage/add-new-model)
-
-集成到自己的应用（Node.js / Java / Python / C#）参考[快速开始文档](https://midea-ai.github.io/sema-code-core/#/wiki/getting-started/quick-start)
-
 ## 🛠️ 开发
 
 ```bash
@@ -107,6 +117,8 @@ npm install
 # 2. 编译
 npm run build
 
+# 3. 打包（可选）：生成 sema-core-x.y.z.tgz，可在其他项目中 npm install <tgz> 验证
+npm pack
 ```
 
 ## 📜 许可证与第三方依赖

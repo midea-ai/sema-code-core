@@ -98,3 +98,8 @@ textarea, input, select { outline: none; }
 
 .scrollbar-none { scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* 用户气泡在本轮内吸顶（TurnGroup 外层 div 为包含块），被下一轮用户输入顶替 */
+.user-sticky { position: sticky; top: 0; z-index: 10; background: var(--color-bg); }
+/* 吸顶底部渐变淡出：内容滚到下方时柔和过渡，而非被硬边切断 */
+.user-sticky::after { content: ''; position: absolute; left: 0; right: 0; bottom: -10px; height: 10px; background: linear-gradient(to bottom, var(--color-bg), transparent); pointer-events: none; }

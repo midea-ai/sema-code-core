@@ -6,6 +6,10 @@
 
 SemaWork 是基于 sema-core 的本地 Web 界面。
 
+<p align="center">
+  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.png" alt="SemaWork"/>
+</p>
+
 ```bash
 # 1. 克隆并构建 sema-core
 git clone https://github.com/midea-ai/sema-code-core.git

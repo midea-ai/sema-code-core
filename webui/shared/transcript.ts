@@ -406,7 +406,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       // 旁路问答：不进消息流，累积到 quickchats 供右侧「快问」标签渲染；空问题提示用法
       const question = String(data?.question || '');
       if (!question) { notice(snap, seq, 'info', 'info', '用法：/quickchat 问题'); break; }
-      snap.quickchats = [...(snap.quickchats || []), { question, content: String(data?.content || ''), seq }];
+      snap.quickchats = [...(snap.quickchats || []), { question, content: String(data?.content || ''), seq, ts: now }];
       break;
     }
 

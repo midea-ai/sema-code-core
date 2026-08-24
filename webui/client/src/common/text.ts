@@ -37,3 +37,16 @@ export function langOf(p: string): string | undefined {
   const ext = base.includes('.') ? base.split('.').pop()!.toLowerCase() : base.toLowerCase();
   return EXT_LANG[ext];
 }
+
+/** 消息时间分级显示：今天→时分；7 天内→星期 时分；本年→M月D日 时分；跨年→YYYY年M月D日 时分 */
+export function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const dayDiff = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
+  if (dayDiff <= 0) return hm;
+  if (dayDiff < 7) return `星期${'日一二三四五六'[d.getDay()]} ${hm}`;
+  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+}

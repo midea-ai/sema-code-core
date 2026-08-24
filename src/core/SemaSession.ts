@@ -1,6 +1,6 @@
 import { SemaEngine } from './SemaEngine';
 import { CreateSessionOptions } from '../types/session';
-import { ForkOptions, ForkPreview, ForkResult } from '../types/fork';
+import { ForkOptions, ForkPreview, ForkResult, BranchResult } from '../types/fork';
 import { SessionEventBus, createSessionEventBus } from '../events/EventSystem';
 import { generateSessionId } from '../util/session';
 import { getStateManager } from '../manager/StateManager';
@@ -85,6 +85,14 @@ export class SemaSession {
    */
   fork = (messageUuid: string, options?: ForkOptions): Promise<ForkResult> =>
     this.engine.rewind(messageUuid, options);
+
+  /**
+   * 分支到新聊天：创建新会话 id，新会话历史 = 当前历史截到该用户输入之前
+   * （不传则全量复制）。原会话与工作区文件均不动。
+   * 调用方拿到新 sessionId 后用 SemaSession.create({ sessionId }) 打开新聊天。
+   */
+  branch = (beforeMessageUuid?: string): Promise<BranchResult> =>
+    this.engine.branchToNewChat(beforeMessageUuid);
 
   // ==================== 后台任务（仅本会话）====================
   getTaskList = (): TaskListItem[] => getTaskManager().getTaskList(this.sessionId);

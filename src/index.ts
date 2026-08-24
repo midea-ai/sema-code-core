@@ -6,5 +6,6 @@ export type {
   ForkFileEffect,
   ForkOptions,
   ForkResult,
+  BranchResult,
 } from './types/fork';
 export type { InputImageAttachment } from './types/message';

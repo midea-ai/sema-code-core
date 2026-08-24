@@ -42,3 +42,12 @@ export interface ForkOptions {
 export type ForkResult =
   | { ok: true; sessionId: string; restoredFiles: string[] }
   | { ok: false; error: string };
+
+/**
+ * 分支到新聊天的执行结果：
+ * 新会话历史 = 原会话历史截到指定用户输入之前（不传锚点则全量复制），
+ * 原会话与工作区文件均不受影响。
+ */
+export type BranchResult =
+  | { ok: true; sessionId: string }
+  | { ok: false; error: string };

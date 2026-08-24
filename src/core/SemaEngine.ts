@@ -17,7 +17,8 @@ import { isInterruptedException } from '../types/errors';
 import type { Message, UserMsg, InputImageAttachment, InputSource } from '../types/message';
 import { compressImage } from '../util/imageCompress';
 import type { UUID } from '../types/uuid';
-import type { ForkOptions, ForkResult } from '../types/fork';
+import type { ForkOptions, ForkResult, BranchResult } from '../types/fork';
+import { generateSessionId } from '../util/session';
 import { ReAct } from './Conversation';
 import type { AgentContext } from '../types/agent'
 import { getStateManager, MAIN_AGENT_ID, PendingUserInput, SessionRuntime } from '../manager/StateManager';
@@ -646,6 +647,70 @@ export class SemaEngine {
 
     logInfo(`原地回退: ${this.sessionId} @ ${messageUuid} (restoreFiles=${!!options.restoreFiles}, restored=${restoredFiles.length}, 历史保留 ${truncated.length} 条)`);
     return { ok: true, sessionId: this.sessionId, restoredFiles };
+  }
+
+  /**
+   * 分支到新聊天：创建新会话 id，新会话历史 = 当前历史截到指定用户输入之前
+   * （beforeMessageUuid 不传则全量复制，对应"从最新回复分支"）。
+   * 原会话历史、editlog 与工作区文件均不动；新会话带截断后的 editlog 副本
+   * （blobs 内容寻址共享），后续仍可自行 fork / 回滚文件。
+   */
+  async branchToNewChat(beforeMessageUuid?: string): Promise<BranchResult> {
+    const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
+
+    // idle 守卫：处理中分支会把写到一半的回合复制进新会话
+    if (mainAgentState.getCurrentState() !== 'idle') {
+      return { ok: false, error: '会话忙，请等待空闲后再分支' };
+    }
+
+    const history = mainAgentState.getMessageHistory();
+    const checkpoint = getCheckpointManager();
+
+    // 解析截断点：有锚点 → 该用户输入之前；无锚点 → 全量
+    let branchedMessages: Message[];
+    let forkSeq: number;
+    if (beforeMessageUuid !== undefined) {
+      const idx = history.findIndex(m => m.uuid === beforeMessageUuid);
+      if (idx < 0) {
+        return { ok: false, error: `未找到消息: ${beforeMessageUuid}` };
+      }
+      // 同 rewind：只接受带 checkpointSeq 的真实用户输入作为截断点，
+      // 其他消息不是干净回合边界，在其之上截断会留下孤儿 tool_use
+      const anchorMsg = history[idx];
+      if (anchorMsg.type !== 'user' || anchorMsg.checkpointSeq === undefined) {
+        return { ok: false, error: `该消息不是可分支的用户输入: ${beforeMessageUuid}` };
+      }
+      branchedMessages = history.slice(0, idx);
+      forkSeq = anchorMsg.checkpointSeq;
+    } else {
+      branchedMessages = history.slice();
+      forkSeq = checkpoint.getEditCount(this.sessionId);
+    }
+
+    if (branchedMessages.length === 0) {
+      return { ok: false, error: '没有可分支的历史' };
+    }
+
+    const newSessionId = generateSessionId();
+    const workingDir = getConfManager().getCoreConfig()?.workingDir;
+
+    // 新会话历史落盘（带日期命名，与随机新会话一致）；
+    // todos / readFileTimestamps 与 fork 行为一致不回退，直接复制当前值
+    await saveHistory(
+      newSessionId,
+      branchedMessages,
+      this.runtime.getTodos(),
+      workingDir,
+      this.runtime.getReadFileTimestamps(),
+      this.runtime.listTodoTasks(MAIN_AGENT_ID),
+      false,
+    );
+
+    // 复制截断后的 editlog 给新会话（blobs 共享无需复制）
+    checkpoint.copyEditLog(this.sessionId, newSessionId, forkSeq);
+
+    logInfo(`分支到新聊天: ${this.sessionId} -> ${newSessionId} (anchor=${beforeMessageUuid ?? '末尾'}, 历史 ${branchedMessages.length} 条, editlog seq<${forkSeq})`);
+    return { ok: true, sessionId: newSessionId };
   }
 
   /**

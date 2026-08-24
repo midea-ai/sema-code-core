@@ -184,6 +184,15 @@ class CheckpointManager {
     this.persist(sessionId);
   }
 
+  /**
+   * 分支到新聊天：把源会话 seq < uptoSeq 的 EditLog 记录复制为目标会话的 editlog。
+   * blobs 内容寻址、跨会话共享，无需复制；目标会话打开后自行懒加载。
+   */
+  copyEditLog(srcSessionId: string, destSessionId: string, uptoSeq: number): void {
+    const kept = this.getEditLog(srcSessionId).filter(r => r.seq < uptoSeq);
+    saveEditLog(destSessionId, kept, this.projectPath());
+  }
+
   /** 释放某会话的内存 EditLog（磁盘文件保留，供重新打开/再次 fork 使用） */
   forgetSession(sessionId: string): void {
     this.editLogs.delete(sessionId);

@@ -25,6 +25,8 @@ interface SessionsState {
   setDraft(sessionId: string, fn: (d: Draft) => Draft): void;
 
   send(sessionId: string, text: string, images?: Draft['images']): Promise<void>;
+  /** 快问面板提问：与主输入框输入「/quickchat 问题」同一条发送链路，仅代拼前缀、不动聊天草稿 */
+  sendQuickchat(sessionId: string, question: string): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
   respondPermission(sessionId: string, toolId: string, toolName: string, selected: string): Promise<void>;
   respondPick(sessionId: string, blockId: string, agentId: string, answers: string | null): Promise<void>;
@@ -99,6 +101,10 @@ export const useSessions = create<SessionsState>((set, get) => ({
     }
     const next = applyEvent({ ...cur }, frame.event, frame.data, frame.seq);
     set(s => ({ snapshots: { ...s.snapshots, [frame.sessionId]: next } }));
+    // quickchat 回答到达：自动展开右侧「快问」标签
+    if (frame.event === 'quickchat:response' && frame.data?.question) {
+      useApp.getState().openQuickchatTab(frame.sessionId);
+    }
     if (frame.event === 'session:error') {
       useApp.getState().toast(frame.data?.error?.message || '会话出错', 'error');
     }
@@ -118,6 +124,9 @@ export const useSessions = create<SessionsState>((set, get) => ({
     const attachments = images.map(i => ({ type: 'image', data: i.data, media_type: i.media_type }));
     await wsClient.request('session.processUserInput', sessionId, { input: text, attachments: attachments.length ? attachments : undefined });
     get().setDraft(sessionId, () => emptyDraft());
+  },
+  async sendQuickchat(sessionId, question) {
+    await wsClient.request('session.processUserInput', sessionId, { input: `/quickchat ${question}` });
   },
   async interrupt(sessionId) { await wsClient.request('session.interrupt', sessionId, {}); },
   async respondPermission(sessionId, toolId, toolName, selected) {

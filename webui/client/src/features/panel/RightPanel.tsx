@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Globe, Files, GitCompare, TerminalSquare, Bot, Clock, X, Plus, ChevronLeft, ChevronRight, RotateCw, ExternalLink, PanelRight } from 'lucide-react';
+import { Globe, Files, GitCompare, TerminalSquare, Bot, Clock, MessageCircleQuestion, X, Plus, ChevronLeft, ChevronRight, RotateCw, ExternalLink, PanelRight } from 'lucide-react';
 import { useApp, PanelTab } from '../../store/app';
 import { cn, Popover, MenuItem } from '../../common/ui';
 import { FileIcon } from '../../common/fileicon/FileIcon';
@@ -11,12 +11,13 @@ import { FileTab } from './FileTab';
 import { TerminalTab } from './TerminalTab';
 import { AgentTab } from './AgentTab';
 import { CronTab } from './CronTab';
+import { QuickchatTab } from './QuickchatTab';
 
 function TabIcon({ tab, size = 12, className }: { tab: PanelTab; size?: number; className?: string }) {
   // 文件标签已打开具体文件时用文件类型 logo，未选文件时仍用统一 Files 图标
   if (tab.type === 'files' && tab.path) return <FileIcon fileName={tab.path} size={size} className={className} />;
   if (tab.type === 'browser' && tab.icon) return <SiteFavicon url={tab.icon} size={size} className={className} />;
-  const Icon = tab.type === 'review' ? GitCompare : tab.type === 'files' ? Files : tab.type === 'terminal' ? TerminalSquare : tab.type === 'agent' ? Bot : tab.type === 'cron' ? Clock : Globe;
+  const Icon = tab.type === 'review' ? GitCompare : tab.type === 'files' ? Files : tab.type === 'terminal' ? TerminalSquare : tab.type === 'agent' ? Bot : tab.type === 'cron' ? Clock : tab.type === 'quickchat' ? MessageCircleQuestion : Globe;
   return <Icon size={size} className={className} />;
 }
 
@@ -34,6 +35,7 @@ export function RightPanel({ sessionId, width, draft }: { sessionId: string; wid
   const updatePanel = useApp(s => s.updatePanel);
   const openReviewTab = useApp(s => s.openReviewTab);
   const openCronTab = useApp(s => s.openCronTab);
+  const openQuickchatTab = useApp(s => s.openQuickchatTab);
   const active = panel.tabs.find(t => t.id === panel.activeId) || panel.tabs[0];
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -72,6 +74,7 @@ export function RightPanel({ sessionId, width, draft }: { sessionId: string; wid
       <MenuItem onClick={() => { setMenu(null); addTab('files'); }}><span className="inline-flex items-center gap-2"><Files size={14} />{t('panel.files')}</span></MenuItem>
       {!draft && <MenuItem onClick={() => { setMenu(null); openReviewTab(sessionId); }}><span className="inline-flex items-center gap-2"><GitCompare size={14} />{t('panel.review')}</span></MenuItem>}
       {!draft && <MenuItem onClick={() => { setMenu(null); openCronTab(sessionId); }}><span className="inline-flex items-center gap-2"><Clock size={14} />{t('panel.cron')}</span></MenuItem>}
+      {!draft && <MenuItem onClick={() => { setMenu(null); openQuickchatTab(sessionId); }}><span className="inline-flex items-center gap-2"><MessageCircleQuestion size={14} />{t('panel.quickchat')}</span></MenuItem>}
     </Popover>
   );
 
@@ -121,6 +124,7 @@ export function RightPanel({ sessionId, width, draft }: { sessionId: string; wid
           : active?.type === 'terminal' ? <TerminalTab key={active.id} sessionId={sessionId} tab={active} />
           : active?.type === 'agent' ? <AgentTab key={active.id} sessionId={sessionId} tab={active} />
           : active?.type === 'cron' ? <CronTab key={active.id} sessionId={sessionId} tab={active} />
+          : active?.type === 'quickchat' ? <QuickchatTab key={active.id} sessionId={sessionId} />
           : active ? <BrowserTab key={active.id} sessionId={sessionId} tab={active} /> : (
             <div className="flex-1 flex flex-col items-center justify-center text-center text-sm text-muted p-6 gap-4">
               <div className="text-base font-medium text-fg">{t('panel.emptyTitle')}</div>
@@ -143,6 +147,7 @@ function tabLabel(tab: PanelTab) {
   if (tab.type === 'terminal') return t('panel.terminal');
   if (tab.type === 'agent') return t('panel.agent');
   if (tab.type === 'cron') return t('panel.cron');
+  if (tab.type === 'quickchat') return t('panel.quickchat');
   if (!tab.url) return t('panel.browser');
   try {
     const u = new URL(tab.url);

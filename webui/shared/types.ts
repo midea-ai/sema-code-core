@@ -307,7 +307,12 @@ export interface SessionSnapshot {
   streamingId?: string;
   /** 会话是否已由 core 加载了历史 */
   historyLoaded?: boolean;
+  /** quickchat 旁路问答记录（/quickchat），与主消息流独立 */
+  quickchats?: QuickchatEntry[];
 }
+
+/** quickchat 旁路问答一条记录 */
+export interface QuickchatEntry { question: string; content: string; seq: number }
 
 /** 未决交互请求（由快照 blocks 派生） */
 export type PendingKind = 'permission' | 'pick' | 'plan-exit';

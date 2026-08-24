@@ -19,7 +19,7 @@ export type View =
 export interface ModelData { modelName: string; modelList: string[]; taskConfig: { main: string; quick: string } }
 
 export interface PanelTab {
-  id: string; type: 'browser' | 'files' | 'review' | 'terminal' | 'agent' | 'cron'; url?: string; title?: string; history: string[]; index: number;
+  id: string; type: 'browser' | 'files' | 'review' | 'terminal' | 'agent' | 'cron' | 'quickchat'; url?: string; title?: string; history: string[]; index: number;
   /** browser：页面声明的图标地址（服务端解析），导航时清空 */
   icon?: string;
   /** review：定位到的 file-changes 块 id（空=最新一轮）；agent：子代理块 id */
@@ -86,6 +86,8 @@ interface AppState {
   openAgentTab(sessionId: string, blockId: string): void;
   /** 打开/复用本会话唯一的「定时任务」标签，可选定位到指定任务 */
   openCronTab(sessionId: string, focusId?: string): void;
+  /** 打开/复用本会话唯一的「快问」标签（/quickchat 旁路问答） */
+  openQuickchatTab(sessionId: string): void;
   revealFile(sessionId: string, relPath: string): Promise<void>;
   /** 用系统默认程序打开；app 为 macOS 应用 bundle 路径时用指定应用打开 */
   openFileExternal(sessionId: string, relPath: string, app?: string): Promise<void>;
@@ -291,6 +293,14 @@ export const useApp = create<AppState>((set, get) => ({
         return { ...p, collapsed: false, tabs: p.tabs.map(t => t.id === tab.id ? tab : t), activeId: tab.id };
       }
       const tab: PanelTab = { id: `c${Date.now()}`, type: 'cron', history: [], index: -1, ...focus };
+      return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
+    });
+  },
+  openQuickchatTab(sessionId) {
+    get().updatePanel(sessionId, p => {
+      const exist = p.tabs.find(t => t.type === 'quickchat');
+      if (exist) return { ...p, collapsed: false, activeId: exist.id };
+      const tab: PanelTab = { id: `q${Date.now()}`, type: 'quickchat', history: [], index: -1 };
       return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
     });
   },

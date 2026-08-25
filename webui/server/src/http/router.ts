@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
 import { SessionManager } from '../sessions';
-import { SEMA_DOCS_ROOT, TRASH_DIR } from '../registry/registry';
+import { SEMA_DOCS_ROOT, TRASH_DIR, removeEmptyDateParent } from '../registry/registry';
 import { searchFiles } from '../files/search';
 import { readFileInDir, listDir, resolvePath, statPaths, rawFileInDir } from '../files/read';
 import { listOpenWithApps, appIconPath } from '../files/apps';
@@ -198,10 +198,18 @@ export class Router {
     });
     this.add('POST', '/api/projects/pick-directory', async () => ({ path: await pickDirectory() }));
     this.add('PATCH', '/api/projects/:id', (_r, _s, p, body) => { const r = reg.renameProject(p.id, String(body?.name || '')); sm.broadcastRegistry(); return r; });
-    this.add('DELETE', '/api/projects/:id', async (_r, _s, p) => {
+    this.add('DELETE', '/api/projects/:id', async (r, _s, p) => {
+      const proj = reg.getProject(p.id);
       const sessions = reg.listSessions().filter(s => s.projectId === p.id);
-      for (const s of sessions) await sm.closeSession(s.id);
+      for (const s of sessions) { this.tm?.killBySession(s.id); await sm.closeSession(s.id); }
       const removed = reg.removeProject(p.id);
+      // deleteFiles=1：仅 WebUI 受管目录且无其他引用时，连带 core 历史与文件夹（移入废纸篓）一起删除
+      const deleteFiles = new URL(r.url || '/', 'http://x').searchParams.get('deleteFiles') === '1';
+      const managedRoot = path.resolve(SEMA_DOCS_ROOT) + path.sep;
+      if (deleteFiles && proj?.managedWorkingDir && !reg.hasWorkingDirReference(proj.workingDir) && path.resolve(proj.workingDir).startsWith(managedRoot)) {
+        await sm.dispatch('core.deleteProjectHistory', undefined, { projectPath: proj.workingDir });
+        await trashDir(proj.workingDir);
+      }
       sm.broadcastRegistry();
       return { removed: removed.length };
     });
@@ -233,6 +241,7 @@ export class Router {
       if ((rec.managedWorkingDir ?? !rec.projectId) && !hasOtherRef && path.resolve(rec.workingDir).startsWith(managedRoot)) {
         await sm.dispatch('core.deleteProjectHistory', undefined, { projectPath: rec.workingDir });
         await trashDir(rec.workingDir);
+        removeEmptyDateParent(rec.workingDir);
       } else {
         await sm.dispatch('core.deleteSessionHistory', undefined, { sessionId: rec.id, projectPath: rec.workingDir });
       }

@@ -13,11 +13,12 @@ export function DraftView({ projectId }: { projectId?: string }) {
   const modelData = useApp(s => s.modelData);
   const setView = useApp(s => s.setView);
   const hasModel = !!modelData?.modelList?.length;
+  const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
   // Design 是新会话页的一种形态：Composer 里切模式即就地切换本页文案，会话仍在首次发送时创建
   const isDesign = useSessions(s => s.draftAgentMode) === 'Design';
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border">
+      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && 'pl-12')}>
         <span className="font-medium">{t('sidebar.newSession')}</span>
         {project && <span className="text-xs text-muted truncate hidden md:inline" title={project.workingDir}>{project.workingDir}</span>}
       </div>

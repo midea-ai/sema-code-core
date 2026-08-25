@@ -71,7 +71,7 @@ interface AppState {
   createProject(name: string): Promise<ProjectRecord>;
   importProject(path: string, name?: string): Promise<ProjectRecord>;
   renameProject(id: string, name: string): Promise<void>;
-  removeProject(id: string): Promise<void>;
+  removeProject(id: string, deleteFiles?: boolean): Promise<void>;
   revealProject(id: string): Promise<void>;
   createSession(projectId?: string): Promise<SessionRecord>;
   renameSession(id: string, title: string): Promise<void>;
@@ -192,8 +192,8 @@ export const useApp = create<AppState>((set, get) => ({
   async createProject(name) { return api('POST', '/api/projects', { name }); },
   async importProject(path, name) { return api('POST', '/api/projects', { importPath: path, name: name || undefined }); },
   async renameProject(id, name) { await api('PATCH', `/api/projects/${id}`, { name }); },
-  async removeProject(id) {
-    await api('DELETE', `/api/projects/${id}`);
+  async removeProject(id, deleteFiles) {
+    await api('DELETE', `/api/projects/${id}${deleteFiles ? '?deleteFiles=1' : ''}`);
     const v = get().view;
     if (v.type === 'chat' && !get().registry.sessions.some(s => s.id === v.sessionId)) get().setView({ type: 'draft' });
     if (v.type === 'draft' && v.projectId === id) get().setView({ type: 'draft' });

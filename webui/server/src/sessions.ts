@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { EventEmitter } from 'events';
 import { WorkerPool, WorkerHandle } from './workers/pool';
-import { RegistryStore, TRANSCRIPT_DIR, CONFIG_WORKSPACE, SEMA_DOCS_ROOT, writeJsonAtomic } from './registry/registry';
+import { RegistryStore, TRANSCRIPT_DIR, CONFIG_WORKSPACE, SEMA_DOCS_ROOT, writeJsonAtomic, removeEmptyDateParent } from './registry/registry';
 import type { CronGroup, CronTask, EventFrame, SessionRecord, SessionSnapshot } from '../../shared/types';
 import { applyEvent, applyLocal, createSnapshot, pendingBlocks } from '../../shared/transcript';
 import { SERVER_EVENTS } from '../../shared/protocol';
@@ -490,6 +490,7 @@ export class SessionManager extends EventEmitter {
         const managedRoot = path.resolve(SEMA_DOCS_ROOT) + path.sep;
         if ((rec.managedWorkingDir ?? !rec.projectId) && !hasOtherRef && path.resolve(rec.workingDir).startsWith(managedRoot)) {
           try { fs.rmSync(rec.workingDir, { recursive: true, force: true }); } catch { /* ignore */ }
+          removeEmptyDateParent(rec.workingDir);
           await this.dispatch('core.deleteProjectHistory', undefined, { projectPath: rec.workingDir })
             .catch((e: any) => console.error('[evict] 删除 history 项目失败:', e?.message || e));
         } else {

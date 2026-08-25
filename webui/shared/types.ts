@@ -20,6 +20,8 @@ export interface ProjectRecord {
   id: string;
   name: string;
   workingDir: string;
+  /** 目录是否由 WebUI 创建管理（导入的外部目录为 false） */
+  managedWorkingDir?: boolean;
   createdAt: number;
   lastActiveAt: number;
 }

@@ -12,9 +12,10 @@ import type { WebUISettings } from '../../../../shared/types';
 
 export function SettingsPage({ tab }: { tab: 'models' | 'system' }) {
   const setView = useApp(s => s.setView);
+  const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border">
+      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && 'pl-12')}>
         <TabBtn active={tab === 'models'} onClick={() => setView({ type: 'settings', tab: 'models' })}>{t('settings.models')}</TabBtn>
         <TabBtn active={tab === 'system'} onClick={() => setView({ type: 'settings', tab: 'system' })}>{t('settings.system')}</TabBtn>
       </div>

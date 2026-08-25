@@ -1,5 +1,5 @@
 import React, { memo, useState, useMemo, useRef, useLayoutEffect, useEffect } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch, Images } from 'lucide-react';
 import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, TodosBlock, CronBlock, BranchOriginBlock } from '../../../../shared/types';
 import { CRON_TOOLS } from '../../../../shared/protocol';
 import { Markdown } from './Markdown';
@@ -7,9 +7,10 @@ import { DiffView, CodeView, Collapsible } from './DiffView';
 import { PickCard } from './PickCard';
 import { AgentCard } from './AgentCard';
 import { PlanExitCard, PlanImplementCard } from './PlanCards';
+import { ImageThumb } from './ImagePreview';
 import { Button, cn, Spinner, useCopy, Popover, MenuSep } from '../../common/ui';
 import { OpenWithItems, useOpenWithApps } from '../../common/openWith';
-import { api } from '../../api/http';
+import { api, getToken } from '../../api/http';
 import { contentToString, toolDisplayName, stripAnsi, fmtTime } from '../../common/text';
 import { extractLocalUrls, normalizeUrl } from '../../common/url';
 import { useApp } from '../../store/app';
@@ -98,7 +99,7 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
         {block.attachments && block.attachments.length > 0 && (
           <div className="flex gap-1.5 flex-wrap justify-end">
             {block.attachments.map((a, i) => a.dataUrl
-              ? <img key={i} src={a.dataUrl} className="h-20 rounded-md border border-border object-cover" />
+              ? <ImageThumb key={i} src={a.dataUrl} className="h-20 w-20" />
               : <div key={i} className="h-10 px-2 rounded-md border border-border text-xs text-muted flex items-center">图片</div>)}
           </div>
         )}
@@ -301,11 +302,14 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
   const filePath = filePathOf(block, workingDir);
   const openFileRef = useApp(s => s.openFileRef);
+  /** view_file 读图片文件：行为改为可展开，展开区显示缩略图（点击放大预览） */
+  const isImageRead = isRead && !!filePath && /\.(png|jpe?g|gif|webp)$/i.test(filePath);
+  const expandable = !isSearch && !isAgentCall && (!isRead || isImageRead);
 
   return (
     <div className="my-0.5 text-[13px] text-dim">
-      {/* 整行灰色；读取文件：点文件名在右侧栏打开（不展开内容块）；搜索：不可点击；其余点击展开详情 */}
-      <div onClick={() => !isRead && !isSearch && !isAgentCall && setOpen(v => !v)} className={cn('w-full flex items-center gap-2 py-0.5 text-left', !isRead && !isSearch && !isAgentCall && 'cursor-pointer')} title={isRead || isSearch || isAgentCall ? undefined : block.title}>
+      {/* 整行灰色；读取文件：点文件名在右侧栏打开（读图片行可展开缩略图）；搜索：不可点击；其余点击展开详情 */}
+      <div onClick={() => expandable && setOpen(v => !v)} className={cn('w-full flex items-center gap-2 py-0.5 text-left', expandable && 'cursor-pointer')} title={expandable && !isRead ? block.title : undefined}>
         {block.status === 'running' ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : block.status === 'error' ? <X size={14} className="text-danger shrink-0" /> : <Icon size={14} className="shrink-0" />}
         {isSearch ? <span className="truncate">{searchLabel(block, block.status === 'running')}</span> : <span className="shrink-0">{toolVerb(block, diff)}</span>}
         {isSearch || isGeneric ? null : filePath
@@ -323,12 +327,14 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
           ))}
         </div>
       )}
-      {open && !isRead && !isSearch && !isAgentCall && (
+      {open && expandable && (
         <div className="pl-6 py-1">
           {isShell && block.summary && <div className="text-xs text-muted mb-1.5">{block.summary}</div>}
           {isGeneric && block.title && block.title !== block.toolName && block.toolName !== 'ask_form' && <div className="text-xs text-muted mb-1 break-all">{block.title}</div>}
           {isGeneric && block.summary && <div className="text-xs text-muted mb-1.5">{block.summary}</div>}
-          {diff ? <DiffView patch={diff.patch} path={block.title} sessionId={ctx.sessionId} maxLines={400} collapsible /> : (
+          {isImageRead ? (
+            <ImageThumb src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(filePath!)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" />
+          ) : diff ? <DiffView patch={diff.patch} path={block.title} sessionId={ctx.sessionId} maxLines={400} collapsible /> : (
             bodyText ? (
               <Collapsible deps={bodyText} className="rounded-md bg-code border border-border overflow-hidden">
                 <pre className={cn('font-mono text-[12px] leading-5 whitespace-pre-wrap break-words p-2', block.status === 'error' && 'text-danger')}>{bodyText.length > 20000 ? bodyText.slice(-20000) : bodyText}</pre>
@@ -342,13 +348,44 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   );
 }
 
+/** 连续的 view_file 读图片合并为一行「已查看 x 张图片」，展开显示缩略图（与输入气泡同规格，点击放大） */
+function ImageReadCard({ blocks, ctx }: { blocks: ToolBlock[]; ctx: BlockCtx }) {
+  const [open, setOpen] = useState(false);
+  const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
+  const running = blocks.some(b => b.status === 'running');
+  const paths = blocks.map(b => filePathOf(b, workingDir)).filter((p): p is string => !!p);
+  return (
+    <div className="my-0.5 text-[13px] text-dim">
+      <button onClick={() => setOpen(v => !v)} className="flex items-center gap-2 py-0.5 text-left cursor-pointer hover:text-fg">
+        {running ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : <Images size={14} className="shrink-0" />}
+        <span>{running ? '正在查看图片' : `已查看 ${paths.length} 张图片`}</span>
+        {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+      </button>
+      {open && (
+        <div className="pl-6 py-1 flex gap-2 flex-wrap">
+          {paths.map((p, i) => (
+            <ImageThumb key={`${i}:${p}`} src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(p)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ==================== 工具组（连续多个工具调用折叠为一组） ====================
 
 const EDIT_TOOLS = new Set(['write_file', 'patch_file', 'edit_notebook']);
 
-/** 可并入工具组的块：工具本身、已放行的权限卡（本就不渲染）、自动放行提示 */
+/** view_file 读图片文件的工具块：单独走「已查看 x 张图片」卡片，不进普通工具行/工具组 */
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp)$/i;
+function isImageReadBlock(b: Block): b is ToolBlock {
+  return b.kind === 'tool' && b.toolName === 'view_file'
+    && IMAGE_EXT_RE.test(String(b.title || b.input?.file_path || '').replace(/:\d+(-\d+)?$/, ''));
+}
+
+/** 可并入工具组的块：工具本身（读图片除外）、已放行的权限卡（本就不渲染）、自动放行提示 */
 export function isToolGroupable(b: Block): boolean {
-  if (b.kind === 'tool') return true;
+  if (b.kind === 'tool') return !isImageReadBlock(b);
   if (b.kind === 'assistant') return !b.text; // 纯思考块不渲染，不打断分组
   if (b.kind === 'permission') return !!b.resolved && b.resolved !== 'refuse' && b.resolved !== '__interrupted';
   if (b.kind === 'notice') return b.noticeType === 'auto-permission';
@@ -359,6 +396,13 @@ export function isToolGroupable(b: Block): boolean {
 export function renderBlockList(blocks: Block[], ctx: BlockCtx, live = false) {
   const out: React.ReactNode[] = [];
   for (let i = 0; i < blocks.length;) {
+    // 连续的读图片块合并为一张「已查看 x 张图片」卡片
+    if (isImageReadBlock(blocks[i])) {
+      let j = i;
+      while (j < blocks.length && isImageReadBlock(blocks[j])) j++;
+      out.push(<ImageReadCard key={blocks[i].id} blocks={blocks.slice(i, j) as ToolBlock[]} ctx={ctx} />);
+      i = j; continue;
+    }
     if (!isToolGroupable(blocks[i])) { out.push(<BlockRenderer key={blocks[i].id} block={blocks[i]} ctx={ctx} />); i++; continue; }
     let j = i;
     while (j < blocks.length && isToolGroupable(blocks[j])) j++;

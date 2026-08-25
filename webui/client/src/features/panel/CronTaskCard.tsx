@@ -75,7 +75,7 @@ export function CronTaskCard({ task, expanded, onToggleExpand, onToggle, onDelet
           {task.nextFireAt.length > 0 && (
             <div>
               <div className="text-xs text-muted mb-1">{t('cron.nextFire')}:</div>
-              <pre className="font-mono text-[12px] leading-5 rounded-md bg-code border border-border p-2">{task.nextFireAt.map(fmtDateTime).join('\n')}</pre>
+              <pre className="font-mono text-[12px] leading-5 overflow-x-auto rounded-md bg-code border border-border p-2">{task.nextFireAt.map(fmtDateTime).join('\n')}</pre>
             </div>
           )}
           {task.lastFiredAt != null && <div className="text-[11px] text-muted">{t('cron.lastFired')}: {fmtDateTime(task.lastFiredAt)}</div>}

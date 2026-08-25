@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, Square, X } from 'lucide-react';
+import { ArrowUp, Square } from 'lucide-react';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { pendingBlocks } from '../../../../shared/transcript';
@@ -10,6 +10,7 @@ import { t } from '../../i18n';
 import { PERMISSION_LEVELS, normalizeLevel } from '../../../../shared/types';
 import type { AgentMode, PermissionLevel, FileSearchItem, SlashItem } from '../../../../shared/types';
 import { CommandPanel, FilePicker, filterSlash, findAtTrigger, findSlashTrigger, formatFileRef, useCommands, useFileSearch, type PickerTrigger } from './InputPickers';
+import { ImageThumb } from './ImagePreview';
 
 const MODES: AgentMode[] = ['Agent', 'Plan', 'Design'];
 const LEVELS = PERMISSION_LEVELS;
@@ -219,11 +220,8 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
           {draft.images.length > 0 && (
             <div className="flex gap-2 px-3.5 pt-3 flex-wrap">
               {draft.images.map((img, i) => (
-                <div key={i} className="relative group">
-                  <img src={img.dataUrl} className="h-16 w-16 object-cover rounded-md border border-border" />
-                  <button onClick={() => setDraft(draftKey, d => ({ ...d, images: d.images.filter((_, j) => j !== i) }))}
-                    className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-white border border-border text-muted hover:text-fg flex items-center justify-center"><X size={10} /></button>
-                </div>
+                <ImageThumb key={i} src={img.dataUrl} className="h-20 w-20"
+                  onDelete={() => setDraft(draftKey, d => ({ ...d, images: d.images.filter((_, j) => j !== i) }))} />
               ))}
             </div>
           )}

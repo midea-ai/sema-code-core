@@ -112,6 +112,17 @@ function SectionHeader({ label, action, className, open = true, onToggle }: { la
 /** 项目节点默认展示的会话数 */
 const PROJECT_SESSIONS_PREVIEW = 5;
 
+/** 移除项目确认框里的「连带删除文件夹」勾选项（仅 WebUI 受管目录显示） */
+function DeleteFilesOption({ onChange }: { onChange: (v: boolean) => void }) {
+  const [checked, setChecked] = useState(false);
+  return (
+    <label className="inline-flex items-center gap-2 text-sm cursor-pointer select-none">
+      <input type="checkbox" checked={checked} onChange={e => { setChecked(e.target.checked); onChange(e.target.checked); }} />
+      {t('dialog.removeProjectDeleteFiles')}
+    </label>
+  );
+}
+
 function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSession }: {
   project: ProjectRecord; sessions: SessionRecord[]; expanded: boolean; onToggle: () => void; activeId?: string; onNewSession: () => void;
 }) {
@@ -129,14 +140,19 @@ function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSes
     if (name && name !== project.name) app().renameProject(project.id, name).catch(e => toast(e.message, 'error'));
   };
   const remove = async () => {
-    if (await dialog.confirm({ title: t('menu.remove'), message: t('dialog.confirmRemoveProject', { name: project.name }), danger: true, okText: t('menu.remove') })) {
-      app().removeProject(project.id).catch(e => toast(e.message, 'error'));
-    }
+    const del = { current: false };
+    const ok = await dialog.confirm({
+      title: t('menu.remove'), danger: true, okText: t('menu.remove'),
+      message: t(project.managedWorkingDir ? 'dialog.confirmRemoveProjectManaged' : 'dialog.confirmRemoveProject', { name: project.name }),
+      extra: project.managedWorkingDir ? <DeleteFilesOption onChange={v => { del.current = v; }} /> : undefined,
+    });
+    if (ok) app().removeProject(project.id, del.current).catch(e => toast(e.message, 'error'));
   };
   return (
     <div>
       <div onContextMenu={menu.open} onClick={onToggle}
-        className="group flex items-center gap-1.5 h-7 px-2 rounded-md text-sm hover:bg-black/[0.05] cursor-pointer select-none" title={project.workingDir}>
+        className={cn('group flex items-center gap-1.5 h-7 px-2 rounded-md text-sm cursor-pointer select-none',
+          !expanded && sessions.some(s => s.id === activeId) ? 'bg-black/[0.07]' : 'hover:bg-black/[0.05]')} title={project.workingDir}>
         <Folder size={14} className="text-muted shrink-0" />
         <span className="truncate flex-1">{project.name}</span>
         <button onClick={e => { e.stopPropagation(); onNewSession(); }} className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted hover:text-fg" title={t('menu.newSessionHere')}><Plus size={13} /></button>

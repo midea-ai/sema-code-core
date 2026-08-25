@@ -123,10 +123,22 @@ npm run build
 npm pack
 ```
 
-## 📜 License & Third-Party Dependencies
+<a id="the-sema-family"></a>
 
-`sema-core` is released under the [MIT License](./LICENSE).
+## 🌐 The Sema Family
 
-All production dependencies are pulled from the npm registry under permissive licenses (MIT / ISC / BSD / Apache-2.0 / BlueOak-1.0.0 / 0BSD); no copyleft (GPL / AGPL / LGPL) code is introduced. The full component list, license summary, and external service terms are tracked in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md). Resolved versions are pinned via `package-lock.json` for reproducible installs and license traceability.
+**Midea AIRC · SEMA Agent Systems** explores agent systems engineering through three open-source research efforts. **Sema Code** turns product-bound coding agents into programmable, embeddable infrastructure; **SemaClaw** studies harness engineering for open, controllable, and extensible personal agents; and **SemaPLC** grounds industrial code generation in existing projects and gates completion on specification, compilation, and runtime evidence. **Embed · Harness · Verify** summarizes the distinct focus of each project, not a shared pipeline or strict dependency chain.
 
-When calling third-party model or service APIs (Anthropic, OpenAI, OpenAI-compatible endpoints, MCP servers) through this library, the embedding application is responsible for complying with the corresponding provider's terms of service.
+<p align="center">
+  <img src="./images/sema-series-family.png" alt="The SEMA project family: Sema Code, SemaClaw, and SemaPLC" width="1000" />
+</p>
+
+The SEMA series currently includes the following papers and open-source implementations:
+
+[1] [*Sema Code: Decoupling AI Coding Agents into Programmable, Embeddable Infrastructure*](https://arxiv.org/abs/2604.11045) · [Code](https://github.com/midea-ai/sema-code-core)<br>
+[2] [*SemaClaw: A Step Towards General-Purpose Personal AI Agents through Harness Engineering*](https://arxiv.org/abs/2604.11548) · [Code](https://github.com/midea-ai/SemaClaw)<br>
+[3] [*SemaPLC: A Project-Grounded, Verification-Gated Agent Harness for PLC Code Generation*](https://arxiv.org/abs/2608.18565) · [Code](https://github.com/midea-ai/SemaPLC)
+
+## 📜 License
+
+`sema-core` is released under the [MIT License](./LICENSE). See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for the third-party dependency list and external service terms.

@@ -1,9 +1,9 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./images/semacode-logo-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="./images/semacode-logo.png">
-  <img src="./images/semacode-logo.png" alt="Sema Code Core Logo" width="75%"/>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/images/semacode-logo-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="./docs/images/semacode-logo.png">
+  <img src="./docs/images/semacode-logo.png" alt="Sema Code Core Logo" width="75%"/>
 </picture>
 
 <h3>An Event-Driven AI Coding Assistant Core Engine</h3>
@@ -22,7 +22,7 @@
 
 ## 📖 Project Overview
 
-**Sema Code Core** is an event-driven AI coding assistant core engine that provides reliable and pluggable intelligent processing capabilities for building code assistant tools. It supports core capabilities such as multi-agent collaboration, Skill extension, and Plan mode task planning, and can be quickly integrated into various AI programming tools.
+**Sema Core** is an event-driven AI coding assistant core engine that provides reliable and pluggable intelligent processing capabilities for building code assistant tools. It supports core capabilities such as multi-agent collaboration, Skill extension, and Plan mode task planning, and can be quickly integrated into various AI programming tools.
 
 [View Documentation](https://midea-ai.github.io/sema-code-core)
 
@@ -52,7 +52,7 @@
 
 ### SemaCode Extension (VSCode / JetBrains)
 
-[Sema Code Extension](https://github.com/midea-ai/sema-code-vscode-extension) is an intelligent programming plugin based on the Sema Core engine, supporting both the VSCode extension and JetBrains plugins (IntelliJ IDEA / PyCharm / GoLand / WebStorm / CLion, etc.).
+[SemaCode Extension](https://github.com/midea-ai/sema-code-vscode-extension) is an intelligent programming plugin based on the Sema Core engine, supporting both the VSCode extension and JetBrains plugins (IntelliJ IDEA / PyCharm / GoLand / WebStorm / CLion, etc.).
 
 <p align="center">
   <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/plan-mode.gif" alt="Sema Code VSCode Extension"/>
@@ -60,7 +60,7 @@
 
 ### SemaWork
 
-[SemaWork](./webui/README.md) is a local web UI built on Sema Core — chat with the Agent in your browser and watch tool calls and file changes as they happen. See [Quick Start](#-quick-start) below.
+[SemaWork](./webui/README.md) is a local web UI built on Sema Core.
 
 <p align="center">
   <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.gif" alt="SemaWork"/>
@@ -123,6 +123,8 @@ npm run build
 npm pack
 ```
 
+Non-Node projects can integrate via the [multi-language SDKs](./sdks/README.md) (Java / Python / C#).
+
 <a id="the-sema-family"></a>
 
 ## 🌐 The Sema Family
@@ -130,7 +132,7 @@ npm pack
 **Midea AIRC · SEMA Agent Systems** explores agent systems engineering through three open-source research efforts. **Sema Code** turns product-bound coding agents into programmable, embeddable infrastructure; **SemaClaw** studies harness engineering for open, controllable, and extensible personal agents; and **SemaPLC** grounds industrial code generation in existing projects and gates completion on specification, compilation, and runtime evidence. **Embed · Harness · Verify** summarizes the distinct focus of each project, not a shared pipeline or strict dependency chain.
 
 <p align="center">
-  <img src="./images/sema-series-family.png" alt="The SEMA project family: Sema Code, SemaClaw, and SemaPLC" width="1000" />
+  <img src="./docs/images/sema-series-family.png" alt="The SEMA project family: Sema Code, SemaClaw, and SemaPLC" width="1000" />
 </p>
 
 The SEMA series currently includes the following papers and open-source implementations:

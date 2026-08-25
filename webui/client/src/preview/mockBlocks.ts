@@ -317,7 +317,7 @@ $$P_{\\text{Bash}}(c) = \\text{allow} \\iff \\begin{cases} \\text{head}(c) \\in 
 ## 图片渲染示例
 远程图片（点击在浏览器打开）：
 ![shields](https://img.shields.io/badge/build-passing-brightgreen)
-<img src="https://github.com/midea-ai/sema-code-core/raw/main/images/semacode-logo.png" />
+<img src="https://github.com/midea-ai/sema-code-core/raw/main/docs/images/semacode-logo.png" />
 `,
     },
     {

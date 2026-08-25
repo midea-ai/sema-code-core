@@ -1,9 +1,9 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./images/semacode-logo-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="./images/semacode-logo.png">
-  <img src="./images/semacode-logo.png" alt="Sema Code Core Logo" width="75%"/>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/images/semacode-logo-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="./docs/images/semacode-logo.png">
+  <img src="./docs/images/semacode-logo.png" alt="Sema Code Core Logo" width="75%"/>
 </picture>
 
 <h3>事件驱动型 AI 编程助手核心引擎</h3>
@@ -22,7 +22,7 @@
 
 ## 📖 项目概述
 
-**Sema Code Core** 是一个事件驱动型 AI 编程助手核心引擎，为构建代码助手工具提供可靠、可插拔的智能处理能力。支持多智能体协同、Skill 扩展、Plan 模式任务规划等核心能力，可快速集成到各类 AI 编程工具中。
+**Sema Core** 是一个事件驱动型 AI 编程助手核心引擎，为构建代码助手工具提供可靠、可插拔的智能处理能力。支持多智能体协同、Skill 扩展、Plan 模式任务规划等核心能力，可快速集成到各类 AI 编程工具中。
 
 [查看文档](https://midea-ai.github.io/sema-code-core)
 
@@ -52,7 +52,7 @@
 
 ### SemaCode 插件（VSCode / JetBrains）
 
-[Sema Code Extension](https://github.com/midea-ai/sema-code-vscode-extension) 是基于 Sema Core 引擎的智能编程插件，支持 VSCode 插件和 JetBrains 插件（IntelliJ IDEA / PyCharm / GoLand / WebStorm / CLion 等）。
+[SemaCode Extension](https://github.com/midea-ai/sema-code-vscode-extension) 是基于 Sema Core 引擎的智能编程插件，支持 VSCode 插件和 JetBrains 插件（IntelliJ IDEA / PyCharm / GoLand / WebStorm / CLion 等）。
 
 <p align="center">
   <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/plan-mode.gif" alt="Sema Code VSCode Extension"/>
@@ -60,7 +60,7 @@
 
 ### SemaWork
 
-[SemaWork](./webui/README.md) 是基于 Sema Core 的本地 Web 界面，在浏览器中与 Agent 对话、查看工具调用与文件改动，见下方[快速开始](#-快速开始)。
+[SemaWork](./webui/README.md) 是基于 Sema Core 的本地 Web 界面。
 
 <p align="center">
   <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.gif" alt="SemaWork"/>
@@ -123,6 +123,8 @@ npm run build
 npm pack
 ```
 
+非 Node 项目可通过[多语言 SDK](./sdks/README.md)（Java / Python / C#）接入。
+
 <a id="the-sema-family"></a>
 
 ## 🌐 The Sema Family
@@ -130,7 +132,7 @@ npm pack
 **Midea AIRC · SEMA Agent Systems** 从三个方向探索 Agent 系统工程：**Sema Code** 将编码 Agent 解耦为可编程、可嵌入的基础设施；**SemaClaw** 通过 Harness Engineering 构建开放、可控、可扩展的个人 Agent 系统；**SemaPLC** 面向工业代码生成，以项目上下文以及规格、编译和运行时验证结果约束交付。图中的 **Embed · Harness · Verify** 分别概括三项工作的研究重点，并不表示统一流程或严格依赖关系。
 
 <p align="center">
-  <img src="./images/sema-series-family.png" alt="SEMA 项目家族：Sema Code、SemaClaw 与 SemaPLC" width="1000" />
+  <img src="./docs/images/sema-series-family.png" alt="SEMA 项目家族：Sema Code、SemaClaw 与 SemaPLC" width="1000" />
 </p>
 
 SEMA 系列目前包含以下论文与开源实现：

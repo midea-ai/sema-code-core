@@ -4,7 +4,7 @@
 
 **SemaWork** 是随本仓库提供的本地 Web 界面（位于 [`webui/`](https://github.com/midea-ai/sema-code-core/tree/main/webui) 目录）：在浏览器里与 Agent 对话，驱动其对本地目录读写文件、执行命令，并可视化展示整个过程。
 
-<img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.png" alt="SemaWork" />
+<img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.gif" alt="SemaWork" />
 
 ## 功能亮点
 

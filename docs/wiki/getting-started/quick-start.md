@@ -7,7 +7,7 @@
 SemaWork 是基于 sema-core 的本地 Web 界面。
 
 <p align="center">
-  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.png" alt="SemaWork"/>
+  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.gif" alt="SemaWork"/>
 </p>
 
 ```bash
@@ -17,10 +17,10 @@ cd sema-code-core && npm install && npm run build
 
 # 2. 构建并启动 SemaWork
 cd webui && npm install && npm run build
-npm start -- --open
+npm start
 ```
 
-浏览器打开后在「设置」添加模型与 API Key 即可对话。
+启动后用浏览器打开终端打印的地址（`http://127.0.0.1:3210/?token=…`），也可用 `npm start -- --open` 自动打开浏览器。打开后在「设置」添加模型与 API Key 即可对话。
 
 ## 方式二：Node.js 直接集成
 

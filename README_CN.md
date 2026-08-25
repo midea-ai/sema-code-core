@@ -63,7 +63,7 @@
 [SemaWork](./webui/README.md) 是基于 Sema Core 的本地 Web 界面，在浏览器中与 Agent 对话、查看工具调用与文件改动，见下方[快速开始](#-快速开始)。
 
 <p align="center">
-  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.png" alt="SemaWork"/>
+  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.gif" alt="SemaWork"/>
 </p>
 
 ### SemaPLC
@@ -105,8 +105,10 @@ cd sema-code-core && npm install && npm run build
 
 ```bash
 cd webui && npm install && npm run build
-npm start -- --open
+npm start
 ```
+
+启动后用浏览器打开终端打印的地址（`http://127.0.0.1:3210/?token=…`）；也可用 `npm start -- --open` 自动打开浏览器。
 
 ## 🛠️ 开发
 

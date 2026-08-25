@@ -63,7 +63,7 @@
 [SemaWork](./webui/README.md) is a local web UI built on Sema Core — chat with the Agent in your browser and watch tool calls and file changes as they happen. See [Quick Start](#-quick-start) below.
 
 <p align="center">
-  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.png" alt="SemaWork"/>
+  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.gif" alt="SemaWork"/>
 </p>
 
 ### SemaPLC
@@ -105,8 +105,10 @@ cd sema-code-core && npm install && npm run build
 
 ```bash
 cd webui && npm install && npm run build
-npm start -- --open
+npm start
 ```
+
+Then open the URL printed in the terminal (`http://127.0.0.1:3210/?token=…`) in your browser, or run `npm start -- --open` to open it automatically.
 
 ## 🛠 Development
 

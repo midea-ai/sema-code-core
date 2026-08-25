@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import type { CronTask } from '../../../../shared/types';
 import { cn, Toggle, useDialog } from '../../common/ui';
 import { t } from '../../i18n';
@@ -21,10 +21,10 @@ export function parseCronFileRef(filePath: string, workingDir: string): { path: 
   return { path: p, line: m[2] ? Number(m[2]) : undefined, endLine: m[3] ? Number(m[3]) : undefined };
 }
 
-/** 定时任务卡片：右侧栏标签与日程页共用，操作通过回调注入；onEdit 缺省时不显示编辑按钮 */
-export function CronTaskCard({ task, expanded, onToggleExpand, onToggle, onDelete, onEdit }: {
+/** 定时任务卡片：右侧栏标签与日程页共用，操作通过回调注入；onEdit/onJump 缺省时不显示对应按钮 */
+export function CronTaskCard({ task, expanded, onToggleExpand, onToggle, onDelete, onEdit, onJump }: {
   task: CronTask; expanded: boolean;
-  onToggleExpand: () => void; onToggle: (v: boolean) => void; onDelete: () => void; onEdit?: () => void;
+  onToggleExpand: () => void; onToggle: (v: boolean) => void; onDelete: () => void; onEdit?: () => void; onJump?: () => void;
 }) {
   const dialog = useDialog();
   const [promptOpen, setPromptOpen] = useState(false);
@@ -47,6 +47,7 @@ export function CronTaskCard({ task, expanded, onToggleExpand, onToggle, onDelet
           <div className="truncate text-[11px] text-muted">{task.describeCronExpression}</div>
         </div>
         <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+          {onJump && <button onClick={onJump} className="h-6 w-6 inline-flex items-center justify-center rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('cron.openSession')}><ArrowUpRight size={13} /></button>}
           {onEdit && <button onClick={onEdit} className="h-6 w-6 inline-flex items-center justify-center rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('cron.edit')}><Pencil size={13} /></button>}
           <button onClick={confirmDelete} className="h-6 w-6 inline-flex items-center justify-center rounded text-muted hover:text-danger hover:bg-danger/10" title={t('cron.delete')}><Trash2 size={13} /></button>
           <span className="ml-1 inline-flex items-center scale-90"><Toggle checked={task.status} onChange={onToggle} /></span>

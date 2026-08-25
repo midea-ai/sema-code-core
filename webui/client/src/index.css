@@ -89,6 +89,12 @@ textarea, input, select { outline: none; }
 }
 @keyframes pulse-dot { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
 .pulse { animation: pulse-dot 1.2s infinite; }
+/* 回到底部按钮：运行中的三点动画 */
+.run-dots { display: inline-flex; align-items: center; gap: 3px; }
+.run-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: dot-bounce 1.2s ease-in-out infinite; }
+.run-dots i:nth-child(2) { animation-delay: .15s; }
+.run-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes dot-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-3px); opacity: 1; } }
 
 /* diff 视图：折叠态底部渐隐；词级高亮 */
 .diff-collapsed { overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent 100%); mask-image: linear-gradient(to bottom, #000 78%, transparent 100%); }

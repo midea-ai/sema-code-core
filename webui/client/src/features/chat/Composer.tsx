@@ -57,6 +57,9 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const [trigger, setTrigger] = useState<PickerTrigger | null>(null);
   const [selIdx, setSelIdx] = useState(0);
   const pendingCaret = useRef<number | null>(null);
+  // ↑↓ 历史输入切换：histIdx 为当前所在的历史下标（null=未在翻历史），histSaved 保存进入翻页前未发送的草稿
+  const histIdx = useRef<number | null>(null);
+  const histSaved = useRef('');
   const scope = { sessionId, projectId };
   const fileSearch = useFileSearch(scope, trigger?.kind === 'file' && (sessionId || projectId) ? trigger.query : null);
   const cmds = useCommands(scope, trigger?.kind === 'cmd');
@@ -89,7 +92,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
     el.style.height = Math.min(el.scrollHeight, 240) + 'px';
   }, [draft.text]);
 
-  useEffect(() => { taRef.current?.focus(); }, [draftKey]);
+  useEffect(() => { taRef.current?.focus(); histIdx.current = null; }, [draftKey]);
 
   // 补全后把光标放到指定位置（文本更新在下一次渲染才落到 DOM）
   useEffect(() => {
@@ -150,6 +153,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
     const images = override ? [] : draft.images; // 面板直发的内置命令（/clear /compact）不带图片
     if ((!text && images.length === 0) || disabled || sending) return;
     setTrigger(null);
+    histIdx.current = null;
     if (!hasModel) { toast(t('chat.noModel'), 'warn'); setView({ type: 'settings', tab: 'models' }); return; }
     setSending(true);
     try {
@@ -168,6 +172,29 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
       }
     } catch (e: any) { toast(e.message, 'error'); } finally { setSending(false); }
     taRef.current?.focus();
+  };
+
+  /** ↑↓ 切换项目历史输入：↑ 光标在首行时向更早翻，↓ 在末行时向更新翻，翻过最新一条恢复未发送草稿。
+   * 返回 true 表示已消费按键；光标不在首/末行时不接管，保持正常的行内移动 */
+  const historyNav = (key: string): boolean => {
+    const list = snap?.inputHistory;
+    if (!list?.length) return false;
+    const caret = taRef.current?.selectionStart ?? draft.text.length;
+    const apply = (text: string) => { pendingCaret.current = text.length; setDraft(draftKey, d => ({ ...d, text })); };
+    if (key === 'ArrowUp') {
+      if (draft.text.slice(0, caret).includes('\n')) return false;
+      const next = histIdx.current === null ? 0 : histIdx.current + 1;
+      if (next >= list.length) return true; // 已是最早一条：吞掉按键，光标不跳
+      if (histIdx.current === null) histSaved.current = draft.text;
+      histIdx.current = next;
+      apply(list[next]);
+      return true;
+    }
+    if (histIdx.current === null || draft.text.slice(caret).includes('\n')) return false;
+    const next = histIdx.current - 1;
+    histIdx.current = next < 0 ? null : next;
+    apply(next < 0 ? histSaved.current : list[next]);
+    return true;
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -192,6 +219,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
         // 无候选：Enter 照常发送
       }
     }
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && historyNav(e.key)) { e.preventDefault(); return; }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
     if (e.key === 'Escape' && processing && sessionId) interrupt(sessionId).catch(() => undefined);
   };
@@ -232,7 +260,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
             <CommandPanel items={cmdItems} loading={cmds.loading} selected={selIdx} onSelect={pickCommand} onHover={setSelIdx} />
           )}
           <textarea ref={taRef} rows={1} value={draft.text} disabled={disabled}
-            onChange={e => { setDraft(draftKey, d => ({ ...d, text: e.target.value })); updateTrigger(e.target.value, e.target.selectionStart ?? e.target.value.length); }}
+            onChange={e => { histIdx.current = null; setDraft(draftKey, d => ({ ...d, text: e.target.value })); updateTrigger(e.target.value, e.target.selectionStart ?? e.target.value.length); }}
             onKeyDown={onKeyDown} onKeyUp={onKeyUp} onClick={syncCaret} onBlur={closePicker} onPaste={onPaste} placeholder={t('chat.placeholder')}
             className="w-full bg-transparent resize-none px-3.5 pt-3.5 pb-1.5 text-sm leading-[22px] min-h-[52px] placeholder:text-muted/60 max-h-60" />
           {/* 底栏：左侧裸按钮 28px 等高，右侧用量 + 32px 发送键，全部垂直居中 */}

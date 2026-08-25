@@ -93,6 +93,8 @@ async function handle(action: string, sessionId: string | undefined, payload: an
       return getCommandsInfo();
     // 定时任务是项目级（workingDir 作用域）：以 session.* 形态路由到该会话目录的 worker，再调 core 全局接口
     case 'session.getCronTasks': return core.getCronTasks();
+    // 记忆同为项目级（<workingDir>/.sema/memory）：由该目录的 worker 回答，refresh 清缓存重新加载
+    case 'session.getMemoryInfo': return core.getMemoryInfo(p.refresh);
     case 'session.deleteCronTask': return core.deleteCronTask(p.id);
     case 'session.enableCronTask': return core.enableCronTask(p.id);
     case 'session.disableCronTask': return core.disableCronTask(p.id);

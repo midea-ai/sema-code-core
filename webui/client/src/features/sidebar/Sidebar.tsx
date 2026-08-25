@@ -9,14 +9,26 @@ import { Popover, MenuItem, MenuSep, useContextMenu, useDialog, cn, relTime } fr
 import { t } from '../../i18n';
 import { CreateProjectDialog } from '../../common/CreateProjectDialog';
 
+/** 侧栏布局持久化（项目展开集合 + 两个分组开合），刷新后保持不变 */
+const LAYOUT_KEY = 'sema.webui.sidebar';
+function loadLayout(): { expanded: Record<string, boolean>; projectsOpen: boolean; sessionsOpen: boolean } {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}');
+    return { expanded: v.expanded || {}, projectsOpen: v.projectsOpen !== false, sessionsOpen: v.sessionsOpen !== false };
+  } catch { return { expanded: {}, projectsOpen: true, sessionsOpen: true }; }
+}
+
 export function Sidebar({ width }: { width: number }) {
   const registry = useApp(s => s.registry);
   const view = useApp(s => s.view);
   const setView = useApp(s => s.setView);
   const setSidebarCollapsed = useApp(s => s.setSidebarCollapsed);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [projectsOpen, setProjectsOpen] = useState(true);
-  const [sessionsOpen, setSessionsOpen] = useState(true);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => loadLayout().expanded);
+  const [projectsOpen, setProjectsOpen] = useState(() => loadLayout().projectsOpen);
+  const [sessionsOpen, setSessionsOpen] = useState(() => loadLayout().sessionsOpen);
+  useEffect(() => {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ expanded, projectsOpen, sessionsOpen }));
+  }, [expanded, projectsOpen, sessionsOpen]);
 
   const projects = useMemo(() => [...registry.projects].sort((a, b) => b.lastActiveAt - a.lastActiveAt), [registry.projects]);
   const standalone = useMemo(() => registry.sessions.filter(s => !s.projectId).sort((a, b) => b.lastActiveAt - a.lastActiveAt), [registry.sessions]);
@@ -185,6 +197,7 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
   const setView = useApp(s => s.setView);
   const snap = useSessions(s => s.snapshots[session.id]);
   const status = useApp(s => s.status[session.id]);
+  const live = useApp(s => !!s.liveSessions[session.id]);
   const project = useApp(s => session.projectId ? s.registry.projects.find(p => p.id === session.projectId) : undefined);
   const menu = useContextMenu();
   const dialog = useDialog();
@@ -229,7 +242,7 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
       <div ref={rowRef} onClick={() => setView({ type: 'chat', sessionId: session.id })} onContextMenu={menu.open}
         onMouseEnter={onEnter} onMouseLeave={onLeave}
         className={cn('group flex items-center gap-1.5 h-7 px-1.5 rounded-md text-sm cursor-pointer select-none', active ? 'bg-black/[0.07]' : 'hover:bg-black/[0.05]')}>
-        <MessageSquare size={13} className={cn('shrink-0', session.agentMode !== 'Design' && 'text-muted')}
+        <MessageSquare size={13} className={cn('shrink-0', session.agentMode !== 'Design' && 'text-muted', !live && 'opacity-30')}
           color={session.agentMode === 'Design' ? 'url(#design-session-gradient)' : undefined} />
         <span className="flex-1 min-w-0 overflow-hidden">
           <span ref={titleRef} className={cn('block whitespace-nowrap', shift ? 'w-max' : 'truncate')}

@@ -147,7 +147,7 @@ export function SchedulePage() {
                   <span className="font-medium truncate min-w-0 @5xl:shrink-0 @5xl:max-w-[45%]" title={g.workingDir}>{g.projectName}</span>
                   <span className="hidden @5xl:inline text-xs text-muted truncate" title={g.workingDir}>{shortPath(g.workingDir)}</span>
                   <span className="flex-1" />
-                  {g.latestSessionId && (
+                  {g.latestSessionId && g.tasks.some(x => x.persist) && (
                     <Button size="sm" variant="ghost" title={t('schedule.openSession')} onClick={() => setView({ type: 'chat', sessionId: g.latestSessionId! })}>
                       <span className="hidden @5xl:inline">{t('schedule.openSession')}</span> <ArrowUpRight size={13} />
                     </Button>
@@ -164,7 +164,9 @@ export function SchedulePage() {
                         if (!r) return;
                         setView({ type: 'chat', sessionId: g.latestSessionId! });
                         openFileTab(g.latestSessionId!, r.path, r.line, r.endLine);
-                      } : undefined} />
+                      } : undefined}
+                      onJump={!task.persist && task.sessionId && registry.sessions.some(s => s.id === task.sessionId)
+                        ? () => setView({ type: 'chat', sessionId: task.sessionId! }) : undefined} />
                   ))}
                 </div>
               </section>

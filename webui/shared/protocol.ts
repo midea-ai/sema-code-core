@@ -28,6 +28,8 @@ export const SERVER_EVENTS = {
   settingsUpdate: 'settings:update',
   /** 会话事件缓冲不足，前端需重新拉快照 */
   sessionResync: 'session:resync',
+  /** 存活会话列表变化（worker 拉起/退出/会话回收） */
+  livenessUpdate: 'liveness:update',
 } as const;
 
 /** 进程级（core.*）action：直接映射 SemaCore 同名方法 */
@@ -60,6 +62,7 @@ export const SESSION_ACTIONS = [
   'session.fork',
   'session.getCommandsInfo',
   'session.getCronTasks',
+  'session.getMemoryInfo',
   'session.deleteCronTask',
   'session.enableCronTask',
   'session.disableCronTask',

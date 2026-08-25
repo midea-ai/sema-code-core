@@ -325,6 +325,8 @@ export interface SessionSnapshot {
   historyLoaded?: boolean;
   /** quickchat 旁路问答记录（/quickchat），与主消息流独立 */
   quickchats?: QuickchatEntry[];
+  /** 项目历史输入（倒序，[0] 最新）：session:ready 初始化，本会话新输入随 input:received 前插 */
+  inputHistory?: string[];
 }
 
 /** quickchat 旁路问答一条记录 */

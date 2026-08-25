@@ -180,7 +180,7 @@ export class Router {
   constructor(private sm: SessionManager, private tm?: import('../terminal/manager').TerminalManager) {
     const reg = sm.registry;
 
-    this.add('GET', '/api/bootstrap', () => ({ registry: reg.snapshot(), settings: reg.getSettings(), status: sm.statusMap(), platform: process.platform }));
+    this.add('GET', '/api/bootstrap', () => ({ registry: reg.snapshot(), settings: reg.getSettings(), status: sm.statusMap(), liveSessions: sm.liveSessionIds(), platform: process.platform }));
     this.add('GET', '/api/registry', () => reg.snapshot());
     this.add('GET', '/api/settings', () => reg.getSettings());
     this.add('PUT', '/api/settings', async (_r, _s, _p, body) => {
@@ -226,7 +226,8 @@ export class Router {
       return rec;
     };
     this.add('POST', '/api/sessions', async (_r, _s, _p, body) => sm.createSession({ projectId: body?.projectId || undefined }));
-    this.add('POST', '/api/sessions/:id/branch', async (_r, _s, p) => sm.branchSession(p.id));
+    this.add('POST', '/api/sessions/:id/branch', async (_r, _s, p, body) =>
+      sm.branchSession(p.id, typeof body?.beforeMessageUuid === 'string' ? body.beforeMessageUuid : undefined));
     this.add('GET', '/api/sessions/:id/snapshot', (_r, _s, p) => sm.getSnapshot(p.id));
     this.add('PATCH', '/api/sessions/:id', (_r, _s, p, body) => {
       const r = reg.updateSession(p.id, { title: String(body?.title || '') }); sm.broadcastRegistry(); return r;

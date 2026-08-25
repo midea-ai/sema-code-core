@@ -172,6 +172,9 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
     case 'session:ready':
       snap.historyLoaded = !!data?.historyLoaded;
       if (Array.isArray(data?.todos) && data.todos.length) snap.todos = data.todos;
+      if (Array.isArray(data?.projectInputHistory)) {
+        snap.inputHistory = data.projectInputHistory.filter((x: unknown): x is string => typeof x === 'string' && !!x);
+      }
       // WebUI 侧有记录但 core 历史已过期（被上限清理）：提示将作为新对话继续
       if (!snap.historyLoaded && snap.blocks.some(b => b.kind === 'user')) {
         const last = snap.blocks[snap.blocks.length - 1];
@@ -194,11 +197,16 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
     }
 
     case 'input:received': {
+      const text = data?.originalInput || data?.input || '';
       pushBlock(snap, {
         kind: 'user', id: `user:${data?.inputId || seq}`, ts: now,
-        inputId: data?.inputId, text: data?.originalInput || data?.input || '', queued: !!data?.queued,
+        inputId: data?.inputId, text, queued: !!data?.queued,
         ...(data?.source && data.source !== 'user' ? { source: data.source } : {}),
       });
+      // 同步进历史输入（倒序前插，与最新一条相同则不重复），供输入框 ↑↓ 切换
+      if (text && snap.inputHistory?.[0] !== text) {
+        snap.inputHistory = [text, ...(snap.inputHistory || [])].slice(0, 100);
+      }
       break;
     }
 

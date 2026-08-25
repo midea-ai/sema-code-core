@@ -120,11 +120,12 @@ function FileRow({ sessionId, file, open, onToggle }: { sessionId: string; file:
   const base = i >= 0 ? file.path.slice(i + 1) : file.path;
   return (
     <li id={`review-file-${file.path}`}>
-      <div className="group flex items-center gap-2 px-2 h-8 rounded-md hover:bg-black/[0.04] cursor-pointer" onClick={onToggle}>
+      <div className="group relative flex items-center gap-2 px-2 h-8 rounded-md hover:bg-black/[0.04] cursor-pointer" onClick={onToggle}>
         {open ? <ChevronDown size={13} className="text-muted shrink-0" /> : <ChevronRight size={13} className="text-muted shrink-0" />}
         <span className="truncate flex-1 text-[13px]" title={file.path}><span className="text-muted">{dir}</span><span className="text-fg">{base}</span></span>
-        <span className="text-xs font-mono shrink-0"><span className="text-ok">+{file.additions}</span> <span className="text-danger">-{file.removals}</span></span>
-        <span className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100">
+        {/* 统计贴最右；悬停时淡出，由悬浮的操作按钮覆盖（按钮平时不占布局空间） */}
+        <span className="text-xs font-mono shrink-0 group-hover:opacity-0"><span className="text-ok">+{file.additions}</span> <span className="text-danger">-{file.removals}</span></span>
+        <span className="absolute right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
           <button onClick={e => { e.stopPropagation(); copy(file.path); }} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.06]" title={copied ? t('review.copied') : t('review.copyPath')}>{copied ? <Check size={12} className="text-ok" /> : <Copy size={12} />}</button>
           <button onClick={e => { e.stopPropagation(); revealFile(sessionId, file.path).catch(err => toast(err.message, 'error')); }} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.06]" title={t('review.revealFile')}><FolderOpen size={12} /></button>
         </span>

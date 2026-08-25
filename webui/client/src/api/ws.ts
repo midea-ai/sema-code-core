@@ -75,9 +75,24 @@ export class WsClient {
   onOpen(f: () => void) { this.openListeners.add(f); return () => this.openListeners.delete(f); }
   onFrame(f: Listener) { this.listeners.add(f); return () => this.listeners.delete(f); }
 
-  request<T = any>(action: string, sessionId?: string, payload?: any, timeoutMs = 120_000): Promise<T> {
-    const ws = this.ws;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error('未连接到服务端'));
+  /**
+   * 未连接时等待连接建立再发（默认 10 秒兜底）：页面刷新时组件挂载常早于 WS 握手完成，
+   * 请求排队而非立即失败；token 失效 / 重连放弃 / 主动关闭这三种明确无望的状态立即报错。
+   */
+  private waitOpen(timeoutMs = 10_000): Promise<void> {
+    if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve();
+    if (this.status === 'unauthorized' || this.status === 'failed' || this.closedByUser) return Promise.reject(new Error('未连接到服务端'));
+    return new Promise((resolve, reject) => {
+      const cleanup = () => { offOpen(); offStatus(); clearTimeout(timer); };
+      const timer = window.setTimeout(() => { cleanup(); reject(new Error('未连接到服务端')); }, timeoutMs);
+      const offOpen = this.onOpen(() => { cleanup(); resolve(); });
+      const offStatus = this.onStatus(s => { if (s === 'unauthorized' || s === 'failed') { cleanup(); reject(new Error('未连接到服务端')); } });
+    });
+  }
+
+  async request<T = any>(action: string, sessionId?: string, payload?: any, timeoutMs = 120_000): Promise<T> {
+    await this.waitOpen();
+    const ws = this.ws!;
     const id = `c${++this.seq}`;
     return new Promise<T>((resolve, reject) => {
       const timer = window.setTimeout(() => { this.pending.delete(id); reject(new Error(`请求超时: ${action}`)); }, timeoutMs);

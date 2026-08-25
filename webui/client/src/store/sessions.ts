@@ -38,7 +38,7 @@ interface SessionsState {
   setPermissionLevel(sessionId: string, level: PermissionLevel): Promise<void>;
   getForkPreview(sessionId: string, messageUuid: string): Promise<any>;
   fork(sessionId: string, messageUuid: string, restoreFiles: boolean): Promise<any>;
-  branchToNewChat(sessionId: string): Promise<SessionRecord>;
+  branchToNewChat(sessionId: string, beforeMessageUuid?: string): Promise<SessionRecord>;
 }
 
 const emptyDraft = (): Draft => ({ text: '', images: [] });
@@ -165,8 +165,9 @@ export const useSessions = create<SessionsState>((set, get) => ({
   },
   async getForkPreview(sessionId, messageUuid) { return wsClient.request('session.getForkPreview', sessionId, { messageUuid }); },
   async fork(sessionId, messageUuid, restoreFiles) { return wsClient.request('session.fork', sessionId, { messageUuid, options: { restoreFiles } }); },
-  async branchToNewChat(sessionId) {
-    const result = await api<{ record: SessionRecord; snapshot: SessionSnapshot }>('POST', `/api/sessions/${sessionId}/branch`);
+  async branchToNewChat(sessionId, beforeMessageUuid) {
+    const result = await api<{ record: SessionRecord; snapshot: SessionSnapshot }>('POST', `/api/sessions/${sessionId}/branch`,
+      beforeMessageUuid !== undefined ? { beforeMessageUuid } : undefined);
     set(s => ({ snapshots: { ...s.snapshots, [result.record.id]: result.snapshot } }));
     // registry:update 通常先到；本地 upsert 兜底，保证切换视图时记录一定存在。
     useApp.setState(s => ({

@@ -19,7 +19,7 @@ export type View =
 export interface ModelData { modelName: string; modelList: string[]; taskConfig: { main: string; quick: string } }
 
 export interface PanelTab {
-  id: string; type: 'browser' | 'files' | 'review' | 'terminal' | 'agent' | 'cron' | 'quickchat'; url?: string; title?: string; history: string[]; index: number;
+  id: string; type: 'browser' | 'files' | 'review' | 'terminal' | 'agent' | 'cron' | 'quickchat' | 'memory'; url?: string; title?: string; history: string[]; index: number;
   /** browser：页面声明的图标地址（服务端解析），导航时清空 */
   icon?: string;
   /** review：定位到的 file-changes 块 id（空=最新一轮）；agent：子代理块 id */
@@ -48,6 +48,8 @@ interface AppState {
   registry: Registry;
   settings: WebUISettings | null;
   status: Record<string, { state: string; pending: number }>;
+  /** 存活会话集合（core worker 进程活着且会话已在其中创建），侧栏图标亮/灰用 */
+  liveSessions: Record<string, true>;
   view: View;
   modelData: ModelData | null;
   panels: Record<string, PanelState>;
@@ -91,6 +93,8 @@ interface AppState {
   openCronTab(sessionId: string, focusId?: string): void;
   /** 打开/复用本会话唯一的「快问」标签（/quickchat 旁路问答） */
   openQuickchatTab(sessionId: string): void;
+  /** 打开/复用本会话唯一的「记忆」标签（.sema/memory/ 记忆文件），每次打开触发刷新 */
+  openMemoryTab(sessionId: string): void;
   revealFile(sessionId: string, relPath: string): Promise<void>;
   /** 用系统默认程序打开；app 为 macOS 应用 bundle 路径时用指定应用打开 */
   openFileExternal(sessionId: string, relPath: string, app?: string): Promise<void>;
@@ -119,12 +123,16 @@ function loadView(): View {
 
 let toastSeq = 0;
 
+const toLiveMap = (ids?: string[]): Record<string, true> =>
+  Object.fromEntries((ids || []).map(id => [id, true as const]));
+
 export const useApp = create<AppState>((set, get) => ({
   ready: false,
   platform: '',
   registry: { schemaVersion: 1, projects: [], sessions: [] },
   settings: null,
   status: {},
+  liveSessions: {},
   view: loadView(),
   modelData: null,
   panels: loadPanels(),
@@ -135,8 +143,8 @@ export const useApp = create<AppState>((set, get) => ({
   doneUnread: {},
 
   async bootstrap() {
-    const data = await api<{ registry: Registry; settings: WebUISettings; status: any; platform: string }>('GET', '/api/bootstrap');
-    set({ registry: data.registry, settings: data.settings, status: data.status, platform: data.platform, ready: true });
+    const data = await api<{ registry: Registry; settings: WebUISettings; status: any; liveSessions?: string[]; platform: string }>('GET', '/api/bootstrap');
+    set({ registry: data.registry, settings: data.settings, status: data.status, liveSessions: toLiveMap(data.liveSessions), platform: data.platform, ready: true });
     // 恢复视图：会话已不存在则回到空
     const v = get().view;
     if (v.type === 'chat' && !data.registry.sessions.some(s => s.id === v.sessionId)) set({ view: { type: 'draft' } });
@@ -147,6 +155,7 @@ export const useApp = create<AppState>((set, get) => ({
       if ('sessionId' in frame && frame.sessionId) return; // 会话事件由 sessions store 处理
       if (frame.event === SERVER_EVENTS.registryUpdate) set({ registry: frame.data });
       else if (frame.event === SERVER_EVENTS.modelUpdate) set({ modelData: frame.data });
+      else if (frame.event === SERVER_EVENTS.livenessUpdate) set({ liveSessions: toLiveMap(frame.data?.sessions) });
       else if (frame.event === 'cron:update') {
         const dir = (frame as any).workingDir || '';
         set(s => ({ cronUpdates: { ...s.cronUpdates, [dir]: (s.cronUpdates[dir] || 0) + 1 } }));
@@ -265,7 +274,8 @@ export const useApp = create<AppState>((set, get) => ({
   openBrowserTab(sessionId, url, reuse = true) {
     get().updatePanel(sessionId, p => {
       // 同一来源（协议+host+端口）复用已有浏览器标签并在其中导航；不同站点开新标签
-      const origin = (u?: string) => { try { return u ? new URL(u).origin : ''; } catch { return ''; } };
+      // file:// 的 origin 恒为 "null"，按完整地址区分：同一文件复用，不同文件各开新标签
+      const origin = (u?: string) => { try { if (!u) return ''; const p = new URL(u); return p.protocol === 'file:' ? p.href : p.origin; } catch { return ''; } };
       const same = reuse ? p.tabs.find(t => t.type === 'browser' && t.url && origin(t.url) === origin(url)) : undefined;
       if (same) {
         if (same.url === url) return { ...p, collapsed: false, activeId: same.id };
@@ -317,6 +327,18 @@ export const useApp = create<AppState>((set, get) => ({
       const exist = p.tabs.find(t => t.type === 'quickchat');
       if (exist) return { ...p, collapsed: false, activeId: exist.id };
       const tab: PanelTab = { id: `q${Date.now()}`, type: 'quickchat', history: [], index: -1 };
+      return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
+    });
+  },
+  openMemoryTab(sessionId) {
+    get().updatePanel(sessionId, p => {
+      const exist = p.tabs.find(t => t.type === 'memory');
+      if (exist) {
+        // focusSeq 变化触发记忆标签重新加载（记忆刚被本轮修改过）
+        const tab = { ...exist, focusSeq: Date.now() };
+        return { ...p, collapsed: false, tabs: p.tabs.map(t => t.id === tab.id ? tab : t), activeId: tab.id };
+      }
+      const tab: PanelTab = { id: `m${Date.now()}`, type: 'memory', history: [], index: -1 };
       return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
     });
   },

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FolderOpen, Pencil, AlertTriangle, ChevronDown, ChevronRight, Copy, Check, ThumbsUp, ThumbsDown, GitBranch } from 'lucide-react';
+import { FolderOpen, Pencil, AlertTriangle, ArrowDown, ChevronDown, ChevronRight, Copy, Check, ThumbsUp, ThumbsDown, GitBranch } from 'lucide-react';
 import type { Block } from '../../../../shared/types';
 import { pendingBlocks } from '../../../../shared/transcript';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
-import { BlockRenderer, renderBlockList, htmlFilesOf, HtmlSiteCard, type BlockCtx } from './Blocks';
+import { BlockRenderer, renderBlockList, htmlFilesOf, HtmlSiteCard, memoryFilesOf, MemoryCard, type BlockCtx } from './Blocks';
 import { Composer } from './Composer';
 import { Button, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { usePausableElapsed } from '../../common/useElapsed';
@@ -36,6 +36,11 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     const el = listRef.current; if (!el) return;
     setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
   };
+  const scrollToBottom = () => {
+    const el = listRef.current; if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    setStick(true);
+  };
 
   const sameProjectRunning = useMemo(() => {
     if (!record?.projectId) return false;
@@ -55,10 +60,15 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const doRewind = async () => {
     if (!rewind) return;
     setRewind({ ...rewind, busy: true });
+    // 截断前先取出被回退的那条用户消息文字，回退成功后放回输入框供修改重发
+    const src = useSessions.getState().snapshots[sessionId]?.blocks
+      .find(b => b.kind === 'user' && b.inputId === rewind.inputId);
+    const srcText = src?.kind === 'user' ? src.text : '';
     try {
       const r = await useSessions.getState().fork(sessionId, rewind.inputId, rewind.restore && !!rewind.preview?.canRestoreFiles);
       if (r && r.ok === false) throw new Error(r.error);
       setRewind(null);
+      if (srcText) useSessions.getState().setDraft(sessionId, d => ({ ...d, text: srcText }));
       await useSessions.getState().loadSnapshot(sessionId);
     } catch (e: any) { toast(e.message, 'error'); setRewind(r => r ? { ...r, busy: false } : r); }
   };
@@ -80,11 +90,11 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     return pending.length ? Math.min(...pending.map(b => b.ts)) : undefined;
   }, [snap]);
 
-  const branchToNewChat = useCallback(async () => {
+  const branchToNewChat = useCallback(async (beforeMessageUuid?: string) => {
     if (branching) return;
     setBranching(true);
     try {
-      const next = await useSessions.getState().branchToNewChat(sessionId);
+      const next = await useSessions.getState().branchToNewChat(sessionId, beforeMessageUuid);
       setBranching(false);
       useApp.getState().setView({ type: 'chat', sessionId: next.id });
     } catch (e: any) {
@@ -121,7 +131,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       </div>
 
       {/* 消息流 */}
-      <div ref={listRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto">
+      <div className="relative flex-1 min-h-0">
+      <div ref={listRef} onScroll={onScroll} className="h-full overflow-y-auto">
         <div className="max-w-3xl mx-auto px-4 py-4">
           {!snap && loading && <div className="flex items-center gap-2 text-muted text-sm"><Spinner />{t('common.loading')}</div>}
           {snap && snap.blocks.length === 0 && (snap.agentMode === 'Design' ? (
@@ -139,15 +150,32 @@ export function ChatView({ sessionId }: { sessionId: string }) {
               <div>{t('chat.emptyHint')}</div>
             </div>
           ))}
-          {turns.map((turn, i) => (
-            <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx}
-              active={snap!.state === 'processing' && i === runningIdx}
-              awaitingTs={i === runningIdx ? awaitingTs : undefined}
-              canBranch={canBranchNow && i === turns.length - 1}
-              branching={branching}
-              onBranch={branchToNewChat} />
-          ))}
+          {turns.map((turn, i) => {
+            // 分支锚点：中间轮次取下一轮用户输入的 inputId（历史截到它之前）；
+            // 下一轮开头是合成块（plan-implement）或无 inputId 时截不出干净边界，不提供分支。
+            // 最后一轮不带锚点 = 全量分支。
+            const last = i === turns.length - 1;
+            const nextOpener = last ? undefined : turns[i + 1]?.opener;
+            const anchor = nextOpener?.kind === 'user' ? nextOpener.inputId : undefined;
+            return (
+              <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx}
+                active={snap!.state === 'processing' && i === runningIdx}
+                awaitingTs={i === runningIdx ? awaitingTs : undefined}
+                canBranch={canBranchNow && (last || !!anchor)}
+                branchAnchor={anchor}
+                branching={branching}
+                onBranch={branchToNewChat} />
+            );
+          })}
         </div>
+      </div>
+      {/* 回到底部：离底时悬浮显示；运行中图标换成三点动画表示进行中 */}
+      {!stick && (
+        <button onClick={scrollToBottom} title={t('chat.scrollBottom')}
+          className="absolute left-1/2 -translate-x-1/2 bottom-3 h-8 w-8 rounded-full bg-bg border border-border shadow-lg flex items-center justify-center text-muted hover:text-fg">
+          {snap?.state === 'processing' ? <span className="run-dots"><i /><i /><i /></span> : <ArrowDown size={15} />}
+        </button>
+      )}
       </div>
 
       {/* 输入区 */}
@@ -226,9 +254,9 @@ const isText = (b: Block) => b.kind === 'assistant' && !!b.text;
  * 结束后：「耗时 N秒 ›」分隔 → 文件改动卡片 + 最终结论（最后一段文字）+ 其后的非工具块 + 待办/定时任务卡片 → 复制行；中间过程默认折叠。
  * 展开时按原顺序显示全部块（组头为类别文案），与运行中渲染仅差组名与状态行。
  */
-function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branching, onBranch }: {
+function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, branching, onBranch }: {
   turn: Turn; ctx: BlockCtx; active: boolean; awaitingTs?: number;
-  canBranch?: boolean; branching?: boolean; onBranch?: () => void;
+  canBranch?: boolean; branchAnchor?: string; branching?: boolean; onBranch?: (beforeMessageUuid?: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const opener = turn.opener;
@@ -278,8 +306,13 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branching, onBran
       {running ? renderBlockList(ordered, ctx, true) : (expanded && collapsible) ? renderBlockList(ordered, ctx) : renderBlockList(collapsedView, ctx)}
       {/* 本轮新建/修改的 html 文件：结论之后给「网站卡片」，默认右栏浏览器预览（本轮结束后显示，避免半成品页面） */}
       {!running && htmlFilesOf(rest).map(p => <HtmlSiteCard key={`site:${p}`} sessionId={ctx.sessionId} path={p} />)}
+      {/* 本轮新建/修改的 .sema/memory/ 记忆文件：结论之后给「记忆卡片」，点击右栏打开记忆窗口 */}
+      {!running && memoryFilesOf(rest).length > 0 && <MemoryCard sessionId={ctx.sessionId} files={memoryFilesOf(rest)} />}
       {showThinking && <StatusLine text={t('chat.thinking')} />}
-      {!running && lastText && <FinalActions text={lastText.text} ts={lastText.ts} onBranch={canBranch ? onBranch : undefined} branching={branching} />}
+      {!running && lastText && <FinalActions text={lastText.text} ts={lastText.ts}
+        onBranch={canBranch && onBranch ? () => onBranch(branchAnchor) : undefined}
+        branchTitle={branchAnchor ? t('chat.branchHere') : undefined}
+        branching={branching} />}
     </div>
   );
 }
@@ -293,8 +326,8 @@ function StatusLine({ text }: { text: string }) {
 }
 
 /** 文字回答下方的操作行：复制 · 赞 · 踩，悬浮显示时间（chat 主流与快问面板共用） */
-export function FinalActions({ text, ts, className, onBranch, branching }: {
-  text: string; ts?: number; className?: string; onBranch?: () => void; branching?: boolean;
+export function FinalActions({ text, ts, className, onBranch, branchTitle, branching }: {
+  text: string; ts?: number; className?: string; onBranch?: () => void; branchTitle?: string; branching?: boolean;
 }) {
   const { copied, copy } = useCopy();
   // 点赞/踩：仅前端本地状态，无后端处理
@@ -313,7 +346,7 @@ export function FinalActions({ text, ts, className, onBranch, branching }: {
         <ThumbsDown size={13} fill={vote === 'down' ? 'currentColor' : 'none'} />
       </button>
       {onBranch && (
-        <button onClick={onBranch} disabled={branching} className={cn(btn, branching && 'opacity-50 cursor-not-allowed')} title={t('chat.branch')}>
+        <button onClick={onBranch} disabled={branching} className={cn(btn, branching && 'opacity-50 cursor-not-allowed')} title={branchTitle ?? t('chat.branch')}>
           <GitBranch size={13} />
         </button>
       )}

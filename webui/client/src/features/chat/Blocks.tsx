@@ -1,5 +1,5 @@
 import React, { memo, useState, useMemo, useRef, useLayoutEffect, useEffect } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch, Images } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Brain, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch, Images } from 'lucide-react';
 import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, TodosBlock, CronBlock, BranchOriginBlock } from '../../../../shared/types';
 import { CRON_TOOLS } from '../../../../shared/protocol';
 import { Markdown } from './Markdown';
@@ -201,6 +201,35 @@ export function HtmlSiteCard({ sessionId, path }: { sessionId: string; path: str
           <MenuSep />
           <OpenWithItems sessionId={sessionId} path={path} apps={apps} onDone={() => setMenu(null)} />
         </Popover>
+      </div>
+    </div>
+  );
+}
+
+// ==================== 记忆卡片（本轮新建/修改了 .sema/memory/ 下的记忆文件） ====================
+
+const MEMORY_DIR_RE = /(^|[\\/])\.sema[\\/]memory[\\/]/;
+
+/** 从本轮 file-changes 块中提取记忆文件（.sema/memory/ 下，去重、保持顺序） */
+export function memoryFilesOf(blocks: Block[]): string[] {
+  const out: string[] = [];
+  for (const b of blocks) if (b.kind === 'file-changes') for (const f of b.files) if (MEMORY_DIR_RE.test(f.path) && !out.includes(f.path)) out.push(f.path);
+  return out;
+}
+
+/** 记忆卡片：本轮改动了记忆文件时显示在结论之后，点击在右栏打开记忆窗口（全会话唯一） */
+export function MemoryCard({ sessionId, files }: { sessionId: string; files: string[] }) {
+  const openMemoryTab = useApp(s => s.openMemoryTab);
+  const names = files.map(p => p.split(/[\\/]/).pop()).join('、');
+  return (
+    <div className="my-3 rounded-xl border border-border bg-white text-sm cursor-pointer hover:bg-black/[0.02]" onClick={() => openMemoryTab(sessionId)}>
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <span className="h-9 w-9 rounded-lg bg-panel flex items-center justify-center shrink-0"><Brain size={16} className="text-fg" /></span>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium truncate">{t('card.memoryUpdated')}</div>
+          <div className="text-xs text-muted truncate" title={names}>{names}</div>
+        </div>
+        <ChevronRight size={14} className="text-muted shrink-0" />
       </div>
     </div>
   );

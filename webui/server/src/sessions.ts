@@ -162,6 +162,7 @@ export class SessionManager extends EventEmitter {
         this.onEvent(sid, 'state:update', { state: 'idle' });
       }
     }
+    this.broadcastLiveness();
   }
 
   private broadcastAll(frame: any) {
@@ -174,6 +175,12 @@ export class SessionManager extends EventEmitter {
   /** 全局订阅者（所有 WS 连接），用于 registry/model 更新广播 */
   readonly globalSubscribers = new Set<Subscriber>();
   broadcastRegistry() { this.broadcastAll({ event: SERVER_EVENTS.registryUpdate, data: this.registry.snapshot() }); }
+
+  /** 存活会话：worker 进程活着且其中已创建该 SemaSession */
+  liveSessionIds(): string[] {
+    return this.pool.list().filter(w => w.alive).flatMap(w => [...w.sessions]);
+  }
+  private broadcastLiveness() { this.broadcastAll({ event: SERVER_EVENTS.livenessUpdate, data: { sessions: this.liveSessionIds() } }); }
 
   // ==================== 订阅 ====================
 
@@ -210,6 +217,7 @@ export class SessionManager extends EventEmitter {
           sessionId: sid, agentMode: rt.snapshot.agentMode, permissionLevel: rt.snapshot.permissionLevel,
         });
         w.sessions.add(sid);
+        this.broadcastLiveness();
       }
       return w;
     })();
@@ -329,8 +337,9 @@ export class SessionManager extends EventEmitter {
     return { record: rec, snapshot: rt.snapshot };
   }
 
-  /** 分支到新聊天：core 复制模型历史，WebUI 复制展示快照，并在同目录 worker 中创建新的 SemaSession。 */
-  async branchSession(sourceId: string): Promise<{ record: SessionRecord; snapshot: SessionSnapshot }> {
+  /** 分支到新聊天：core 复制模型历史，WebUI 复制展示快照，并在同目录 worker 中创建新的 SemaSession。
+   * beforeMessageUuid：截断锚点（某条用户输入的 inputId），历史截到该输入之前；不传则全量复制。 */
+  async branchSession(sourceId: string, beforeMessageUuid?: string): Promise<{ record: SessionRecord; snapshot: SessionSnapshot }> {
     if (this.branching.has(sourceId)) throw new Error('正在创建分支，请勿重复操作');
     const source = this.registry.getSession(sourceId);
     if (!source) throw new Error('源会话不存在');
@@ -339,13 +348,18 @@ export class SessionManager extends EventEmitter {
       || sourceRt.snapshot.blocks.some(b => b.kind === 'user' && b.queued)) {
       throw new Error('会话处理中，请等待空闲后再分支');
     }
+    // 展示快照的截断位置：与 core 历史截断同锚点，找不到说明快照与历史不一致，直接拒绝
+    const cutIdx = beforeMessageUuid !== undefined
+      ? sourceRt.snapshot.blocks.findIndex(b => b.kind === 'user' && b.inputId === beforeMessageUuid)
+      : -1;
+    if (beforeMessageUuid !== undefined && cutIdx < 0) throw new Error('分支锚点不存在');
 
     this.branching.add(sourceId);
     let targetId: string | undefined;
     let targetOwned = false;
     try {
       const worker = await this.ensureLive(sourceId);
-      const result = await this.pool.request(worker, 'session.branch', sourceId, {});
+      const result = await this.pool.request(worker, 'session.branch', sourceId, { beforeMessageUuid });
       if (!result?.ok) throw new Error(result?.error || '分支失败');
       targetId = String(result.sessionId || '');
       if (!targetId || this.registry.getSession(targetId)) throw new Error('分支会话 ID 无效或已存在');
@@ -353,6 +367,8 @@ export class SessionManager extends EventEmitter {
 
       const record = this.registry.createBranchedSession(sourceId, targetId);
       const cloned = structuredClone(sourceRt.snapshot);
+      // 有锚点时展示快照同步截断（不含锚点消息及其后的块），与 core 复制的历史对齐
+      if (cutIdx >= 0) cloned.blocks = cloned.blocks.slice(0, cutIdx);
       const snapshot: SessionSnapshot = {
         ...cloned,
         sessionId: record.id,
@@ -390,6 +406,7 @@ export class SessionManager extends EventEmitter {
         if (worker?.alive && worker.sessions.has(targetId)) {
           await this.pool.request(worker, 'session.close', targetId, {}).catch(() => null);
           worker.sessions.delete(targetId);
+          this.broadcastLiveness();
         }
         await this.dispatch('core.deleteSessionHistory', undefined, { sessionId: targetId, projectPath: source.workingDir }).catch(() => null);
         this.broadcastRegistry();
@@ -407,6 +424,7 @@ export class SessionManager extends EventEmitter {
       if (w?.alive && w.sessions.has(sid)) {
         await this.pool.request(w, 'session.close', sid, {}).catch(() => null);
         w.sessions.delete(sid);
+        this.broadcastLiveness();
       }
       // 目录即将删除且已无其他会话/项目引用时，必须先等以它为 cwd 的 worker 真正退出。
       if (w?.alive && (rec.managedWorkingDir ?? !rec.projectId)
@@ -573,6 +591,7 @@ export class SessionManager extends EventEmitter {
           if (Array.isArray(tasks) && tasks.some((task: any) => task?.status === 'running')) continue;
           await this.pool.request(w, 'session.close', sid, {}, 10_000, { bump: false });
           w.sessions.delete(sid);
+          this.broadcastLiveness();
         } catch { /* worker 忙或已退出，下一轮再试 */ }
       }
     }

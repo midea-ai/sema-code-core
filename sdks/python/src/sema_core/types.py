@@ -485,6 +485,20 @@ class ForkResultErr(TypedDict):
 ForkResult = Union[ForkResultOk, ForkResultErr]
 
 
+class BranchResultOk(TypedDict):
+    ok: Literal[True]
+    sessionId: str
+
+
+class BranchResultErr(TypedDict):
+    ok: Literal[False]
+    error: str
+
+
+# ≙ core BranchResult（分支到新聊天：新会话历史 = 原历史截到锚点用户输入之前，不传锚点则全量复制）
+BranchResult = Union[BranchResultOk, BranchResultErr]
+
+
 class TaskListItem(TypedDict):
     taskId: str
     filepath: str

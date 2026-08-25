@@ -115,6 +115,22 @@ public final class SemaSession {
                 : GSON.fromJson(el, ForkResultErr.class);
     }
 
+    // ── 分支到新聊天 ─────────────────────────────────────────────────────
+
+    /** 全量复制当前历史到新会话（源会话与工作区文件不动）。 */
+    public BranchResult branch() {
+        return branch(null);
+    }
+
+    /** beforeMessageUuid 为截断锚点（历史截到该用户输入之前）；null 则全量复制。 */
+    public BranchResult branch(String beforeMessageUuid) {
+        JsonElement el = req("branch", Json.obj("beforeMessageUuid", beforeMessageUuid));
+        // 判别联合按 ok 分派到具体变体（≙ core BranchResult）
+        return SemaJson.bool(el, "ok", false)
+                ? GSON.fromJson(el, BranchResultOk.class)
+                : GSON.fromJson(el, BranchResultErr.class);
+    }
+
     // ── 后台任务（会话级）────────────────────────────────────────────────
 
     public List<TaskListItem> getTaskList() {

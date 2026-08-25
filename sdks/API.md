@@ -35,6 +35,8 @@
 | `listSessions` | `list_sessions` | `listSessions` | `ListSessions` | — | — |
 | `setActiveSession` | `set_active_session` | `setActiveSession` | `SetActiveSession` | `sessionId: string`(必填) | — |
 | `closeSession` | `close_session` | `closeSession` | `CloseSession` | `sessionId: string`(必填) | — |
+| `deleteSessionHistory` | `delete_session_history` | `deleteSessionHistory` | `DeleteSessionHistory` | `sessionId: string`(必填), `projectPath: string` | 删除单个会话的 core 落盘历史文件（宿主删历史条目后同步清理） |
+| `deleteProjectHistory` | `delete_project_history` | `deleteProjectHistory` | `DeleteProjectHistory` | `projectPath: string`(必填) | 删除指定项目的全部历史与快照目录 |
 
 ### 进程级事件
 
@@ -193,6 +195,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `getForkPreview` | `get_fork_preview` | `getForkPreview` | `GetForkPreview` | `messageUuid: string`(必填) | — |
 | `await fork` | `fork` | `fork` | `Fork` | `messageUuid: string`(必填), `options: ForkOptions` | — |
+| `await branch` | `branch` | `branch` | `Branch` | `beforeMessageUuid: string` | 分支到新聊天：复制截断历史到新会话（源会话与工作区不动），返回 `BranchResult`（含新 sessionId）；锚点缺省则全量复制 |
 
 ### 后台任务（仅本会话）
 

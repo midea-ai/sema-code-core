@@ -111,6 +111,16 @@ public sealed class SemaCore : IAsyncDisposable
             ? "{\"disabledTools\":null}"
             : Json.Stringify(Json.Obj(("disabledTools", toolNames))));
 
+    // ── 历史清理 ─────────────────────────────────────────────────────────
+
+    /// <summary>删除单个会话的 core 落盘历史文件（宿主删除历史条目后同步清理）；projectPath 缺省为当前工作目录对应项目。</summary>
+    public Task DeleteSessionHistory(string sessionId, string? projectPath = null)
+        => VoidCall("deleteSessionHistory", Json.Obj(("sessionId", sessionId), ("projectPath", projectPath)));
+
+    /// <summary>删除指定项目的全部历史与快照目录。</summary>
+    public Task DeleteProjectHistory(string projectPath)
+        => VoidCall("deleteProjectHistory", Json.Obj(("projectPath", projectPath)));
+
     // ── 模型管理 ─────────────────────────────────────────────────────────
 
     public Task<ModelUpdateData?> AddModel(ModelConfig config, bool? skipValidation = null)

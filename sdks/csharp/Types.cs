@@ -77,6 +77,12 @@ public abstract record ForkResult
     [JsonPropertyName("ok")] public bool Ok { get; init; }
 }
 
+/// <summary>判别联合（≙ core BranchResult）：按 <c>Ok</c> 分派到 BranchResultOk / BranchResultErr。</summary>
+public abstract record BranchResult
+{
+    [JsonPropertyName("ok")] public bool Ok { get; init; }
+}
+
 public record AgentConfig
 {
     [JsonPropertyName("name")] public string? Name { get; init; }
@@ -249,6 +255,16 @@ public record ForkResultOk : ForkResult
 {
     [JsonPropertyName("sessionId")] public string? SessionId { get; init; }
     [JsonPropertyName("restoredFiles")] public List<string>? RestoredFiles { get; init; }
+}
+
+public record BranchResultErr : BranchResult
+{
+    [JsonPropertyName("error")] public string? Error { get; init; }
+}
+
+public record BranchResultOk : BranchResult
+{
+    [JsonPropertyName("sessionId")] public string? SessionId { get; init; }
 }
 
 public record HookEntryInfo

@@ -82,6 +82,19 @@ public sealed class SemaSession
             : Json.To<ForkResultErr>(el);
     }
 
+    // ── 分支到新聊天 ─────────────────────────────────────────────────────
+
+    /// <summary>复制截断历史到新会话（源会话与工作区不动）；beforeMessageUuid 为截断锚点，null 则全量复制。</summary>
+    public async Task<BranchResult?> Branch(string? beforeMessageUuid = null)
+    {
+        var el = await Req("branch", Json.Obj(("beforeMessageUuid", beforeMessageUuid))).ConfigureAwait(false);
+        if (el == null) return null;
+        // 判别联合按 ok 分派到具体变体（≙ core BranchResult）
+        return SemaJson.Bool(el, "ok", false)
+            ? Json.To<BranchResultOk>(el)
+            : Json.To<BranchResultErr>(el);
+    }
+
     // ── 后台任务（会话级）────────────────────────────────────────────────
 
     public async Task<List<TaskListItem>> GetTaskList()

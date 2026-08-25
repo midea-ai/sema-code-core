@@ -188,6 +188,8 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         // fork / 撤销回退（D1）：ack 回 core 原始返回值，UI 弹窗按 reqId 匹配。
         case 'getForkPreview':          ack(id, (requireSession(sessionId, action) as any).getForkPreview(payload.messageUuid)); return;
         case 'fork':                    ack(id, await (requireSession(sessionId, action) as any).fork(payload.messageUuid, payload.options)); return;
+        // 分支到新聊天：core 新建会话并复制截断历史（源会话与工作区不动）；ack 回原始 BranchResult（含新 sessionId）。
+        case 'branch':                  ack(id, await (requireSession(sessionId, action) as any).branch(payload.beforeMessageUuid)); return;
         // Stop 时一并停后台子 agent（D3）；ack 回停掉的任务数。
         case 'stopAllTasks':            ack(id, { count: (requireSession(sessionId, action) as any).stopAllTasks() }); return;
         // 子 agent 转后台（D4，会话级）；ack 回 boolean。
@@ -208,6 +210,10 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         case 'getToolInfos':         ack(id, manager.instance.getToolInfos()); return;
         case 'updateDisabledTools':  manager.instance.updateDisabledTools(payload.disabledTools); break;
         case 'updateCoreConfByKey':  manager.instance.updateCoreConfByKey(payload.key, payload.value); break;
+
+        // 历史清理（外部主动删除：宿主删除历史条目后同步清理 core 落盘的历史文件）
+        case 'deleteSessionHistory': manager.instance.deleteSessionHistory(payload.sessionId, payload.projectPath); break;
+        case 'deleteProjectHistory': manager.instance.deleteProjectHistory(payload.projectPath); break;
 
         // ── 后台任务（会话级，镜像 SemaSession 的 task API，需 session_id）──────────
         case 'getTaskList':  ack(id, (requireSession(sessionId, action) as any).getTaskList()); return;

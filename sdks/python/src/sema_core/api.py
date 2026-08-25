@@ -26,8 +26,8 @@ from .transport import BridgeConnection
 if TYPE_CHECKING:
     # 仅类型注解引用（配合 from __future__ import annotations，运行时不导入、无环、零开销）
     from .types import (
-        AdapterType, AgentConfig, AgentMode, ApiTestParams, ApiTestResult, CommandConfig,
-        CreateSessionOptions, CronTask, DesignSkillInfo, DesignSystemInfo,
+        AdapterType, AgentConfig, AgentMode, ApiTestParams, ApiTestResult, BranchResult,
+        CommandConfig, CreateSessionOptions, CronTask, DesignSkillInfo, DesignSystemInfo,
         FetchModelsParams, FetchModelsResult, ForkOptions, ForkPreview, ForkResult,
         HooksInfo, InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
         MCPServerInfo, MemoryConfig, ModelConfig, ModelUpdateData, PermissionLevel,
@@ -166,6 +166,16 @@ class SemaCore:
     async def update_disabled_tools(self, tool_names: Optional[list[str]] = None) -> None:
         """tool_names 传 None 清空全局禁用（≙ core updateDisabledTools(toolNames | null)）。"""
         await self._client.call("updateDisabledTools", json.dumps({"disabledTools": tool_names}))
+
+    # ── 历史清理 ─────────────────────────────────────────────────────────
+
+    async def delete_session_history(self, session_id: str, project_path: Optional[str] = None) -> None:
+        """删除单个会话的 core 落盘历史文件（宿主删除历史条目后同步清理）。"""
+        await self._call("deleteSessionHistory", _obj(sessionId=session_id, projectPath=project_path))
+
+    async def delete_project_history(self, project_path: str) -> None:
+        """删除指定项目的全部历史与快照目录。"""
+        await self._call("deleteProjectHistory", {"projectPath": project_path})
 
     # ── 插件市场 ─────────────────────────────────────────────────────────
 
@@ -381,6 +391,10 @@ class SemaSession:
 
     async def fork(self, message_uuid: str, options: Optional["ForkOptions"] = None) -> "ForkResult":
         return _parse(await self._call("fork", _obj(messageUuid=message_uuid, options=options)))
+
+    async def branch(self, before_message_uuid: Optional[str] = None) -> "BranchResult":
+        """分支到新聊天：复制截断历史到新会话（源会话与工作区不动）；锚点缺省则全量复制。"""
+        return _parse(await self._call("branch", _obj(beforeMessageUuid=before_message_uuid)))
 
     # ── 后台任务 ─────────────────────────────────────────────────────────
 

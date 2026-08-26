@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot } from 'lucide-react';
 import type { AgentBlock, Block } from '../../../../shared/types';
-import { pendingIn } from '../../../../shared/transcript';
+import { pendingIn, waitedMsIn } from '../../../../shared/transcript';
 import type { PanelTab } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { cn } from '../../common/ui';
@@ -47,8 +47,8 @@ export function AgentTab({ sessionId, tab }: { sessionId: string; tab: PanelTab 
     const pending = pendingIn(block.blocks);
     return pending.length ? Math.min(...pending.map(b => b.ts)) : undefined;
   }, [running, block]);
-  // 运行中每秒刷新一次耗时；等待用户处理权限确认/快速确认/计划退出时计时定格，恢复后从暂停前的已耗时继续累加
-  const elapsed = usePausableElapsed(block?.ts ?? 0, running, awaitingTs, tab.blockId);
+  // 运行中每秒刷新一次耗时；等待用户处理权限确认/快速确认/计划退出时计时定格，已完成等待的时长从块数据推导并扣除（刷新页面后依然准确）
+  const elapsed = usePausableElapsed(block?.ts ?? 0, running, awaitingTs, block ? waitedMsIn(block.blocks) : 0);
 
   const ref = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
@@ -74,13 +74,13 @@ export function AgentTab({ sessionId, tab }: { sessionId: string; tab: PanelTab 
 
   const tone = statusTone(block.status);
   const title = `${block.agentType}(${block.title})`;
-  const elapsedMs = block.status === 'running' ? elapsed(Date.now()) : Math.max(block.ts, maxTs(block.blocks)) - block.ts;
+  const elapsedMs = block.status === 'running' ? elapsed(Date.now()) : Math.max(block.ts, maxTs(block.blocks)) - block.ts - waitedMsIn(block.blocks);
   const ctx: BlockCtx = { sessionId, noAutoOpenAgent: true };
 
   return (
     <>
       <div className="h-9 shrink-0 flex items-center gap-2 px-3 border-b border-border">
-        <span className={cn('text-xs px-1.5 py-0.5 rounded shrink-0', tone === 'warn' && 'bg-warn/10 text-warn', tone === 'ok' && 'bg-ok/10 text-ok', tone === 'danger' && 'bg-danger/10 text-danger')}>{STATUS_TEXT[block.status]}</span>
+        <span className={cn('text-xs px-1.5 py-0.5 rounded shrink-0', tone === 'run' && 'bg-accent/10 text-accent', tone === 'ok' && 'bg-ok/10 text-ok', tone === 'danger' && 'bg-danger/10 text-danger')}>{STATUS_TEXT[block.status]}</span>
         <span className="font-medium text-sm truncate flex-1" title={title}>{title}</span>
         <span className="text-xs text-muted shrink-0">耗时 {fmtDur(elapsedMs)}</span>
       </div>

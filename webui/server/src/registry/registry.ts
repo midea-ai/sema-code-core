@@ -11,7 +11,6 @@ import type { Registry, ProjectRecord, SessionRecord, WebUISettings, AgentMode, 
 
 export const WEBUI_HOME = path.join(os.homedir(), '.sema', 'webui');
 export const TRANSCRIPT_DIR = path.join(WEBUI_HOME, 'transcripts');
-export const TRASH_DIR = path.join(WEBUI_HOME, 'trash');
 export const SEMA_DOCS_ROOT = path.join(os.homedir(), 'Documents', 'Sema');
 /** 进程级操作（模型配置等）专用的中性工作目录：放在 ~/.sema 下，避开 macOS 对 Documents 的访问授权限制 */
 export const CONFIG_WORKSPACE = path.join(WEBUI_HOME, 'workspace');

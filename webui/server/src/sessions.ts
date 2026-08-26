@@ -45,6 +45,8 @@ interface Runtime {
   ensuring?: Promise<WorkerHandle>;
   /** cron keeper 为注入定时任务拉起的会话：该时刻前不做会话回收/退场（不改 lastActiveAt，不影响侧边栏排序） */
   keepUntil?: number;
+  /** 最近一次拉活（warm/任何会话动作）时间：空闲回收按 max(lastActiveAt, lastWarmAt) 判定，不改 lastActiveAt 以免影响侧边栏排序 */
+  lastWarmAt?: number;
 }
 
 export class SessionManager extends EventEmitter {
@@ -204,6 +206,7 @@ export class SessionManager extends EventEmitter {
 
   private async ensureLive(sid: string): Promise<WorkerHandle> {
     const rt = this.loadRuntime(sid);
+    rt.lastWarmAt = Date.now();
     if (rt.ensuring) return rt.ensuring;
     const rec = this.registry.getSession(sid)!;
     rt.ensuring = (async () => {
@@ -578,7 +581,7 @@ export class SessionManager extends EventEmitter {
       const total = w.sessions.size;
       const idle = [...w.sessions]
         .filter(sid => !this.isBusy(sid) && !guarded.has(sid) && !this.isKept(sid))
-        .map(sid => ({ sid, t: this.registry.getSession(sid)?.lastActiveAt ?? 0 }))
+        .map(sid => ({ sid, t: Math.max(this.registry.getSession(sid)?.lastActiveAt ?? 0, this.runtimes.get(sid)?.lastWarmAt ?? 0) }))
         .sort((a, b) => a.t - b.t);
       const excess = Math.max(0, total - MAX_LIVE_SESSIONS);
       for (let i = 0; i < idle.length; i++) {

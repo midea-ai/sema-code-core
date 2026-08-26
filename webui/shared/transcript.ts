@@ -128,10 +128,11 @@ function closeStreaming(snap: SessionSnapshot) {
 
 /** 中断/结束时把未决交互卡片作废 */
 function voidPending(snap: SessionSnapshot) {
+  const now = Date.now();
   const mark = (blocks: Block[]): Block[] => blocks.map(b => {
-    if (b.kind === 'permission' && !b.resolved) return { ...b, resolved: '__interrupted' };
-    if (b.kind === 'pick' && !b.answered) return { ...b, answered: true, resolved: null };
-    if (b.kind === 'plan-exit' && !b.resolved) return { ...b, resolved: '__interrupted' };
+    if (b.kind === 'permission' && !b.resolved) return { ...b, resolved: '__interrupted', resolvedTs: now };
+    if (b.kind === 'pick' && !b.answered) return { ...b, answered: true, resolved: null, resolvedTs: now };
+    if (b.kind === 'plan-exit' && !b.resolved) return { ...b, resolved: '__interrupted', resolvedTs: now };
     if (b.kind === 'agent') return { ...b, blocks: mark(b.blocks) };
     return b;
   });
@@ -320,7 +321,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
 
     case 'task:start':
     case 'task:transfer':
-      notice(snap, seq, 'info', 'info', `后台任务${event === 'task:transfer' ? '（已转后台）' : '启动'}：${data?.command || data?.taskId || ''}`);
+      // 启动/转后台不提示：工具行已显示该命令，只保留结束通知
       break;
     case 'task:end':
       notice(snap, seq, 'info', data?.status === 'failed' ? 'warn' : 'info', `后台任务结束（${data?.status}）：${data?.summary || ''}`);
@@ -444,13 +445,13 @@ export type LocalAction =
 export function applyLocal(snap: SessionSnapshot, action: LocalAction): SessionSnapshot {
   switch (action.type) {
     case 'permission':
-      updateBlock(snap, b => b.kind === 'permission' && b.id === action.toolId, b => ({ ...b, resolved: action.selected } as Block));
+      updateBlock(snap, b => b.kind === 'permission' && b.id === action.toolId, b => ({ ...b, resolved: action.selected, resolvedTs: Date.now() } as Block));
       break;
     case 'pick':
-      updateBlock(snap, b => b.kind === 'pick' && b.id === action.id, b => ({ ...b, answered: true, resolved: action.answers } as Block));
+      updateBlock(snap, b => b.kind === 'pick' && b.id === action.id, b => ({ ...b, answered: true, resolved: action.answers, resolvedTs: Date.now() } as Block));
       break;
     case 'plan-exit':
-      updateBlock(snap, b => b.kind === 'plan-exit' && b.id === action.id, b => ({ ...b, resolved: action.selected } as Block));
+      updateBlock(snap, b => b.kind === 'plan-exit' && b.id === action.id, b => ({ ...b, resolved: action.selected, resolvedTs: Date.now() } as Block));
       break;
     case 'agentMode':
       snap.agentMode = action.mode;
@@ -481,6 +482,20 @@ export function pendingIn(blocks: Block[]): Block[] {
 
 export function pendingBlocks(snap: SessionSnapshot): Block[] {
   return pendingIn(snap.blocks);
+}
+
+/** 已完成的用户等待总时长（毫秒）：递归累加（含 agent 子块）所有已应答交互块的 resolvedTs - ts。
+ *  未应答的块不计入（由调用方用 pausedAt 定格处理）；历史快照缺 resolvedTs 时按 0 计。 */
+export function waitedMsIn(blocks: Block[]): number {
+  let ms = 0;
+  const walk = (bs: Block[]) => {
+    for (const b of bs) {
+      if ((b.kind === 'permission' || b.kind === 'pick' || b.kind === 'plan-exit') && b.resolvedTs) ms += Math.max(0, b.resolvedTs - b.ts);
+      else if (b.kind === 'agent') walk(b.blocks);
+    }
+  };
+  walk(blocks);
+  return ms;
 }
 
 export function firstUserText(snap: SessionSnapshot): string | undefined {

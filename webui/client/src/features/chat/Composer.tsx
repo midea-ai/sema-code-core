@@ -4,6 +4,7 @@ import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { pendingBlocks } from '../../../../shared/transcript';
 import { wsClient } from '../../api/ws';
+import { api } from '../../api/http';
 import { Dropdown, cn } from '../../common/ui';
 import ProviderLogo, { parseProviderKey, stripProviderSuffix } from '../../common/ProviderLogo';
 import { t } from '../../i18n';
@@ -60,6 +61,20 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   // ↑↓ 历史输入切换：histIdx 为当前所在的历史下标（null=未在翻历史），histSaved 保存进入翻页前未发送的草稿
   const histIdx = useRef<number | null>(null);
   const histSaved = useRef('');
+  // 本次 ↑↓ 已被翻历史消费：keyup 跳过弹层重判，避免召回的 /命令 打开命令弹层抢走 ↑↓
+  const histConsumed = useRef(false);
+  // 草稿页还没有会话快照：从 server 拉项目目录的历史输入供 ↑↓ 翻页（无项目的草稿没有目录归属，不拉取）
+  const [draftHistory, setDraftHistory] = useState<string[]>([]);
+  useEffect(() => {
+    setDraftHistory([]);
+    histIdx.current = null;
+    if (!isDraft || !projectId) return;
+    let stale = false;
+    api<string[]>('GET', `/api/projects/${projectId}/input-history`)
+      .then(h => { if (!stale && Array.isArray(h)) setDraftHistory(h); })
+      .catch(() => undefined);
+    return () => { stale = true; };
+  }, [isDraft, projectId]);
   const scope = { sessionId, projectId };
   const fileSearch = useFileSearch(scope, trigger?.kind === 'file' && (sessionId || projectId) ? trigger.query : null);
   const cmds = useCommands(scope, trigger?.kind === 'cmd');
@@ -177,7 +192,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   /** ↑↓ 切换项目历史输入：↑ 光标在首行时向更早翻，↓ 在末行时向更新翻，翻过最新一条恢复未发送草稿。
    * 返回 true 表示已消费按键；光标不在首/末行时不接管，保持正常的行内移动 */
   const historyNav = (key: string): boolean => {
-    const list = snap?.inputHistory;
+    const list = snap ? snap.inputHistory : draftHistory;
     if (!list?.length) return false;
     const caret = taRef.current?.selectionStart ?? draft.text.length;
     const apply = (text: string) => { pendingCaret.current = text.length; setDraft(draftKey, d => ({ ...d, text })); };
@@ -219,13 +234,18 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
         // 无候选：Enter 照常发送
       }
     }
-    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && historyNav(e.key)) { e.preventDefault(); return; }
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && historyNav(e.key)) { e.preventDefault(); histConsumed.current = true; return; }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
     if (e.key === 'Escape' && processing && sessionId) interrupt(sessionId).catch(() => undefined);
   };
   // 方向键/Home/End 等移动光标后重新判定（keydown 时光标还没动）
   const onKeyUp = (e: React.KeyboardEvent) => {
-    if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key) || (!trigger && (e.key === 'ArrowUp' || e.key === 'ArrowDown'))) syncCaret();
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      if (histConsumed.current) { histConsumed.current = false; return; }
+      if (!trigger) syncCaret();
+      return;
+    }
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) syncCaret();
   };
 
   const usage = snap?.usage;

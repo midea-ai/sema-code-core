@@ -30,8 +30,8 @@ export const BlockRenderer = memo(function BlockRenderer({ block, ctx }: { block
   switch (block.kind) {
     case 'user': return <UserBubble block={block} ctx={ctx} />;
     case 'assistant': return <AssistantMsg block={block} ctx={ctx} />;
-    // 定时任务增删成功后由 CronCard 展示，工具行不再重复（失败仍显示工具行以便看报错）
-    case 'tool': return CRON_TOOLS.has(block.toolName) && block.status === 'done' ? null : <ToolCard block={block} ctx={ctx} />;
+    // 定时任务增删成功后由 CronCard 展示、子代理由 AgentCard 展示，工具行不再重复（失败仍显示工具行以便看报错）
+    case 'tool': return (CRON_TOOLS.has(block.toolName) && block.status === 'done') || (block.toolName === 'sub_agent' && block.status !== 'error') ? null : <ToolCard block={block} ctx={ctx} />;
     case 'permission': return <PermissionCard block={block} ctx={ctx} />;
     case 'pick': return <PickCard block={block} ctx={ctx} />;
     case 'plan-exit': return <PlanExitCard block={block} ctx={ctx} />;
@@ -71,7 +71,7 @@ function BranchOrigin({ block }: { block: BranchOriginBlock }) {
 // ==================== 用户 ====================
 
 // 用户消息折叠高度：14px 字号 × 1.5 行高 × 8 行
-const USER_COLLAPSED_MAX = 168;
+const USER_COLLAPSED_MAX = 68;
 
 function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   const textRef = useRef<HTMLDivElement>(null);
@@ -293,7 +293,7 @@ function ToolSummary({ block }: { block: ToolBlock }) {
   const diff = isDiffContent(block.content) ? block.content : null;
   if (n === 'search_files' || n === 'search_content') return <span className="truncate">{searchLabel(block, block.status === 'running')}</span>;
   const isGeneric = n.startsWith('mcp__') || n === 'ask_form';
-  const target = isGeneric ? '' : n === 'view_file' ? (filePathOf(block)?.split('/').pop() || '') : (block.title && block.title !== n ? block.title : '');
+  const target = isGeneric ? '' : n === 'view_file' ? (filePathOf(block)?.split('/').pop() || '') : n === 'run_shell' ? (block.summary || block.title || '') : (block.title && block.title !== n ? block.title : '');
   return (
     <>
       <span className="shrink-0">{toolVerb(block, diff)}</span>
@@ -343,7 +343,7 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
         {isSearch ? <span className="truncate">{searchLabel(block, block.status === 'running')}</span> : <span className="shrink-0">{toolVerb(block, diff)}</span>}
         {isSearch || isGeneric ? null : filePath
           ? <span onClick={e => { e.stopPropagation(); openFileRef(ctx.sessionId, filePath); }} className="truncate underline decoration-border underline-offset-2 cursor-pointer hover:text-fg hover:decoration-fg" title={absPathOf(filePath, workingDir)}>{isRead ? filePath.split('/').pop() : block.title}</span>
-          : <span className={cn('truncate', isShell && 'font-mono text-[12.5px]')}>{block.title}</span>}
+          : <span className={cn('truncate', isShell && 'font-mono text-[12.5px]')}>{isShell ? (block.summary || block.title) : block.title}</span>}
         {block.summary && !isShell && !isEdit && !isRead && !isSearch && !isGeneric && <span className="text-xs truncate max-w-[40%]">{block.summary}</span>}
         {isEdit && diff && <DiffStat patch={diff.patch} />}
       </div>
@@ -358,11 +358,11 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
       )}
       {open && expandable && (
         <div className="pl-6 py-1">
-          {isShell && block.summary && <div className="text-xs text-muted mb-1.5">{block.summary}</div>}
+          {isShell && block.summary && <div className="text-xs text-muted mb-1.5 whitespace-pre-wrap break-words">{block.title}</div>}
           {isGeneric && block.title && block.title !== block.toolName && block.toolName !== 'ask_form' && <div className="text-xs text-muted mb-1 break-all">{block.title}</div>}
           {isGeneric && block.summary && <div className="text-xs text-muted mb-1.5">{block.summary}</div>}
           {isImageRead ? (
-            <ImageThumb src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(filePath!)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" />
+            <ImageThumb src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(filePath!)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" label={filePath!.split('/').pop()} title={absPathOf(filePath!, workingDir)} />
           ) : diff ? <DiffView patch={diff.patch} path={block.title} sessionId={ctx.sessionId} maxLines={400} collapsible /> : (
             bodyText ? (
               <Collapsible deps={bodyText} className="rounded-md bg-code border border-border overflow-hidden">
@@ -393,7 +393,7 @@ function ImageReadCard({ blocks, ctx }: { blocks: ToolBlock[]; ctx: BlockCtx }) 
       {open && (
         <div className="pl-6 py-1 flex gap-2 flex-wrap">
           {paths.map((p, i) => (
-            <ImageThumb key={`${i}:${p}`} src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(p)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" />
+            <ImageThumb key={`${i}:${p}`} src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(p)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" label={p.split('/').pop()} title={absPathOf(p, workingDir)} />
           ))}
         </div>
       )}
@@ -410,6 +410,11 @@ const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp)$/i;
 function isImageReadBlock(b: Block): b is ToolBlock {
   return b.kind === 'tool' && b.toolName === 'view_file'
     && IMAGE_EXT_RE.test(String(b.title || b.input?.file_path || '').replace(/:\d+(-\d+)?$/, ''));
+}
+
+/** 非失败的子代理调用行：由 AgentCard 展示，工具行不渲染，也不计入工具组统计/组头 */
+function isHiddenAgentTool(b: Block): boolean {
+  return b.kind === 'tool' && b.toolName === 'sub_agent' && b.status !== 'error';
 }
 
 /** 可并入工具组的块：工具本身（读图片除外）、已放行的权限卡（本就不渲染）、自动放行提示 */
@@ -436,7 +441,7 @@ export function renderBlockList(blocks: Block[], ctx: BlockCtx, live = false) {
     let j = i;
     while (j < blocks.length && isToolGroupable(blocks[j])) j++;
     const run = blocks.slice(i, j);
-    if (run.filter(b => b.kind === 'tool').length >= 2) {
+    if (run.filter(b => b.kind === 'tool' && !isHiddenAgentTool(b)).length >= 2) {
       // 组头是否仍在增长：只有其后再无新文字/工具调用（真正的末尾组）才用「最后一个工具」当标题，否则回退为整体描述
       const isTailGroup = !blocks.slice(j).some(b => b.kind === 'tool' || (b.kind === 'assistant' && !!b.text));
       out.push(<ToolGroup key={`group:${run[0].id}`} blocks={run} ctx={ctx} live={live && isTailGroup} />);
@@ -448,7 +453,7 @@ export function renderBlockList(blocks: Block[], ctx: BlockCtx, live = false) {
 
 /** live：组头显示最后一个工具的单行摘要（随新工具加入自动更新）；结束后组头为类别文案。两种模式都默认折叠，点开内容一致 */
 function ToolGroup({ blocks, ctx, live }: { blocks: Block[]; ctx: BlockCtx; live?: boolean }) {
-  const tools = blocks.filter((b): b is ToolBlock => b.kind === 'tool');
+  const tools = blocks.filter((b): b is ToolBlock => b.kind === 'tool' && !isHiddenAgentTool(b));
   const hasEdit = tools.some(b => EDIT_TOOLS.has(b.toolName));
   const hasShell = tools.some(b => b.toolName === 'run_shell');
   const hasRead = tools.some(b => b.toolName === 'view_file' || b.toolName === 'search_files' || b.toolName === 'search_content');

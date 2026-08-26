@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
 import { SessionManager } from '../sessions';
-import { SEMA_DOCS_ROOT, TRASH_DIR, removeEmptyDateParent } from '../registry/registry';
+import { SEMA_DOCS_ROOT, WEBUI_HOME, removeEmptyDateParent } from '../registry/registry';
 import { searchFiles } from '../files/search';
 import { readFileInDir, listDir, resolvePath, statPaths, rawFileInDir } from '../files/read';
 import { listOpenWithApps, appIconPath } from '../files/apps';
@@ -144,7 +144,7 @@ export function openExternal(url: string) {
   return run('xdg-open', [url]);
 }
 
-/** 移入废纸篓（macOS 走 Finder；其余平台移到 ~/.sema/webui/trash） */
+/** 移入废纸篓（macOS 走 Finder；失败或其余平台直接删除，与 transcript/history 的硬删一致） */
 async function trashDir(dir: string) {
   if (!fs.existsSync(dir)) return;
   if (IS_MAC) {
@@ -153,8 +153,7 @@ async function trashDir(dir: string) {
       return;
     } catch { /* fallthrough */ }
   }
-  fs.mkdirSync(TRASH_DIR, { recursive: true });
-  fs.renameSync(dir, path.join(TRASH_DIR, `${Date.now()}-${path.basename(dir)}`));
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 async function pickDirectory(): Promise<string | null> {
@@ -216,6 +215,16 @@ export class Router {
     this.add('POST', '/api/projects/:id/reveal', async (_r, _s, p) => {
       const proj = reg.getProject(p.id); if (!proj) throw new Error('项目不存在');
       await revealInFileManager(proj.workingDir); return true;
+    });
+    // 项目目录的历史输入（core 按 workingDir 落盘在 <semaRoot>/projects.conf）：草稿页输入框 ↑↓ 翻历史用
+    this.add('GET', '/api/projects/:id/input-history', (_r, _s, p) => {
+      const proj = reg.getProject(p.id); if (!proj) throw new Error('项目不存在');
+      try {
+        const semaRoot = process.env.SEMA_ROOT ? path.resolve(process.env.SEMA_ROOT) : path.dirname(WEBUI_HOME);
+        const conf = JSON.parse(fs.readFileSync(path.join(semaRoot, 'projects.conf'), 'utf8'));
+        const h = conf?.[proj.workingDir]?.history;
+        return Array.isArray(h) ? h.filter((x: unknown): x is string => typeof x === 'string' && !!x) : [];
+      } catch { return []; }
     });
 
     // ---- 会话 ----

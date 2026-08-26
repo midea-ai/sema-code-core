@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FolderOpen, Pencil, AlertTriangle, ArrowDown, ChevronDown, ChevronRight, Copy, Check, ThumbsUp, ThumbsDown, GitBranch } from 'lucide-react';
 import type { Block } from '../../../../shared/types';
-import { pendingBlocks } from '../../../../shared/transcript';
+import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { BlockRenderer, renderBlockList, htmlFilesOf, HtmlSiteCard, memoryFilesOf, MemoryCard, type BlockCtx } from './Blocks';
@@ -301,7 +301,7 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
     <div>
       <BlockRenderer block={opener} ctx={ctx} />
       {!queued && (running ? started : (hasWork || collapsible)) && (
-        <TurnDivider start={opener.ts} end={opener.doneTs ?? (running ? undefined : (rest[rest.length - 1]?.ts ?? opener.ts))} active={running} pausedAt={running ? awaitingTs : undefined} collapsible={collapsible} expanded={expanded} onToggle={() => setExpanded(v => !v)} />
+        <TurnDivider start={opener.ts} end={opener.doneTs ?? (running ? undefined : (rest[rest.length - 1]?.ts ?? opener.ts))} active={running} pausedAt={running ? awaitingTs : undefined} pausedMs={waitedMsIn(rest)} collapsible={collapsible} expanded={expanded} onToggle={() => setExpanded(v => !v)} />
       )}
       {running ? renderBlockList(ordered, ctx, true) : (expanded && collapsible) ? renderBlockList(ordered, ctx) : renderBlockList(collapsedView, ctx)}
       {/* 本轮新建/修改的 html 文件：结论之后给「网站卡片」，默认右栏浏览器预览（本轮结束后显示，避免半成品页面） */}
@@ -355,9 +355,10 @@ export function FinalActions({ text, ts, className, onBranch, branchTitle, branc
   );
 }
 
-function TurnDivider({ start, end, active, pausedAt, collapsible, expanded, onToggle }: { start: number; end?: number; active: boolean; pausedAt?: number; collapsible: boolean; expanded: boolean; onToggle: () => void }) {
-  // 等待用户处理权限确认/快速确认/计划退出时，计时定格在请求出现的时刻；恢复后从暂停前的已耗时继续累加，不把等待时长计入
-  const elapsed = usePausableElapsed(start, active, pausedAt);
+function TurnDivider({ start, end, active, pausedAt, pausedMs, collapsible, expanded, onToggle }: { start: number; end?: number; active: boolean; pausedAt?: number; pausedMs: number; collapsible: boolean; expanded: boolean; onToggle: () => void }) {
+  // 等待用户处理权限确认/快速确认/计划退出时，计时定格在请求出现的时刻；pausedMs（本轮已完成等待的总时长，
+  // 从块数据推导、随快照持久化）在展示时扣除——即恢复后从暂停前的已耗时继续累加，刷新页面后依然准确
+  const elapsed = usePausableElapsed(start, active, pausedAt, pausedMs);
   return (
     <div className="my-3 text-[13px] text-dim">
       <button onClick={collapsible ? onToggle : undefined} className={cn('inline-flex items-center gap-1.5', collapsible ? 'hover:text-fg cursor-pointer' : 'cursor-default')} title={collapsible ? t('chat.toggleProcess') : undefined}>

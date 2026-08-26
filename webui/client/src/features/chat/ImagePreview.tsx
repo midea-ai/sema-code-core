@@ -1,7 +1,7 @@
 /** 图片放大预览遮罩：右上角尺寸 / 下载 / 关闭，点图片以外任意处或 Esc 关闭（无编辑功能） */
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, X } from 'lucide-react';
+import { Download, ImageOff, X } from 'lucide-react';
 import { cn } from '../../common/ui';
 import { t } from '../../i18n';
 
@@ -48,12 +48,21 @@ export function ImagePreview({ src, onClose }: { src: string; onClose: () => voi
   );
 }
 
-/** 共用图片缩略图（输入框 / 用户气泡 / 工具读图）：点击放大预览；传 onDelete 时右上角出删除角标 */
-export function ImageThumb({ src, className, onDelete }: { src: string; className?: string; onDelete?: () => void }) {
+/** 共用图片缩略图（输入框 / 用户气泡 / 工具读图）：点击放大预览；传 onDelete 时右上角出删除角标；
+ * 加载失败时显示占位框，传 label（文件名）/ title（完整路径）时占位框带文件名与失效说明 */
+export function ImageThumb({ src, className, onDelete, label, title }: { src: string; className?: string; onDelete?: () => void; label?: string; title?: string }) {
   const [preview, setPreview] = useState(false);
   const [failed, setFailed] = useState(false);
   if (failed) {
-    return <div className={cn('px-2 rounded-xl border border-border text-xs text-muted flex items-center', className || 'h-10')}>图片</div>;
+    return label ? (
+      <div title={title || label} className={cn('px-1.5 rounded-xl border border-border text-muted flex flex-col items-center justify-center gap-1 text-center overflow-hidden shrink-0', className)}>
+        <ImageOff size={16} className="shrink-0" />
+        <span className="text-[10px] leading-tight max-w-full truncate">{label}</span>
+        <span className="text-[10px] leading-tight opacity-70">文件已不存在</span>
+      </div>
+    ) : (
+      <div className={cn('px-2 rounded-xl border border-border text-xs text-muted flex items-center', className || 'h-10')}>图片</div>
+    );
   }
   const img = (
     <img

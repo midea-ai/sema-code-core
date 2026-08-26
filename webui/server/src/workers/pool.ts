@@ -145,6 +145,17 @@ export class WorkerPool extends EventEmitter {
         this.emit('proc-event', workingDir, m.event, m.data);
       }
     });
+    // send() 写入已关闭的通道等场景会异步 emit error，无监听时会升级为 uncaughtException
+    child.on('error', (err: any) => {
+      console.error(`[pool] worker pid=${child.pid} 通道错误 dir=${workingDir}:`, err?.message || err);
+      for (const [id, p] of this.pending) {
+        if (id.startsWith(`${child.pid}:`)) {
+          this.pending.delete(id);
+          clearTimeout(p.timer);
+          p.reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      }
+    });
     child.on('exit', (code) => {
       handle.alive = false;
       if (code && code !== 0) console.error(`[pool] worker pid=${child.pid} 异常退出 code=${code} dir=${workingDir}（若目录已被删除/移入废纸篓，请删除对应会话或重新创建）`);
@@ -182,6 +193,10 @@ export class WorkerPool extends EventEmitter {
   kill(w: WorkerHandle): Promise<void> {
     if (!w.alive) return Promise.resolve();
     console.log(`[pool] kill worker pid=${w.child.pid} dir=${w.workingDir}`);
+    // disconnect 后 IPC 通道立即不可用，但 exit 事件可能延迟数秒：
+    // 先标记死亡并摘出池，避免这期间巡检路径（reapSessions 等）继续向已关闭通道 send
+    w.alive = false;
+    if (this.workers.get(w.workingDir) === w) this.workers.delete(w.workingDir);
     const exited = new Promise<void>((resolve) => w.child.once('exit', () => resolve()));
     try { w.child.disconnect(); } catch { try { w.child.kill('SIGKILL'); } catch { /* ignore */ } }
     const t = setTimeout(() => { try { w.child.kill('SIGKILL'); } catch { /* ignore */ } }, 5000);

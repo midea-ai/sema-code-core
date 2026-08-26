@@ -178,6 +178,8 @@ export interface PermissionBlock extends BlockBase {
   options: Record<string, string>;
   /** 已应答的选项 key；'__interrupted' 表示因中断作废 */
   resolved?: string;
+  /** 应答时刻；与 ts 之差即等待用户的时长，耗时展示时扣除 */
+  resolvedTs?: number;
 }
 
 export interface PickBlock extends BlockBase {
@@ -188,6 +190,8 @@ export interface PickBlock extends BlockBase {
   estimatedTime?: string;
   resolved?: string | null;
   answered?: boolean;
+  /** 应答时刻；与 ts 之差即等待用户的时长，耗时展示时扣除 */
+  resolvedTs?: number;
 }
 
 export interface PlanExitBlock extends BlockBase {
@@ -197,6 +201,8 @@ export interface PlanExitBlock extends BlockBase {
   planContent: string;
   options: Record<string, string>;
   resolved?: string;
+  /** 应答时刻；与 ts 之差即等待用户的时长，耗时展示时扣除 */
+  resolvedTs?: number;
 }
 
 export interface TodosBlock extends BlockBase {

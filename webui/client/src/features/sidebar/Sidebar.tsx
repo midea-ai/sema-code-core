@@ -232,7 +232,9 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
   const remove = async () => {
     const ok = await dialog.confirm({
       title: t('menu.delete'), danger: true, okText: t('menu.delete'),
-      message: `${t('dialog.confirmDeleteSession', { name: session.title || t('chat.untitled') })}\n${session.projectId ? t('dialog.deleteProjectSessionHint') : t('dialog.deleteStandaloneHint')}`,
+      message: session.projectId
+        ? t('dialog.confirmDeleteSession', { name: session.title || t('chat.untitled') })
+        : `${t('dialog.confirmDeleteSession', { name: session.title || t('chat.untitled') })}\n${t('dialog.deleteStandaloneHint')}`,
     });
     if (ok) app().deleteSession(session.id).catch(e => toast(e.message, 'error'));
   };

@@ -26,28 +26,6 @@
 
 [查看文档](https://midea-ai.github.io/sema-code-core)
 
-## ✨ 核心特性
-
-| 特性 | 说明 |
-|:-----|:-----|
-| **自然语言指令** | 通过自然语言直接驱动编程任务 |
-| **权限控制** | 细粒度的权限管理，确保操作安全可控 |
-| **Subagent 管理** | 支持多智能体协同工作，可根据任务类型动态调度合适的子代理 |
-| **Skill 扩展机制** | 提供插件化架构，可灵活扩展 AI 编程能力 |
-| **Plan 模式任务规划** | 支持复杂任务的分解与执行规划 |
-| **MCP 协议支持** | 内置 Model Context Protocol 服务，支持工具扩展 |
-| **多模型支持** | 兼容 Anthropic、OpenAI SDK，支持国内外主流厂商 LLM API |
-
-## 🎯 适用场景
-
-- **IDE / 编辑器插件开发** — 为编辑器提供底层 AI 能力封装，开发者只需专注 UI 交互，无需自研复杂的大模型调度与工具调用逻辑。
-
-- **企业内部研发工具** — 私有化部署 + 权限管控，适配企业自有模型与安全规范。开箱即用的工具链，避免从零构建 AI 编程基础设施。
-
-- **垂直领域智能工作流** — 将复杂工程任务（迁移、重构、文档）拆解为自动化流程。多智能体协同执行，替代人工处理重复性代码工作。
-
-- **学术研究与 Agent 原型验证** — 为学术机构与独立研究者提供轻量级 Agent 实验环境，支持灵活组合工具链与智能体策略，让研究者聚焦算法创新。
-
 ## 💼 使用案例
 
 ### SemaCode 插件（VSCode / JetBrains）
@@ -68,7 +46,7 @@
 
 ### SemaPLC
 
-[SemaPLC](https://github.com/midea-ai/SemaPLC) 是一个 Agent 驱动的工业 PLC 编程 IDE：用自然语言描述控制任务，由内置的 sema-core Agent 端到端地生成、编译、部署并验证 PLC 程序。
+[SemaPLC](https://github.com/midea-ai/SemaPLC) 是工业 PLC 编程 IDE：用自然语言描述控制任务，由内置的 Sema Core Agent 端到端地生成、编译、部署并验证 PLC 程序。
 
 <p align="center">
   <img src="https://github.com/midea-ai/SemaPLC/raw/main/docs/images/demo.gif" alt="SemaPLC"/>
@@ -80,14 +58,6 @@
 
 <p align="center">
   <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/semaclaw-intro.GIF" alt="SemaClaw"/>
-</p>
-
-### Skill Web App
-
-基于 Sema Code Core 的 Skill 网页应用，集成 Agent Skill Browser / Creator / Playground 演示。
-
-<p align="center">
-  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/skill-create.gif" alt="Skill Web App"/>
 </p>
 
 ## 🚀 快速开始

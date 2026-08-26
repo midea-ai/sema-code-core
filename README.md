@@ -26,28 +26,6 @@
 
 [View Documentation](https://midea-ai.github.io/sema-code-core)
 
-## ✨ Core Features
-
-| Feature | Description |
-|:--------|:------------|
-| **Natural Language Instructions** | Directly drive programming tasks through natural language |
-| **Permission Control** | Fine-grained permission management ensures safe and controllable operations |
-| **Subagent Management** | Multi-agent collaboration with dynamic sub-agent scheduling based on task types |
-| **Skill Extension Mechanism** | Plugin architecture to flexibly extend AI programming capabilities |
-| **Plan Mode Task Planning** | Decomposition and execution planning of complex tasks |
-| **MCP Protocol Support** | Built-in Model Context Protocol service to support tool extension |
-| **Multi-Model Support** | Compatible with Anthropic, OpenAI SDK, and LLM APIs from major vendors |
-
-## 🎯 Scenarios
-
-- **IDE / Editor Plugin Development** — Provides low-level AI capability encapsulation for editors, allowing developers to focus on UI interaction without self-developing complex large model scheduling and tool calling logic.
-
-- **Enterprise Internal R&D Tools** — Private deployment + permission control, adapting to enterprise-owned models and security specifications. Out-of-the-box toolchain avoids building AI programming infrastructure from scratch.
-
-- **Vertical Domain Intelligent Workflow** — Decomposes complex engineering tasks (migration, refactoring, documentation) into automated processes. Multi-agent collaborative execution replaces manual processing of repetitive coding work.
-
-- **Academic Research & Agent Prototype Verification** — Provides a lightweight Agent experimental environment for academic institutions and independent researchers, supporting flexible combinations of toolchains and agent strategies, allowing researchers to focus on algorithmic innovation.
-
 ## 💼 Use Cases
 
 ### SemaCode Extension (VSCode / JetBrains)
@@ -68,7 +46,7 @@
 
 ### SemaPLC
 
-[SemaPLC](https://github.com/midea-ai/SemaPLC) is an Agent-driven IDE for industrial PLC programming — describe a control task in natural language and watch it become a running PLC program, powered by the embedded sema-core Agent.
+[SemaPLC](https://github.com/midea-ai/SemaPLC) is an IDE for industrial PLC programming — describe a control task in natural language and watch it become a running PLC program, powered by the embedded Sema Core Agent.
 
 <p align="center">
   <img src="https://github.com/midea-ai/SemaPLC/raw/main/docs/images/demo.gif" alt="SemaPLC"/>
@@ -80,14 +58,6 @@
 
 <p align="center">
   <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/semaclaw-intro.GIF" alt="SemaClaw"/>
-</p>
-
-### Skill Web App
-
-A Skill web application based on Sema Code Core, integrating Agent Skill Browser / Creator / Playground demo.
-
-<p align="center">
-  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/skill-create.gif" alt="Skill Web App"/>
 </p>
 
 ## 🚀 Quick Start

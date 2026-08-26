@@ -16,7 +16,7 @@ import { getEventBus } from '../events/EventSystem'
 import { TaskAgentStartData, TaskAgentEndData } from '../events/types'
 import { logDebug, logError } from '../util/log'
 import { isInterruptedException } from '../types/errors'
-import { calculateStats, formatSummary, pickResultText } from '../util/agentStats'
+import { calculateStats, formatSummary, pickResultText, getUserWaitMs } from '../util/agentStats'
 import { buildAgentSystemPrompt } from '../services/agents/genSystemPrompt'
 import { generateRulesReminders } from '../services/agents/genSystemReminder'
 import { getTaskManager } from '../manager/TaskManager'
@@ -134,7 +134,7 @@ export const SubAgent = {
               bgResultMessages.push(message)
             }
             const isInterrupted = bgAbortController.signal.aborted
-            const stats = calculateStats(bgResultMessages, start)
+            const stats = calculateStats(bgResultMessages, start, getUserWaitMs(sessionId, taskId))
             const summary = formatSummary(stats, isInterrupted ? 'interrupted' : 'completed')
             eventBus.emit('task:agent:end', {
               taskId,
@@ -151,7 +151,7 @@ export const SubAgent = {
             }
           } catch (error) {
             const isInterrupted = isInterruptedException(error) || bgAbortController.signal.aborted
-            const stats = calculateStats(bgResultMessages, start)
+            const stats = calculateStats(bgResultMessages, start, getUserWaitMs(sessionId, taskId))
             const summary = isInterrupted
               ? formatSummary(stats, 'interrupted')
               : `Error: ${error instanceof Error ? error.message : String(error)}`
@@ -231,7 +231,7 @@ export const SubAgent = {
           }
 
           const isInterrupted = subAbortController.signal.aborted
-          const stats = calculateStats(resultMessages, start)
+          const stats = calculateStats(resultMessages, start, getUserWaitMs(sessionId, taskId))
           const summary = formatSummary(stats, isInterrupted ? 'interrupted' : 'completed')
 
           eventBus.emit('task:agent:end', {
@@ -250,7 +250,7 @@ export const SubAgent = {
           }
         } catch (error) {
           const isInterrupted = isInterruptedException(error) || subAbortController.signal.aborted
-          const stats = calculateStats(resultMessages, start)
+          const stats = calculateStats(resultMessages, start, getUserWaitMs(sessionId, taskId))
           const summary = isInterrupted
             ? formatSummary(stats, 'interrupted')
             : `Error: ${error instanceof Error ? error.message : String(error)}`
@@ -296,7 +296,7 @@ export const SubAgent = {
         const output: ToolRes = {
           agentType: agentConfig.name,
           result: res.result,
-          durationMs: Date.now() - start,
+          durationMs: Math.max(0, Date.now() - start - getUserWaitMs(sessionId, taskId)),
         }
         yield {
           type: 'result',
@@ -306,7 +306,7 @@ export const SubAgent = {
       } else if (raceResult.type === 'error') {
         const { err } = raceResult
         const isInterrupted = isInterruptedException(err) || subAbortController.signal.aborted
-        const stats = calculateStats(resultMessages, start)
+        const stats = calculateStats(resultMessages, start, getUserWaitMs(sessionId, taskId))
 
         taskManager.finalizeTask(taskId, isInterrupted ? 0 : 1)
 
@@ -315,7 +315,7 @@ export const SubAgent = {
           logDebug(`Subagent ${agentConfig.name} was interrupted`)
           yield {
             type: 'result',
-            data: { agentType: agentConfig.name, result: summary, durationMs: Date.now() - start },
+            data: { agentType: agentConfig.name, result: summary, durationMs: stats.durationMs },
             resultForAssistant: summary,
           }
         } else {

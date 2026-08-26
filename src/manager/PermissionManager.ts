@@ -10,6 +10,7 @@ import { getEventBus } from '../events/EventSystem'
 import { ToolPermissionRequestData, ToolPermissionResponse, ToolPermissionAutoData } from '../events/types'
 import { checkAbortSignal } from '../types/errors'
 import { getFilePath } from '../util/file'
+import { addUserWait } from '../util/agentStats'
 import { isAbsolute, resolve, relative, dirname, join } from 'path'
 import { getSemaRootDir } from '../util/savePath'
 import { tmpdir } from 'os'
@@ -17,7 +18,7 @@ import { normalizeCmpPath } from '../util/platform'
 import { getStateManager, MAIN_AGENT_ID } from './StateManager'
 import { queryLLM } from '../services/api/queryLLM'
 import { AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT } from '../prompt/permission'
-import { isReadonlySafeCommand, isUnsafeForPrefixAuth, hasDangerousCommand } from '../util/shellSafety'
+import { isReadonlySafeCommand, isUnsafeForPrefixAuth, hasDangerousCommand, classifyCommandSubstitutions } from '../util/shellSafety'
 import { extractAutoRunContext, summarizeActionLine } from '../util/autoRunContext'
 import { isBlockedFetchHost } from '../util/fetchSafety'
 import { firePermissionRequest } from '../services/hooks/hookTriggers'
@@ -333,6 +334,27 @@ async function checkRunShellPermission(
     ? injectionSkeleton.includes('\n') || splitCommand(injectionSkeleton).some(hasCommandInjection)
     : subCommands.some(hasCommandInjection)
   if (injectionDetected) {
+    // $() 命令替换细分（heredoc 骨架检出的注入维持确定性转人工，不参与放宽）：
+    //  dangerous（内层危险首词/解释器、反引号、解析失败）→ 确定性转人工，不给模型机会；
+    //  readonly/gray（唯一注入特征是可解析的 $() 替换）→ AutoRun 档位交模型判断。
+    // 刻意不走白名单/前缀/覆盖等确定性放行——那些检查不理解替换语义（echo:* 前缀
+    // 会把 echo $(任意命令) 一并放行），放行只能由模型或人工裁决。
+    const substClass = injectionSkeleton !== command ? 'dangerous' : classifyCommandSubstitutions(command)
+    if (substClass !== 'dangerous' && getStateManager().session(sessionId).isAutoRun()) {
+      let safe = false
+      try {
+        safe = (await classifyActionSafety(tool, { command }, abortController.signal, sessionId, agentId)) === 'safe'
+      } catch (error) {
+        logDebug(`[Permission][AutoRun] 安全判断失败，转人工: ${error}`)
+      }
+      checkAbortSignal(abortController)
+      if (safe) {
+        logDebug(`[Permission][AutoRun]${tool.name} 含 ${substClass} $() 替换，模型判定 safe，自动放行`)
+        emitAutoApproved(tool, agentId, sessionId, toolId)
+        return { result: true }
+      }
+      logDebug(`[Permission][AutoRun]${tool.name} 含 $() 替换，模型判定有风险，转人工申请`)
+    }
     return requestPermissionViaEvent(tool, { command, description }, null, abortController, agentId, sessionId, toolId, false, true)
   }
 
@@ -681,13 +703,15 @@ async function requestPermissionViaEvent(
   }
 
   const eventBus = getEventBus()
+  const waitStart = Date.now()
   eventBus.emit('tool:permission:request', requestData, sessionId)
 
   return new Promise<PermissionCheckResult>((resolve) => {
-    // 清理函数：移除所有监听器
+    // 清理函数：移除所有监听器，并把本次等待用户的时长记账（执行耗时统计时扣除）
     const disposeHandle = () => {
       eventBus.off('tool:permission:response', handleResponse)
       abortController.signal.removeEventListener('abort', onAbortRequested)
+      addUserWait(sessionId, agentId, Date.now() - waitStart)
     }
 
     const handleResponse = (response: ToolPermissionResponse) => {

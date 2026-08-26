@@ -1,15 +1,18 @@
 import { splitCommand, hasCommandInjection } from './commands'
 
 // 仅凭首词即可判定安全的「真只读」单命令。
-// find 列入只读，但需额外排除危险动作 flag（见 DANGEROUS_FIND_FLAGS）。
+// find 列入只读，但需额外排除危险动作 flag（见 ALWAYS_DANGEROUS_FIND_FLAGS），
+// -exec/-execdir 则按目标命令递归分类（见 classifyFindExecTargets）。
 const READONLY_COMMANDS = new Set([
   'pwd', 'tree', 'date', 'which', 'find',
   'ls', 'grep', 'head', 'tail', 'cat', 'du', 'wc', 'echo', 'env', 'printenv',
 ])
 
-// find 的危险动作 flag：可执行任意命令（-exec/-execdir/-ok/-okdir）、删除（-delete）、
-// 写文件（-fprintf/-fprint/-fls）。命中则该 find 不走只读快速通道。
-const DANGEROUS_FIND_FLAGS = /(^|\s)-(exec(dir)?|ok(dir)?|delete|fprintf?|fls)\b/
+// find 的确定性危险 flag：删除（-delete）、写文件（-fprintf/-fprint/-fprint0/-fls）、
+// 交互确认（-ok/-okdir，会在非 tty 下挂住 shell，且同样是命令执行原语）。
+// 命中即确定性危险，无目标命令可细分；整段正则匹配（含 -exec 目标内），fail-closed。
+// -exec/-execdir 不在此列：它们的危险性取决于目标命令，由 classifyFindExecTargets 递归分类。
+const ALWAYS_DANGEROUS_FIND_FLAGS = /(^|\s)-(ok(dir)?|delete|fprint(0|f)?|fls)\b/
 
 // 仅允许整条精确匹配的完整命令（多词命令不能按首词放行，如 git 仅放行只读子命令）
 const SAFE_FULL_COMMANDS = new Set([
@@ -130,12 +133,208 @@ const DANGEROUS_PREFIX_COMMANDS = new Set([
   'mv',
 ])
 
+// ==================== find -exec 目标命令分类 ====================
+
+// find -exec 目标命令的分类结果，与顶层权限规则同构：
+//  no-exec   → 段内无 -exec/-execdir，find 按普通只读命令处理
+//  readonly  → 所有目标命令均为只读安全（cat/wc/grep 等）→ 该 find 整体视为只读，确定性放行
+//  gray      → 目标既非只读也非确定性危险（如 node xxx.js）→ 不放行也不判危险，交 AutoRun 模型/人工
+//  dangerous → 目标是危险首词/shell 解释器/嵌套危险 find，或解析失败（fail-closed）→ 确定性转人工
+type FindExecClass = 'no-exec' | 'readonly' | 'gray' | 'dangerous'
+
+const FIND_EXEC_TOKENS = new Set(['-exec', '-execdir'])
+
+// shell 解释器：-exec sh -c '...' 是任意命令执行原语，与危险首词同级，
+// 不给模型判断机会（isDangerousSubcommand 只查首词集合，覆盖不到这里）
+const SHELL_INTERPRETERS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish'])
+
+// 剥掉 token 两侧成对的引号（find -exec cat {} ';' 中的 ';' → ;），用于识别结束符与 {}
+function unquoteToken(t: string): string {
+  if (t.length >= 2 && ((t.startsWith("'") && t.endsWith("'")) || (t.startsWith('"') && t.endsWith('"')))) {
+    return t.slice(1, -1)
+  }
+  return t
+}
+
+function classifyExecTarget(target: string): 'readonly' | 'gray' | 'dangerous' {
+  const t = target.trim()
+  // 空目标（-exec ; / -exec +）不是合法 find 语法，按解析异常 fail-closed
+  if (!t) return 'dangerous'
+  const first = t.split(/\s+/)[0]!
+  if (SHELL_INTERPRETERS.has(first)) return 'dangerous'
+  // 递归复用顶层分类：危险首词/嵌套 find 危险 flag → dangerous；只读安全 → readonly；其余 → gray
+  if (isDangerousSubcommand(t)) return 'dangerous'
+  if (isReadonlySafeSubcommand(t)) return 'readonly'
+  return 'gray'
+}
+
+/**
+ * 提取 find 段内所有 -exec/-execdir 的目标命令（-exec 到 ;/+ 结束符之间、剥掉 {}），
+ * 逐个分类后取最严结果：任一 dangerous → dangerous；否则任一 gray → gray；全 readonly → readonly。
+ *
+ * 结束符识别 token 级精确匹配 ; 或 +（含引号包裹形式）。`\;` 形式经 splitCommand 的转义占位
+ * 处理后 `;` 会被当作命令分隔符消耗掉，段内只残留孤立的 `\`，找不到结束符 → fail-closed 判
+ * dangerous，与现状（一律危险）一致，不放宽。
+ */
+function classifyFindExecTargets(seg: string): FindExecClass {
+  const tokens = seg.trim().split(/\s+/)
+  let cls: FindExecClass = 'no-exec'
+  let i = 0
+  while (i < tokens.length) {
+    if (!FIND_EXEC_TOKENS.has(tokens[i]!)) { i++; continue }
+    const targetTokens: string[] = []
+    let j = i + 1
+    let foundEnd = false
+    for (; j < tokens.length; j++) {
+      const bare = unquoteToken(tokens[j]!)
+      if (bare === ';' || bare === '+') { foundEnd = true; break }
+      if (bare !== '{}') targetTokens.push(tokens[j]!)
+    }
+    // 找不到结束符（\; 被打散 / 命令截断）→ fail-closed
+    if (!foundEnd) return 'dangerous'
+    const c = classifyExecTarget(targetTokens.join(' '))
+    if (c === 'dangerous') return 'dangerous'
+    if (c === 'gray') cls = 'gray'
+    else if (cls === 'no-exec') cls = 'readonly'
+    i = j + 1
+  }
+  return cls
+}
+
+// ==================== $() 命令替换分类 ====================
+
+// 命令替换嵌套深度上限：正常命令极少超过 2 层，超限按解析失败 fail-closed
+const MAX_SUBSTITUTION_DEPTH = 3
+
+// 骨架占位符：替换 $(...) 后参与分词/分类，纯字母数字下划线，不会引入新的注入特征
+const SUBST_PLACEHOLDER = '__SUBST__'
+
+// $() 命令替换的分类结果，语义与 find -exec 目标分类同构：
+//  readonly  → 所有内层命令与骨架均只读安全
+//  gray      → 内层或骨架存在非只读、非确定性危险的段（node/cd 等）→ 交 AutoRun 模型
+//  dangerous → 内层含危险首词/shell 解释器、反引号、解析失败/嵌套超限 → 确定性转人工
+export type SubstitutionClass = 'readonly' | 'gray' | 'dangerous'
+
+/**
+ * 从 $( 之后的位置找配对的右括号，返回其下标；找不到返回 -1。
+ * 括号仅在引号外计数（含 $(a (b) c) 的子 shell 嵌套）；单引号内全字面；
+ * 双引号内 ) 为字面不计数。双引号内再嵌 $( 会重新进入命令上下文，解析
+ * 复杂度陡增 → fail-closed；替换内任何位置出现反引号同样 fail-closed。
+ */
+function findSubstitutionEnd(s: string, start: number): number {
+  let depth = 1
+  let inSingle = false
+  let inDouble = false
+  for (let i = start; i < s.length; i++) {
+    const c = s[i]!
+    if (inSingle) {
+      if (c === "'") inSingle = false
+      continue
+    }
+    if (c === '\\') { i++; continue }
+    if (inDouble) {
+      if (c === '$' && s[i + 1] === '(') return -1
+      if (c === '`') return -1
+      if (c === '"') inDouble = false
+      continue
+    }
+    if (c === "'") { inSingle = true; continue }
+    if (c === '"') { inDouble = true; continue }
+    if (c === '`') return -1
+    if (c === '(') { depth++; continue }
+    if (c === ')') {
+      depth--
+      if (depth === 0) return i
+      continue
+    }
+  }
+  return -1
+}
+
+/**
+ * 提取整条命令中所有顶层 $(...) 命令替换：返回骨架（替换为占位符）与各内层命令文本。
+ * 出现反引号（agent 不使用该写法，且无嵌套边界、解析不可靠）、括号不配对、引号不闭合
+ * → 返回 null（fail-closed，维持确定性拦截）。
+ * 必须在 splitCommand 之前调用：底层 shell-quote 不理解 $() 边界，会把内层的 && / | / ;
+ * 当作顶层分隔符拆散替换体。
+ */
+function extractCommandSubstitutions(command: string): { skeleton: string; inners: string[] } | null {
+  let inSingle = false
+  let inDouble = false
+  let skeleton = ''
+  const inners: string[] = []
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!
+    const next = command[i + 1]
+    if (inSingle) {
+      if (c === "'") inSingle = false
+      skeleton += c
+      continue
+    }
+    if (c === '\\') {
+      skeleton += c + (next ?? '')
+      i++
+      continue
+    }
+    if (c === '`') return null
+    if (c === '$' && next === '(') {
+      const end = findSubstitutionEnd(command, i + 2)
+      if (end < 0) return null
+      inners.push(command.slice(i + 2, end))
+      skeleton += SUBST_PLACEHOLDER
+      i = end
+      continue
+    }
+    if (!inDouble && c === "'") { inSingle = true; skeleton += c; continue }
+    if (c === '"') { inDouble = !inDouble; skeleton += c; continue }
+    skeleton += c
+  }
+  if (inSingle || inDouble) return null
+  return { skeleton, inners }
+}
+
+/**
+ * 对「注入特征仅可能来自 $() 命令替换」的整条命令做递归分类。
+ * 内层命令先递归分类（内层自身可含 && / | / 嵌套 $() 等）；随后骨架经 splitCommand
+ * 分段，逐段按顶层三层规则判定：危险首词/解释器/嵌套危险 find → dangerous；
+ * 只读安全 → readonly；其余 → gray。骨架残留任何注入特征（换行等）→ dangerous。
+ *
+ * 供权限闸门使用：dangerous → 确定性转人工（不给模型机会）；readonly/gray → 交
+ * AutoRun 模型判断。刻意不提供确定性放行——放行与否只由模型或人工裁决，解析器
+ * 误差最多把命令送去模型，绝不静默放过。
+ */
+export function classifyCommandSubstitutions(command: string, depth = 0): SubstitutionClass {
+  if (depth > MAX_SUBSTITUTION_DEPTH) return 'dangerous'
+  const parsed = extractCommandSubstitutions(command)
+  if (!parsed) return 'dangerous'
+  let worst: SubstitutionClass = 'readonly'
+  for (const inner of parsed.inners) {
+    const c = classifyCommandSubstitutions(inner, depth + 1)
+    if (c === 'dangerous') return 'dangerous'
+    if (c === 'gray') worst = 'gray'
+  }
+  let segs: string[]
+  try { segs = splitCommand(parsed.skeleton) } catch { return 'dangerous' }
+  if (segs.length === 0) return 'dangerous'
+  for (const seg of segs) {
+    if (hasCommandInjection(seg)) return 'dangerous'
+    const first = seg.trim().split(/\s+/)[0] ?? ''
+    if (SHELL_INTERPRETERS.has(first)) return 'dangerous'
+    if (isDangerousSubcommand(seg)) return 'dangerous'
+    if (!isReadonlySafeSubcommand(seg)) worst = 'gray'
+  }
+  return worst
+}
+
 function isDangerousSubcommand(seg: string): boolean {
   const s = seg.trim()
   const first = s.split(/\s+/)[0] ?? ''
   if (DANGEROUS_PREFIX_COMMANDS.has(first)) return true
   if (first.startsWith('mkfs')) return true               // mkfs / mkfs.ext4 等格式化
-  if (first === 'find' && DANGEROUS_FIND_FLAGS.test(s)) return true
+  if (first === 'find') {
+    if (ALWAYS_DANGEROUS_FIND_FLAGS.test(s)) return true
+    if (classifyFindExecTargets(s) === 'dangerous') return true
+  }
   return false
 }
 
@@ -176,7 +375,14 @@ function isReadonlySafeSubcommand(seg: string): boolean {
   if (isReadonlyFilterCommand(s)) return true
   const first = s.split(/\s+/)[0]!
   if (!READONLY_COMMANDS.has(first)) return false
-  if (first === 'find' && DANGEROUS_FIND_FLAGS.test(s)) return false
+  // env 带任何参数即是「执行任意命令」的包装器（env rm -rf /），只有裸 env（打印环境变量）才只读
+  if (first === 'env' && s.split(/\s+/).length > 1) return false
+  if (first === 'find') {
+    if (ALWAYS_DANGEROUS_FIND_FLAGS.test(s)) return false
+    // 只有「无 -exec」或「所有 -exec 目标均只读安全」的 find 才算只读；gray/dangerous 不走快速通道
+    const cls = classifyFindExecTargets(s)
+    if (cls !== 'no-exec' && cls !== 'readonly') return false
+  }
   return true
 }
 

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { Tool } from './base/Tool'
 import { getEventBus } from '../events/EventSystem'
+import { addUserWait } from '../util/agentStats'
 import { PickOptionRequestData, PickOptionResponseData } from '../events/types'
 import { checkAbortSignal } from '../types/errors'
 import { TOOL_NAME_PICK_OPTION } from '../prompt/tool'
@@ -244,17 +245,22 @@ Rules:
       intro: input.intro,
     }
 
+    const waitStart = Date.now()
     eventBus.emit('pick:option:request', requestData, agentContext.sessionId)
 
     const answers = await new Promise<string | null>((resolve, reject) => {
+      // 记录等待用户应答的时长（执行耗时统计时扣除）
+      const recordWait = () => addUserWait(agentContext.sessionId, agentContext.agentId, Date.now() - waitStart)
       const handleResponse = (response: PickOptionResponseData) => {
         if (response.agentId !== agentContext.agentId) return
         eventBus.off('pick:option:response', handleResponse)
+        recordWait()
         resolve(response.answers)
       }
 
       const onAbortRequested = () => {
         eventBus.off('pick:option:response', handleResponse)
+        recordWait()
         reject(new Error('User cancelled the question'))
       }
 

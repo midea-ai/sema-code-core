@@ -1,5 +1,20 @@
 import { countTokens } from './tokens'
 
+// ==================== 用户等待记账 ====================
+// 权限确认 / 快速确认等待用户响应的时长按 `${sessionId}:${agentId}` 累计，
+// 统计执行耗时时扣除（等人不算执行时间）。taskId 由 nanoid 生成不复用，
+// 条目为纯数字无内存压力，不做主动清理。
+const userWaitMs = new Map<string, number>()
+
+export function addUserWait(sessionId: string, agentId: string, ms: number): void {
+  const key = `${sessionId}:${agentId}`
+  userWaitMs.set(key, (userWaitMs.get(key) ?? 0) + Math.max(0, ms))
+}
+
+export function getUserWaitMs(sessionId: string, agentId: string): number {
+  return userWaitMs.get(`${sessionId}:${agentId}`) ?? 0
+}
+
 // 统计信息类型
 export type AgentStats = {
   inputTokens: number
@@ -9,8 +24,8 @@ export type AgentStats = {
   durationMs: number
 }
 
-// 从消息列表中统计 tokens 和工具使用
-export function calculateStats(messages: any[], startTime: number): AgentStats {
+// 从消息列表中统计 tokens 和工具使用；waitedMs 为等待用户响应的累计时长，从耗时中扣除
+export function calculateStats(messages: any[], startTime: number, waitedMs = 0): AgentStats {
   const { inputTokens, outputTokens } = countTokens(messages)
   const totalTokens = inputTokens + outputTokens
 
@@ -25,7 +40,7 @@ export function calculateStats(messages: any[], startTime: number): AgentStats {
     outputTokens,
     totalTokens,
     toolUseCount,
-    durationMs: Date.now() - startTime
+    durationMs: Math.max(0, Date.now() - startTime - waitedMs)
   }
 }
 

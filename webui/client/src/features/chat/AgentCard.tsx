@@ -25,7 +25,7 @@ export function AgentCard({ block, ctx }: { block: AgentBlock; ctx: BlockCtx }) 
   const openAgentTab = useApp(s => s.openAgentTab);
   // 子代理开始运行时自动在右侧栏打开详情（详情页内嵌套的卡片除外）
   useEffect(() => {
-    if (block.status === 'running' && !ctx.noAutoOpenAgent) openAgentTab(ctx.sessionId, block.id);
+    if (block.status === 'running' && !ctx.noAutoOpenAgent) openAgentTab(ctx.sessionId, block.id, block.title);
   }, []);
   const tone = statusTone(block.status);
   const title = `${block.agentType}(${block.title})`;
@@ -34,7 +34,7 @@ export function AgentCard({ block, ctx }: { block: AgentBlock; ctx: BlockCtx }) 
       <div className="flex items-center gap-2 px-3 py-1.5">
         <StatusIcon status={block.status} />
         <span className={cn('truncate flex-1', tone === 'run' && 'shimmer-text')} title={title}>{title}</span>
-        <button type="button" onClick={() => openAgentTab(ctx.sessionId, block.id)} className="text-xs text-muted hover:text-fg shrink-0">{t('card.agentDetail')}</button>
+        <button type="button" onClick={() => openAgentTab(ctx.sessionId, block.id, block.title)} className="text-xs text-muted hover:text-fg shrink-0">{t('card.agentDetail')}</button>
       </div>
       {block.result && (
         <div className="px-3 pb-1.5 -mt-0.5">

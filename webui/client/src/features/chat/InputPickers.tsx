@@ -88,7 +88,7 @@ const BUILTIN_COMMANDS: SlashItem[] = [
 
 const commandsCache = new Map<string, SlashItem[]>();
 
-/** 命令清单：会话走该会话 worker（含项目级 .sema），草稿页走配置 worker（用户级占位）；打开面板时刷新，先显缓存 */
+/** 命令清单：会话走该会话 worker（含项目级 .sema），项目草稿页走该项目 worker，无项目草稿走配置 worker（用户级占位）；打开面板时刷新，先显缓存 */
 export function useCommands(scope: PickerScope, active: boolean): { items: SlashItem[]; loading: boolean } {
   const key = scopeKey(scope) || 'global';
   const [items, setItems] = useState<SlashItem[]>(() => commandsCache.get(key) || BUILTIN_COMMANDS);
@@ -100,7 +100,9 @@ export function useCommands(scope: PickerScope, active: boolean): { items: Slash
     setLoading(!commandsCache.has(key));
     const req = scope.sessionId
       ? wsClient.request<CommandsInfo>('session.getCommandsInfo', scope.sessionId, {})
-      : wsClient.request<CommandsInfo>('core.getCommandsInfo', undefined, {});
+      : scope.projectId
+        ? wsClient.request<CommandsInfo>('project.getCommandsInfo', undefined, { projectId: scope.projectId })
+        : wsClient.request<CommandsInfo>('core.getCommandsInfo', undefined, {});
     req.then(info => {
       const custom = (info.commands || []).filter(c => !BUILTIN_COMMANDS.some(b => b.name === c.name));
       const all = [...BUILTIN_COMMANDS, ...custom, ...(info.skills || []), ...(info.agents || [])];

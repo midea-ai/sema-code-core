@@ -4,10 +4,10 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import { SessionManager, Subscriber } from '../sessions';
-import { CORE_ACTIONS, SESSION_ACTIONS } from '../../../shared/protocol';
+import { CORE_ACTIONS, PROJECT_ACTIONS, SESSION_ACTIONS } from '../../../shared/protocol';
 import type { ReqFrame } from '../../../shared/types';
 
-const ALLOWED = new Set<string>([...CORE_ACTIONS, ...SESSION_ACTIONS]);
+const ALLOWED = new Set<string>([...CORE_ACTIONS, ...PROJECT_ACTIONS, ...SESSION_ACTIONS]);
 
 export function attachWs(wss: WebSocketServer, sm: SessionManager) {
   wss.on('connection', (ws: WebSocket, _req: IncomingMessage) => {

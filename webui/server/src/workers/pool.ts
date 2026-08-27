@@ -119,6 +119,9 @@ export class WorkerPool extends EventEmitter {
         SEMA_WEBUI_CORE_CONFIG: JSON.stringify(this.opts.getCoreConfig()),
       },
       stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+      // 脱离前台进程组：Ctrl+C 的 SIGINT 只打到主进程，worker 及其 MCP 子进程
+      // 统一走 disconnect → core.dispose() 优雅关闭（主进程被 SIGKILL 时 IPC 断开同样触发）
+      detached: true,
     });
     const handle: WorkerHandle = {
       workingDir, child, sessions: new Set(), lastUsed: Date.now(), stale: false, alive: true,

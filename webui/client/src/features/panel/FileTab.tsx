@@ -21,7 +21,6 @@ interface FileData { path: string; abs?: string; inside?: boolean; image?: boole
 function isAbsPath(p: string) { return p.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('~'); }
 /** 可预览类型：仅 markdown（html 在文件标签里只看源码，预览走右栏浏览器） */
 function previewKind(p: string): 'md' | null { return /\.(md|markdown)$/i.test(p) ? 'md' : null; }
-const PREFER_SOURCE_KEY = 'file.preferSource';
 interface DirItem { name: string; isDirectory: boolean }
 
 const MAX_HL = 200 * 1024; // 超过 200KB 不做高亮
@@ -91,13 +90,12 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
     row?.scrollIntoView({ block: 'center' });
   }, [data, tab.lineSeq]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 预览 / 源代码切换：可预览类型默认预览（记住用户上次选择）；带行号定位打开时强制源代码
+  // 预览 / 源代码切换：可预览类型一律默认预览，切到源码只对当前标签的当前文件生效；带行号定位打开时强制源代码
   const kind = previewKind(relPath);
-  const [preferSource, setPreferSource] = useState(() => { try { return localStorage.getItem(PREFER_SOURCE_KEY) === '1'; } catch { return false; } });
   const [sourceOverride, setSourceOverride] = useState<boolean | null>(null);
   useEffect(() => { setSourceOverride(null); }, [relPath, tab.lineSeq]);
-  const showSource = !kind || (sourceOverride ?? (!!tab.line || preferSource));
-  const toggleSource = () => { const v = !showSource; setSourceOverride(v); setPreferSource(v); try { localStorage.setItem(PREFER_SOURCE_KEY, v ? '1' : '0'); } catch { /* ignore */ } };
+  const showSource = !kind || (sourceOverride ?? !!tab.line);
+  const toggleSource = () => setSourceOverride(!showSource);
 
   const outside = isAbsPath(relPath);
   const crumbs = relPath.split(/[\\/]/).filter(Boolean);
@@ -207,9 +205,23 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
 function parseFrontmatter(src: string): { name?: string; description?: string; body: string } {
   const m = src.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
   if (!m) return { body: src };
+  const lines = m[1].split(/\r?\n/);
   const pick = (key: string) => {
-    const km = m[1].match(new RegExp(`^${key}[ \\t]*:[ \\t]*(.+)$`, 'm'));
-    return km ? km[1].trim().replace(/^(['"])(.*)\1$/, '$2') : undefined;
+    const idx = lines.findIndex(l => l.startsWith(`${key}:`));
+    if (idx === -1) return undefined;
+    const inline = lines[idx].slice(key.length + 1).trim();
+    // 块标量：|（保留换行）或 >（折叠为空格），兼容 |- >- |+ >+ 变体
+    if (/^[|>][+-]?$/.test(inline)) {
+      const block: string[] = [];
+      for (let i = idx + 1; i < lines.length; i++) {
+        if (lines[i].trim() === '') { block.push(''); continue; }
+        if (!/^\s/.test(lines[i])) break;
+        block.push(lines[i].trim());
+      }
+      while (block.length && !block[block.length - 1]) block.pop();
+      return block.join(inline[0] === '>' ? ' ' : '\n') || undefined;
+    }
+    return inline.replace(/^(['"])(.*)\1$/, '$2') || undefined;
   };
   return { name: pick('name'), description: pick('description'), body: src.slice(m[0].length) };
 }
@@ -222,7 +234,12 @@ function MdPreview({ content, sessionId }: { content: string; sessionId: string 
       {(fm.name || fm.description) && (
         <div className="sticky top-0 z-10 bg-bg border-b border-border px-4 py-2.5">
           {fm.name && <div className="font-medium text-fg truncate">{fm.name}</div>}
-          {fm.description && <div className="text-xs text-muted mt-0.5">{fm.description}</div>}
+          {fm.description && (
+            <div className="text-xs text-muted mt-0.5" title={fm.description}
+              style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+              {fm.description}
+            </div>
+          )}
         </div>
       )}
       <div className="p-4"><Markdown text={fm.body} sessionId={sessionId} /></div>

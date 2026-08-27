@@ -142,9 +142,16 @@ server.listen(port, host, () => {
 });
 
 let closing = false;
+let closingAt = 0;
 async function shutdown() {
-  if (closing) { console.log('\n再次收到信号，强制退出'); process.exit(1); }
+  if (closing) {
+    // npm 等父进程会把终端信号再转发一次，1 秒内的重复信号视为同一次 Ctrl+C，不打断优雅关闭
+    if (Date.now() - closingAt < 1000) return;
+    console.log('\n再次收到信号，强制退出');
+    process.exit(1);
+  }
   closing = true;
+  closingAt = Date.now();
   console.log('\n正在关闭…');
   tm.killAll();
   await sm.dispose(); // 内部等待全部 worker 真正退出（5 秒超时 SIGKILL）

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FolderOpen, Pencil, AlertTriangle, ArrowDown, ChevronDown, ChevronRight, Copy, Check, ThumbsUp, ThumbsDown, GitBranch } from 'lucide-react';
+import { FolderOpen, Pencil, ArrowDown, ChevronDown, ChevronRight, Copy, Check, ThumbsUp, ThumbsDown, GitBranch } from 'lucide-react';
 import type { Block } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
 import { useApp } from '../../store/app';
@@ -41,13 +41,6 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     el.scrollTop = el.scrollHeight;
     setStick(true);
   };
-
-  const sameProjectRunning = useMemo(() => {
-    if (!record?.projectId) return false;
-    const status = useApp.getState().status;
-    const snaps = useSessions.getState().snapshots;
-    return registry.sessions.some(s => s.id !== sessionId && s.projectId === record.projectId && ((snaps[s.id]?.state ?? status[s.id]?.state) === 'processing'));
-  }, [record?.projectId, registry.sessions, sessionId, snap?.state]);
 
   const onRewind = useCallback(async (inputId: string) => {
     setRewind({ inputId, restore: true, busy: false });
@@ -126,7 +119,6 @@ export function ChatView({ sessionId }: { sessionId: string }) {
         </button>
         <span className="text-xs text-muted truncate hidden md:inline" title={record.workingDir}>{shortPath(record.workingDir)}</span>
         <span className="flex-1" />
-        {sameProjectRunning && <span className="inline-flex items-center gap-1 text-[11px] text-warn" title={t('chat.sameProjectRunning')}><AlertTriangle size={12} />{t('chat.sameProjectRunning')}</span>}
         <Button size="sm" variant="outline" onClick={() => useApp.getState().revealSession(sessionId).catch(e => toast(e.message, 'error'))}><FolderOpen size={13} />{t('chat.openLocation')}</Button>
       </div>
 

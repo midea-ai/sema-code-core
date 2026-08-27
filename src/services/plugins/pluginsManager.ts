@@ -412,6 +412,18 @@ class PluginsManager {
     }
     await this.writeInstalledPlugins(installed)
 
+    // 4. 从各层 settings 中移除该市场插件的 enabledPlugins 记录
+    const cwd = readInitialCwd()
+    for (const scope of ['local', 'project', 'user'] as PluginScopeKind[]) {
+      const settingsPath = this.getSettingsFilePath(scope, cwd)
+      const settings = await this.readSettings(settingsPath)
+      const staleKeys = Object.keys(settings.enabledPlugins ?? {}).filter(k => k.endsWith(`@${marketplaceName}`))
+      if (staleKeys.length > 0) {
+        for (const key of staleKeys) delete settings.enabledPlugins![key]
+        await this.writeSettings(settingsPath, settings)
+      }
+    }
+
     logInfo(`市场 [${marketplaceName}] 已移除`)
 
     return this.refreshMarketplacePluginsInfo()

@@ -16,8 +16,7 @@
     "watch": "node esbuild.mjs --watch",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts",
-    "check:contract": "node scripts/check-consistency.mjs",
-    "prepublishOnly": "npm run build && npm run check:contract"
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.10.0",

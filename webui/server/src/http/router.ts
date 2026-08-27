@@ -10,6 +10,8 @@ import { SEMA_DOCS_ROOT, WEBUI_HOME, removeEmptyDateParent } from '../registry/r
 import { searchFiles } from '../files/search';
 import { readFileInDir, listDir, resolvePath, statPaths, rawFileInDir } from '../files/read';
 import { listOpenWithApps, appIconPath } from '../files/apps';
+import { listCatalog, installResource, uninstallResource, listInstalled, toggleInstalled, removeInstalled, updateMcpConfig, updateMcpUseTools, userSkillsRoot, readUserMcp } from './ecosystem';
+import { listMcpTools } from './mcpTools';
 
 /** handler 自行写响应时返回此标记，handle() 不再套 json 包装 */
 export const HANDLED = Symbol('handled');
@@ -228,8 +230,10 @@ export class Router {
     });
 
     // ---- 会话 ----
-    // 面板类路由（文件/终端/打开等）同时服务项目草稿页：id 可为会话或项目，两者都有 workingDir
-    const resolveScope = (id: string) => {
+    // 面板类路由（文件/终端/打开等）同时服务项目草稿页：id 可为会话或项目，两者都有 workingDir。
+    // 伪作用域 ~skills：插件页「打开技能」复用文件窗口，根目录为用户级技能目录 <semaRoot>/skills
+    const resolveScope = (id: string): { workingDir: string } => {
+      if (id === '~skills') return { workingDir: userSkillsRoot() };
       const rec = reg.getSession(id) || reg.getProject(id);
       if (!rec) throw new Error('会话不存在');
       return rec;
@@ -370,6 +374,67 @@ export class Router {
       if (!body?.workingDir || !body?.id) throw new Error('缺少 workingDir / id');
       return sm.cronAction(String(body.workingDir), p.action, String(body.id));
     });
+    // 生态市场：内置资源目录 / 安装（复制到用户级）/ 卸载
+    this.add('GET', '/api/eco/catalog', () => listCatalog());
+    // skill 装/卸/删后广播全部 worker 清缓存重扫；mcp 写操作后广播刷新连接（仅重连有变动的 server）。均不阻塞响应
+    const refreshSkills = () => { void sm.dispatch('core.refreshSkills', undefined, {}).catch(() => null); };
+    const refreshMcp = () => { void sm.dispatch('core.refreshMCPServerInfo', undefined, {}).catch(() => null); };
+    this.add('POST', '/api/eco/install', async (_r, _s, _p, body) => {
+      const id = String(body?.id || '');
+      const r = await installResource(id, !!body?.overwrite);
+      if (r === true) listCatalog().find(i => i.id === id)?.kind === 'skill' ? refreshSkills() : refreshMcp();
+      return r;
+    });
+    this.add('POST', '/api/eco/uninstall', async (_r, _s, _p, body) => {
+      const id = String(body?.id || '');
+      const kind = listCatalog().find(i => i.id === id)?.kind;
+      const r = await uninstallResource(id);
+      kind === 'skill' ? refreshSkills() : refreshMcp();
+      return r;
+    });
+    // 已安装（用户级全量）：列表 / MCP 启停 / 删除 / SKILL.md 读写 / MCP 配置更新
+    this.add('GET', '/api/eco/installed', () => listInstalled());
+    // worker 返回的 MCPServerInfo[] → 用户级 EcoMcpStatus[]（tools 仅在 core 已拿到 capabilities 时返回）
+    const mapMcpStatus = (infos: any[]) => {
+      const userKeys = new Set(Object.keys(readUserMcp().mcpServers || {}));
+      return (infos || []).filter(i => userKeys.has(i?.config?.name)).map(i => ({
+        id: i.config.name,
+        connectStatus: i.connectStatus || 'disconnected',
+        error: i.error,
+        // core 已拼好 "路径:起始行-结束行" 定位串（找不到范围时为纯路径），前端拿去打开文件窗口定位
+        filePath: i.filePath,
+        tools: i.capabilities?.tools ? i.capabilities.tools.map((t: any) => ({ name: t.name, description: t.description })) : undefined,
+      }));
+    };
+    this.add('POST', '/api/eco/installed/toggle', async (_r, _s, _p, body) => {
+      if (body?.kind !== 'skill' && body?.kind !== 'mcp') throw new Error('kind 必须是 skill / mcp');
+      if (body.kind === 'skill') return toggleInstalled('skill', String(body?.id || ''), !!body?.enabled);
+      // mcp 启停走配置 worker 的 core（写 settings + 断/连完成才返回），响应带权威状态；其余 worker 广播同步
+      const infos = await sm.dispatch(body?.enabled ? 'core.enableMCPServer' : 'core.disableMCPServer', undefined, { name: String(body?.id || '') });
+      refreshMcp();
+      return mapMcpStatus(infos);
+    });
+    this.add('POST', '/api/eco/installed/remove', (_r, _s, _p, body) => {
+      if (body?.kind !== 'skill' && body?.kind !== 'mcp') throw new Error('kind 必须是 skill / mcp');
+      const r = removeInstalled(body.kind, String(body?.id || ''));
+      body.kind === 'skill' ? refreshSkills() : refreshMcp();
+      return r;
+    });
+    this.add('PUT', '/api/eco/installed/mcp', (_r, _s, _p, body) => {
+      const r = updateMcpConfig(String(body?.id || ''), body?.config);
+      refreshMcp();
+      return r;
+    });
+    // MCP 工具列表探测（短连，POST 避免 server 名走 URL 编码）与单工具开关（toolNames: string[] | null，null=全部可用）
+    this.add('POST', '/api/eco/installed/mcp/tools', (_r, _s, _p, body) => listMcpTools(String(body?.id || ''), !!body?.refresh));
+    this.add('PUT', '/api/eco/installed/mcp/use-tools', (_r, _s, _p, body) => {
+      const r = updateMcpUseTools(String(body?.id || ''), body?.toolNames === null || body?.toolNames === undefined ? null : body.toolNames);
+      refreshMcp();
+      return r;
+    });
+    // 已安装 MCP 的实时连接状态：读配置 worker（~/.sema/webui/workspace，启动即常驻）里 core 的连接信息
+    this.add('GET', '/api/eco/installed/mcp/status', async () =>
+      mapMcpStatus(await sm.dispatch('core.getMCPServerInfo', undefined, {})));
     this.add('POST', '/api/probe-url', async (_r, _s, _p, body) => probeEmbeddable(String(body?.url || '')));
     // 页面元信息：标题 + 图标地址（右栏浏览器标签）
     this.add('POST', '/api/page-meta', async (_r, _s, _p, body) => fetchPageMeta(String(body?.url || '')));

@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "结构化头脑风暴",
+    "description": "Superpowers 核心技能：先发散再收敛，产出可执行方案而非泛泛而谈。",
+    "category": "dev",
+    "order": 10
+  },
+  "source": {
+    "repo": "obra/superpowers",
+    "ref": "b36e0829c6d0140e93cfef2ca599b1b07d4a7797",
+    "path": "skills/brainstorming"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "card": {
+    "name": "Remotion 视频制作",
+    "description": "用 React 代码做视频的完整技能包：新建工程、画面编排、字幕、地图动画、渲染出片，按场景加载对应指引。",
+    "category": "media"
+  },
+  "source": {
+    "repo": "remotion-dev/skills",
+    "ref": "7a3d0ca45d2f6a00bf35cb3c525734a36d55a834",
+    "path": "skills/remotion-best-practices"
+  }
+}

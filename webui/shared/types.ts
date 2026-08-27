@@ -61,6 +61,7 @@ export interface WebUISettings {
     skipExternalFileReadPermission: boolean;
     disableBackgroundTasks: boolean;
     enableToolSearch: boolean;
+    enableInputPrediction: boolean;
   };
   defaultAgentMode: AgentMode;
   defaultPermissionLevel: PermissionLevel;
@@ -86,6 +87,33 @@ export interface SlashItem {
 
 /** session.getCommandsInfo 返回：由该会话目录的 worker 给出，含项目级 .sema 配置 */
 export interface CommandsInfo { commands: SlashItem[]; skills: SlashItem[]; agents: SlashItem[] }
+
+/** 生态市场卡片：webui/resources/ 内置资源 + 用户级安装状态（同名即视为已安装） */
+export interface EcoItem {
+  id: string;
+  kind: 'skill' | 'mcp';
+  name: string;
+  description: string;
+  category?: string;
+  /** skill：SKILL.md frontmatter 的 name（core 按它加载），可能与安装目录名 id 不同 */
+  skillName?: string;
+  /** 远程资源：来源仓库（owner/name）及可跳转的 GitHub 页面地址 */
+  repo?: string;
+  repoUrl?: string;
+  installed: boolean;
+}
+
+/** 已安装页：用户级 skill（id 为 ~/.sema/skills/ 下的目录名；enabled 按用户级 settings 的 disabledSkills） */
+export interface EcoInstalledSkill { id: string; name: string; description: string; enabled: boolean; title?: string }
+/** 已安装页：用户级 MCP server（enabled 按用户级 settings 的 disabledMcpServers；
+ * useTools 按用户级 settings 的 enabledMcpServerUseTools，undefined/null = 全部可用） */
+export interface EcoInstalledMcp { id: string; name: string; description: string; enabled: boolean; config: any; title?: string; useTools?: string[] | null }
+export interface EcoInstalled { skills: EcoInstalledSkill[]; mcp: EcoInstalledMcp[] }
+/** MCP server 探测到的单个工具（展开行懒加载） */
+export interface EcoMcpTool { name: string; description?: string }
+/** 已安装 MCP 的实时连接状态（来自配置 worker 里 core 的常驻连接）；tools 仅在 core 已拿到 capabilities 时有值；
+ *  filePath 为 core 拼好的 "路径:起始行-结束行" 定位串（找不到范围时为纯路径） */
+export interface EcoMcpStatus { id: string; connectStatus: 'disconnected' | 'connecting' | 'connected' | 'error'; error?: string; filePath?: string; tools?: EcoMcpTool[] }
 
 // ==================== 消息块 ====================
 
@@ -333,6 +361,8 @@ export interface SessionSnapshot {
   quickchats?: QuickchatEntry[];
   /** 项目历史输入（倒序，[0] 最新）：session:ready 初始化，本会话新输入随 input:received 前插 */
   inputHistory?: string[];
+  /** 用户输入预测（input:predict）：输入框空闲时的 ghost text；undefined 表示无预测 */
+  predictedInput?: string;
 }
 
 /** quickchat 旁路问答一条记录 */

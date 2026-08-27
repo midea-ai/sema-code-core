@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "文档与架构决策记录",
+    "description": "Addy Osmani 的 ADR 与技术文档撰写规范。",
+    "category": "dev",
+    "order": 60
+  },
+  "source": {
+    "repo": "addyosmani/agent-skills",
+    "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+    "path": "skills/documentation-and-adrs"
+  }
+}

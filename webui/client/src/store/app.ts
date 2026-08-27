@@ -14,7 +14,9 @@ export type View =
   | { type: 'chat'; sessionId: string }
   | { type: 'settings'; tab: 'models' | 'system' }
   /** 日程：全局定时任务视图 */
-  | { type: 'schedule' };
+  | { type: 'schedule' }
+  /** 生态市场：内置技能 / MCP 资源，一键安装到用户级 */
+  | { type: 'eco' };
 
 export interface ModelData { modelName: string; modelList: string[]; taskConfig: { main: string; quick: string } }
 
@@ -58,6 +60,8 @@ interface AppState {
   sidebarCollapsed: boolean;
   /** 各项目目录的定时任务变更计数（收到 cron:update 自增），定时任务标签据此重拉列表 */
   cronUpdates: Record<string, number>;
+  /** MCP 连接状态变更计数（任一 worker 的 mcp:server:status 自增），生态页据此重拉实时状态，替代轮询 */
+  mcpStatusUpdate: number;
   /** 后台完成未读：会话在非当前查看时从处理中转为空闲（侧栏绿灯），点开会话即清除 */
   doneUnread: Record<string, true>;
 
@@ -87,8 +91,8 @@ interface AppState {
   openBrowserTab(sessionId: string, url: string, reuse?: boolean): void;
   /** 打开/复用本会话唯一的「审阅」标签，并定位到指定 file-changes 块 */
   openReviewTab(sessionId: string, blockId?: string, focusPath?: string): void;
-  /** 打开/复用本会话唯一的「子智能体」标签，并定位到指定 agent 块 */
-  openAgentTab(sessionId: string, blockId: string): void;
+  /** 打开子代理详情标签：每个 agent 块各占一个标签（按 blockId 复用），标签名用子代理标题 */
+  openAgentTab(sessionId: string, blockId: string, title?: string): void;
   /** 打开/复用本会话唯一的「定时任务」标签，可选定位到指定任务 */
   openCronTab(sessionId: string, focusId?: string): void;
   /** 打开/复用本会话唯一的「快问」标签（/quickchat 旁路问答） */
@@ -117,7 +121,7 @@ function loadPanels(): Record<string, PanelState> {
 function loadView(): View {
   try {
     const v = JSON.parse(localStorage.getItem(VIEW_KEY) || '');
-    return v && (v.type === 'chat' || v.type === 'draft') ? v : { type: 'draft' };
+    return v && (v.type === 'chat' || v.type === 'draft' || v.type === 'schedule' || v.type === 'eco') ? v : { type: 'draft' };
   } catch { return { type: 'draft' }; }
 }
 
@@ -140,6 +144,7 @@ export const useApp = create<AppState>((set, get) => ({
   wsStatus: 'closed',
   sidebarCollapsed: false,
   cronUpdates: {},
+  mcpStatusUpdate: 0,
   doneUnread: {},
 
   async bootstrap() {
@@ -160,6 +165,7 @@ export const useApp = create<AppState>((set, get) => ({
         const dir = (frame as any).workingDir || '';
         set(s => ({ cronUpdates: { ...s.cronUpdates, [dir]: (s.cronUpdates[dir] || 0) + 1 } }));
       }
+      else if (frame.event === 'mcp:server:status') set(s => ({ mcpStatusUpdate: s.mcpStatusUpdate + 1 }));
     });
     wsClient.onOpen(() => {
       const tryLoad = (n: number) => get().refreshModelData().catch(e => {
@@ -172,8 +178,8 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setView(v) {
-    // 只持久化会话/空白视图：配置页/日程页是临时进入的，刷新或下次启动不应停留在这些页面
-    if (v.type !== 'settings' && v.type !== 'schedule') localStorage.setItem(VIEW_KEY, JSON.stringify(v));
+    // 配置页是临时进入的，刷新或下次启动不应停留；其余视图（会话/草稿/日程/生态）刷新后留在原页面
+    if (v.type !== 'settings') localStorage.setItem(VIEW_KEY, JSON.stringify(v));
     set({ view: v });
     // 打开会话即视为已阅，清除「后台完成」绿灯
     if (v.type === 'chat' && get().doneUnread[v.sessionId]) {
@@ -299,14 +305,14 @@ export const useApp = create<AppState>((set, get) => ({
       return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
     });
   },
-  openAgentTab(sessionId, blockId) {
+  openAgentTab(sessionId, blockId, title) {
     get().updatePanel(sessionId, p => {
-      const exist = p.tabs.find(t => t.type === 'agent');
+      const exist = p.tabs.find(t => t.type === 'agent' && t.blockId === blockId);
       if (exist) {
-        const tab = { ...exist, blockId };
+        const tab = { ...exist, title: title ?? exist.title };
         return { ...p, collapsed: false, tabs: p.tabs.map(t => t.id === tab.id ? tab : t), activeId: tab.id };
       }
-      const tab: PanelTab = { id: `a${Date.now()}`, type: 'agent', history: [], index: -1, blockId };
+      const tab: PanelTab = { id: `a${Date.now()}`, type: 'agent', history: [], index: -1, blockId, title };
       return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
     });
   },

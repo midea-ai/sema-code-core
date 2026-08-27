@@ -1,0 +1,12 @@
+{
+  "card": {
+    "name": "React Native 开发",
+    "description": "React Native 与 Expo 跨平台开发指南：项目搭建、原生能力接入与发布流程。",
+    "category": "mobile"
+  },
+  "source": {
+    "repo": "MiniMax-AI/skills",
+    "ref": "60aaae52bb2af8162732751a4332f62a5fef518b",
+    "path": "skills/react-native-dev"
+  }
+}

@@ -66,7 +66,8 @@ async function getCommandsInfo(): Promise<CommandsInfo> {
   ]);
   return {
     commands: (commands || []).map((c: any) => ({ name: c.name, description: c.description || '', category: 'command' as const, argumentHint: Array.isArray(c.argumentHint) ? c.argumentHint.join(' ') : c.argumentHint })),
-    skills: (skills || []).map((c: any) => ({ name: c.name, description: c.description || '', category: 'skill' as const })),
+    // 禁用的 skill（settings 的 disabledSkills）不进斜杠列表
+    skills: (skills || []).filter((c: any) => c.status !== false).map((c: any) => ({ name: c.name, description: c.description || '', category: 'skill' as const })),
     agents: (agents || []).filter((a: any) => a.locate !== 'builtin').map((c: any) => ({ name: c.name, description: c.description || '', category: 'agent' as const })),
   };
 }
@@ -83,6 +84,14 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'core.testApiConnection': return sanitize(await core.testApiConnection(p.params));
     case 'core.fetchAvailableModels': return sanitize(await core.fetchAvailableModels(p.params));
     case 'core.getToolInfos': return core.getToolInfos();
+    // 生态页读实时 MCP 连接状态（内存缓存，不触发重连）；配置变更后广播刷新（仅重连有变动的 server）
+    case 'core.getMCPServerInfo': return core.getMCPServerInfo();
+    case 'core.refreshMCPServerInfo': await core.refreshMCPServerInfo(); return true;
+    // 生态页 MCP 启停：core 写 settings + 断/连完成后才返回完整 server info，响应即权威状态
+    case 'core.enableMCPServer': return core.enableMCPServer(p.name);
+    case 'core.disableMCPServer': return core.disableMCPServer(p.name);
+    // 生态市场装/卸 skill 后清缓存重扫（SkillsManager 有进程内缓存，否则常驻 worker 感知不到）
+    case 'core.refreshSkills': await core.getSkillsInfo(true, true); return true;
     case 'core.getModelAdapter': return core.getModelAdapter(p.provider, p.modelName, p.baseURL) ?? null;
     case 'core.updateCoreConfig': core.updateCoreConfig(p.config); return true;
     case 'core.deleteProjectHistory': core.deleteProjectHistory(p.projectPath); return true;

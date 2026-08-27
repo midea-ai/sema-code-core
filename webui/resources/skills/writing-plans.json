@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "写实施计划",
+    "description": "把模糊需求拆成分阶段、可验证、带验收标准的计划文档。",
+    "category": "dev",
+    "order": 20
+  },
+  "source": {
+    "repo": "obra/superpowers",
+    "ref": "b36e0829c6d0140e93cfef2ca599b1b07d4a7797",
+    "path": "skills/writing-plans"
+  }
+}

@@ -116,12 +116,12 @@ export function Dropdown<T extends string>({ value, options, onChange, renderVal
 }
 
 // ---------- Toggle ----------
-export function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+export function Toggle({ checked, onChange, disabled, small }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; small?: boolean }) {
   return (
     <button type="button" disabled={disabled} onClick={() => onChange(!checked)} aria-checked={checked} role="switch"
-      className={cn('relative inline-block w-9 h-5 shrink-0 rounded-full transition-colors disabled:opacity-50', checked ? 'bg-accent' : 'bg-[#d4d4d4]')}>
-      <span className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-transform"
-        style={{ transform: checked ? 'translateX(16px)' : 'translateX(0)' }} />
+      className={cn('relative inline-block shrink-0 rounded-full transition-colors disabled:opacity-50', small ? 'w-7 h-4' : 'w-9 h-5', checked ? 'bg-accent' : 'bg-[#d4d4d4]')}>
+      <span className={cn('absolute top-0.5 left-0.5 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-transform', small ? 'h-3 w-3' : 'h-4 w-4')}
+        style={{ transform: checked ? `translateX(${small ? 12 : 16}px)` : 'translateX(0)' }} />
     </button>
   );
 }

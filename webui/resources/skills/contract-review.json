@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "合同风险审查",
+    "description": "逐条扫描合同条款，标出对己方不利的自动续约、责任上限、知识产权归属等红线。",
+    "category": "office",
+    "order": 30
+  },
+  "source": {
+    "repo": "mohitagw15856/pm-claude-skills",
+    "ref": "aa71bee8d20b7febdfd49f3aa96f26f316344628",
+    "path": "skills/contract-review"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "着色器视效",
+    "description": "用 GLSL 着色器打造视觉特效：渐变流光、粒子噪声、交互背景等网页视效。",
+    "category": "design",
+    "order": 20
+  },
+  "source": {
+    "repo": "MiniMax-AI/skills",
+    "ref": "60aaae52bb2af8162732751a4332f62a5fef518b",
+    "path": "skills/shader-dev"
+  }
+}

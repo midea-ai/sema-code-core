@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "PDF 文档",
+    "description": "创建、填写、重排版 PDF：从零生成有设计感的文档、填写表单、给已有文档套用样式。",
+    "category": "doc",
+    "order": 40
+  },
+  "source": {
+    "repo": "MiniMax-AI/skills",
+    "ref": "60aaae52bb2af8162732751a4332f62a5fef518b",
+    "path": "skills/minimax-pdf"
+  }
+}

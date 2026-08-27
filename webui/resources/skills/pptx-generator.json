@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "PPT 演示文稿",
+    "description": "创建、编辑、解析 .pptx 演示文稿：从零生成幻灯片、基于模板修改、提取文稿内容。",
+    "category": "doc",
+    "order": 30
+  },
+  "source": {
+    "repo": "MiniMax-AI/skills",
+    "ref": "60aaae52bb2af8162732751a4332f62a5fef518b",
+    "path": "skills/pptx-generator"
+  }
+}

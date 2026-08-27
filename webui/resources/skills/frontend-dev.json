@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "前端开发",
+    "description": "构建视觉出众的网页：高级 UI 设计、电影级滚动动效、生成艺术与转化文案，覆盖落地页、官网、仪表盘。",
+    "category": "design",
+    "order": 10
+  },
+  "source": {
+    "repo": "MiniMax-AI/skills",
+    "ref": "60aaae52bb2af8162732751a4332f62a5fef518b",
+    "path": "skills/frontend-dev"
+  }
+}

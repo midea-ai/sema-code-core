@@ -1,0 +1,14 @@
+{
+  "card": {
+    "name": "网页抓取",
+    "description": "以多种格式抓取网页内容：HTML、JSON、纯文本、Markdown 及正文提取，查资料、读文档均可。",
+    "category": "network"
+  },
+  "server": {
+    "fetch": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["mcp-fetch-server"]
+    }
+  }
+}

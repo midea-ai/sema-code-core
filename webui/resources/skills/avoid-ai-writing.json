@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "去 AI 味写作",
+    "description": "识别并改写「AI 腔」：空泛形容词、对仗排比、万能过渡句，让文字像人写的。",
+    "category": "office",
+    "order": 60
+  },
+  "source": {
+    "repo": "wshobson/agents",
+    "ref": "38e19c20d2b154510b0e624a2e3e186b19b5c527",
+    "path": "plugins/avoid-ai-writing/skills/avoid-ai-writing"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "card": {
+    "name": "浏览器自动化",
+    "description": "让 AI 操作真实浏览器：打开网页、点击、填表、截图，自动完成网页上的任务。",
+    "category": "network"
+  },
+  "server": {
+    "playwright": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
+}

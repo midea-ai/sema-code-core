@@ -7,11 +7,13 @@ import { ChatView } from '../features/chat/ChatView';
 import { RightPanel } from '../features/panel/RightPanel';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { SchedulePage } from '../features/schedule/SchedulePage';
+import { EcoPage } from '../features/eco/EcoPage';
 import { DraftView } from '../features/chat/DraftView';
 import { DialogProvider, cn, Spinner } from '../common/ui';
 import { t } from '../i18n';
 import { PanelLeft } from 'lucide-react';
 import { ResizeHandle, usePanelWidth } from '../common/Resizer';
+import { useStatusFavicon } from '../common/favicon';
 
 export function App() {
   const ready = useApp(s => s.ready);
@@ -21,6 +23,7 @@ export function App() {
   const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
   const setSidebarCollapsed = useApp(s => s.setSidebarCollapsed);
   const [sidebarW, setSidebarW] = usePanelWidth('sidebar', 256, 180, 480);
+  useStatusFavicon();
   const [panelW, setPanelW] = usePanelWidth('panel', 520, 320, 1200);
   // 右面板作用域：聊天页 = 会话 id；项目草稿页 = 项目 id（首次发送创建会话时面板随之迁移）
   const panelScopeId = view.type === 'chat' ? view.sessionId : view.type === 'draft' ? view.projectId : undefined;
@@ -62,6 +65,7 @@ export function App() {
           )}
           {view.type === 'settings' && <SettingsPage tab={view.tab} />}
           {view.type === 'schedule' && <SchedulePage />}
+          {view.type === 'eco' && <EcoPage />}
           {view.type === 'chat' && (
             <div className="flex-1 min-h-0 flex">
               <div className="flex-1 min-w-0 flex flex-col"><ChatView key={view.sessionId} sessionId={view.sessionId} /></div>

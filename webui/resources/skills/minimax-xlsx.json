@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "Excel 表格",
+    "description": "创建、编辑、解析 .xlsx/.csv 表格：公式计算、格式化、图表、脏数据清洗与格式转换。",
+    "category": "doc",
+    "order": 20
+  },
+  "source": {
+    "repo": "MiniMax-AI/skills",
+    "ref": "60aaae52bb2af8162732751a4332f62a5fef518b",
+    "path": "skills/minimax-xlsx"
+  }
+}

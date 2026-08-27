@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "系统性排障",
+    "description": "从症状到根因的纪律化调试流程，杜绝乱猜和「改一行试试」。",
+    "category": "dev",
+    "order": 30
+  },
+  "source": {
+    "repo": "obra/superpowers",
+    "ref": "b36e0829c6d0140e93cfef2ca599b1b07d4a7797",
+    "path": "skills/systematic-debugging"
+  }
+}

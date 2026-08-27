@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Settings, CalendarClock, ChevronDown, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
+import { Plus, Settings, CalendarClock, Blocks, ChevronDown, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { pendingBlocks } from '../../../../shared/transcript';
@@ -76,6 +76,7 @@ export function Sidebar({ width }: { width: number }) {
         {/* 非固定入口：配置及后续新增入口，随列表一起滚动 */}
         <NavItem icon={<Settings size={15} />} label={t('sidebar.settings')} active={view.type === 'settings'} onClick={() => setView({ type: 'settings', tab: 'models' })} />
         <NavItem icon={<CalendarClock size={15} />} label={t('sidebar.schedule')} active={view.type === 'schedule'} onClick={() => setView({ type: 'schedule' })} />
+        <NavItem icon={<Blocks size={15} />} label={t('sidebar.eco')} active={view.type === 'eco'} onClick={() => setView({ type: 'eco' })} />
 
         {/* 项目 */}
         <SectionHeader label={t('sidebar.projects')} className="mt-2" open={projectsOpen} onToggle={() => setProjectsOpen(v => !v)} action={
@@ -252,9 +253,9 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
             {session.title || t('chat.untitled')}
           </span>
         </span>
-        {pending > 0 ? <span className="h-2 w-2 rounded-full bg-warn shrink-0" title="待应答" />
-          : state === 'processing' ? <span className="h-2 w-2 rounded-full bg-accent pulse shrink-0" title="处理中" />
-            : doneUnread ? <span className="h-2 w-2 rounded-full bg-ok shrink-0" title="已完成" /> : null}
+        {pending > 0 ? <span className="h-2 w-2 rounded-full bg-dot-pending shrink-0" title="待应答" />
+          : state === 'processing' ? <span className="h-2 w-2 rounded-full bg-dot-processing pulse shrink-0" title="处理中" />
+            : doneUnread ? <span className="h-2 w-2 rounded-full bg-dot-done shrink-0" title="已完成" /> : null}
         <span className="text-[10px] text-muted shrink-0 group-hover:hidden">{relTime(session.lastActiveAt)}</span>
         <button onClick={e => { e.stopPropagation(); menu.open(e); }} className="hidden group-hover:block p-0.5 rounded text-muted hover:text-fg"><MoreHorizontal size={13} /></button>
       </div>

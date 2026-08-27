@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "文档转演示稿",
+    "description": "把已有文档重组成有叙事线的演示稿大纲，先定结构再填内容，避免堆砌要点。",
+    "category": "office",
+    "order": 20
+  },
+  "source": {
+    "repo": "mohitagw15856/pm-claude-skills",
+    "ref": "aa71bee8d20b7febdfd49f3aa96f26f316344628",
+    "path": "skills/deck-from-doc"
+  }
+}

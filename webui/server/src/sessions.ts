@@ -245,8 +245,8 @@ export class SessionManager extends EventEmitter {
 
   async dispatch(action: string, sid: string | undefined, payload: any): Promise<any> {
     if (action.startsWith('core.')) {
-      if (action === 'core.updateCoreConfig') {
-        // 广播到全部存活 worker（core 配置仅内存）；持久化由 http 层写 settings
+      if (action === 'core.updateCoreConfig' || action === 'core.refreshSkills' || action === 'core.refreshMCPServerInfo') {
+        // 广播到全部存活 worker（core 配置 / skill 列表 / MCP 连接均为进程内状态）；持久化由 http 层落盘
         await Promise.all(this.pool.list().filter(w => w.alive).map(w => this.pool.request(w, action, undefined, payload).catch(() => null)));
         return true;
       }
@@ -258,6 +258,21 @@ export class SessionManager extends EventEmitter {
         this.broadcastAll({ event: SERVER_EVENTS.modelUpdate, data: result });
       }
       return result;
+    }
+
+    // ---------- 项目级：按 projectId 路由到项目目录 worker ----------
+    // project.warm：草稿页选中项目即拉起 worker（core 初始化会预载插件并联动加载 skills），
+    // 首条消息免冷启动，也避免 skills 未加载完的时序窗口；失败静默（发消息时会走正式报错路径）
+    if (action === 'project.warm' || action === 'project.getCommandsInfo') {
+      const proj = this.registry.getProject(String(payload?.projectId || ''));
+      if (!proj) throw new Error(`项目不存在: ${payload?.projectId}`);
+      const w = await this.pool.acquire(proj.workingDir);
+      if (action === 'project.warm') {
+        // 顺带预载 commands/skills/agents 清单缓存，不阻塞返回
+        void this.pool.request(w, 'core.getCommandsInfo', undefined, {}).catch(() => null);
+        return true;
+      }
+      return this.pool.request(w, 'core.getCommandsInfo', undefined, {});
     }
 
     if (!sid) throw new Error('缺少 sessionId');

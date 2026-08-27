@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "代码审查",
+    "description": "CodeRabbit 官方审查技能，按可读性、边界情况、安全性分层给意见。",
+    "category": "dev",
+    "order": 40
+  },
+  "source": {
+    "repo": "coderabbitai/skills",
+    "ref": "aa49953c4cb2590e35480637b1b6a29cf4187cfa",
+    "path": "skills/code-review"
+  }
+}

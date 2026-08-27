@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "仓库知识库生成",
+    "description": "微软 deep-wiki 技能：把代码仓自动整理成结构化 wiki、上手文档和变更记录。",
+    "category": "office",
+    "order": 5
+  },
+  "source": {
+    "repo": "microsoft/skills",
+    "ref": "7066b58141d8cc66f39356b2ee5bb64d428dcf17",
+    "path": ".github/plugins/deep-wiki/skills/wiki-page-writer"
+  }
+}

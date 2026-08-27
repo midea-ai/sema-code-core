@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "Word 文档",
+    "description": "创建、编辑、解析 .docx 文档：生成带目录、页眉页码的专业文档，模板套用与内容提取。",
+    "category": "doc",
+    "order": 10
+  },
+  "source": {
+    "repo": "MiniMax-AI/skills",
+    "ref": "60aaae52bb2af8162732751a4332f62a5fef518b",
+    "path": "skills/minimax-docx"
+  }
+}

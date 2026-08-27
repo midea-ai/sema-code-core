@@ -6,7 +6,7 @@
 export const SESSION_EVENTS = [
   'session:ready', 'session:error', 'session:interrupted', 'session:cleared',
   'state:update',
-  'input:received', 'input:processing',
+  'input:received', 'input:processing', 'input:predict',
   'message:text:chunk', 'message:thinking:chunk', 'message:complete',
   'tool:permission:request', 'tool:permission:auto',
   'tool:execution:complete', 'tool:execution:chunk', 'tool:execution:error',
@@ -44,6 +44,12 @@ export const CORE_ACTIONS = [
   'core.getToolInfos',
   'core.getModelAdapter',
   'core.getCommandsInfo',
+] as const;
+
+/** 项目级（project.*）action：按 projectId 路由到项目目录的 worker（草稿页预热 / 项目级清单） */
+export const PROJECT_ACTIONS = [
+  'project.warm',
+  'project.getCommandsInfo',
 ] as const;
 
 /** 会话级（session.*）action：映射 SemaSession 同名方法 */

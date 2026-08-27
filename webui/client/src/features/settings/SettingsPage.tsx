@@ -313,10 +313,11 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
 
 // ==================== 系统配置 ====================
 
-type CoreBoolKey = 'skipFileEditPermission' | 'skipShellExecPermission' | 'skipSkillPermission' | 'skipMCPToolPermission' | 'skipFetchUrlPermission' | 'skipExternalFileReadPermission' | 'disableBackgroundTasks' | 'enableToolSearch';
+type CoreBoolKey = 'skipFileEditPermission' | 'skipShellExecPermission' | 'skipSkillPermission' | 'skipMCPToolPermission' | 'skipFetchUrlPermission' | 'skipExternalFileReadPermission' | 'disableBackgroundTasks' | 'enableToolSearch' | 'enableInputPrediction';
 const BASIC_KEYS: Array<{ key: CoreBoolKey; label: string }> = [
   { key: 'enableToolSearch', label: t('settings.enableToolSearch') },
   { key: 'disableBackgroundTasks', label: t('settings.disableBg') },
+  { key: 'enableInputPrediction', label: t('settings.enableInputPrediction') },
 ];
 const PERMISSION_KEYS: Array<{ key: CoreBoolKey; label: string }> = [
   { key: 'skipFileEditPermission', label: t('settings.skipFileEdit') },

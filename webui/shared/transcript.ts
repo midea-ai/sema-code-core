@@ -197,7 +197,13 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       break;
     }
 
+    // 输入预测：空串表示"预计不回复"，统一落成 undefined；用户发送/会话重置后作废
+    case 'input:predict':
+      snap.predictedInput = data?.prediction || undefined;
+      break;
+
     case 'input:received': {
+      snap.predictedInput = undefined;
       const text = data?.originalInput || data?.input || '';
       pushBlock(snap, {
         kind: 'user', id: `user:${data?.inputId || seq}`, ts: now,
@@ -212,6 +218,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
     }
 
     case 'input:processing': {
+      snap.predictedInput = undefined;
       const inputId = data?.inputId;
       const attachments = Array.isArray(data?.attachments)
         ? data.attachments.map((a: any) => ({ media_type: a.media_type, dataUrl: a.data ? `data:${a.media_type};base64,${a.data}` : undefined }))
@@ -398,6 +405,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       } else {
         closeStreaming(snap);
         voidPending(snap);
+        snap.predictedInput = undefined;
         notice(snap, seq, 'interrupted', 'warn', data?.content || '已中断');
       }
       break;
@@ -408,6 +416,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       snap.todos = [];
       snap.turn = null;
       snap.streamingId = undefined;
+      snap.predictedInput = undefined;
       notice(snap, seq, 'cleared', 'info', '会话已清空');
       break;
 

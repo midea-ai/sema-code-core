@@ -75,6 +75,11 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
       .catch(() => undefined);
     return () => { stale = true; };
   }, [isDraft, projectId]);
+  // 草稿页选中项目即预热该项目的 worker（core 初始化 + skills/commands 预载），首条消息免冷启动；失败静默
+  useEffect(() => {
+    if (!isDraft || !projectId || wsStatus !== 'open') return;
+    wsClient.request('project.warm', undefined, { projectId }).catch(() => undefined);
+  }, [isDraft, projectId, wsStatus]);
   const scope = { sessionId, projectId };
   const fileSearch = useFileSearch(scope, trigger?.kind === 'file' && (sessionId || projectId) ? trigger.query : null);
   const cmds = useCommands(scope, trigger?.kind === 'cmd');
@@ -82,6 +87,8 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
 
   const processing = snap?.state === 'processing';
   const pending = snap ? pendingBlocks(snap).length : 0;
+  // 输入预测 ghost：仅空输入且会话空闲时展示，用户开始输入即自然消失（input:predict 事件写入快照）
+  const ghost = (!processing && draft.text === '' && draft.images.length === 0 && snap?.predictedInput) || undefined;
   const hasModel = !!modelData?.modelList?.length;
   const disabled = (isDraft ? false : !snap || pending > 0) || wsStatus !== 'open';
   const agentMode = isDraft ? draftMode : (snap?.agentMode || 'Agent');
@@ -214,6 +221,13 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
+    // ghost 可见时 Tab 采纳预测（空输入时 trigger 必为 null，与补全弹层不冲突）
+    if (ghost && e.key === 'Tab') {
+      e.preventDefault();
+      pendingCaret.current = ghost.length;
+      setDraft(draftKey, d => ({ ...d, text: ghost }));
+      return;
+    }
     // 弹层打开时接管 ↑↓ Tab Enter Esc
     if (trigger) {
       const count = trigger.kind === 'file' ? fileSearch.items.length : cmdItems.length;
@@ -279,9 +293,16 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
           {trigger?.kind === 'cmd' && (
             <CommandPanel items={cmdItems} loading={cmds.loading} selected={selIdx} onSelect={pickCommand} onHover={setSelIdx} />
           )}
+          {ghost && (
+            // 与 textarea 同排版的灰色预测文字（ghost 仅在空输入时出现，此时 textarea 顶到容器顶部）
+            <div className="pointer-events-none absolute inset-x-0 top-0 px-3.5 pt-3.5 text-sm leading-[22px] text-muted/50 truncate">
+              {ghost}
+              <span className="ml-2 text-[10px] leading-none px-1 py-0.5 rounded bg-black/[0.06] text-muted/70 align-middle whitespace-nowrap">{t('chat.predictAccept')}</span>
+            </div>
+          )}
           <textarea ref={taRef} rows={1} value={draft.text} disabled={disabled}
             onChange={e => { histIdx.current = null; setDraft(draftKey, d => ({ ...d, text: e.target.value })); updateTrigger(e.target.value, e.target.selectionStart ?? e.target.value.length); }}
-            onKeyDown={onKeyDown} onKeyUp={onKeyUp} onClick={syncCaret} onBlur={closePicker} onPaste={onPaste} placeholder={t('chat.placeholder')}
+            onKeyDown={onKeyDown} onKeyUp={onKeyUp} onClick={syncCaret} onBlur={closePicker} onPaste={onPaste} placeholder={ghost ? '' : t('chat.placeholder')}
             className="w-full bg-transparent resize-none px-3.5 pt-3.5 pb-1.5 text-sm leading-[22px] min-h-[52px] placeholder:text-muted/60 max-h-60" />
           {/* 底栏：左侧裸按钮 28px 等高，右侧用量 + 32px 发送键，全部垂直居中 */}
           <div className="h-11 flex items-center gap-0.5 pl-2 pr-2">

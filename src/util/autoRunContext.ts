@@ -28,7 +28,7 @@ function truncate(value: string, max = MAX_VALUE_LEN): string {
 
 // 剥掉 <reminder-sys>…</reminder-sys> 包裹的内容（含标签，跨行）。
 // 环境/规则/文件引用/中途注入提示等都被包在这里，对"下一步动作是否安全"是噪声。
-function stripReminderSys(text: string): string {
+export function stripReminderSys(text: string): string {
   const re = new RegExp(`${REMINDER_SYS_OPEN}[\\s\\S]*?${REMINDER_SYS_CLOSE}`, 'g')
   return text.replace(re, '')
 }
@@ -69,7 +69,7 @@ function compactSideEffectLine(name: string, input: { [key: string]: unknown }):
 }
 
 // 历史中的 tool_use：仅保留三类紧凑行，其余丢弃
-function summarizeToolUse(block: Anthropic.ToolUseBlock): string | null {
+export function summarizeToolUse(block: Anthropic.ToolUseBlock): string | null {
   return compactSideEffectLine(block.name, (block.input || {}) as { [key: string]: unknown })
 }
 

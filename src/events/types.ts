@@ -522,6 +522,18 @@ export interface quickchatResponseData {
   content: string;    // 回答内容
 }
 
+// ==================== 用户输入预测事件 ====================
+
+/**
+ * 用户输入预测结果事件数据
+ * 事件: `input:predict`
+ * 说明: enableInputPrediction 开启时，一轮回复自然结束后由 quick 模型预测用户下一句输入。
+ * prediction 为空串表示"预计用户不会回复"，UI 应清空/不展示提示。
+ */
+export interface InputPredictData {
+  prediction: string;
+}
+
 // ==================== 定时任务相关事件 ====================
 
 /**

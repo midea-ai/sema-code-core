@@ -32,6 +32,7 @@ export interface SemaCoreConfig {
   disabledTools?: string[] | null;   // 禁用的工具（黑名单）默认 null 不禁用；与 useTools 同时传时优先生效
   agentMode?: AgentMode;             // 默认 'Agent'
   disableTopicDetection?: boolean;   // 是否禁用话题检测，默认 否
+  enableInputPrediction?: boolean;   // 是否开启用户输入预测（一轮结束后用 quick 模型预测用户下一句，事件 input:predict），默认 否
   disableBackgroundTasks?: boolean;  // 是否禁止后台任务（Bash后台/Agent后台/超时转后台），默认 否
   enableToolSearch?: boolean;        // 是否开启工具搜索（延迟加载），默认 否；开启后仅默认工具集进入 LLM tools，
                                      // 其余内置工具与 MCP 工具通过 load_tools 按名加载；
@@ -45,8 +46,8 @@ export interface SemaCoreConfig {
   maxSessions?: number;              // 同时存在的会话上限，不传则不限制
 }
 
-// 支持动态更新的核心配置字段
-export type UpdatableCoreConfigKeys = 'stream' | 'thinking' | 'systemPrompt' | 'customRules' | 'skipFileEditPermission' | 'skipShellExecPermission' | 'skipSkillPermission' | 'skipMCPToolPermission' | 'skipFetchUrlPermission' | 'skipExternalFileReadPermission' | 'enableLLMCache' | 'disableBackgroundTasks' | 'enableToolSearch';
+// 支持动态更新的核心配置字段（从默认配置派生）
+export type UpdatableCoreConfigKeys = keyof typeof defaultCoreConfig;
 
 // 默认核心配置
 export const defaultCoreConfig = {
@@ -63,6 +64,7 @@ export const defaultCoreConfig = {
   enableLLMCache: false,
   disableBackgroundTasks: false,
   enableToolSearch: false,
+  enableInputPrediction: false,
 };
 
 // 可更新的核心配置类型（基于默认配置）

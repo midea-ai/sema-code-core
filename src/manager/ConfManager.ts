@@ -76,22 +76,8 @@ export class ConfigManager {
       throw new Error('核心配置未初始化，请先调用 setCoreConfig');
     }
 
-    // 支持的可更新字段列表
-    const allowedKeys: UpdatableCoreConfigKeys[] = [
-      'stream',
-      'thinking',
-      'systemPrompt',
-      'customRules',
-      'skipFileEditPermission',
-      'skipShellExecPermission',
-      'skipSkillPermission',
-      'skipMCPToolPermission',
-      'skipFetchUrlPermission',
-      'skipExternalFileReadPermission',
-      'enableLLMCache',
-      'disableBackgroundTasks',
-      'enableToolSearch'
-    ];
+    // 支持的可更新字段列表（从默认配置中获取）
+    const allowedKeys = Object.keys(defaultCoreConfig) as UpdatableCoreConfigKeys[];
 
     if (!allowedKeys.includes(key)) {
       throw new Error(`不支持更新字段 '${key}'，只支持以下字段: ${allowedKeys.join(', ')}`);

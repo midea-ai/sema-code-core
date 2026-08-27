@@ -5,6 +5,7 @@ import { logInfo, logDebug, setLogLevel, logWarn } from '../util/log';
 import { getTokens } from '../util/tokens';
 import { loadHistory, saveHistory, resolveHistoryFile } from '../util/history';
 import { detectTopicInBackground } from '../util/topic';
+import { predictNextInputInBackground } from '../util/inputPredict';
 import { processFileReferences } from '../util/fileReference';
 import { buildUserMsg, buildAdditionalReminders } from '../util/message';
 import { getAvailableTools } from '../tools/base/tools';
@@ -384,7 +385,7 @@ export class SemaEngine {
 
       // 回合级提醒（skills/rules/plan/design）：传空 systemReminders，仅取回合级部分，挂到首条消息；
       // 文件引用提醒已按 inputId 拆到各自输入（见 perInput.fileRefReminders）
-      const turnLevelReminders = buildAdditionalReminders(
+      const turnLevelReminders = await buildAdditionalReminders(
         [],
         messageHistory,
         agentMode,
@@ -512,6 +513,12 @@ export class SemaEngine {
         // 有排队输入接续时视为同一轮继续也不触发
         if (!agentContext.abortController.signal.aborted) {
           fireStop(this.sessionId)
+          // 后台异步预测用户下一句输入（quick 模型），不阻塞收尾；结果经 input:predict 事件发出
+          // 只在含真实用户输入的轮次触发：静默/自动来源（cron、后台任务通知等）结束时用户未必在看，不预测
+          const hasUserInput = inputs.some(i => !i.silent && (i.source ?? 'user') === 'user')
+          if (hasUserInput && getConfManager().getCoreConfig()?.enableInputPrediction) {
+            predictNextInputInBackground(this.sessionId).catch(() => undefined)
+          }
         }
         mainAgentState.updateState('idle');
       }

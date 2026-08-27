@@ -240,6 +240,12 @@ public sealed class SemaCore : IAsyncDisposable
     public Task<List<SkillConfig>> RemoveSkillConf(string name)
         => CallList<SkillConfig>("removeSkillConf", Json.Obj(("name", name)));
 
+    public Task<List<SkillConfig>> EnableSkill(string name)
+        => CallList<SkillConfig>("enableSkill", Json.Obj(("name", name)));
+
+    public Task<List<SkillConfig>> DisableSkill(string name)
+        => CallList<SkillConfig>("disableSkill", Json.Obj(("name", name)));
+
     public Task<List<CommandConfig>> GetCommandsInfo(bool? concise = null, bool? refresh = null)
         => CallList<CommandConfig>("getCommandsInfo", Json.Obj(("concise", concise), ("refresh", refresh)));
 
@@ -272,7 +278,7 @@ public sealed class SemaCore : IAsyncDisposable
     public Task<List<MCPServerInfo>> EnableMCPServer(string name)
         => CallList<MCPServerInfo>("enableMCPServer", Json.Obj(("name", name)));
 
-    public Task<List<MCPServerInfo>> UpdateMCPUseTools(string name, List<string> toolNames)
+    public Task<List<MCPServerInfo>> UpdateMCPUseTools(string name, List<string>? toolNames)
         => CallList<MCPServerInfo>("updateMCPUseTools", Json.Obj(("name", name), ("toolNames", toolNames)));
 
     // ── Cron ─────────────────────────────────────────────────────────────

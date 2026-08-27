@@ -254,9 +254,11 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         case 'addAgentConf':    ack(id, await manager.instance.addAgentConf(payload)); return;
         case 'removeAgentConf': ack(id, await manager.instance.removeAgentConf(payload.name)); return;
 
-        // Skills（concise 同上）
+        // Skills（concise 同上；enable/disable 写入层跟随技能所在层）
         case 'getSkillsInfo':   ack(id, await manager.instance.getSkillsInfo(payload?.concise, payload?.refresh)); return;
         case 'removeSkillConf': ack(id, await manager.instance.removeSkillConf(payload.name)); return;
+        case 'enableSkill':     ack(id, await manager.instance.enableSkill(payload.name)); return;
+        case 'disableSkill':    ack(id, await manager.instance.disableSkill(payload.name)); return;
 
         // Commands（concise 同上）
         case 'getCommandsInfo':   ack(id, await manager.instance.getCommandsInfo(payload?.concise, payload?.refresh)); return;

@@ -96,6 +96,14 @@ class InputProcessingData(TypedDict):
     source: NotRequired[InputSource]  # 缺省 'user'
 
 
+class InputPredictData(TypedDict):
+    """input:predict —— 用户输入预测结果（需 enableInputPrediction 开启）。
+
+    prediction 为空串表示"预计不回复"，UI 应清空提示。
+    """
+    prediction: str
+
+
 # ==================== AI 消息 ====================
 
 class ThinkingChunkData(TypedDict):

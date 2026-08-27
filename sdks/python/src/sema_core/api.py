@@ -234,6 +234,12 @@ class SemaCore:
     async def remove_skill_conf(self, name: str) -> "List[SkillConfig]":
         return await self._json("removeSkillConf", {"name": name})
 
+    async def enable_skill(self, name: str) -> "List[SkillConfig]":
+        return await self._json("enableSkill", {"name": name})
+
+    async def disable_skill(self, name: str) -> "List[SkillConfig]":
+        return await self._json("disableSkill", {"name": name})
+
     async def get_commands_info(self, concise: Optional[bool] = None, refresh: Optional[bool] = None) -> "List[CommandConfig]":
         return await self._json("getCommandsInfo", _obj(concise=concise, refresh=refresh))
 
@@ -266,7 +272,7 @@ class SemaCore:
     async def enable_mcp_server(self, name: str) -> "List[MCPServerInfo]":
         return await self._json("enableMCPServer", {"name": name})
 
-    async def update_mcp_use_tools(self, name: str, tool_names: list[str]) -> "List[MCPServerInfo]":
+    async def update_mcp_use_tools(self, name: str, tool_names: "Optional[list[str]]") -> "List[MCPServerInfo]":
         return await self._json("updateMCPUseTools", {"name": name, "toolNames": tool_names})
 
     # ── Cron ─────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
-"""事件名常量（镜像 Java api/SemaEvents；名与值 = core 原始事件名，不做任何转换）。
+"""事件名常量（名与值 = core 原始事件名，不做任何转换）。
 
-一致性由 bridge 的 manifest 校验兜底（sdks/shared/bridge/scripts/check-consistency.mjs）。
+以 sdks/shared/bridge/manifest/actions.json 的事件清单为准，增删事件时人工同步。
 """
 
 # ── 会话级 ────────────────────────────────────────────────────────────────
@@ -11,6 +11,7 @@ SESSION_CLEARED = "session:cleared"
 STATE_UPDATE = "state:update"
 INPUT_RECEIVED = "input:received"
 INPUT_PROCESSING = "input:processing"
+INPUT_PREDICT = "input:predict"
 MESSAGE_TEXT_CHUNK = "message:text:chunk"
 MESSAGE_THINKING_CHUNK = "message:thinking:chunk"
 MESSAGE_COMPLETE = "message:complete"

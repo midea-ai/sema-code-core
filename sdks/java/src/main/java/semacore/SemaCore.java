@@ -325,6 +325,14 @@ public final class SemaCore implements AutoCloseable {
         return callList("removeSkillConf", Json.obj("name", name), SkillConfig.class);
     }
 
+    public List<SkillConfig> enableSkill(String name) {
+        return callList("enableSkill", Json.obj("name", name), SkillConfig.class);
+    }
+
+    public List<SkillConfig> disableSkill(String name) {
+        return callList("disableSkill", Json.obj("name", name), SkillConfig.class);
+    }
+
     public List<CommandConfig> getCommandsInfo() {
         return getCommandsInfo(null, null);
     }

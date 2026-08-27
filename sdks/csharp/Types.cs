@@ -478,6 +478,8 @@ public record SkillConfig
     [JsonPropertyName("prompt")] public string? Prompt { get; init; }
     [JsonPropertyName("locate")] public SkillScope? Locate { get; init; }
     [JsonPropertyName("filePath")] public string? FilePath { get; init; }
+    /// <summary>是否启用（settings 的 disabledSkills 控制，用户级+项目级并集；null 视为启用）。</summary>
+    [JsonPropertyName("status")] public bool? Status { get; init; }
 }
 
 public record TaskConfig

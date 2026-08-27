@@ -7,8 +7,8 @@ snake_case），运行时就是普通 dict，零序列化层、零运行时开�
 提供静态类型与补全。字面量联合用 Literal，判别联合用 Literal 判别字段 + Union。
 不透明兜底：core 的 any / Record<string,any> / string|object → dict 或 object。
 
-手动维护约束：core 改公开签名时同步改这里（与 Java model、C# Model 三处镜像）；
-名字级漂移由 shared/bridge/scripts/check-consistency.mjs 兜底，字段级靠手写纪律。
+手动维护约束：core 改公开签名时同步改这里（与 Java model、C# Model 三处镜像），
+名字级与字段级均靠手写纪律，以 shared/bridge/manifest/actions.json 为契约基准。
 """
 from __future__ import annotations
 
@@ -234,6 +234,7 @@ class SkillConfig(TypedDict):
     prompt: str
     locate: NotRequired[SkillScope]
     filePath: NotRequired[str]
+    status: NotRequired[bool]  # 是否启用（settings 的 disabledSkills 控制，用户级+项目级并集；缺省视为启用）
 
 
 class CommandConfig(TypedDict):

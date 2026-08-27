@@ -1,5 +1,5 @@
 {
-  "description": "桥协议契约单一来源：action 清单（名 = core 方法名）、payload 字段、ack 形态、事件清单。由 scripts/check-consistency.mjs 与 server.ts 路由表、各语言 SDK 镜像方法三方比对防漂移。",
+  "description": "桥协议契约单一来源：action 清单（名 = core 方法名）、payload 字段、ack 形态、事件清单。server.ts 路由表与各语言 SDK 镜像以此为准，增删 action/事件时人工同步各端。",
   "protocolVersion": 1,
   "ackKinds": {
     "value": "ack 携带 core 方法的原始返回值（JSON）",
@@ -39,6 +39,8 @@
     "removeAgentConf": { "level": "core", "payload": ["name"], "ack": "value" },
     "getSkillsInfo": { "level": "core", "payload": ["concise", "refresh"], "ack": "value" },
     "removeSkillConf": { "level": "core", "payload": ["name"], "ack": "value" },
+    "enableSkill": { "level": "core", "payload": ["name"], "ack": "value" },
+    "disableSkill": { "level": "core", "payload": ["name"], "ack": "value" },
     "getCommandsInfo": { "level": "core", "payload": ["concise", "refresh"], "ack": "value" },
     "addCommandConf": { "level": "core", "payload": ["<command 配置对象透传>"], "ack": "value" },
     "removeCommandConf": { "level": "core", "payload": ["name"], "ack": "value" },
@@ -81,7 +83,7 @@
     "session": [
       "session:ready", "session:error", "session:interrupted", "session:cleared",
       "state:update",
-      "input:received", "input:processing",
+      "input:received", "input:processing", "input:predict",
       "message:text:chunk", "message:thinking:chunk", "message:complete",
       "tool:permission:request", "tool:permission:auto",
       "tool:execution:complete", "tool:execution:chunk", "tool:execution:error",

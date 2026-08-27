@@ -101,8 +101,10 @@
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getSkillsInfo` | `get_skills_info` | `getSkillsInfo` | `GetSkillsInfo` | `concise: boolean`, `refresh: boolean` | — |
+| `await getSkillsInfo` | `get_skills_info` | `getSkillsInfo` | `GetSkillsInfo` | `concise: boolean`, `refresh: boolean` | 返回含禁用项，`status: false` 表示已禁用 |
 | `await removeSkillConf` | `remove_skill_conf` | `removeSkillConf` | `RemoveSkillConf` | `name`(必填) | — |
+| `await enableSkill` | `enable_skill` | `enableSkill` | `EnableSkill` | `name`(必填) | 写入层跟随技能所在层（用户级技能全局生效） |
+| `await disableSkill` | `disable_skill` | `disableSkill` | `DisableSkill` | `name`(必填) | 写入 settings 的 `disabledSkills`（用户级+项目级并集生效） |
 
 ### Commands 管理
 
@@ -121,9 +123,9 @@
 | `await addMCPServer` | `add_mcp_server` | `addMCPServer` | `AddMCPServer` | `mcpConfig: MCPServerConfig`(必填) | — |
 | `await removeMCPServer` | `remove_mcp_server` | `removeMCPServer` | `RemoveMCPServer` | `name`(必填) | — |
 | `await reconnectMCPServer` | `reconnect_mcp_server` | `reconnectMCPServer` | `ReconnectMCPServer` | `name`(必填) | — |
-| `await disableMCPServer` | `disable_mcp_server` | `disableMCPServer` | `DisableMCPServer` | `name`(必填) | — |
-| `await enableMCPServer` | `enable_mcp_server` | `enableMCPServer` | `EnableMCPServer` | `name`(必填) | — |
-| `await updateMCPUseTools` | `update_mcp_use_tools` | `updateMCPUseTools` | `UpdateMCPUseTools` | `name`(必填), `toolNames: string[]`(必填) | — |
+| `await disableMCPServer` | `disable_mcp_server` | `disableMCPServer` | `DisableMCPServer` | `name`(必填) | 写入 settings 的 `disabledMcpServers`（用户级+项目级并集生效），写入层跟随 server 所在层 |
+| `await enableMCPServer` | `enable_mcp_server` | `enableMCPServer` | `EnableMCPServer` | `name`(必填) | 只从 server 所在层移除禁用记录；另一层仍禁用时不会连接 |
+| `await updateMCPUseTools` | `update_mcp_use_tools` | `updateMCPUseTools` | `UpdateMCPUseTools` | `name`(必填), `toolNames: string[] \| null`(必填，null=全部可用) | 写入 settings 的 `enabledMcpServerUseTools`（用户级打底、项目级同名覆盖），写入层跟随 server 所在层 |
 
 ### Memory 管理
 
@@ -231,6 +233,7 @@
 | `state:update` | `StateUpdateData` | `idle` / `processing` |
 | `input:received` | `InputReceivedData` | 收到用户输入（处理中则入队等待）；`source` 标记来源（缺省 `user`，`cron`=定时任务自动发送） |
 | `input:processing` | `InputProcessingData` | 开始处理该用户输入；`source` 含义同上 |
+| `input:predict` | `InputPredictData` | 用户输入预测结果（需 `enableInputPrediction` 开启；`prediction` 空串表示预计不回复，UI 应清空提示） |
 | `message:text:chunk` | `TextChunkData` | 回复文本流式增量 |
 | `message:thinking:chunk` | `ThinkingChunkData` | 思考内容流式增量 |
 | `message:complete` | `MessageCompleteData` | 一条 AI 消息完成（完整内容 + 工具调用） |
@@ -311,7 +314,7 @@ FetchModelsParams, FetchModelsResult                         // 拉取可用模�
 ApiTestParams, ApiTestResult                                 // API 连通测试：参数 / 结果
 ToolInfo, FileReferenceInfo                                  // 工具信息 / 文件引用
 AgentConfig, AgentScope                                      // Agents：配置 / 作用域
-SkillConfig, SkillScope                                      // Skills：配置 / 作用域
+SkillConfig, SkillScope                                      // Skills：配置（含 status 启用态）/ 作用域
 CommandConfig, CommandScope                                  // Commands：配置 / 作用域
 MCPServerConfig, MCPServerInfo                               // MCP：配置 / 运行信息
 MemoryConfig, RuleConfig, RuleScope                          // Memory / Rule（含作用域）
@@ -337,7 +340,7 @@ MAIN_AGENT_ID                                                // 常量：主代�
 ```
 SessionReadyData, SessionInterruptedData, SessionErrorData, SessionClearedData  // 会话：就绪/中断/错误/清空
 AppSessionState, StateUpdateData                             // 运行状态：状态枚举 / 更新事件
-InputReceivedData, InputProcessingData                       // 用户输入：已接收 / 开始处理
+InputReceivedData, InputProcessingData, InputPredictData     // 用户输入：已接收 / 开始处理 / 下一句预测
 ThinkingChunkData, TextChunkData, MessageCompleteData        // AI 消息：思考增量 / 文本增量 / 完成
 ToolPermissionRequestData, ToolPermissionAutoData, ToolPermissionResponse  // 工具权限：请求 / 自动放行 / 应答
 ToolExecutionCompleteData, ToolExecutionChunkData, ToolExecutionErrorData   // 工具执行：完成 / 中间态 / 错误

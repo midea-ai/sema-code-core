@@ -92,6 +92,12 @@ public record InputReceivedData
     [JsonPropertyName("source")] public string? Source { get; init; }
 }
 
+/// <summary>input:predict —— 用户输入预测结果（需 enableInputPrediction 开启）；Prediction 为空串表示"预计不回复"，UI 应清空提示</summary>
+public record InputPredictData
+{
+    [JsonPropertyName("prediction")] public string? Prediction { get; init; }
+}
+
 public record MCPServerStatusData
 {
     [JsonPropertyName("config")] public MCPServerConfig? Config { get; init; }

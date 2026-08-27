@@ -18,6 +18,10 @@
   --color-warn: #9a6700;
   --color-ok: #1a7f37;
   --color-design: #9575ff;
+  /* 会话状态点专用色（侧边栏 + 标签页 favicon），与语义色 warn/accent/ok 解耦 */
+  --color-dot-pending: #f97316;
+  --color-dot-processing: #5bbfe8;
+  --color-dot-done: #34c759;
   --color-add: #dafbe1;
   --color-del: #ffebe9;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans CJK SC", sans-serif;

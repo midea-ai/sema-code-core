@@ -14,6 +14,8 @@ import { readInitialCwd } from '../../util/cwd'
 import { parseFile } from '../../util/formatter'
 import { getPluginsManager } from '../plugins/pluginsManager'
 import { SkillConfig } from '../../types/skill'
+import { readSettings, writeSettings } from '../settings/settingsLoader'
+import { SettingsScope } from '../../types/settings'
 
 
 const SKILL_FILE_NAME = 'SKILL.md'
@@ -194,6 +196,44 @@ class SkillsManager {
   }
 
   /**
+   * 读取禁用的 Skill 集合（用户级 + 项目级并集）
+   * 每次实时读 settings，外部（如 WebUI）直接改文件后无需重启即可生效
+   */
+  private readDisabledSkills(): Set<string> {
+    const user = readSettings('user').disabledSkills ?? []
+    const project = readSettings('project').disabledSkills ?? []
+    return new Set([...user, ...project])
+  }
+
+  /**
+   * Skill 是否被禁用
+   */
+  isSkillDisabled(name: string): boolean {
+    return this.readDisabledSkills().has(name)
+  }
+
+  /**
+   * 启用/禁用 Skill：写入 settings 的 disabledSkills
+   * 未显式指定 scope 时跟随技能所在层：项目级技能写项目级，用户级/插件技能写用户级（全局生效）
+   * enable 只从目标层移除；若另一层仍禁用，最终状态仍为禁用（返回值如实反映并集）
+   */
+  async setSkillEnabled(name: string, enabled: boolean): Promise<SkillConfig[]> {
+    const conf = this.skillConfigs.get(name)
+    if (!conf) {
+      logWarn(`${enabled ? '启用' : '禁用'} Skill 失败: 未找到 [${name}]`)
+      return this.getSkillsInfo()
+    }
+    // 写入层跟随技能所在层：项目级技能写项目级 settings，用户级/插件技能写用户级（全局生效）
+    const target: SettingsScope = conf.locate === 'project' ? 'project' : 'user'
+    const settings = readSettings(target)
+    const list = settings.disabledSkills ?? []
+    settings.disabledSkills = enabled ? list.filter(n => n !== name) : (list.includes(name) ? list : [...list, name])
+    writeSettings(target, settings)
+    logInfo(`${enabled ? '启用' : '禁用'} Skill [${name}]（${target} 级）`)
+    return this.getSkillsInfo()
+  }
+
+  /**
    * 重新加载并缓存 Skills 信息
    */
   private async loadAndCacheSkills(): Promise<SkillConfig[]> {
@@ -231,7 +271,9 @@ class SkillsManager {
     } else {
       infos = await this.loadAndCacheSkills()
     }
-    return concise ? infos.map(info => ({ ...info, prompt: '' })) : infos
+    // status 实时按 settings 标注（不进缓存），返回全量含禁用项供管理页展示；执行侧自行过滤
+    const disabled = this.readDisabledSkills()
+    return infos.map(info => ({ ...info, status: !disabled.has(info.name), ...(concise ? { prompt: '' } : {}) }))
   }
 
   /**
@@ -242,11 +284,11 @@ class SkillsManager {
   }
 
   /**
-   * 获取所有 Skill 的类型描述
+   * 获取所有 Skill 的类型描述（异步：等待后台加载完成，避免会话首条消息读到空列表）
    * 格式: "- SkillName: description"
    */
-  getSkillTypesDescription(): string {
-    const skillsConfs = this.getSkillsConfs()
+  async getSkillTypesDescription(): Promise<string> {
+    const skillsConfs = (await this.getSkillsInfo(true)).filter(skill => skill.status !== false)
     if (skillsConfs.length === 0) {
       return ''
     }
@@ -296,6 +338,14 @@ class SkillsManager {
       logError(`删除 Skill 目录失败 [${skillDirPath}]: ${error}`)
     }
 
+    // 清理同层 settings 中的禁用记录（写入层与 setSkillEnabled 对称）
+    const target: SettingsScope = skillConf.locate === 'project' ? 'project' : 'user'
+    const settings = readSettings(target)
+    if (settings.disabledSkills?.includes(name)) {
+      settings.disabledSkills = settings.disabledSkills.filter(n => n !== name)
+      writeSettings(target, settings)
+    }
+
     logInfo(`移除 Skill 配置: ${name}`)
     return this.loadAndCacheSkills()
   }
@@ -323,7 +373,7 @@ export function getSkillsManager(): SkillsManager {
   return skillsManagerInstance
 }
 
-export function getSkillTypesDescription(): string {
+export function getSkillTypesDescription(): Promise<string> {
   return getSkillsManager().getSkillTypesDescription()
 }
 

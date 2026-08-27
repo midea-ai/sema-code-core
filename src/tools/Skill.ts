@@ -40,7 +40,8 @@ export const Skill = {
   },
   async validateInput({ skill }: z.infer<typeof toolParams>) {
     try {
-      const skills = await getSkillsManager().getSkillsInfo()
+      // 禁用的 skill 对模型不可见也不可调用
+      const skills = (await getSkillsManager().getSkillsInfo()).filter(s => s.status !== false)
       const found = skills.find(s => s.name === skill)
 
       if (!found) {
@@ -92,7 +93,7 @@ export const Skill = {
   async *call({ skill, args }: z.infer<typeof toolParams>) {
     const skillConfig = getSkillsManager().getSkillConfig(skill)
 
-    if (!skillConfig) {
+    if (!skillConfig || getSkillsManager().isSkillDisabled(skill)) {
       throw new Error(`No skill named "${skill}" was found.`)
     }
 

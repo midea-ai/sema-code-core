@@ -327,7 +327,7 @@ async function handleControlSignalRebuild(
     // 添加 skills 信息
     const hasSkillTool = newTools.some(tool => tool.name === TOOL_NAME_SKILL)
     if (hasSkillTool) {
-      const skillsReminders = generateSkillsReminder()
+      const skillsReminders = await generateSkillsReminder()
       additionalReminders.push(...skillsReminders)
     }
 

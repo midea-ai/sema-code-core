@@ -47,13 +47,13 @@ export function buildUserMsg(
 /**
  * 构建 additionalReminders：文件引用、首次查询、Plan 模式信息、skill信息
  */
-export function buildAdditionalReminders(
+export async function buildAdditionalReminders(
   systemReminders: Anthropic.ContentBlockParam[],
   messageHistory: Message[],
   agentMode: AgentMode,
   sessionId: string,
   hasSkillTool: boolean = false,
-): Anthropic.ContentBlockParam[] {
+): Promise<Anthropic.ContentBlockParam[]> {
   // 文件引用 每次输入均添加
   const reminders = [...systemReminders]
 
@@ -61,7 +61,7 @@ export function buildAdditionalReminders(
   if (messageHistory.length === 0) {
     // 添加 skills 信息（仅当工具集中包含 Skill 工具时）
     if (hasSkillTool) {
-      reminders.push(...generateSkillsReminder())
+      reminders.push(...await generateSkillsReminder())
     }
 
     // 添加 rules 信息

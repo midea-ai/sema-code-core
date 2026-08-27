@@ -151,6 +151,8 @@ export class SemaCore {
   // ==================== Skills 管理 ====================
   getSkillsInfo = (concise?: boolean, refresh?: boolean): Promise<SkillConfig[]> => getSkillsManager().getSkillsInfo(concise, refresh);
   removeSkillConf = (name: string): Promise<SkillConfig[]> => getSkillsManager().removeSkillConf(name);
+  enableSkill = (name: string): Promise<SkillConfig[]> => getSkillsManager().setSkillEnabled(name, true);
+  disableSkill = (name: string): Promise<SkillConfig[]> => getSkillsManager().setSkillEnabled(name, false);
 
   // ==================== Commands 管理 ====================
   getCommandsInfo = (concise?: boolean, refresh?: boolean): Promise<CommandConfig[]> => getCommandsManager().getCommandsInfo(concise, refresh);
@@ -165,7 +167,7 @@ export class SemaCore {
   reconnectMCPServer = (name: string): Promise<MCPServerInfo[]> => getMCPManager().reconnectMCPServer(name);
   disableMCPServer = (name: string): Promise<MCPServerInfo[]> => getMCPManager().disableMCPServer(name);
   enableMCPServer = (name: string): Promise<MCPServerInfo[]> => getMCPManager().enableMCPServer(name);
-  updateMCPUseTools = (name: string, toolNames: string[]): Promise<MCPServerInfo[]> => getMCPManager().updateMCPUseTools(name, toolNames);
+  updateMCPUseTools = (name: string, toolNames: string[] | null): Promise<MCPServerInfo[]> => getMCPManager().updateMCPUseTools(name, toolNames);
 
   // ==================== Memory 管理 ====================
   getMemoryInfo = (refresh?: boolean): Promise<MemoryConfig | null> => getMemoryManager().getMemoryInfo(refresh);

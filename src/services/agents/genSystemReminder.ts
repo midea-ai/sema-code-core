@@ -9,8 +9,8 @@ import { readInitialCwd } from '../../util/cwd'
 import { PLAN_MODE_SYSTEM_REMINDER_PROMPT } from '../../prompt/plan'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../../prompt/define'
 
-export function generateSkillsReminder(): Anthropic.ContentBlockParam[] {
-  const skillsDesc = getSkillTypesDescription()
+export async function generateSkillsReminder(): Promise<Anthropic.ContentBlockParam[]> {
+  const skillsDesc = await getSkillTypesDescription()
   if (!skillsDesc) return []
 
   const reminder = `${REMINDER_SYS_OPEN}\nAvailable skills (invoke via the skill tool):\n\n${skillsDesc}\n${REMINDER_SYS_CLOSE}`

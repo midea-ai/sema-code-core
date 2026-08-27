@@ -5,8 +5,8 @@
  * 实现优先级：插件 < 用户级 < 项目级
  *
  * 状态管理：
- * - 服务启用/禁用：.sema/settings.json -> disabledMcpServers
- * - 可用工具列表：.sema/settings.json -> enabledMcpServerUseTools
+ * - 服务启用/禁用：settings.json -> disabledMcpServers（用户级 ~/.sema + 项目级 .sema 取并集生效）
+ * - 可用工具列表：settings.json -> enabledMcpServerUseTools（用户级打底、项目级同名覆盖）
  */
 
 import * as fs from 'fs'
@@ -22,7 +22,7 @@ import { readInitialCwd } from '../../util/cwd'
 import { findJsonObjectLineRange } from '../../util/file'
 import { existsSync, readFileSync } from 'fs'
 import { readSettings, writeSettings } from '../settings/settingsLoader'
-import { SemaSettings } from '../../types/settings'
+import { SemaSettings, SettingsScope } from '../../types/settings'
 
 /**
  * MCP 管理器类 - 单例模式
@@ -102,6 +102,25 @@ class MCPManager {
    */
   private writeSemaSettings(data: SemaSettings): void {
     writeSettings('project', data)
+  }
+
+  /**
+   * 禁用的 MCP Server 集合：用户级 + 项目级并集（任一层禁用即禁用）
+   */
+  private readDisabledUnion(): Set<string> {
+    const user = readSettings('user').disabledMcpServers ?? []
+    const project = readSettings('project').disabledMcpServers ?? []
+    return new Set([...user, ...project])
+  }
+
+  /**
+   * MCP Server 可用工具映射：用户级打底、项目级同名覆盖（与 disabled 同样的分层思路）
+   */
+  private readUseToolsMerged(): Record<string, string[]> {
+    return {
+      ...(readSettings('user').enabledMcpServerUseTools ?? {}),
+      ...(readSettings('project').enabledMcpServerUseTools ?? {}),
+    }
   }
 
   // ==================== 配置解析 ====================
@@ -210,9 +229,8 @@ class MCPManager {
    */
   private async loadServers(): Promise<void> {
     const serverMap = new Map<string, MCPServerInfo>()
-    const semaSettings = this.readSemaSettings()
-    const semaDisabled = new Set<string>(semaSettings.disabledMcpServers ?? [])
-    const semaUseToolsMap: Record<string, string[]> = semaSettings.enabledMcpServerUseTools ?? {}
+    const semaDisabled = this.readDisabledUnion()
+    const semaUseToolsMap: Record<string, string[]> = this.readUseToolsMerged()
 
     // 1. 插件 MCP：从已安装且启用的插件中加载 - 最低优先级
     await this.loadMCPsFromPlugins(serverMap, semaDisabled, semaUseToolsMap)
@@ -528,6 +546,19 @@ class MCPManager {
     const { servers, hasMcpServersField } = this.readSemaMcpConfigFile(configPath)
     delete servers[name]
     this.writeSemaMcpConfigFile(configPath, servers, hasMcpServersField)
+    // 清理同层 settings 中的禁用/工具列表记录（写入层与 disable/enable 对称，见 toggleScope）
+    const settingsScope = this.toggleScope(info)
+    const settings = readSettings(settingsScope)
+    let settingsChanged = false
+    if (settings.disabledMcpServers?.includes(name)) {
+      settings.disabledMcpServers = settings.disabledMcpServers.filter(n => n !== name)
+      settingsChanged = true
+    }
+    if (settings.enabledMcpServerUseTools && name in settings.enabledMcpServerUseTools) {
+      delete settings.enabledMcpServerUseTools[name]
+      settingsChanged = true
+    }
+    if (settingsChanged) writeSettings(settingsScope, settings)
     await this.disconnectClient(name)
     logInfo(`移除 MCP Server [${name}]`)
     return this.refreshMCPServerConfigs()
@@ -547,8 +578,17 @@ class MCPManager {
   }
 
   /**
+   * 启停写入哪层 settings：跟随 server 所在层
+   * （项目级/local 写项目级，用户级/插件写用户级，即全局生效）
+   */
+  private toggleScope(info: MCPServerInfo): SettingsScope {
+    const s = info.config.scope
+    return s === 'project' || s === 'local' ? 'project' : 'user'
+  }
+
+  /**
    * 禁用指定 MCP Server
-   * 修改 .sema/settings.json 的 disabledMcpServers 字段
+   * 修改 settings.json 的 disabledMcpServers 字段（写入层见 toggleScope）
    */
   async disableMCPServer(name: string): Promise<MCPServerInfo[]> {
     const info = this.serverInfoCache?.find(s => s.config.name === name)
@@ -556,23 +596,24 @@ class MCPManager {
       logWarn(`禁用 MCP Server 失败: 未找到 [${name}]`)
       return this.getMCPServerConfigs()
     }
-    const settings = this.readSemaSettings()
+    const scope = this.toggleScope(info)
+    const settings = readSettings(scope)
     if (!settings.disabledMcpServers) settings.disabledMcpServers = []
     if (!settings.disabledMcpServers.includes(name)) {
       settings.disabledMcpServers.push(name)
     }
-    this.writeSemaSettings(settings)
+    writeSettings(scope, settings)
     info.status = false
     await this.disconnectClient(name)
     info.connectStatus = 'disconnected'
     info.capabilities = undefined
-    logInfo(`禁用 MCP Server [${name}]`)
+    logInfo(`禁用 MCP Server [${name}]（${scope} 级）`)
     return this.getMCPServerConfigs()
   }
 
   /**
    * 启用指定 MCP Server
-   * 修改 .sema/settings.json 的 disabledMcpServers 字段
+   * 只从目标层（见 toggleScope）的 disabledMcpServers 移除；若另一层仍禁用，最终仍为禁用
    */
   async enableMCPServer(name: string): Promise<MCPServerInfo[]> {
     const info = this.serverInfoCache?.find(s => s.config.name === name)
@@ -580,20 +621,27 @@ class MCPManager {
       logWarn(`启用 MCP Server 失败: 未找到 [${name}]`)
       return this.getMCPServerConfigs()
     }
-    const settings = this.readSemaSettings()
+    const scope = this.toggleScope(info)
+    const settings = readSettings(scope)
     if (settings.disabledMcpServers) {
       settings.disabledMcpServers = settings.disabledMcpServers.filter(n => n !== name)
     }
-    this.writeSemaSettings(settings)
-    info.status = true
-    await this.connectServer(info)
-    logInfo(`启用 MCP Server [${name}]`)
+    writeSettings(scope, settings)
+    const stillDisabled = this.readDisabledUnion().has(name)
+    info.status = !stillDisabled
+    if (stillDisabled) {
+      logWarn(`MCP Server [${name}] 在另一层 settings 中仍被禁用，未连接`)
+    } else {
+      await this.connectServer(info)
+    }
+    logInfo(`启用 MCP Server [${name}]（${scope} 级）`)
     return this.getMCPServerConfigs()
   }
 
   /**
    * 更新指定 MCP Server 的工具使用列表
-   * 修改 .sema/settings.json 的 enabledMcpServerUseTools 字段
+   * 修改 settings.json 的 enabledMcpServerUseTools 字段（写入层跟随 server 所在层，见 toggleScope；
+   * 生效值为用户级打底、项目级同名覆盖，toolNames 为 null 时删除该层记录=全部可用）
    */
   async updateMCPUseTools(name: string, toolNames: string[] | null): Promise<MCPServerInfo[]> {
     const info = this.serverInfoCache?.find(s => s.config.name === name)
@@ -601,17 +649,19 @@ class MCPManager {
       logWarn(`更新工具列表失败: 未找到 MCP Server [${name}]`)
       return this.getMCPServerConfigs()
     }
-    const settings = this.readSemaSettings()
+    const scope = this.toggleScope(info)
+    const settings = readSettings(scope)
     if (!settings.enabledMcpServerUseTools) settings.enabledMcpServerUseTools = {}
-    if (toolNames === null) {
+    // == null 同时兜住 null 与 undefined（SDK 桥的 payload 助手会把 null 键整个略去）
+    if (toolNames == null) {
       delete settings.enabledMcpServerUseTools[name]
     } else {
       settings.enabledMcpServerUseTools[name] = toolNames
     }
-    this.writeSemaSettings(settings)
-    // 同步更新缓存中的配置
-    info.config.useTools = toolNames
-    logInfo(`更新 MCP Server [${name}] 工具列表: ${toolNames ? toolNames.join(', ') : 'null (使用所有工具)'}`)
+    writeSettings(scope, settings)
+    // 同步更新缓存中的配置（取分层合并后的生效值）
+    info.config.useTools = this.readUseToolsMerged()[name] ?? null
+    logInfo(`更新 MCP Server [${name}] 工具列表（${scope} 级）: ${toolNames ? toolNames.join(', ') : 'null (使用所有工具)'}`)
     return this.getMCPServerConfigs()
   }
 

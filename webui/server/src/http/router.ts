@@ -266,7 +266,7 @@ export class Router {
       const rec = resolveScope(p.id);
       await revealInFileManager(rec.workingDir); return true;
     });
-    // 在文件管理器中定位会话目录内的某个文件（相对路径；realpath 必须落在 workingDir 内）
+    // 在文件管理器中定位文件（相对路径限会话目录内，绝对路径放行，与文件读取一致）
     this.add('POST', '/api/sessions/:id/reveal-file', async (_r, _s, p, body) => {
       const rec = resolveScope(p.id);
       const rel = String(body?.path || '');

@@ -5,6 +5,7 @@ import { useApp, PanelTab } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { DiffView } from '../chat/DiffView';
 import { Dropdown, DropdownOption, cn, useCopy } from '../../common/ui';
+import { displayPath } from '../../common/text';
 import { t } from '../../i18n';
 
 const ALL = '__all__';
@@ -115,9 +116,10 @@ function FileRow({ sessionId, file, open, onToggle }: { sessionId: string; file:
   const { copied, copy } = useCopy();
   const toast = useApp(s => s.toast);
   const revealFile = useApp(s => s.revealFile);
-  const i = file.path.lastIndexOf('/');
-  const dir = i >= 0 ? file.path.slice(0, i + 1) : '';
-  const base = i >= 0 ? file.path.slice(i + 1) : file.path;
+  const disp = displayPath(file.path);
+  const i = disp.lastIndexOf('/');
+  const dir = i >= 0 ? disp.slice(0, i + 1) : '';
+  const base = i >= 0 ? disp.slice(i + 1) : disp;
   return (
     <li id={`review-file-${file.path}`}>
       <div className="group relative flex items-center gap-2 px-2 h-8 rounded-md hover:bg-black/[0.04] cursor-pointer" onClick={onToggle}>

@@ -93,6 +93,14 @@ function countPatch(patch: any[] | undefined): { additions: number; removals: nu
 }
 
 function mergeFileChange(snap: SessionSnapshot, toolName: string, title: string, content: any) {
+  // `../` 开头的路径基于会话目录归一化为绝对路径（与工具行/文件面板显示一致，也避免同一文件两种写法重复计数）
+  if (snap.workingDir && /^\.\.[\\/]/.test(title)) {
+    const stack: string[] = [];
+    for (const seg of `${snap.workingDir}/${title}`.split(/[\\/]+/)) {
+      if (seg === '..') stack.pop(); else if (seg && seg !== '.') stack.push(seg);
+    }
+    title = (/^[a-zA-Z]:$/.test(stack[0]) ? '' : '/') + stack.join('/');
+  }
   if (!snap.turn) snap.turn = { files: {} };
   const diff = content && typeof content === 'object' && Array.isArray(content.patch) ? content : null;
   const { additions, removals } = countPatch(diff?.patch);

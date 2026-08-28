@@ -98,7 +98,8 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
   const toggleSource = () => setSourceOverride(!showSource);
 
   const outside = isAbsPath(relPath);
-  const crumbs = relPath.split(/[\\/]/).filter(Boolean);
+  // 面包屑显示：home 目录缩写为 ~（与聊天工具行一致），悬停提示与接口请求仍用真实路径
+  const crumbs = relPath.replace(/^(\/(?:Users|home)|[a-zA-Z]:[\\/]Users)[\\/][^\\/]+(?=[\\/])/, '~').split(/[\\/]/).filter(Boolean);
   // 路径过长时默认滚到最右端：文件名可见，左侧路径左右滑动查看。
   // 刚建标签 / 面板展开时容器宽度可能还是 0，此时 scrollLeft 赋值无效，用 ResizeObserver 在尺寸就绪后再吸右
   const crumbRef = useRef<HTMLDivElement>(null);
@@ -343,6 +344,8 @@ function FileMenu({ sessionId, menu, onClose, onPick }: {
 }) {
   const { copy } = useCopy();
   const path = menu?.path || '';
+  // 伪作用域（如插件页的 ~skills）不在 registry 里、没有聊天，不显示「添加到聊天」
+  const hasChat = useApp(s => !!(s.registry.sessions.find(x => x.id === sessionId) || s.registry.projects.find(x => x.id === sessionId)));
   // 菜单项统一走这里：先关菜单，异常统一 toast
   const run = (fn: () => void | Promise<void>) => { onClose(); Promise.resolve(fn()).catch((e: any) => useApp.getState().toast(e.message, 'error')); };
 
@@ -352,17 +355,22 @@ function FileMenu({ sessionId, menu, onClose, onPick }: {
     useApp.getState().toast(t('file.addedToChat'));
   };
 
-  const copyPath = (abs: boolean) => {
-    const reg = useApp.getState().registry;
-    const wd = (reg.sessions.find(s => s.id === sessionId) || reg.projects.find(p => p.id === sessionId))?.workingDir || '';
-    copy(abs && wd ? `${wd.replace(/[\\/]$/, '')}/${path}` : path);
+  const copyPath = async (abs: boolean) => {
+    if (abs) {
+      // 绝对路径以服务端解析为准：伪作用域（如插件页的 ~skills）在客户端 registry 里没有 workingDir，本地拼不出来
+      const r = await api<Record<string, { abs?: string }>>('POST', `/api/sessions/${sessionId}/files/stat`, { paths: [path] }).catch(() => null);
+      if (r?.[path]?.abs) { copy(r[path].abs!); useApp.getState().toast(t('file.copied')); return; }
+      const reg = useApp.getState().registry;
+      const wd = (reg.sessions.find(s => s.id === sessionId) || reg.projects.find(p => p.id === sessionId))?.workingDir || '';
+      copy(wd ? `${wd.replace(/[\\/]$/, '')}/${path}` : path);
+    } else copy(path);
     useApp.getState().toast(t('file.copied'));
   };
 
   return (
     <Popover anchor={menu} onClose={onClose}>
       <MenuItem onClick={() => run(() => onPick(path))}>{t('file.open')}</MenuItem>
-      <MenuItem onClick={() => run(addToChat)}>{t('file.addToChat')}</MenuItem>
+      {hasChat && <MenuItem onClick={() => run(addToChat)}>{t('file.addToChat')}</MenuItem>}
       <MenuSep />
       <MenuItem onClick={() => run(() => copyPath(false))}>{t('file.copyPath')}</MenuItem>
       <MenuItem onClick={() => run(() => copyPath(true))}>{t('file.copyAbsPath')}</MenuItem>

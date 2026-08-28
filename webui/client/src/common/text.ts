@@ -24,6 +24,11 @@ export function stripAnsi(s: string): string {
 
 export function escapeHtml(s: string): string { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+/** 显示用路径：home 目录缩写为 ~（仅展示，打开/复制仍用真实路径） */
+export function displayPath(p: string): string {
+  return p.replace(/^(\/(?:Users|home)|[a-zA-Z]:[\\/]Users)[\\/][^\\/]+(?=[\\/])/, '~');
+}
+
 const EXT_LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
   py: 'python', java: 'java', kt: 'kotlin', cs: 'csharp', go: 'go', rs: 'rust', c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', hpp: 'cpp',

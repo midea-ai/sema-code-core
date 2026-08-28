@@ -1,7 +1,7 @@
 /**
  * 文件查看：读取 / 列目录 / 批量 stat / 原始字节。
- * 相对路径限定在 workingDir 内（realpath 校验，防穿越）；绝对路径允许只读访问（本机单用户工具，
- * 对话里模型常输出 workingDir 之外的绝对路径），返回 inside 标记由前端区分展示。
+ * 一律只读放行（本机单用户工具，对话里模型常输出 workingDir 之外的路径，绝对路径本就可达，
+ * 限制相对路径没有实际意义），返回 inside 标记由前端区分展示。
  */
 import fs from 'fs';
 import path from 'path';
@@ -18,22 +18,14 @@ export function isAbsolutePath(p: string): boolean {
   return path.isAbsolute(p) || /^[a-zA-Z]:[\\/]/.test(p);
 }
 
-/** 解析路径：相对 → 必须在 workingDir 内；绝对 → 原样（只读）。返回 realpath 与是否在目录内 */
+/** 解析路径：相对路径基于 workingDir，一律只读放行。返回 realpath 与是否在目录内 */
 export function resolvePath(workingDir: string, p: string): { abs: string; inside: boolean } {
   const root = fs.realpathSync(workingDir);
   const abs = isAbsolutePath(p) ? path.resolve(p) : path.resolve(root, p || '.');
   if (!fs.existsSync(abs)) throw new Error('文件不存在');
   const real = fs.realpathSync(abs);
   const inside = real === root || real.startsWith(root + path.sep);
-  if (!inside && !isAbsolutePath(p)) throw new Error('路径不在会话目录内');
   return { abs: real, inside };
-}
-
-/** 限定在 workingDir 内的解析（写操作 / 系统打开等沿用） */
-export function resolveInDir(workingDir: string, rel: string): string {
-  const { abs, inside } = resolvePath(workingDir, rel);
-  if (!inside) throw new Error('路径不在会话目录内');
-  return abs;
 }
 
 function looksBinary(buf: Buffer): boolean {
@@ -57,14 +49,14 @@ export function readFileInDir(workingDir: string, rel: string) {
   } finally { fs.closeSync(fd); }
 }
 
-/** 批量 stat：对话里识别出的候选路径，确认哪些真实存在（不存在不抛错） */
+/** 批量 stat：对话里识别出的候选路径，确认哪些真实存在（不存在不抛错）；abs 供前端复制绝对路径等场景 */
 export function statPaths(workingDir: string, paths: string[]) {
-  const out: Record<string, { exists: boolean; isDir: boolean; inside: boolean; image: boolean }> = {};
+  const out: Record<string, { exists: boolean; isDir: boolean; inside: boolean; image: boolean; abs?: string }> = {};
   for (const p of paths.slice(0, 100)) {
     try {
       const { abs, inside } = resolvePath(workingDir, p);
       const isDir = fs.statSync(abs).isDirectory();
-      out[p] = { exists: true, isDir, inside, image: !isDir && !!IMAGE_MIME[path.extname(abs).toLowerCase()] };
+      out[p] = { exists: true, isDir, inside, image: !isDir && !!IMAGE_MIME[path.extname(abs).toLowerCase()], abs };
     } catch { out[p] = { exists: false, isDir: false, inside: false, image: false }; }
   }
   return out;
@@ -83,7 +75,7 @@ export function rawFileInDir(workingDir: string, rel: string) {
 const SKIP = new Set(['node_modules', '.DS_Store']);
 
 export function listDir(workingDir: string, rel: string) {
-  const abs = resolveInDir(workingDir, rel);
+  const { abs } = resolvePath(workingDir, rel);
   if (!fs.statSync(abs).isDirectory()) throw new Error('不是目录');
   const items = fs.readdirSync(abs, { withFileTypes: true })
     .filter(d => !SKIP.has(d.name))

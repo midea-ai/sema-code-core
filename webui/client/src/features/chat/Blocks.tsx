@@ -11,7 +11,7 @@ import { ImageThumb } from './ImagePreview';
 import { Button, cn, Spinner, useCopy, Popover, MenuSep } from '../../common/ui';
 import { OpenWithItems, useOpenWithApps } from '../../common/openWith';
 import { api, getToken } from '../../api/http';
-import { contentToString, toolDisplayName, stripAnsi, fmtTime } from '../../common/text';
+import { contentToString, toolDisplayName, stripAnsi, fmtTime, displayPath } from '../../common/text';
 import { extractLocalUrls, normalizeUrl } from '../../common/url';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
@@ -260,10 +260,24 @@ function toolVerb(block: ToolBlock, diff: { type: 'diff' | 'new' } | null): stri
 }
 
 const FILE_TOOLS = new Set(['view_file', 'write_file', 'patch_file', 'edit_notebook']);
+/** `../` 开头的路径基于会话目录归一化为绝对路径（目录外文件统一按绝对路径处理） */
+function normalizeRel(p: string, workingDir: string): string {
+  if (!workingDir || !/^\.\.[\\/]/.test(p)) return p;
+  const stack: string[] = [];
+  for (const seg of `${workingDir}/${p}`.split(/[\\/]+/)) {
+    if (seg === '..') stack.pop(); else if (seg && seg !== '.') stack.push(seg);
+  }
+  return (/^[a-zA-Z]:$/.test(stack[0]) ? '' : '/') + stack.join('/');
+}
 /** view_file 标题形如 `a/b.ts:10-20`，去掉行号后缀得到可打开的路径 */
 function filePathOf(block: ToolBlock, workingDir = ''): string | null {
+  // skill 的 summary 是 SKILL.md 路径（无文件时是提示文案），点击技能名在右栏打开
+  if (block.toolName === 'skill') {
+    const p = String(block.summary || '');
+    return /[\\/]/.test(p) ? p : null;
+  }
   if (!FILE_TOOLS.has(block.toolName)) return null;
-  let p = String(block.title || block.input?.file_path || '').replace(/:\d+(-\d+)?$/, '');
+  let p = normalizeRel(String(block.title || block.input?.file_path || '').replace(/:\d+(-\d+)?$/, ''), workingDir);
   if (workingDir && (p.startsWith(workingDir + '/') || p.startsWith(workingDir + '\\'))) p = p.slice(workingDir.length + 1);
   return p || null;
 }
@@ -288,12 +302,13 @@ function toolIcon(n: string): any {
 }
 
 /** 工具单行摘要（动词 + 目标 + 增删统计）：live 工具组组头用，文案规则与工具行一致 */
-function ToolSummary({ block }: { block: ToolBlock }) {
+function ToolSummary({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
+  const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
   const n = block.toolName;
   const diff = isDiffContent(block.content) ? block.content : null;
   if (n === 'search_files' || n === 'search_content') return <span className="truncate">{searchLabel(block, block.status === 'running')}</span>;
   const isGeneric = n.startsWith('mcp__') || n === 'ask_form';
-  const target = isGeneric ? '' : n === 'view_file' ? (filePathOf(block)?.split('/').pop() || '') : n === 'run_shell' ? (block.summary || block.title || '') : (block.title && block.title !== n ? block.title : '');
+  const target = isGeneric ? '' : n === 'view_file' ? (filePathOf(block, workingDir)?.split('/').pop() || '') : n === 'run_shell' ? (block.summary || block.title || '') : FILE_TOOLS.has(n) ? displayPath(filePathOf(block, workingDir) || '') : (block.title && block.title !== n ? block.title : '');
   return (
     <>
       <span className="shrink-0">{toolVerb(block, diff)}</span>
@@ -313,6 +328,8 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   const isSearch = block.toolName === 'search_files' || block.toolName === 'search_content';
   /** MCP 工具：行内只显示「已调用 server · tool」，标题/摘要/内容都放展开区 */
   const isGeneric = block.toolName.startsWith('mcp__') || block.toolName === 'ask_form';
+  /** skill：只显示「已使用技能 名称」，不展开内容，点技能名在右栏打开 SKILL.md */
+  const isSkill = block.toolName === 'skill';
   const [open, setOpen] = useState(false);
   const openBrowserTab = useApp(s => s.openBrowserTab);
 
@@ -333,7 +350,7 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   const openFileRef = useApp(s => s.openFileRef);
   /** view_file 读图片文件：行为改为可展开，展开区显示缩略图（点击放大预览） */
   const isImageRead = isRead && !!filePath && /\.(png|jpe?g|gif|webp)$/i.test(filePath);
-  const expandable = !isSearch && !isAgentCall && (!isRead || isImageRead);
+  const expandable = !isSearch && !isAgentCall && !isSkill && (!isRead || isImageRead);
 
   return (
     <div className="my-0.5 text-[13px] text-dim">
@@ -342,9 +359,9 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
         {block.status === 'running' ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : block.status === 'error' ? <X size={14} className="text-danger shrink-0" /> : <Icon size={14} className="shrink-0" />}
         {isSearch ? <span className="truncate">{searchLabel(block, block.status === 'running')}</span> : <span className="shrink-0">{toolVerb(block, diff)}</span>}
         {isSearch || isGeneric ? null : filePath
-          ? <span onClick={e => { e.stopPropagation(); openFileRef(ctx.sessionId, filePath); }} className="truncate underline decoration-border underline-offset-2 cursor-pointer hover:text-fg hover:decoration-fg" title={absPathOf(filePath, workingDir)}>{isRead ? filePath.split('/').pop() : block.title}</span>
+          ? <span onClick={e => { e.stopPropagation(); openFileRef(ctx.sessionId, filePath); }} className="truncate underline decoration-border underline-offset-2 cursor-pointer hover:text-fg hover:decoration-fg" title={absPathOf(filePath, workingDir)}>{isRead ? filePath.split('/').pop() : isSkill ? block.title : displayPath(filePath)}</span>
           : <span className={cn('truncate', isShell && 'font-mono text-[12.5px]')}>{isShell ? (block.summary || block.title) : block.title}</span>}
-        {block.summary && !isShell && !isEdit && !isRead && !isSearch && !isGeneric && <span className="text-xs truncate max-w-[40%]">{block.summary}</span>}
+        {block.summary && !isShell && !isEdit && !isRead && !isSearch && !isGeneric && !isSkill && <span className="text-xs truncate max-w-[40%]">{block.summary}</span>}
         {isEdit && diff && <DiffStat patch={diff.patch} />}
       </div>
       {localUrls.length > 0 && (
@@ -363,7 +380,7 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
           {isGeneric && block.summary && <div className="text-xs text-muted mb-1.5">{block.summary}</div>}
           {isImageRead ? (
             <ImageThumb src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(filePath!)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" label={filePath!.split('/').pop()} title={absPathOf(filePath!, workingDir)} />
-          ) : diff ? <DiffView patch={diff.patch} path={block.title} sessionId={ctx.sessionId} maxLines={400} collapsible /> : (
+          ) : diff ? <DiffView patch={diff.patch} path={filePath || block.title} sessionId={ctx.sessionId} maxLines={400} collapsible /> : (
             bodyText ? (
               <Collapsible deps={bodyText} className="rounded-md bg-code border border-border overflow-hidden">
                 <pre className={cn('font-mono text-[12px] leading-5 whitespace-pre-wrap break-words p-2', block.status === 'error' && 'text-danger')}>{bodyText.length > 20000 ? bodyText.slice(-20000) : bodyText}</pre>
@@ -467,7 +484,7 @@ function ToolGroup({ blocks, ctx, live }: { blocks: Block[]; ctx: BlockCtx; live
     <div className="my-1.5 text-[13px]">
       <button onClick={() => setManual(!open)} className="group w-full flex items-center gap-2 py-0.5 text-left text-dim hover:text-fg">
         {live && last.status === 'running' ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : live && last.status === 'error' ? <X size={14} className="text-danger shrink-0" /> : <Icon size={14} className="shrink-0" />}
-        {live ? <ToolSummary block={last} /> : <span>{label}</span>}
+        {live ? <ToolSummary block={last} ctx={ctx} /> : <span>{label}</span>}
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} className="opacity-0 group-hover:opacity-100" />}
       </button>
       {open && <div>{blocks.map(b => <BlockRenderer key={b.id} block={b} ctx={ctx} />)}</div>}
@@ -508,6 +525,9 @@ function PermissionCard({ block, ctx }: { block: PermissionBlock; ctx: BlockCtx 
   const isAgentCall = block.toolName === 'sub_agent';
   /** 技能：名字放标题行（权限请求 · 技能 xlsx-pricing），正文只放说明 */
   const titleInHeader = block.toolName === 'skill';
+  // 文件类工具的 title 是路径：`../` 归一化为绝对路径；正文显示时 home 缩写为 ~，diff 取内容仍用真实路径
+  const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
+  const filePath = FILE_TOOLS.has(block.toolName) ? normalizeRel(block.title, workingDir) : null;
   const resolved = block.resolved;
   const optionKeys = Object.keys(block.options || {});
   // 优先用 core 给的选项文案（带具体命令/前缀说明），缺失时回退 i18n
@@ -535,8 +555,8 @@ function PermissionCard({ block, ctx }: { block: PermissionBlock; ctx: BlockCtx 
         )}
       </div>
       <div className="px-3 pb-2">
-        {isShell ? <CodeView code={block.title} className="mb-2" /> : titleInHeader ? null : <div className="mb-2 break-all font-medium">{block.title}</div>}
-        {diff ? <DiffView patch={diff.patch} path={block.title} maxLines={resolved ? 40 : 300} collapsible={!!resolved} />
+        {isShell ? <CodeView code={block.title} className="mb-2" /> : titleInHeader ? null : <div className="mb-2 break-all font-medium">{filePath ? displayPath(filePath) : block.title}</div>}
+        {diff ? <DiffView patch={diff.patch} path={filePath || block.title} maxLines={resolved ? 40 : 300} collapsible={!!resolved} />
           : (typeof block.content === 'string' && block.content && block.content !== block.title)
             ? <Collapsible deps={block.content} className="rounded-md bg-code border border-border overflow-hidden"><pre className="font-mono text-[12px] leading-5 text-muted whitespace-pre-wrap break-words p-2">{block.content}</pre></Collapsible>
             : (block.content && typeof block.content === 'object')
@@ -660,7 +680,7 @@ function FileChangesCard({ block, ctx }: { block: FileChangesBlock; ctx: BlockCt
       </div>
       <ul className="border-t border-border px-1 py-1">
         {shown.map(f => {
-          const [dir, base] = splitPath(f.path);
+          const [dir, base] = splitPath(displayPath(f.path));
           return (
             <li key={f.path}>
               <div className="flex items-center gap-2 px-2 h-8 rounded-md hover:bg-black/[0.04] cursor-pointer" onClick={() => openReview(f.path)} title={f.path}>

@@ -240,6 +240,14 @@ export const useApp = create<AppState>((set, get) => ({
     // 会话目录内的绝对路径转为相对路径展示（面包屑/标题/文件树定位都按相对路径工作）
     const rec = get().registry.sessions.find(x => x.id === sessionId) || get().registry.projects.find(x => x.id === sessionId);
     const wd = (rec?.workingDir || '').replace(/[\\/]+$/, '');
+    // `../` 开头的相对路径先基于会话目录归一化成绝对路径（面包屑不显示一串 ..，目录内还能转回相对）
+    if (wd && /^\.\.[\\/]/.test(relPath)) {
+      const stack: string[] = [];
+      for (const seg of `${wd}/${relPath}`.split(/[\\/]+/)) {
+        if (seg === '..') stack.pop(); else if (seg && seg !== '.') stack.push(seg);
+      }
+      relPath = (/^[a-zA-Z]:$/.test(stack[0]) ? '' : '/') + stack.join('/');
+    }
     if (wd && (relPath.startsWith(wd + '/') || relPath.startsWith(wd + '\\'))) relPath = relPath.slice(wd.length + 1);
     get().updatePanel(sessionId, p => {
       const loc = line ? { line, endLine, lineSeq: Date.now() } : {};

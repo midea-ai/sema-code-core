@@ -13,8 +13,8 @@ export function formatTokenCount(val: number): string {
 }
 export const DEFAULT_MAX_TOKENS_OPTIONS = [16000, 32000, 64000, 128000];
 export const DEFAULT_CONTEXT_LENGTH_OPTIONS = [128000, 256000, 512000, 1000000];
-export const DEFAULT_MAX_TOKENS = 32000;
-export const DEFAULT_CONTEXT_LENGTH = 256000;
+export const DEFAULT_MAX_TOKENS = 64000;
+export const DEFAULT_CONTEXT_LENGTH = 512000;
 export const DEFAULT_PROVIDER = 'deepseek';
 export const PROVIDER_ORDER = ['custom', 'deepseek', 'minimax', 'glm', 'mimo', 'qwen', 'kimi', 'openrouter', 'anthropic', 'openai'];
 

@@ -2,7 +2,8 @@
   "card": {
     "name": "Flutter 开发",
     "description": "Flutter 跨平台应用开发指南：组件布局、状态管理与多端适配实践。",
-    "category": "mobile"
+    "category": "mobile",
+    "order": 30
   },
   "source": {
     "repo": "MiniMax-AI/skills",

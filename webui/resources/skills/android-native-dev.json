@@ -2,7 +2,8 @@
   "card": {
     "name": "Android 开发",
     "description": "基于 Material Design 3 的 Android 原生应用开发：界面规范、组件用法与工程实践。",
-    "category": "mobile"
+    "category": "mobile",
+    "order": 20
   },
   "source": {
     "repo": "MiniMax-AI/skills",

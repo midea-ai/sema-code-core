@@ -2,8 +2,8 @@
   "card": {
     "name": "仓库知识库生成",
     "description": "微软 deep-wiki 技能：把代码仓自动整理成结构化 wiki、上手文档和变更记录。",
-    "category": "office",
-    "order": 5
+    "category": "dev",
+    "order": 50
   },
   "source": {
     "repo": "microsoft/skills",

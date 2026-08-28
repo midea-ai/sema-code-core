@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "落地页生成",
+    "description": "输入产品描述直出 Next.js/React 落地页：5 种 Hero 变体、特性区、定价表、FAQ，文案按 PAS/AIDA/BAB 框架撰写并内置 SEO 优化。",
+    "category": "web",
+    "order": 20
+  },
+  "source": {
+    "repo": "alirezarezvani/claude-skills",
+    "ref": "19392f7a08264ed00486a251f5b2098321771f94",
+    "path": "product-team/skills/landing-page-generator"
+  }
+}

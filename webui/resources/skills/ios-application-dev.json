@@ -2,7 +2,8 @@
   "card": {
     "name": "iOS 开发",
     "description": "iOS 应用开发指南：UIKit、SwiftUI、SnapKit 的界面构建与工程实践。",
-    "category": "mobile"
+    "category": "mobile",
+    "order": 10
   },
   "source": {
     "repo": "MiniMax-AI/skills",

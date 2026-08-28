@@ -9,8 +9,10 @@ description: 创建、修改和优化技能（Skill）。当用户想新建一�
 
 ## 存放位置
 
-- 用户级（所有项目可用）：`~/.sema/skills/<技能名>/SKILL.md`
+- 用户级（所有项目可用，**默认放这里**）：`~/.sema/skills/<技能名>/SKILL.md`
 - 项目级（仅当前项目，可随仓库共享）：`<项目根>/.sema/skills/<技能名>/SKILL.md`
+
+除非用户明确要求项目级或要随仓库共享，新建技能一律放用户级。
 
 设置了 `SEMA_ROOT` 环境变量时，用户级根目录以它为准。技能的启用/停用记录在对应层级 `settings.json` 的 `disabledSkills` 里，一般不需要手工改。
 

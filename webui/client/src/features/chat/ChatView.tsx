@@ -27,6 +27,15 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 
   useEffect(() => { open(sessionId).catch(e => toast(e.message, 'error')); }, [sessionId, open, toast]);
 
+  // 停留续租：正在看的会话每 4 分钟补发 warm 保活（服务端 warm 宽限 5 分钟）；
+  // 后台标签页跳过续租，切回前台立即补一次；离开会话后由服务端按宽限期回收
+  useEffect(() => {
+    const rewarm = () => { if (!document.hidden) useSessions.getState().warm(sessionId); };
+    const timer = setInterval(rewarm, 4 * 60_000);
+    document.addEventListener('visibilitychange', rewarm);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', rewarm); };
+  }, [sessionId]);
+
   // 自动滚动：贴底时跟随
   const blocks = snap?.blocks;
   useEffect(() => {
@@ -219,6 +228,9 @@ interface Turn { blocks: Block[]; opener?: TurnOpener }
 
 function groupTurns(blocks: Block[]): Turn[] {
   const turns: Turn[] = [];
+  // 排队中的输入不切轮：悬挂到列表末尾，运行轮的后续输出仍归运行轮；
+  // 真正开始处理时 reducer 会把该块搬到 blocks 末尾并翻掉 queued，自然成为新轮开头
+  const queuedTail: Turn[] = [];
   let cur: Turn | null = null;
   for (const b of blocks) {
     if (b.kind === 'branch-origin') {
@@ -227,11 +239,12 @@ function groupTurns(blocks: Block[]): Turn[] {
       cur = null;
       continue;
     }
+    if (b.kind === 'user' && b.queued && !b.doneTs) { queuedTail.push({ blocks: [b], opener: b }); continue; }
     if (isTurnOpener(b)) { cur = { blocks: [b], opener: b }; turns.push(cur); continue; }
     if (!cur) { cur = { blocks: [] }; turns.push(cur); }
     cur.blocks.push(b);
   }
-  return turns;
+  return queuedTail.length ? [...turns, ...queuedTail] : turns;
 }
 
 const isWork = (b: Block) => b.kind === 'tool' || b.kind === 'agent';

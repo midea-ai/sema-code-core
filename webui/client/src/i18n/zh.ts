@@ -298,6 +298,8 @@ export const zh = {
   'settings.testOk': '连接成功',
   'settings.testFail': '连接失败',
   'settings.noModelsYet': '还没有配置模型。添加一个模型并测试连通后即可开始对话。',
+  'settings.rolePrompt': 'AI 助手角色',
+  'settings.resetDefault': '恢复默认',
   'settings.customRules': '自定义规则',
   'settings.basic': '基础设置',
   'settings.permissions': '权限',

@@ -199,7 +199,14 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
         closeStreaming(snap);
         finishTurn(snap, seq);
         voidPending(snap);
-        updateBlock(snap, b => b.kind === 'user' && !b.doneTs, b => ({ ...b, doneTs: now } as Block));
+        // 未处理的排队输入直接移除：引擎中断/异常收尾时会丢弃队列，这些输入从未进入 core 历史，
+        // 原地清标记会让它变成轮次开头把上一轮输出错归到它名下、还会挂上无效的回退/分支锚点；
+        // 文字在 input:received 时已进 inputHistory，可用 ↑ 找回
+        if (snap.blocks.some(b => b.kind === 'user' && b.queued)) {
+          snap.blocks = snap.blocks.filter(b => !(b.kind === 'user' && b.queued));
+        }
+        // 逐个补全未收尾用户块的结束时间
+        while (updateBlock(snap, b => b.kind === 'user' && !b.doneTs, b => ({ ...b, doneTs: now } as Block)));
         updateBlock(snap, b => b.kind === 'notice' && b.noticeType === 'plan-implement' && !b.doneTs, b => ({ ...b, doneTs: now } as Block));
       }
       break;
@@ -232,12 +239,25 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
         ? data.attachments.map((a: any) => ({ media_type: a.media_type, dataUrl: a.data ? `data:${a.media_type};base64,${a.data}` : undefined }))
         : undefined;
       const src = data?.source && data.source !== 'user' ? { source: data.source } : {};
-      const hit = updateBlock(snap, b => b.kind === 'user' && b.inputId === inputId, b => ({ ...b, queued: false, ...src, ...(attachments?.length ? { attachments } : {}) } as Block));
-      if (!hit) {
-        pushBlock(snap, { kind: 'user', id: `user:${inputId || seq}`, ts: now, inputId, text: data?.originalInput || data?.input || '', attachments, ...src });
+      const idx = snap.blocks.findIndex(b => b.kind === 'user' && b.inputId === inputId);
+      const cur = idx >= 0 ? snap.blocks[idx] as Extract<Block, { kind: 'user' }> : undefined;
+      if (cur?.queued) {
+        // 排队输入真正开始处理：先把排队块摘出来，旧轮收尾（文件卡片落旧轮、开头块耗时定格在此刻），
+        // 再把它搬到末尾并以此刻为计时起点开启新轮——排队期间旧轮产出的块不会被错归到新轮
+        snap.blocks = snap.blocks.filter((_, i) => i !== idx);
+        if (snap.turn && Object.keys(snap.turn.files).length) finishTurn(snap, seq);
+        updateBlock(snap,
+          b => (b.kind === 'user' && !b.queued && !b.doneTs) || (b.kind === 'notice' && b.noticeType === 'plan-implement' && !b.doneTs),
+          b => ({ ...b, doneTs: now } as Block));
+        pushBlock(snap, { ...cur, ts: now, queued: false, ...src, ...(attachments?.length ? { attachments } : {}) } as Block);
+      } else {
+        const hit = updateBlock(snap, b => b.kind === 'user' && b.inputId === inputId, b => ({ ...b, queued: false, ...src, ...(attachments?.length ? { attachments } : {}) } as Block));
+        if (!hit) {
+          pushBlock(snap, { kind: 'user', id: `user:${inputId || seq}`, ts: now, inputId, text: data?.originalInput || data?.input || '', attachments, ...src });
+        }
+        // 新一轮：上一轮若未收尾（异常路径）先落文件卡片
+        if (snap.turn && Object.keys(snap.turn.files).length) finishTurn(snap, seq);
       }
-      // 新一轮：上一轮若未收尾（异常路径）先落文件卡片
-      if (snap.turn && Object.keys(snap.turn.files).length) finishTurn(snap, seq);
       snap.turn = { inputId, files: {} };
       break;
     }

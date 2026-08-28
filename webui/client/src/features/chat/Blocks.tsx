@@ -131,7 +131,8 @@ function UserBubbleBar({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
       <button className={btn} title={t(copied ? 'common.copied' : 'common.copy')} onClick={() => copy(block.text)}>
         {copied ? <Check size={12} /> : <Copy size={12} />}
       </button>
-      {block.inputId && ctx.onRewind && (
+      {/* 排队中的输入尚未进入 core 历史，无法作为回退锚点 */}
+      {block.inputId && !block.queued && ctx.onRewind && (
         <button className={btn} title={t('chat.rewindHere')} onClick={() => ctx.onRewind!(block.inputId!)}>
           <Undo2 size={12} />
         </button>

@@ -461,6 +461,10 @@ export class SemaEngine {
 
       const messages: Message[] = [...messageHistory, ...userMessages]
 
+      // 进入 ReAct 前先把用户消息同步到内存并落盘：首轮 LLM 请求期间进程意外退出时，
+      // 用户输入不至于丢失（恢复时末尾若是孤儿 tool_use 由 prepareMessagesForApi 兜底剔除）
+      mainAgentState.setMessageHistory(messages)
+
       // 调用 query 函数
       for await (const _message of ReAct(
         messages,
@@ -799,6 +803,9 @@ export class SemaEngine {
     // SessionEnd hook：fire-and-forget，不阻塞清理流程
     fireSessionEnd(this.sessionId);
     this.abortCurrentRequest();
+    // 同步 flush 内存历史：dispose 不等待中断路径的异步落盘（进程级退出时 process.exit
+    // 会抢先），saveHistory 内部首个 await 前即完成 writeFileSync，此调用返回时已写盘
+    void this.runtime.saveSessionHistory();
     this.runtime.clearPendingUserInputs();
     // 移除本会话在 Task/Cron 管理器上的通知回调
     getTaskManager().removeNotifyCallback(this.sessionId);

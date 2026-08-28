@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
-import { DEFAULT_PERMISSION_LEVEL, normalizeLevel } from '../../../shared/types';
+import { DEFAULT_PERMISSION_LEVEL, DEFAULT_SYSTEM_PROMPT, normalizeLevel } from '../../../shared/types';
 import type { Registry, ProjectRecord, SessionRecord, WebUISettings, AgentMode, PermissionLevel } from '../../../shared/types';
 
 export const WEBUI_HOME = path.join(os.homedir(), '.sema', 'webui');
@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS: WebUISettings = {
   coreConfig: {
     stream: true,
     thinking: true,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
     customRules: '- 中文回答',
     skipFileEditPermission: false,
     skipShellExecPermission: false,
@@ -88,6 +89,7 @@ export class RegistryStore {
       ...DEFAULT_SETTINGS, ...s,
       coreConfig: { ...DEFAULT_SETTINGS.coreConfig, ...(s.coreConfig || {}), ...FIXED_CORE_CONFIG },
     };
+    this.normalizeSystemPrompt();
     // 旧数据里的 Ask 档位归一化为 AutoEdit
     if (s.defaultPermissionLevel) this.settings.defaultPermissionLevel = normalizeLevel(s.defaultPermissionLevel);
     for (const sess of this.data.sessions) {
@@ -116,6 +118,11 @@ export class RegistryStore {
       || this.data.projects.some(p => path.resolve(p.workingDir) === dir);
   }
 
+  /** 角色定位留空时回落默认值，避免误清空后丢失身份定义 */
+  private normalizeSystemPrompt() {
+    if (!this.settings.coreConfig.systemPrompt?.trim()) this.settings.coreConfig.systemPrompt = DEFAULT_SETTINGS.coreConfig.systemPrompt;
+  }
+
   private save() { writeJsonAtomic(INDEX_FILE, this.data); }
 
   updateSettings(patch: Partial<WebUISettings>): WebUISettings {
@@ -123,6 +130,7 @@ export class RegistryStore {
       ...this.settings, ...patch,
       coreConfig: { ...this.settings.coreConfig, ...(patch.coreConfig || {}), ...FIXED_CORE_CONFIG },
     };
+    this.normalizeSystemPrompt();
     this.settings.defaultPermissionLevel = normalizeLevel(this.settings.defaultPermissionLevel);
     writeJsonAtomic(SETTINGS_FILE, this.settings);
     return this.getSettings();

@@ -17,6 +17,8 @@ const BUFFER_MAX = 3000;
 const SAVE_DEBOUNCE_MS = 500;
 /** 空闲会话回收阈值：超时的常驻 SemaSession 关闭（历史已落盘，下次操作自动恢复） */
 const SESSION_IDLE_MS = 20 * 60_000;
+/** warm（打开会话预热）宽限期：期间没有真实输入即可回收，避免纯浏览历史会话长期续命 */
+const WARM_GRACE_MS = 5 * 60_000;
 /** 每个 worker 常驻 SemaSession 上限，超出部分按最旧优先回收 */
 const MAX_LIVE_SESSIONS = 8;
 /** cron keeper：持久化定时任务距触发不足该时长时，提前拉起 worker + 一个会话以便注入 */
@@ -45,7 +47,7 @@ interface Runtime {
   ensuring?: Promise<WorkerHandle>;
   /** cron keeper 为注入定时任务拉起的会话：该时刻前不做会话回收/退场（不改 lastActiveAt，不影响侧边栏排序） */
   keepUntil?: number;
-  /** 最近一次拉活（warm/任何会话动作）时间：空闲回收按 max(lastActiveAt, lastWarmAt) 判定，不改 lastActiveAt 以免影响侧边栏排序 */
+  /** 最近一次拉活（warm/任何会话动作）时间：只提供 WARM_GRACE_MS 的短宽限，不改 lastActiveAt 以免影响侧边栏排序 */
   lastWarmAt?: number;
 }
 
@@ -98,6 +100,11 @@ export class SessionManager extends EventEmitter {
       if (fs.existsSync(file)) snapshot = JSON.parse(fs.readFileSync(file, 'utf8'));
     } catch { /* 损坏则重建 */ }
     if (!snapshot) snapshot = createSnapshot({ sessionId: id, workingDir: rec.workingDir, agentMode: rec.agentMode, permissionLevel: rec.permissionLevel });
+    // 归一化旧快照：遗留的排队输入从未被处理（队列随进程消失，也不在 core 历史里），
+    // 移除以免错切轮次、卡住分支或提供无效回退锚点
+    if (snapshot.blocks.some(b => b.kind === 'user' && b.queued)) {
+      snapshot.blocks = snapshot.blocks.filter(b => !(b.kind === 'user' && b.queued));
+    }
     // 服务端重启后：上次若停在 processing，标为中断
     if (snapshot.state === 'processing') {
       applyEvent(snapshot, 'session:interrupted', { agentId: 'main', content: '服务已重启，本轮已中断' }, snapshot.seq + 1);
@@ -596,13 +603,18 @@ export class SessionManager extends EventEmitter {
       const total = w.sessions.size;
       const idle = [...w.sessions]
         .filter(sid => !this.isBusy(sid) && !guarded.has(sid) && !this.isKept(sid))
-        .map(sid => ({ sid, t: Math.max(this.registry.getSession(sid)?.lastActiveAt ?? 0, this.runtimes.get(sid)?.lastWarmAt ?? 0) }))
+        .map(sid => {
+          const active = this.registry.getSession(sid)?.lastActiveAt ?? 0;
+          const warm = this.runtimes.get(sid)?.lastWarmAt ?? 0;
+          return { sid, t: Math.max(active, warm), active, warm };
+        })
         .sort((a, b) => a.t - b.t);
       const excess = Math.max(0, total - MAX_LIVE_SESSIONS);
       for (let i = 0; i < idle.length; i++) {
-        const { sid, t } = idle[i];
-        // 超限部分（最旧优先）无条件回收；其余仅回收空闲超时的
-        if (i >= excess && now - t <= SESSION_IDLE_MS) continue;
+        const { sid, active, warm } = idle[i];
+        // 超限部分（最旧优先）无条件回收；其余仅回收空闲超时的：
+        // 真实输入享受完整空闲阈值，warm（打开浏览/重连预热）只给短宽限
+        if (i >= excess && (now - active <= SESSION_IDLE_MS || now - warm <= WARM_GRACE_MS)) continue;
         if (this.isBusy(sid)) continue;
         try {
           const tasks = await this.pool.request(w, 'session.getTaskList', sid, {}, 5_000, { bump: false });

@@ -7,7 +7,7 @@ import { Button, Modal, Toggle, Spinner, Dropdown, cn, useDialog } from '../../c
 import ProviderLogo, { parseProviderKey, stripProviderSuffix } from '../../common/ProviderLogo';
 import { t } from '../../i18n';
 import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, AdapterType } from './providers';
-import { PERMISSION_LEVELS } from '../../../../shared/types';
+import { PERMISSION_LEVELS, DEFAULT_SYSTEM_PROMPT } from '../../../../shared/types';
 import type { WebUISettings } from '../../../../shared/types';
 
 export function SettingsPage({ tab }: { tab: 'models' | 'system' }) {
@@ -335,6 +335,9 @@ function SystemSettings() {
   const [rules, setRules] = useState(settings?.coreConfig.customRules || '');
   const [savingRules, setSavingRules] = useState(false);
   useEffect(() => { setRules(settings?.coreConfig.customRules || ''); }, [settings?.coreConfig.customRules]);
+  const [rolePrompt, setRolePrompt] = useState(settings?.coreConfig.systemPrompt || '');
+  const [savingRole, setSavingRole] = useState(false);
+  useEffect(() => { setRolePrompt(settings?.coreConfig.systemPrompt || ''); }, [settings?.coreConfig.systemPrompt]);
   if (!settings) return null;
 
   const patch = async (p: Partial<WebUISettings>) => { try { await save(p); } catch (e: any) { toast(e.message, 'error'); } };
@@ -351,6 +354,16 @@ function SystemSettings() {
         <h2 className="text-base font-semibold mb-3">{t('settings.basic')}</h2>
         <div className="rounded-lg border border-border bg-white divide-y divide-border">
           {BASIC_KEYS.map(({ key, label }) => <ToggleRow key={key} k={key} label={label} />)}
+        </div>
+      </section>
+      <section>
+        <h2 className="text-base font-semibold mb-3">{t('settings.rolePrompt')}</h2>
+        <input value={rolePrompt} onChange={e => setRolePrompt(e.target.value)} placeholder={DEFAULT_SYSTEM_PROMPT} className="w-full h-9 px-3 rounded-md bg-white border border-border text-sm font-mono" />
+        <div className="flex justify-end gap-2 mt-2">
+          <Button variant="ghost" size="sm" disabled={savingRole || (rolePrompt === DEFAULT_SYSTEM_PROMPT && settings.coreConfig.systemPrompt === DEFAULT_SYSTEM_PROMPT)}
+            onClick={async () => { setRolePrompt(DEFAULT_SYSTEM_PROMPT); if (settings.coreConfig.systemPrompt !== DEFAULT_SYSTEM_PROMPT) { setSavingRole(true); await patch({ coreConfig: { ...settings.coreConfig, systemPrompt: DEFAULT_SYSTEM_PROMPT } }); setSavingRole(false); toast(t('settings.saved')); } }}>{t('settings.resetDefault')}</Button>
+          <Button variant="primary" size="sm" disabled={savingRole || rolePrompt === settings.coreConfig.systemPrompt}
+            onClick={async () => { setSavingRole(true); await patch({ coreConfig: { ...settings.coreConfig, systemPrompt: rolePrompt } }); setSavingRole(false); toast(t('settings.saved')); }}>{t('settings.save')}</Button>
         </div>
       </section>
       <section>

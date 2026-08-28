@@ -47,11 +47,15 @@ export interface Registry {
   sessions: SessionRecord[];
 }
 
+/** 默认 AI 助手角色定位（coreConfig.systemPrompt 的默认值，留空保存时回落） */
+export const DEFAULT_SYSTEM_PROMPT = "You are SemaWork, an Agent AI for work.";
+
 /** WebUI 全局设置（落盘 ~/.sema/webui/settings.json） */
 export interface WebUISettings {
   coreConfig: {
     stream: boolean;
     thinking: boolean;
+    systemPrompt: string;
     customRules: string;
     skipFileEditPermission: boolean;
     skipShellExecPermission: boolean;

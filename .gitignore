@@ -21,28 +21,21 @@ config.local.*
 
 # IDE
 .idea/
-.vscode-test
 .vscode/
+.vscode-test
 
 # OS
 .DS_Store
-
-# Misc
-*.log
-*.tgz
-/wiki
-.claude/
-
-my-app
 
 # Temp/test files
 test-*.ts
 demo-*.ts
 temp-*
-
-remotion/
 test/
 
+# Misc
+*.log
+*.tgz
+.claude/
 .venv/
-
-wiki/
+my-app

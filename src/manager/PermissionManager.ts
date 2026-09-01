@@ -18,7 +18,7 @@ import { normalizeCmpPath } from '../util/platform'
 import { getStateManager, MAIN_AGENT_ID } from './StateManager'
 import { queryLLM } from '../services/api/queryLLM'
 import { AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT } from '../prompt/permission'
-import { isReadonlySafeCommand, isUnsafeForPrefixAuth, hasDangerousCommand, classifyCommandSubstitutions } from '../util/shellSafety'
+import { isReadonlySafeCommand, isUnsafeForPrefixAuth, classifyDangerousCommand, classifyCommandSubstitutions, DeleteTargetKind } from '../util/shellSafety'
 import { extractAutoRunContext, summarizeActionLine } from '../util/autoRunContext'
 import { isBlockedFetchHost } from '../util/fetchSafety'
 import { firePermissionRequest } from '../services/hooks/hookTriggers'
@@ -45,6 +45,27 @@ function isTrustedSemaFile(filePath: string): boolean {
   const abs = isAbsolute(filePath) ? filePath : resolve(readInitialCwd(), filePath)
   const semaRoot = getSemaRootDir()
   return TRUSTED_SEMA_SUBDIRS.some(sub => isPathInsideRoot(abs, join(semaRoot, sub)))
+}
+
+/**
+ * 删除类命令（rm/rmdir/mv/find -delete）单个目标路径的允许范围裁决，
+ * 供 classifyDangerousCommand 回调。目标满足其一才允许交模型判断：
+ *  - 落在系统临时目录树内（含临时目录自身）
+ *  - 落在项目根内，且：literal 目标不得是项目根自身（rm -rf . 级联全删仍转人工），
+ *    globdir 目标（rm dist/*、find . -delete 的所在目录）允许是项目根；
+ *    两种形态都排除 .git（删掉版本库即失去「项目内可恢复」的兜底）
+ * 其余（项目外、~、无法解析）一律不允许 → 确定性转人工。
+ */
+function isDeletableShellTarget(target: string, kind: DeleteTargetKind): boolean {
+  const root = readInitialCwd()
+  const abs = isAbsolute(target) ? target : resolve(root, target)
+  if (isTempFile(abs)) return true
+  const rel = relative(normalizeCmpPath(root), normalizeCmpPath(abs))
+  if (rel.startsWith('..') || isAbsolute(rel)) return false
+  if (!rel || rel === '') return kind === 'globdir'
+  const first = rel.split(/[\\/]/)[0]
+  if (first === '.git') return false
+  return true
 }
 
 function isTempFile(filePath: string): boolean {
@@ -363,10 +384,31 @@ async function checkRunShellPermission(
     return { result: true }
   }
 
-  // 确定性危险命令（rm/sudo/mv 等危险首词、find 危险 flag）：直接转人工，不调模型。
-  // 这类命令语义本身危险，不该给模型机会判 safe 放行；也不提供前缀授权（showAllow=false）。
-  // skipAutoRun=true 跳过 requestPermissionViaEvent 内的 AutoRun 自动放行，避免再次调用模型。
-  if (hasDangerousCommand(command)) {
+  // 危险命令分级：
+  //  hard（sudo/dd/chmod/kill 等硬危险、删除目标出项目/无法静态解析）→ 确定性转人工，
+  //    不调模型——语义本身危险，不该给模型机会判 safe 放行；
+  //  deletable（rm/rmdir/mv/find -delete 且所有目标确定性落在项目内或临时目录）→ AutoRun
+  //    档位交快速模型结合上下文判断（用户明确要求删除/清理、agent 自建文件、可再生中间
+  //    产物 → safe 一次性放行），判 risky 或非 AutoRun 仍转人工。
+  // 两类都不提供前缀/精确授权（showAllow=false），模型放行绝不持久化；
+  // skipAutoRun=true 跳过 requestPermissionViaEvent 内的 AutoRun 自动放行，避免重复调模型。
+  const dangerClass = classifyDangerousCommand(command, isDeletableShellTarget)
+  if (dangerClass !== 'none') {
+    if (dangerClass === 'deletable' && getStateManager().session(sessionId).isAutoRun()) {
+      let safe = false
+      try {
+        safe = (await classifyActionSafety(tool, { command }, abortController.signal, sessionId, agentId)) === 'safe'
+      } catch (error) {
+        logDebug(`[Permission][AutoRun] 安全判断失败，转人工: ${error}`)
+      }
+      checkAbortSignal(abortController)
+      if (safe) {
+        logDebug(`[Permission][AutoRun]${tool.name} 项目内删除类命令，模型判定 safe，自动放行`)
+        emitAutoApproved(tool, agentId, sessionId, toolId)
+        return { result: true }
+      }
+      logDebug(`[Permission][AutoRun]${tool.name} 删除类命令，模型判定有风险，转人工申请`)
+    }
     return requestPermissionViaEvent(tool, { command, description }, null, abortController, agentId, sessionId, toolId, false, true)
   }
 
@@ -514,9 +556,14 @@ async function classifyActionSafety(
     { type: 'text', text: summarizeActionLine(tool.name, input) },
   ])]
 
+  // 真实的 skills 目录（用户级 + 项目级，与 skillsManager 的定位一致）内插进系统提示词：
+  // 模型按确切绝对路径判定「skill 自带脚本」，不靠猜 ~/.sema 之类的模式；
+  // 路径在会话内恒定，渲染出的提示词字节不变，不破坏前缀缓存
+  const skillDirs = [join(getSemaRootDir(), 'skills'), join(readInitialCwd(), '.sema', 'skills')]
+
   const response = await queryLLM(
     messages,
-    [{ type: 'text', text: AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT }],
+    [{ type: 'text', text: AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT(skillDirs) }],
     signal,
     [], // 消息里已无任何 tool 块，无需占位工具；空数组会让适配器省略 tools 字段
     {

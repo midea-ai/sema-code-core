@@ -1,3 +1,4 @@
+import { isAbsolute } from 'path'
 import { splitCommand, hasCommandInjection } from './commands'
 
 // 仅凭首词即可判定安全的「真只读」单命令。
@@ -125,13 +126,22 @@ export function hasRedirection(command: string): boolean {
 
 // 危险首词：危险性在参数里、不该按首词前缀授权的命令。授权 rm:* / sudo:* 等会把
 // `rm -rf /`、任意 `sudo ...` 一并放行，故这些命令不提供前缀授权、也不被已存前缀覆盖。
-const DANGEROUS_PREFIX_COMMANDS = new Set([
-  'rm', 'rmdir', 'dd', 'shred', 'truncate',
+// 内部分两档（见 classifyDangerousCommand）：
+//  硬危险（sudo/dd/chmod/kill 等）→ 永远确定性转人工，不给模型裁决权；
+//  删除类（rm/rmdir/mv，另有 find -delete）→ 目标路径确定性落在项目内/临时目录时降为
+//  灰区，AutoRun 档位交快速模型结合上下文判断。
+// 本集合保持两档并集不变：前缀授权禁令、find -exec 目标与 $() 替换的递归分类仍按
+// 「一律危险」处理（-exec rm / $(rm ...) 不参与放宽）。
+const HARD_DANGEROUS_COMMANDS = new Set([
+  'dd', 'shred', 'truncate',
   'chmod', 'chown', 'chgrp',
   'kill', 'killall', 'pkill',
   'sudo', 'doas', 'su',
-  'mv',
 ])
+
+const DELETE_COMMANDS = new Set(['rm', 'rmdir', 'mv'])
+
+const DANGEROUS_PREFIX_COMMANDS = new Set([...HARD_DANGEROUS_COMMANDS, ...DELETE_COMMANDS])
 
 // ==================== find -exec 目标命令分类 ====================
 
@@ -342,8 +352,9 @@ function isDangerousSubcommand(seg: string): boolean {
  * 命令是否含「语义危险」子命令：危险首词（rm/sudo/mv 等）或 find 危险 flag。
  * 不含重定向——重定向是否危险取决于路径（项目内可能安全），应交给上层模型判断。
  *
- * 用于 AutoRun：命中即「确定性危险」，直接转人工，不调模型（避免模型误判 safe 放行）。
- * 解析失败保守按「危险」处理（fail-closed）。
+ * 用于前缀授权禁令（isUnsafeForPrefixAuth）：命中即不提供/不匹配前缀授权。
+ * AutoRun 权限闸门改用 classifyDangerousCommand 做进一步分级（硬危险 / 删除类灰区），
+ * 两者的「危险」集合严格一致。解析失败保守按「危险」处理（fail-closed）。
  */
 export function hasDangerousCommand(command: string): boolean {
   let segs: string[]
@@ -364,6 +375,222 @@ export function hasDangerousCommand(command: string): boolean {
  */
 export function isUnsafeForPrefixAuth(command: string): boolean {
   return hasRedirection(command) || hasDangerousCommand(command)
+}
+
+// ==================== 危险命令分级（硬危险 / 删除类灰区） ====================
+
+// find 的「非删除」硬危险 flag：写文件（-fprintf/-fprint/-fprint0/-fls）与交互确认（-ok/-okdir）。
+// 与 ALWAYS_DANGEROUS_FIND_FLAGS 的差集是 -delete —— 后者单独识别为删除类灰区。
+const FIND_HARD_ACTION_FLAGS = /(^|\s)-(ok(dir)?|fprint(0|f)?|fls)\b/
+const FIND_DELETE_FLAG = /(^|\s)-delete\b/
+
+/**
+ * 危险命令分级结果：
+ *  none      → 不含危险子命令（与 hasDangerousCommand === false 等价）
+ *  deletable → 仅含删除类子命令（rm/rmdir/mv/find -delete）且所有删除目标确定性落在
+ *              允许范围内（由调用方回调裁决，通常为项目内或系统临时目录）→ AutoRun 可交模型判断
+ *  hard      → 硬危险（sudo/dd/chmod 等）、删除目标无法静态确认落在允许范围、或解析失败
+ *              （fail-closed）→ 确定性转人工，不给模型机会
+ */
+export type DangerClass = 'none' | 'deletable' | 'hard'
+
+// 删除目标的两种形态，供路径策略回调区分：
+//  literal → 目标就是该路径本身（rm foo.txt）：项目根自身/.git 应被策略拒绝
+//  globdir → 目标是「该目录下的匹配项」（rm dist/*.js 的 dist/、find . -delete 的 .）：
+//            目录允许是项目根（删的是根下内容而非根本身），.git 仍应拒绝
+export type DeleteTargetKind = 'literal' | 'globdir'
+export type DeleteTargetChecker = (path: string, kind: DeleteTargetKind) => boolean
+
+// 段内 token 及其安全相关特征：text 为去引号后的字面值；globIndex 为首个引号外
+// 通配符（* ? [）在 text 中的下标（无则 -1）；hasExpansion 表示含未被单引号保护的
+// $ 或反引号（变量/命令替换，无法静态解析路径）
+type SegToken = { text: string; globIndex: number; hasExpansion: boolean }
+
+/**
+ * 引号感知的段内分词：按空白拆 token，剥掉引号字符，标记通配符与展开特征。
+ * splitCommand 的输出段保留了原始引号（如 rm "my file.txt"），朴素 split(/\s+/)
+ * 会把带空格的引号路径拆碎，这里必须自己扫描。引号不闭合 → null（fail-closed）。
+ */
+function tokenizeSeg(seg: string): SegToken[] | null {
+  const tokens: SegToken[] = []
+  let cur = ''
+  let globIndex = -1
+  let hasExpansion = false
+  let started = false
+  let inSingle = false
+  let inDouble = false
+
+  const push = () => {
+    if (started) tokens.push({ text: cur, globIndex, hasExpansion })
+    cur = ''
+    globIndex = -1
+    hasExpansion = false
+    started = false
+  }
+
+  for (let i = 0; i < seg.length; i++) {
+    const c = seg[i]!
+    if (inSingle) {
+      if (c === "'") { inSingle = false; continue }
+      cur += c
+      continue
+    }
+    if (c === '\\') {
+      const next = seg[i + 1]
+      if (next === undefined) return null
+      cur += next
+      i++
+      started = true
+      continue
+    }
+    if (inDouble) {
+      if (c === '"') { inDouble = false; continue }
+      if (c === '$' || c === '`') hasExpansion = true
+      cur += c
+      continue
+    }
+    if (c === "'") { inSingle = true; started = true; continue }
+    if (c === '"') { inDouble = true; started = true; continue }
+    if (/\s/.test(c)) { push(); continue }
+    if (c === '$' || c === '`') hasExpansion = true
+    if ((c === '*' || c === '?' || c === '[') && globIndex < 0) globIndex = cur.length
+    cur += c
+    started = true
+  }
+  if (inSingle || inDouble) return null
+  push()
+  return tokens
+}
+
+/**
+ * 单个删除目标 token 是否可静态确认落在允许范围。
+ * 含变量/命令替换、~ 展开 → 不可静态解析 → 拒绝；
+ * cwd 不可靠（命令里出现 cd/pushd）时相对路径拒绝；
+ * 通配符目标退化为「其字面前缀的目录部分」按 globdir 交策略回调。
+ */
+function checkDeleteTarget(t: SegToken, isDeletableTarget: DeleteTargetChecker, cwdUnreliable: boolean): boolean {
+  if (t.hasExpansion) return false
+  const text = t.text
+  if (!text || text.startsWith('~')) return false
+  if (cwdUnreliable && !isAbsolute(text)) return false
+  if (t.globIndex >= 0) {
+    const prefix = text.slice(0, t.globIndex)
+    const slash = prefix.lastIndexOf('/')
+    const dir = slash >= 0 ? prefix.slice(0, slash + 1) : ''
+    return isDeletableTarget(dir || '.', 'globdir')
+  }
+  return isDeletableTarget(text, 'literal')
+}
+
+/**
+ * rm/rmdir/mv 段的目标提取与校验：跳过 flag，`--` 之后全按操作数；
+ * mv --target-directory=DIR 的 DIR 也计入目标（-t DIR 的 DIR 不带 - 前缀，天然计入）。
+ * 无任何操作数（如裸 `rm -rf`）→ hard。
+ */
+function checkDeleteOperands(seg: string, isDeletableTarget: DeleteTargetChecker, cwdUnreliable: boolean): DangerClass {
+  const tokens = tokenizeSeg(seg)
+  if (!tokens || tokens.length === 0) return 'hard'
+  const operands: SegToken[] = []
+  let afterDoubleDash = false
+  for (let i = 1; i < tokens.length; i++) {
+    const t = tokens[i]!
+    if (!afterDoubleDash) {
+      if (t.text === '--') { afterDoubleDash = true; continue }
+      if (t.text.startsWith('--target-directory=')) {
+        const v = t.text.slice('--target-directory='.length)
+        operands.push({ text: v, globIndex: t.globIndex >= 0 ? Math.max(0, t.globIndex - '--target-directory='.length) : -1, hasExpansion: t.hasExpansion })
+        continue
+      }
+      if (t.text.startsWith('-') && t.text !== '-') continue
+    }
+    operands.push(t)
+  }
+  if (operands.length === 0) return 'hard'
+  for (const t of operands) {
+    if (!checkDeleteTarget(t, isDeletableTarget, cwdUnreliable)) return 'hard'
+  }
+  return 'deletable'
+}
+
+/**
+ * find … -delete 段的起始路径提取与校验：跳过 find 前置全局选项（-H/-L/-P/-O/-D val），
+ * 收集表达式（- 开头 / ( / !）之前的位置参数为起始路径；无起始路径按 find 默认的 `.`。
+ * 删除发生在起始路径目录树内，按 globdir 语义交策略回调。
+ */
+function checkFindDeleteTargets(seg: string, isDeletableTarget: DeleteTargetChecker, cwdUnreliable: boolean): DangerClass {
+  const tokens = tokenizeSeg(seg)
+  if (!tokens || tokens.length === 0) return 'hard'
+  const paths: SegToken[] = []
+  let i = 1
+  while (i < tokens.length && /^-(H|L|P|O\S*|D)$/.test(tokens[i]!.text)) {
+    if (tokens[i]!.text === '-D') i++
+    i++
+  }
+  for (; i < tokens.length; i++) {
+    const t = tokens[i]!
+    if (t.text.startsWith('-') || t.text === '(' || t.text === '!') break
+    paths.push(t)
+  }
+  if (paths.length === 0) paths.push({ text: '.', globIndex: -1, hasExpansion: false })
+  for (const t of paths) {
+    // 起始路径含通配符（find dist/* -delete）：shell 已展开，逐个匹配项都是目录起点，
+    // checkDeleteTarget 会按 globdir 退化到字面前缀目录，语义一致
+    const ok = t.globIndex >= 0
+      ? checkDeleteTarget(t, isDeletableTarget, cwdUnreliable)
+      : (!t.hasExpansion && !!t.text && !t.text.startsWith('~') &&
+         !(cwdUnreliable && !isAbsolute(t.text)) && isDeletableTarget(t.text, 'globdir'))
+    if (!ok) return 'hard'
+  }
+  return 'deletable'
+}
+
+function classifyDangerousSeg(seg: string, isDeletableTarget: DeleteTargetChecker, cwdUnreliable: boolean): DangerClass {
+  const s = seg.trim()
+  const first = s.split(/\s+/)[0] ?? ''
+  if (HARD_DANGEROUS_COMMANDS.has(first) || first.startsWith('mkfs')) return 'hard'
+  if (first === 'find') {
+    if (FIND_HARD_ACTION_FLAGS.test(s) || classifyFindExecTargets(s) === 'dangerous') return 'hard'
+    if (!FIND_DELETE_FLAG.test(s)) return 'none'
+    if (REDIRECTION_RE.test(s)) return 'hard'
+    return checkFindDeleteTargets(s, isDeletableTarget, cwdUnreliable)
+  }
+  if (DELETE_COMMANDS.has(first)) {
+    // 删除命令夹带重定向属反常组合，不细分，fail-closed
+    if (REDIRECTION_RE.test(s)) return 'hard'
+    return checkDeleteOperands(s, isDeletableTarget, cwdUnreliable)
+  }
+  return 'none'
+}
+
+/**
+ * 整条命令的危险分级：逐子命令取最严（任一 hard → hard；否则任一 deletable → deletable）。
+ * 与 hasDangerousCommand 严格对齐：本函数返回 none 当且仅当 hasDangerousCommand 为 false，
+ * 即分级只在「现状确定性转人工」的集合内部细分，绝不扩大放行面。
+ *
+ * 命令里出现 cd/pushd/popd 时后续子命令的 cwd 无法静态跟踪，相对路径目标一律拒绝
+ * （绝对路径不受影响）。解析失败 fail-closed 判 hard。
+ *
+ * @param isDeletableTarget 路径策略回调：判定单个删除目标（已解析为字面路径）是否落在
+ *        允许删除的范围（由调用方定义，通常为项目内或系统临时目录，排除项目根自身与 .git）
+ */
+export function classifyDangerousCommand(command: string, isDeletableTarget: DeleteTargetChecker): DangerClass {
+  let segs: string[]
+  try {
+    segs = splitCommand(command)
+  } catch {
+    return 'hard'
+  }
+  const cwdUnreliable = segs.some(seg => {
+    const first = seg.trim().split(/\s+/)[0]
+    return first === 'cd' || first === 'pushd' || first === 'popd'
+  })
+  let cls: DangerClass = 'none'
+  for (const seg of segs) {
+    const c = classifyDangerousSeg(seg, isDeletableTarget, cwdUnreliable)
+    if (c === 'hard') return 'hard'
+    if (c === 'deletable') cls = 'deletable'
+  }
+  return cls
 }
 
 function isReadonlySafeSubcommand(seg: string): boolean {

@@ -1,3 +1,4 @@
+import type Anthropic from '@anthropic-ai/sdk'
 import { AiMessage, Message } from '../types/message'
 import { countTokens } from './tokens'
 import { buildUserMsg, prepareMessagesForApi } from './message'
@@ -10,7 +11,10 @@ import { microCompactMessages } from './microcompact'
 import { Tool } from '../tools/base/Tool'
 import { z } from 'zod'
 import { getTokens } from './tokens'
-import { buildCompressionPrompt } from '../prompt/compact'
+import { buildCompressionPrompt, SKILL_CONTEXT_NOTICE, COMPACT_RESUME_NOTICE } from '../prompt/compact'
+import { generatePostCompactReminders } from '../services/agents/genSystemReminder'
+import { TOOL_NAME_SKILL } from '../prompt/tool'
+import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
 
 const defaultCompactDependencies = {
   queryLLM,
@@ -422,6 +426,110 @@ export async function compactMessages(
   }
 }
 
+export type RecoveredSkillActivation = {
+  name: string
+  text: string
+  /** 激活所在 user 消息的 uuid，用于截断兜底后判断该消息是否幸存 */
+  uuid: string
+}
+
+/**
+ * 扫描消息列表中 skill 工具的成功激活：tool_use(skill) 配对非报错 tool_result，
+ * 且同消息内有当时注入的 skill 全文 text 块。同名多次调用取最后一次。
+ * 全文从历史原样取：天然证明激活成功、参数已替换、与模型当时所见一致
+ * （microCompact 只清 tool_result 不碰 text 块，该块必然还在）。
+ */
+export function collectSkillActivations(messages: Message[]): RecoveredSkillActivation[] {
+  // tool_use_id -> skill 名
+  const toolUseNames = new Map<string, string>()
+  for (const msg of messages) {
+    if (msg.type !== 'assistant' || !Array.isArray(msg.message.content)) continue
+    for (const block of msg.message.content) {
+      if (block.type === 'tool_use' && block.name === TOOL_NAME_SKILL) {
+        const skillName = (block.input as { skill?: string } | undefined)?.skill
+        if (skillName) toolUseNames.set(block.id, skillName)
+      }
+    }
+  }
+
+  const byName = new Map<string, RecoveredSkillActivation>()
+  for (const msg of messages) {
+    if (msg.type !== 'user' || !Array.isArray(msg.message.content)) continue
+    const content = msg.message.content as Anthropic.ContentBlockParam[]
+    for (let i = 0; i < content.length; i++) {
+      const block = content[i]
+
+      // 上一次压缩注入的 skill 原文块：解析后接力，保证 skill 上下文可跨多次压缩存续；
+      // 同名后续真实激活按消息序覆盖接力内容
+      if (block.type === 'text' && block.text.startsWith(`${REMINDER_SYS_OPEN}\n${SKILL_CONTEXT_NOTICE}`)) {
+        for (const activation of parseSkillContextBlock(block.text, msg.uuid)) {
+          byName.set(activation.name, activation)
+        }
+        continue
+      }
+
+      if (block.type !== 'tool_result') continue
+      const name = toolUseNames.get(block.tool_use_id)
+      if (!name || block.is_error === true) continue
+      // skill 全文（additionalBlocks）紧随 tool_result 之后；
+      // 跳过 reminder-sys 开头的块（注入的用户消息、hook 上下文等非 skill 正文）
+      for (let j = i + 1; j < content.length; j++) {
+        const next = content[j]
+        if (next.type === 'tool_result') break
+        if (next.type === 'text' && !next.text.startsWith(REMINDER_SYS_OPEN)) {
+          byName.set(name, { name, text: next.text, uuid: msg.uuid })
+          break
+        }
+      }
+    }
+  }
+  return [...byName.values()]
+}
+
+/**
+ * 解析压缩后注入的 skill 原文块（格式见 generatePostCompactReminders 的 sections 拼装），
+ * 还原为激活列表。skill 正文若恰好含 "### Skill: " 行会造成误切分，风险极低且
+ * 伪名称会被后续的存在性过滤剔除。
+ */
+function parseSkillContextBlock(text: string, uuid: string): RecoveredSkillActivation[] {
+  let body = text
+  if (body.startsWith(REMINDER_SYS_OPEN)) body = body.slice(REMINDER_SYS_OPEN.length)
+  if (body.endsWith(REMINDER_SYS_CLOSE)) body = body.slice(0, -REMINDER_SYS_CLOSE.length)
+
+  return body.split(/^### Skill: /m).slice(1).map(section => {
+    const newlineIdx = section.indexOf('\n')
+    const name = (newlineIdx === -1 ? section : section.slice(0, newlineIdx)).trim()
+    const skillText = (newlineIdx === -1 ? '' : section.slice(newlineIdx + 1)).trim()
+    return { name, text: skillText, uuid }
+  }).filter(a => a.name && a.text)
+}
+
+/**
+ * 把 reminder 块插入首条 user 消息（压缩通知/截断通知）的通知文本之前：
+ * 阅读序为 [reminders..., 通知文本, 摘要(assistant)]，通知文本紧邻其引出的摘要。
+ * 首条消息非 user 时原样返回（截断兜底未删任何消息的罕见场景），不做强行注入。
+ */
+function prependBlocksToLeadingUserMsg(
+  messages: Message[],
+  blocks: Anthropic.ContentBlockParam[],
+): Message[] {
+  const first = messages[0]
+  if (!first || first.type !== 'user') {
+    return messages
+  }
+
+  const content = first.message.content
+  const contentBlocks: Anthropic.ContentBlockParam[] = typeof content === 'string'
+    ? [{ type: 'text', text: content }]
+    : [...content]
+
+  const nextFirst: Message = {
+    ...first,
+    message: { ...first.message, content: [...blocks, ...contentBlocks] },
+  }
+  return [nextFirst, ...messages.slice(1)]
+}
+
 /**
  * 自动上下文压缩的主要入口函数
  *
@@ -437,7 +545,8 @@ export async function compactMessages(
 export async function autoCompact(
   messages: Message[],
   abortController: AbortController,
-  sessionId?: string
+  sessionId?: string,
+  options: { hasSkillTool?: boolean } = {}
 ): Promise<AutoCompactResult> {
   // 从后往前找最后一条真实用户消息（非 tool_result）的索引
   let lastRealUserIdx = -1
@@ -469,15 +578,35 @@ export async function autoCompact(
     return { changed: false, messages }
   }
 
+  // 收集将被压掉的 skill 激活；保留区仍有同名激活的不补（原文还在）
+  let compactedSkills = collectSkillActivations(messagesToCompact)
+  if (compactedSkills.length > 0) {
+    const keptNames = new Set(collectSkillActivations(messagesToKeep).map(a => a.name))
+    compactedSkills = compactedSkills.filter(a => !keptNames.has(a.name))
+  }
+
   const compactResult = await compactMessages(messagesToCompact, abortController, sessionId)
 
   if (compactResult.kind === 'summary' || compactResult.kind === 'truncated') {
+    // 截断兜底会保留部分历史：激活消息幸存的不补注，避免重复
+    if (compactResult.kind === 'truncated' && compactedSkills.length > 0) {
+      const survivedUuids = new Set<string>(compactResult.messages.map(m => m.uuid))
+      compactedSkills = compactedSkills.filter(a => !survivedUuids.has(a.uuid))
+    }
+
+    // 压缩后重新注入被压掉的 skill 原文与 skills/rules reminder（原注入随历史被摘要替换而丢失），
+    // 前置拼进首条通知 user 消息，不新增消息以避免连续 user 消息的顺序问题
+    const reminders = await generatePostCompactReminders(options.hasSkillTool ?? false, compactedSkills)
+    const compactedMessages = reminders.length > 0
+      ? prependBlocksToLeadingUserMsg(compactResult.messages, reminders)
+      : compactResult.messages
+
     // 组合结果示例（工具调用场景）：
     //   [compactNotice(user), summaryMsg(assistant), lastRealUserMsg(user), assistantMsg(assistant), toolResult(user)]
     // 组合结果示例（新查询场景）：
     //   [compactNotice(user), summaryMsg(assistant), newUserQuery(user)]
     // 两种场景均以 user 消息结尾，API 调用合法
-    const finalMessages = [...compactResult.messages, ...messagesToKeep]
+    const finalMessages = [...compactedMessages, ...messagesToKeep]
 
     logDebug(`[Compact] Final messages count: ${finalMessages.length}, kept current turn: ${messagesToKeep.length} messages`)
 
@@ -576,10 +705,7 @@ async function executeAutoCompact(
   // 注意：新用户消息的添加由 checkAutoCompact 统一处理，这里不需要处理
   // 重要：summaryResponse 的 usage 包含了整个压缩过程的 token 数（历史对话 + 压缩指令）
   // 需要修正为压缩后消息的实际 token 数（压缩通知 + 摘要）
-  const compactNoticeMessage = buildUserMsg(
-    `[Context Compression Notice]
-The conversation has been automatically compressed due to token limit. Below is a comprehensive summary.`
-  )
+  const compactNoticeMessage = buildUserMsg(COMPACT_RESUME_NOTICE)
 
   // 修正 usage：压缩后的实际 token 数应该是压缩通知 + 摘要内容
   // 估算：压缩通知约 30 tokens，摘要使用 completion_tokens

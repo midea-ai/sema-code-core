@@ -2,13 +2,17 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { logInfo, logDebug, logError } from '../../util/log';
 import { EventBus } from '../../events/EventSystem';
 import { getStateManager, MAIN_AGENT_ID } from '../../manager/StateManager';
-import { compactMessages } from '../../util/compact';
+import { compactMessages, collectSkillActivations } from '../../util/compact';
 import { CompactExecData } from '../../events/types';
 import { isInterruptedException } from '../../types/errors';
 import { getCommandsManager } from './commandsManager';
 import { buildUserMsg } from '../../util/message';
 import { getTokens } from '../../util/tokens';
 import { getTaskManager } from '../../manager/TaskManager';
+import { getAvailableTools } from '../../tools/base/tools';
+import { TOOL_NAME_SKILL } from '../../prompt/tool';
+import { generatePostCompactReminders } from '../agents/genSystemReminder';
+import { wrapCompactSummary } from '../../prompt/compact';
 
 interface CustomCommandResult {
   processedText: string;
@@ -122,12 +126,19 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
       return;
     }
 
-    // 压缩后清空 todos 和 readFileTimestamps（历史上下文已丢失，它们不再有意义）
-    mainAgentState.updateTodosIntelligently([]);
+    // 压缩后清空 readFileTimestamps（促使模型重新读取文件）；todos 不清空：
+    // 模型侧 todo 工具读 todoTasksMap（从未被清），清 UI 投影只造成面板闪空的不一致
     mainAgentState.setReadFileTimestamps({});
 
+    // 与自动压缩路径同口径：重新注入被压掉的 skill 原文与 skills/rules reminder。
+    // 手动压缩替换全部历史，被压区间即完整消息列表，无需幸存过滤
+    const hasSkillTool = getAvailableTools(undefined, { sessionId })
+      .some(tool => tool.name === TOOL_NAME_SKILL);
+    const reminders = await generatePostCompactReminders(hasSkillTool, collectSkillActivations(messages));
+
+    // reminder 前置，摘要带续接包装（来源说明 + 直接续做指示）
     mainAgentState.setMessageHistory([
-      buildUserMsg(result.summary),
+      buildUserMsg([...reminders, { type: 'text', text: wrapCompactSummary(result.summary) }]),
     ]);
 
     logDebug('压缩完成，已替换为 local-command 格式消息历史');

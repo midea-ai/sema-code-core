@@ -280,6 +280,10 @@ export class SemaEngine {
       }
     }
 
+    // 本轮是否真正进入 ReAct：系统命令轮（/compact、/clear）或输入全被 hook 拦截时为 false，
+    // finally 里据此跳过 Stop hook 与下句预测（无模型回复不算一轮自然完成）
+    let enteredReAct = false;
+
     try {
       // 将每条用户输入保存到项目配置的 history（静默输入/自动来源输入跳过，避免污染上翻输入历史）
       for (const item of inputs) {
@@ -347,6 +351,7 @@ export class SemaEngine {
       if (perInput.length === 0) {
         return;
       }
+      enteredReAct = true;
 
       logInfo(`返回文件引用信息: ${JSON.stringify(allSupplementaryInfo, null, 2)}`)
       if (allSupplementaryInfo.length > 0) {
@@ -514,8 +519,9 @@ export class SemaEngine {
         this.startQuery(batch)
       } else {
         // Stop hook：一轮处理自然完成转 idle 时触发；中断不触发，
-        // 有排队输入接续时视为同一轮继续也不触发
-        if (!agentContext.abortController.signal.aborted) {
+        // 有排队输入接续时视为同一轮继续也不触发；
+        // 未进入 ReAct 的轮次（系统命令轮/输入全被拦截）无模型回复，同样不触发
+        if (enteredReAct && !agentContext.abortController.signal.aborted) {
           fireStop(this.sessionId)
           // 后台异步预测用户下一句输入（quick 模型），不阻塞收尾；结果经 input:predict 事件发出
           // 只在含真实用户输入的轮次触发：静默/自动来源（cron、后台任务通知等）结束时用户未必在看，不预测

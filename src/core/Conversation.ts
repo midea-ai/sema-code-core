@@ -49,11 +49,14 @@ export async function* ReAct(
 
     if (micro.needFullCompact) {
       getTaskManager().disposeSession(sessionId);
-      const compactResult = await autoCompact(messages, abortController, sessionId)
+      const compactResult = await autoCompact(messages, abortController, sessionId, {
+        hasSkillTool: tools.some(tool => tool.name === TOOL_NAME_SKILL),
+      })
       messages = compactResult.messages
 
       if (compactResult.changed) {
-        agentState.updateTodosIntelligently([]);
+        // todos 不清空：模型侧 todo 工具读的是 todoTasksMap（压缩从未清过它），
+        // 清 UI 投影只会造成面板闪空后复活的不一致，摘要中的 open items 与 todos 互相印证
         agentState.setReadFileTimestamps({});
       }
     }

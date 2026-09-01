@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.1",
+    "diff": "7.0.0",
     "node-pty": "^1.1.0",
     "sema-core": "file:../..",
     "ws": "^8.18.0"

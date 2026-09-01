@@ -43,8 +43,9 @@ export function Popover({ anchor, onClose, children, align = 'left', className }
   const style: React.CSSProperties = { position: 'fixed', zIndex: 1300 };
   if (openUp) { style.bottom = vh - anchorTop + 4; style.maxHeight = anchorTop - 12; }
   else { style.top = anchorBottom + 4; style.maxHeight = vh - anchorBottom - 12; }
-  if (isRect && align === 'right') style.right = window.innerWidth - anchor.right;
-  else style.left = isRect ? anchor.left : anchor.x;
+  // 水平方向同样不许超出视口：左对齐限右边界，右对齐限左边界
+  if (isRect && align === 'right') { style.right = window.innerWidth - anchor.right; style.maxWidth = anchor.right - 8; }
+  else { style.left = isRect ? anchor.left : anchor.x; style.maxWidth = window.innerWidth - (style.left as number) - 8; }
   return createPortal(
     <div ref={ref} style={style}
       className={cn('bg-white border border-border rounded-lg shadow-xl p-1 min-w-40 overflow-auto', className)}>
@@ -74,8 +75,8 @@ export function useContextMenu() {
 }
 
 // ---------- Dropdown (select-like) ----------
-export interface DropdownOption<T extends string> { value: T; label: React.ReactNode; desc?: string; icon?: React.ReactNode }
-export function Dropdown<T extends string>({ value, options, onChange, renderValue, className, tone, compact, title, footer, minWidth = 200 }: {
+export interface DropdownOption<T extends string> { value: T; label: React.ReactNode; desc?: React.ReactNode; icon?: React.ReactNode; /** 该项上方画分组分割线 */ sepAbove?: boolean }
+export function Dropdown<T extends string>({ value, options, onChange, renderValue, className, tone, compact, title, footer, minWidth = 200, fitWidth }: {
   value: T; options: Array<DropdownOption<T>>; onChange: (v: T) => void; renderValue?: (v: T) => React.ReactNode; className?: string; title?: string;
   /** 触发按钮的配色类（替换默认的 muted/hover 灰底），用于模式/档位等带状态色的按钮 */
   tone?: string;
@@ -83,11 +84,25 @@ export function Dropdown<T extends string>({ value, options, onChange, renderVal
   compact?: boolean;
   /** 菜单底部附加项（如「模型管理」入口） */
   footer?: (close: () => void) => React.ReactNode; minWidth?: number;
+  /** 菜单宽度撑满按钮到视口右缘（如审阅面板的轮次菜单：随右侧栏宽度伸缩，长标题单行省略） */
+  fitWidth?: boolean;
 }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const btn = useRef<HTMLButtonElement>(null);
   const cur = options.find(o => o.value === value);
   const close = () => setRect(null);
+  // 菜单打开期间实时跟踪按钮位置（拖侧栏分隔条 / 窗口缩放时布局会动），锚点变了就重算位置与宽度
+  useEffect(() => {
+    if (!rect) return;
+    let raf = 0;
+    const tick = () => {
+      const r = btn.current?.getBoundingClientRect();
+      if (r && (r.left !== rect.left || r.top !== rect.top || r.width !== rect.width || r.bottom !== rect.bottom)) setRect(r);
+      else raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [rect]);
   return (
     <>
       <button ref={btn} title={title} onClick={() => setRect(btn.current!.getBoundingClientRect())}
@@ -96,17 +111,24 @@ export function Dropdown<T extends string>({ value, options, onChange, renderVal
         <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 3.5l3 3 3-3" stroke="currentColor" fill="none" strokeWidth="1.5" /></svg>
       </button>
       <Popover anchor={rect} onClose={close} className="py-1.5" >
-        <div style={{ minWidth }}>
+        {/* minWidth 不超过锚点右侧的可用宽度，配合 Popover 的 maxWidth 让长标题单行省略而不是撑出视口；
+            fitWidth 时直接占满按钮到视口右缘（随所在面板宽度伸缩） */}
+        <div style={fitWidth && rect
+          ? { width: window.innerWidth - rect.left - 20 }
+          : { minWidth: rect ? Math.min(minWidth, window.innerWidth - rect.left - 24) : minWidth }}>
           {options.map(o => (
-            <button key={o.value} onClick={() => { onChange(o.value); close(); }}
-              className="w-full flex items-center gap-2.5 text-left px-3 py-1.5 rounded hover:bg-black/[0.05] text-sm">
-              {o.icon && <span className="shrink-0 w-4 h-4 flex items-center justify-center">{o.icon}</span>}
-              <span className="flex-1 min-w-0">
-                <span className="block truncate">{o.label}</span>
-                {o.desc && <span className="block text-xs text-muted">{o.desc}</span>}
-              </span>
-              {o.value === value && <svg width="14" height="14" viewBox="0 0 24 24" className="text-ok shrink-0"><path d="M5 12l5 5L20 7" stroke="currentColor" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-            </button>
+            <React.Fragment key={o.value}>
+              {o.sepAbove && <MenuSep />}
+              <button onClick={() => { onChange(o.value); close(); }}
+                className="w-full flex items-center gap-2.5 text-left px-3 py-1.5 rounded hover:bg-black/[0.05] text-sm">
+                {o.icon && <span className="shrink-0 w-4 h-4 flex items-center justify-center">{o.icon}</span>}
+                <span className="flex-1 min-w-0">
+                  <span className="block truncate">{o.label}</span>
+                  {o.desc && <span className="block truncate text-xs text-muted">{o.desc}</span>}
+                </span>
+                {o.value === value && <svg width="14" height="14" viewBox="0 0 24 24" className="text-ok shrink-0"><path d="M5 12l5 5L20 7" stroke="currentColor" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+              </button>
+            </React.Fragment>
           ))}
           {footer && <div className="mt-1 pt-1 border-t border-border">{footer(close)}</div>}
         </div>

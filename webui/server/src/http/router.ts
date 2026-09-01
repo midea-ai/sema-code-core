@@ -10,6 +10,7 @@ import { SEMA_DOCS_ROOT, WEBUI_HOME, removeEmptyDateParent } from '../registry/r
 import { searchFiles } from '../files/search';
 import { readFileInDir, listDir, resolvePath, statPaths, rawFileInDir } from '../files/read';
 import { listOpenWithApps, appIconPath } from '../files/apps';
+import { gitDiffList, gitDiffFile, gitRepoCheck } from '../files/gitDiff';
 import { listCatalog, installResource, uninstallResource, listInstalled, toggleInstalled, removeInstalled, updateMcpConfig, updateMcpUseTools, userSkillsRoot, readUserMcp } from './ecosystem';
 import { listMcpTools } from './mcpTools';
 
@@ -294,6 +295,13 @@ export class Router {
     this.add('POST', '/api/sessions/:id/ls', async (_r, _s, p, body) => {
       const rec = resolveScope(p.id);
       return listDir(rec.workingDir, String(body?.path || ''));
+    });
+    // 审阅面板 Git 视图（实时现算）：check 探测是否仓库；list 文件清单（无 patch）；file 单文件 diff
+    this.add('POST', '/api/sessions/:id/git-diff', async (_r, _s, p, body) => {
+      const rec = resolveScope(p.id);
+      if (body?.mode === 'check') return gitRepoCheck(rec.workingDir);
+      if (body?.mode === 'file') return gitDiffFile(rec.workingDir, String(body?.path || ''));
+      return gitDiffList(rec.workingDir);
     });
 
     // ---- 终端（node-pty；数据流走 /ws/term） ----

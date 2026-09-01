@@ -22,10 +22,28 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const dialog = useDialog();
   const listRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
+  // 程序性回底标记：贴底跟随写 scrollTop 也会触发 scroll 事件，需跳过不参与贴底判定
+  const progScroll = useRef(false);
+  const lastTop = useRef(0);
+  const [overflow, setOverflow] = useState(false);
   const [rewind, setRewind] = useState<{ inputId: string; preview?: any; restore: boolean; busy: boolean } | null>(null);
   const [branching, setBranching] = useState(false);
 
   useEffect(() => { open(sessionId).catch(e => toast(e.message, 'error')); }, [sessionId, open, toast]);
+
+  // 切换会话时组件不重挂载，重置贴底状态，避免上个会话的离底状态带过来
+  useEffect(() => { setStick(true); }, [sessionId]);
+
+  // 内容不足一屏（无法滚动）时不显示回到底部按钮；用 ResizeObserver 跟踪内容/视口尺寸变化
+  useEffect(() => {
+    const el = listRef.current; if (!el) return;
+    const check = () => setOverflow(el.scrollHeight - el.clientHeight > 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [sessionId, !!record]);
 
   // 停留续租：正在看的会话每 4 分钟补发 warm 保活（服务端 warm 宽限 5 分钟）；
   // 后台标签页跳过续租，切回前台立即补一次；离开会话后由服务端按宽限期回收
@@ -36,18 +54,34 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', rewarm); };
   }, [sessionId]);
 
-  // 自动滚动：贴底时跟随
+  // 自动滚动：贴底时跟随（已在底部时不写 scrollTop——写同值不触发 scroll 事件，会留下悬空标记吞掉用户下一次滚动）
   const blocks = snap?.blocks;
   useEffect(() => {
-    if (stick && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+    const el = listRef.current;
+    if (stick && el && el.scrollHeight - el.scrollTop - el.clientHeight > 1) {
+      progScroll.current = true;
+      el.scrollTop = el.scrollHeight;
+    }
   }, [blocks, stick]);
+  // 贴底判定按用户滚动方向：向上滚立即离底，不设距离阈值——流式高频回底时，
+  // 小步上滑在两次更新间滚不出阈值会被反复拽回底部（页面抽搐）；向下滚回到底部附近才恢复贴底。
+  // dist>1 排除 macOS 橡皮筋回弹被误判为向上滚。
   const onScroll = () => {
     const el = listRef.current; if (!el) return;
-    setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const top = el.scrollTop;
+    const up = top < lastTop.current;
+    lastTop.current = top;
+    if (progScroll.current) { progScroll.current = false; return; }
+    const dist = el.scrollHeight - top - el.clientHeight;
+    if (up && dist > 1) setStick(false);
+    else if (!up && dist < 80) setStick(true);
   };
   const scrollToBottom = () => {
     const el = listRef.current; if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) {
+      progScroll.current = true;
+      el.scrollTop = el.scrollHeight;
+    }
     setStick(true);
   };
 
@@ -170,8 +204,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           })}
         </div>
       </div>
-      {/* 回到底部：离底时悬浮显示；运行中图标换成三点动画表示进行中 */}
-      {!stick && (
+      {/* 回到底部：内容超出一屏且离底时悬浮显示；运行中图标换成三点动画表示进行中 */}
+      {overflow && !stick && (
         <button onClick={scrollToBottom} title={t('chat.scrollBottom')}
           className="absolute left-1/2 -translate-x-1/2 bottom-3 h-8 w-8 rounded-full bg-bg border border-border shadow-lg flex items-center justify-center text-muted hover:text-fg">
           {snap?.state === 'processing' ? <span className="run-dots"><i /><i /><i /></span> : <ArrowDown size={15} />}

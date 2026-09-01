@@ -1,7 +1,7 @@
-import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../../api/http';
+import React, { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import hljs from 'highlight.js/lib/common';
 import type { Hunk } from '../../../../shared/types';
+import { useApp } from '../../store/app';
 import { cn } from '../../common/ui';
 import { langOf, escapeHtml } from '../../common/text';
 
@@ -19,20 +19,21 @@ interface Row { kind: RowKind; lineNo?: number; text: string; marks?: Array<[num
  * 结构化 diff（Hunk[]）渲染：行号 + 符号 + 语法高亮正文；相邻增删行做词级高亮。
  * collapsible 时默认折叠到 COLLAPSED_MAX_PX（底部渐隐 + 「展开」），内容超长时才出现按钮。
  */
-export const DiffView = memo(function DiffView({ patch: rawPatch, path, sessionId, maxLines, collapsible = false, className }: {
-  patch: Hunk[]; path?: string; sessionId?: string; maxLines?: number; collapsible?: boolean; className?: string;
+export const DiffView = memo(function DiffView({ patch, path, sessionId, diffText, maxLines, collapsible = false, collapsedMaxPx = COLLAPSED_MAX_PX, className }: {
+  patch: Hunk[]; path?: string; sessionId?: string; diffText?: string; maxLines?: number; collapsible?: boolean; collapsedMaxPx?: number; className?: string;
 }) {
-  const patch = useFullNewFilePatch(rawPatch, path, sessionId);
+  // 新建文件未被服务端补全时（超限/读取失败/老快照），事件里只有前几行，算出省略行数做提示
+  const omitted = useMemo(() => omittedNewLines(patch), [patch]);
   const rows = useMemo(() => computeWordDiffs(toRows(patch)), [patch]);
   const shown = maxLines ? rows.slice(0, maxLines) : rows;
   const hidden = rows.length - shown.length;
   const html = useMemo(() => highlightRows(shown, path ? langOf(path) : undefined), [shown, path]);
 
-  const { ref, expanded, setExpanded, overflowing, collapsed } = useCollapsible(collapsible, rows);
+  const { ref, expanded, setExpanded, overflowing, collapsed } = useCollapsible(collapsible, rows, collapsedMaxPx);
 
   return (
     <div className={cn('font-mono text-[12px] leading-5 rounded-md border border-border bg-code overflow-hidden', className)}>
-      <div ref={ref} className={cn('overflow-x-auto', collapsed && 'diff-collapsed')} style={collapsed ? { maxHeight: COLLAPSED_MAX_PX } : undefined}>
+      <div ref={ref} className={cn('overflow-x-auto', collapsed && 'diff-collapsed')} style={collapsed ? { maxHeight: collapsedMaxPx } : undefined}>
         <table className="w-full border-collapse">
           <colgroup><col className="w-10" /><col className="w-4" /><col /></colgroup>
           <tbody>
@@ -49,55 +50,43 @@ export const DiffView = memo(function DiffView({ patch: rawPatch, path, sessionI
         </table>
       </div>
       {hidden > 0 && !collapsed && <div className="px-2 py-1 text-xs text-muted border-t border-border">… 还有 {hidden} 行</div>}
+      {omitted > 0 && !collapsed && (path && sessionId
+        ? <button type="button" onClick={e => { e.stopPropagation(); useApp.getState().openFileTab(sessionId, path); }}
+            className="block w-full text-left px-2 py-1 text-xs text-muted border-t border-border hover:text-fg hover:underline">{diffText || `... (+${omitted} lines)`} · 点击打开文件</button>
+        : <div className="px-2 py-1 text-xs text-muted border-t border-border">{diffText || `... (+${omitted} lines)`}</div>)}
       {collapsible && overflowing && <CollapseToggle expanded={expanded} onToggle={() => setExpanded(v => !v)} />}
     </div>
   );
 });
 
-/** 新建文件的事件里只带前几行预览（lines < newLines）：有会话时按路径读取当前文件内容，补成完整的「全部新增」hunk */
-function isTruncatedNew(patch: Hunk[]) {
-  return patch.length === 1 && patch[0].oldLines === 0 && patch[0].newLines > (patch[0].lines || []).length;
-}
-/** 以预览 patch 对象为键缓存（同一事件复用；新事件重新读取，避免文件后续被改后显示过期内容） */
-const fullFileCache = new WeakMap<Hunk[], Hunk[]>();
-function useFullNewFilePatch(patch: Hunk[], path?: string, sessionId?: string): Hunk[] {
-  const need = !!sessionId && !!path && isTruncatedNew(patch);
-  const [full, setFull] = useState<Hunk[] | null>(() => (need && fullFileCache.get(patch)) || null);
-  useEffect(() => {
-    if (!need) return;
-    const cached = fullFileCache.get(patch);
-    if (cached) { setFull(cached); return; }
-    let alive = true;
-    api<{ content: string; binary: boolean }>('POST', `/api/sessions/${sessionId}/file`, { path })
-      .then(d => {
-        if (!alive || d.binary) return;
-        const lines = d.content.split(/\r?\n/).map(l => '+' + l);
-        const h: Hunk[] = [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: lines.length, lines }];
-        fullFileCache.set(patch, h);
-        setFull(h);
-      })
-      .catch(() => undefined);
-    return () => { alive = false; };
-  }, [need, patch, sessionId, path]);
-  return need && full ? full : patch;
+/** 新建文件预览 hunk 被截断后省略的行数：newLines 是文件总行数，lines 只带前几行 */
+function omittedNewLines(patch: Hunk[]): number {
+  let n = 0;
+  for (const h of patch) {
+    if (h.oldLines === 0 && typeof h.newLines === 'number') {
+      const shown = (h.lines || []).filter(l => l.startsWith('+')).length;
+      if (h.newLines > shown) n += h.newLines - shown;
+    }
+  }
+  return n;
 }
 
 // ==================== 折叠（DiffView / CodeView 共用） ====================
 
-/** 内容超过 COLLAPSED_MAX_PX 时折叠；deps 变化时重新测量 */
-export function useCollapsible(enabled: boolean, deps: unknown) {
+/** 内容超过 maxPx（默认 COLLAPSED_MAX_PX）时折叠；deps 变化时重新测量 */
+export function useCollapsible(enabled: boolean, deps: unknown, maxPx = COLLAPSED_MAX_PX) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !enabled) return;
-    const measure = () => setOverflowing(el.scrollHeight > COLLAPSED_MAX_PX + 1);
+    const measure = () => setOverflowing(el.scrollHeight > maxPx + 1);
     measure();
     const ob = new ResizeObserver(measure);
     ob.observe(el);
     return () => ob.disconnect();
-  }, [enabled, deps]);
+  }, [enabled, deps, maxPx]);
   return { ref, expanded, setExpanded, overflowing, collapsed: enabled && overflowing && !expanded };
 }
 

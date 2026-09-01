@@ -238,26 +238,28 @@ export function MemoryCard({ sessionId, files }: { sessionId: string; files: str
 
 // ==================== 工具卡片 ====================
 
-function isDiffContent(c: any): c is { type: 'diff' | 'new'; patch: any[] } {
+function isDiffContent(c: any): c is { type: 'diff' | 'new'; patch: any[]; diffText?: string } {
   return !!c && typeof c === 'object' && Array.isArray(c.patch);
 }
 
-/** 工具行动词：已运行 / 已创建 / 已编辑 / 已读取 … */
+/** 工具行动词：按状态三态区分（正在运行 / 已运行 / 运行出错），失败不用「已」 */
 function toolVerb(block: ToolBlock, diff: { type: 'diff' | 'new' } | null): string {
-  const running = block.status === 'running';
+  const st = block.status;
+  const pick = (running: string, done: string, error: string) => st === 'running' ? running : st === 'error' ? error : done;
   const n = block.toolName;
-  if (n === 'run_shell') return running ? '正在运行' : '已运行';
-  if (n === 'write_file' && diff?.type === 'new') return running ? '正在创建' : '已创建';
-  if (n === 'write_file' || n === 'patch_file' || n === 'edit_notebook') return running ? '正在编辑' : '已编辑';
-  if (n === 'view_file') return running ? '正在读取' : '已读取';
-  if (n === 'search_files' || n === 'search_content') return running ? '正在搜索' : '已搜索';
-  if (n === 'fetch_url') return running ? '正在抓取' : '已抓取';
-  if (n === 'sub_agent') return running ? '正在调用子代理' : '已调用子代理';
-  if (n === 'skill') return running ? '正在使用技能' : '已使用技能';
-  if (n === 'ask_form') return running ? '等待用户回应' : '用户已回应';
-  if (n === 'peek_bg_job') return running ? '正在启动后台任务' : '已启动后台任务';
-  if (n === 'stop_bg_job') return running ? '正在停止后台任务' : '已停止后台任务';
-  return `${running ? '正在调用' : '已调用'} ${toolDisplayName(n)}`;
+  if (n === 'run_shell') return pick('正在运行', '已运行', '运行出错');
+  if (n === 'write_file' && diff?.type === 'new') return pick('正在创建', '已创建', '创建失败');
+  if (n === 'write_file' || n === 'patch_file' || n === 'edit_notebook') return pick('正在编辑', '已编辑', '编辑失败');
+  if (n === 'view_file') return pick('正在读取', '已读取', '读取失败');
+  if (n === 'search_files' || n === 'search_content') return pick('正在搜索', '已搜索', '搜索失败');
+  if (n === 'fetch_url') return pick('正在抓取', '已抓取', '抓取失败');
+  if (n === 'sub_agent') return pick('正在调用子代理', '已调用子代理', '子代理调用失败');
+  if (n === 'skill') return pick('正在使用技能', '已使用技能', '技能调用失败');
+  if (n === 'ask_form') return pick('等待用户回应', '用户已回应', '未获得用户回应');
+  if (n === 'peek_bg_job') return pick('正在启动后台任务', '已启动后台任务', '后台任务启动失败');
+  if (n === 'stop_bg_job') return pick('正在停止后台任务', '已停止后台任务', '后台任务停止失败');
+  if (st === 'error') return `调用 ${toolDisplayName(n)} 失败`;
+  return `${st === 'running' ? '正在调用' : '已调用'} ${toolDisplayName(n)}`;
 }
 
 const FILE_TOOLS = new Set(['view_file', 'write_file', 'patch_file', 'edit_notebook']);
@@ -287,15 +289,16 @@ function absPathOf(rel: string, workingDir: string): string {
   return workingDir ? `${workingDir}/${rel}` : rel;
 }
 
-/** 搜索类工具整行文案：已在 . 中搜索“pattern” / 正在 . 中查找文件“pattern” */
-function searchLabel(block: ToolBlock, running: boolean): string {
+/** 搜索类工具整行文案：已在 . 中搜索“pattern” / 正在 . 中查找文件“pattern”（失败：在 . 中搜索“pattern”失败） */
+function searchLabel(block: ToolBlock): string {
   // 无 input（旧记录）时从标题 `pattern: "x" glob: "y" path: "z"` 里解析
   const m = (k: string) => block.title?.match(new RegExp(`${k}: "([^"]*)"`))?.[1];
   const dir = String(block.input?.path || m('path') || '.');
   const pattern = block.input?.pattern ?? m('pattern');
   const pat = pattern ? `“${pattern}”` : '';
   const verb = block.toolName === 'search_files' ? '查找文件' : '搜索';
-  return `${running ? '正在' : '已在'} ${dir} 中${verb}${pat}`;
+  if (block.status === 'error') return `在 ${dir} 中${verb}${pat}失败`;
+  return `${block.status === 'running' ? '正在' : '已在'} ${dir} 中${verb}${pat}`;
 }
 
 function toolIcon(n: string): any {
@@ -307,12 +310,12 @@ function ToolSummary({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
   const n = block.toolName;
   const diff = isDiffContent(block.content) ? block.content : null;
-  if (n === 'search_files' || n === 'search_content') return <span className="truncate">{searchLabel(block, block.status === 'running')}</span>;
+  if (n === 'search_files' || n === 'search_content') return <span className={cn('truncate', block.status === 'error' && 'text-danger')}>{searchLabel(block)}</span>;
   const isGeneric = n.startsWith('mcp__') || n === 'ask_form';
   const target = isGeneric ? '' : n === 'view_file' ? (filePathOf(block, workingDir)?.split('/').pop() || '') : n === 'run_shell' ? (block.summary || block.title || '') : FILE_TOOLS.has(n) ? displayPath(filePathOf(block, workingDir) || '') : (block.title && block.title !== n ? block.title : '');
   return (
     <>
-      <span className="shrink-0">{toolVerb(block, diff)}</span>
+      <span className={cn('shrink-0', block.status === 'error' && 'text-danger')}>{toolVerb(block, diff)}</span>
       {target && <span className={cn('truncate', n === 'run_shell' && 'font-mono text-[12.5px]')}>{target}</span>}
       {diff && EDIT_TOOLS.has(n) && <DiffStat patch={diff.patch} />}
     </>
@@ -358,7 +361,7 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
       {/* 整行灰色；读取文件：点文件名在右侧栏打开（读图片行可展开缩略图）；搜索：不可点击；其余点击展开详情 */}
       <div onClick={() => expandable && setOpen(v => !v)} className={cn('w-full flex items-center gap-2 py-0.5 text-left', expandable && 'cursor-pointer')} title={expandable && !isRead ? block.title : undefined}>
         {block.status === 'running' ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : block.status === 'error' ? <X size={14} className="text-danger shrink-0" /> : <Icon size={14} className="shrink-0" />}
-        {isSearch ? <span className="truncate">{searchLabel(block, block.status === 'running')}</span> : <span className="shrink-0">{toolVerb(block, diff)}</span>}
+        {isSearch ? <span className={cn('truncate', block.status === 'error' && 'text-danger')}>{searchLabel(block)}</span> : <span className={cn('shrink-0', block.status === 'error' && 'text-danger')}>{toolVerb(block, diff)}</span>}
         {isSearch || isGeneric ? null : filePath
           ? <span onClick={e => { e.stopPropagation(); openFileRef(ctx.sessionId, filePath); }} className="truncate underline decoration-border underline-offset-2 cursor-pointer hover:text-fg hover:decoration-fg" title={absPathOf(filePath, workingDir)}>{isRead ? filePath.split('/').pop() : isSkill ? block.title : displayPath(filePath)}</span>
           : <span className={cn('truncate', isShell && 'font-mono text-[12.5px]')}>{isShell ? (block.summary || block.title) : block.title}</span>}
@@ -381,7 +384,7 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
           {isGeneric && block.summary && <div className="text-xs text-muted mb-1.5">{block.summary}</div>}
           {isImageRead ? (
             <ImageThumb src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(filePath!)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" label={filePath!.split('/').pop()} title={absPathOf(filePath!, workingDir)} />
-          ) : diff ? <DiffView patch={diff.patch} path={filePath || block.title} sessionId={ctx.sessionId} maxLines={400} collapsible /> : (
+          ) : diff ? <DiffView patch={diff.patch} path={filePath || block.title} sessionId={ctx.sessionId} diffText={diff.diffText} maxLines={400} collapsible collapsedMaxPx={500} /> : (
             bodyText ? (
               <Collapsible deps={bodyText} className="rounded-md bg-code border border-border overflow-hidden">
                 <pre className={cn('font-mono text-[12px] leading-5 whitespace-pre-wrap break-words p-2', block.status === 'error' && 'text-danger')}>{bodyText.length > 20000 ? bodyText.slice(-20000) : bodyText}</pre>
@@ -557,7 +560,7 @@ function PermissionCard({ block, ctx }: { block: PermissionBlock; ctx: BlockCtx 
       </div>
       <div className="px-3 pb-2">
         {isShell ? <CodeView code={block.title} className="mb-2" /> : titleInHeader ? null : <div className="mb-2 break-all font-medium">{filePath ? displayPath(filePath) : block.title}</div>}
-        {diff ? <DiffView patch={diff.patch} path={filePath || block.title} maxLines={resolved ? 40 : 300} collapsible={!!resolved} />
+        {diff ? <DiffView patch={diff.patch} path={filePath || block.title} diffText={diff.diffText} maxLines={resolved ? 40 : 300} collapsible={!!resolved} />
           : (typeof block.content === 'string' && block.content && block.content !== block.title)
             ? <Collapsible deps={block.content} className="rounded-md bg-code border border-border overflow-hidden"><pre className="font-mono text-[12px] leading-5 text-muted whitespace-pre-wrap break-words p-2">{block.content}</pre></Collapsible>
             : (block.content && typeof block.content === 'object')

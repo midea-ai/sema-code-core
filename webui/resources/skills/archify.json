@@ -1,0 +1,13 @@
+{
+  "card": {
+    "name": "架构图生成",
+    "description": "汇报级大图：生成系统架构、数据流、请求时序、状态生命周期等高保真图表，输出带动效的交互式 HTML，可导出高清 PNG/SVG，适合评审汇报与演示场景。",
+    "category": "dev",
+    "order": 70
+  },
+  "source": {
+    "repo": "tt-a1i/archify",
+    "ref": "5de7275fe87a66a19d52a4d9b0b3a4f2a5a90115",
+    "path": "archify"
+  }
+}

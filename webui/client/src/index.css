@@ -66,6 +66,8 @@ textarea, input, select { outline: none; }
 .md .md-code:hover .md-code-bar, .md .md-code-bar:focus-within { opacity: 1; }
 .md .md-code-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 5px; color: var(--color-muted); background: var(--color-code); border: 1px solid var(--color-border); cursor: pointer; }
 .md .md-code-btn:hover, .md .md-code-btn.is-on { color: var(--color-accent); }
+.md .md-mermaid { display: flex; justify-content: center; background: var(--color-code); border: 1px solid var(--color-border); border-radius: 8px; padding: .75em 1em; overflow-x: auto; margin: .6em 0; }
+.md .md-mermaid svg { max-width: 100%; height: auto; }
 .md blockquote { border-left: 3px solid var(--color-border); padding-left: .8em; color: var(--color-muted); margin: .5em 0; }
 .md a { color: var(--color-accent); text-decoration: underline; text-underline-offset: 2px; }
 .md .md-table { margin: .8em 0; overflow-x: auto; }

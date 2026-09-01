@@ -10,7 +10,8 @@ import { WorkerPool, WorkerHandle } from './workers/pool';
 import { RegistryStore, TRANSCRIPT_DIR, CONFIG_WORKSPACE, SEMA_DOCS_ROOT, writeJsonAtomic, removeEmptyDateParent } from './registry/registry';
 import type { CronGroup, CronTask, EventFrame, SessionRecord, SessionSnapshot } from '../../shared/types';
 import { applyEvent, applyLocal, createSnapshot, pendingBlocks } from '../../shared/transcript';
-import { SERVER_EVENTS } from '../../shared/protocol';
+import { FILE_EDIT_TOOLS, SERVER_EVENTS } from '../../shared/protocol';
+import { DiffBaselines, createBaselines, resetTurn, resetAll, captureOnRead, computeCumulative, NEW_FILE_MAX_LINES, NEW_FILE_MAX_BYTES } from './turnDiff';
 import { readPersistedCron, readPersistedTasks } from './workers/cronFile';
 
 const BUFFER_MAX = 3000;
@@ -49,6 +50,8 @@ interface Runtime {
   keepUntil?: number;
   /** 最近一次拉活（warm/任何会话动作）时间：只提供 WARM_GRACE_MS 的短宽限，不改 lastActiveAt 以免影响侧边栏排序 */
   lastWarmAt?: number;
+  /** 审阅总 diff 的轮级/会话级基线（内存态，丢失只是降级为拼接展示） */
+  diffBase?: DiffBaselines;
 }
 
 export class SessionManager extends EventEmitter {
@@ -128,9 +131,79 @@ export class SessionManager extends EventEmitter {
 
   // ==================== 事件 ====================
 
+  /**
+   * 新建文件事件核心只带前几行预览：在事件到达的此刻读盘补成全量内容（此时磁盘内容就是刚写入的内容，
+   * 与本轮真实新增一致），补全后的 patch 随快照落盘，之后文件再被改动审阅里仍是当时的内容。
+   * 超限/读取失败/内容对不上（极小概率已被后续工具改过）则保留预览，由前端按 diffText 显示省略提示。
+   */
+  private backfillNewFilePatch(sid: string, event: string, data: any) {
+    if (event !== 'tool:execution:complete' || !FILE_EDIT_TOOLS.has(data?.toolName)) return;
+    const c = data?.content;
+    if (!c || c.type !== 'new' || !Array.isArray(c.patch) || c.patch.length !== 1) return;
+    const h = c.patch[0];
+    const preview: string[] = Array.isArray(h?.lines) ? h.lines : [];
+    if (!h || h.oldLines !== 0 || typeof h.newLines !== 'number' || h.newLines <= preview.length) return;
+    if (h.newLines > NEW_FILE_MAX_LINES) return;
+    const rec = this.registry.getSession(sid);
+    const title = String(data?.title || '');
+    if (!rec || !title) return;
+    try {
+      const abs = path.isAbsolute(title) ? title : path.resolve(rec.workingDir, title);
+      if (fs.statSync(abs).size > NEW_FILE_MAX_BYTES) return;
+      const lines = fs.readFileSync(abs, 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').map(l => '+' + l);
+      // 行数或开头与事件预览不符 = 文件已被改过，放弃补全保证真实性
+      if (lines.length !== h.newLines || !preview.every((l, i) => lines[i] === l)) return;
+      data.content = { ...c, patch: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: lines.length, lines }], diffText: '' };
+    } catch { /* 读不到（已删/权限）则保留预览 */ }
+  }
+
+  /**
+   * 审阅总 diff 维护：轮次边界重置轮级基线（与 shared/transcript 的轮次逻辑对齐），
+   * 编辑完成事件读盘重算「轮前→当前」「会话首次触及前→当前」的总 diff，附加到 data.cumulative
+   * （不动 data.content，聊天流工具卡片仍显示单步 diff）。
+   */
+  private updateReviewDiff(sid: string, rt: Runtime, event: string, data: any) {
+    if (event === 'input:processing') { if (rt.diffBase) resetTurn(rt.diffBase); return; }
+    if (event === 'state:update') { if (rt.diffBase && data?.state !== 'processing') resetTurn(rt.diffBase); return; }
+    if (event === 'session:cleared' || event === 'plan:implement') { if (rt.diffBase) resetAll(rt.diffBase); return; }
+    // 恢复会话：core 沿用历史读时间戳，这些文件可不重读直接编辑，此刻先捕获内容作基线来源
+    if (event === 'session:ready') {
+      const rec = this.registry.getSession(sid);
+      const stamps = data?.readFileTimestamps;
+      if (rec && stamps && typeof stamps === 'object') {
+        const b = rt.diffBase ??= createBaselines();
+        for (const p of Object.keys(stamps)) captureOnRead(b, rec.workingDir, p);
+      }
+      return;
+    }
+    // @文件引用：内部直调 ViewFileTool 设置读时间戳但不发工具执行事件，同样要捕获
+    if (event === 'file:reference') {
+      const rec = this.registry.getSession(sid);
+      if (rec && Array.isArray(data?.references)) {
+        const b = rt.diffBase ??= createBaselines();
+        for (const ref of data.references) {
+          if (ref?.type === 'file' && ref.name) captureOnRead(b, rec.workingDir, String(ref.name));
+        }
+      }
+      return;
+    }
+    if (event !== 'tool:execution:complete') return;
+    const rec = this.registry.getSession(sid);
+    const title = String(data?.title || '');
+    if (!rec || !title) return;
+    const b = rt.diffBase ??= createBaselines();
+    if (data?.toolName === 'view_file') { captureOnRead(b, rec.workingDir, title); return; }
+    if (!FILE_EDIT_TOOLS.has(data?.toolName)) return;
+    // 总 diff 不依赖事件里的 hunks（core 强制改前必读，基线由 lastKnown 提供），content 只用来识别新建
+    const cum = computeCumulative(b, rec.workingDir, title, data?.content);
+    if (cum) data.cumulative = cum;
+  }
+
   private onEvent(sid: string, event: string, data: any) {
     let rt: Runtime;
     try { rt = this.loadRuntime(sid); } catch { return; }
+    this.backfillNewFilePatch(sid, event, data);
+    this.updateReviewDiff(sid, rt, event, data);
     const seq = rt.snapshot.seq + 1;
     applyEvent(rt.snapshot, event, data, seq);
     const frame: EventFrame = { event, sessionId: sid, seq, data };
@@ -331,6 +404,14 @@ export class SessionManager extends EventEmitter {
         rt.snapshot.blocks = rt.snapshot.blocks.slice(0, idx);
         rt.snapshot.turn = null;
         rt.snapshot.streamingId = undefined;
+        // 回退：轮基线作废；被恢复的文件内容已变且 core 刷了读时间戳（可不重读直接编辑），重新捕获
+        if (rt.diffBase) {
+          resetTurn(rt.diffBase);
+          const rec = this.registry.getSession(sid);
+          if (rec && Array.isArray(result?.restoredFiles)) {
+            for (const p of result.restoredFiles) captureOnRead(rt.diffBase, rec.workingDir, String(p));
+          }
+        }
         this.scheduleSave(rt);
         for (const s of rt.subscribers) s.send({ event: SERVER_EVENTS.sessionResync, data: { sessionId: sid } });
       }

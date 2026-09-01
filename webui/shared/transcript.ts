@@ -79,7 +79,7 @@ function notice(snap: SessionSnapshot, seq: number, noticeType: NoticeBlock['not
 }
 
 /** 统计增删行；新建文件的预览 hunk 只带前几行（lines 少于 newLines），按 newLines 计 */
-function countPatch(patch: any[] | undefined): { additions: number; removals: number } {
+export function countPatch(patch: any[] | undefined): { additions: number; removals: number } {
   let additions = 0, removals = 0;
   for (const h of patch || []) {
     let a = 0;
@@ -92,7 +92,7 @@ function countPatch(patch: any[] | undefined): { additions: number; removals: nu
   return { additions, removals };
 }
 
-function mergeFileChange(snap: SessionSnapshot, toolName: string, title: string, content: any) {
+function mergeFileChange(snap: SessionSnapshot, toolName: string, title: string, content: any, cumulative?: any) {
   // `../` 开头的路径基于会话目录归一化为绝对路径（与工具行/文件面板显示一致，也避免同一文件两种写法重复计数）
   if (snap.workingDir && /^\.\.[\\/]/.test(title)) {
     const stack: string[] = [];
@@ -102,9 +102,27 @@ function mergeFileChange(snap: SessionSnapshot, toolName: string, title: string,
     title = (/^[a-zA-Z]:$/.test(stack[0]) ? '' : '/') + stack.join('/');
   }
   if (!snap.turn) snap.turn = { files: {} };
+  const prev = snap.turn.files[title];
+
+  // 服务端已整体重算的轮级总 diff：直接替换该文件条目（统计按净值重算），不做拼接
+  const cum = cumulative && typeof cumulative === 'object' && Array.isArray(cumulative.patch) ? cumulative : null;
+  if (cum) {
+    const { additions, removals } = countPatch(cum.patch);
+    const change: FileChange = {
+      path: title, toolName, type: cum.type === 'new' ? 'new' : 'diff', additions, removals,
+      patch: cum.patch, cumulative: true,
+      ...(cum.sessionPatch ? { sessionPatch: cum.sessionPatch, sessionType: cum.sessionType === 'new' ? 'new' as const : 'diff' as const } : {}),
+      ...(cum.sessionDropped || prev?.sessionDropped ? { sessionDropped: true } : {}),
+    };
+    snap.turn = { ...snap.turn, files: { ...snap.turn.files, [title]: change } };
+    return;
+  }
+
+  // 降级路径（无总 diff）：维持逐次拼接
   const diff = content && typeof content === 'object' && Array.isArray(content.patch) ? content : null;
   const { additions, removals } = countPatch(diff?.patch);
-  const prev = snap.turn.files[title];
+  // 新建文件预览被截断时带上省略提示（服务端补全成功后事件里已无 diffText）
+  const diffText = (typeof diff?.diffText === 'string' && diff.diffText) || undefined;
   const change: FileChange = prev
     ? {
       ...prev,
@@ -112,8 +130,13 @@ function mergeFileChange(snap: SessionSnapshot, toolName: string, title: string,
       additions: prev.additions + additions,
       removals: prev.removals + removals,
       patch: [...prev.patch, ...(diff?.patch || [])],
+      diffText: prev.diffText || diffText,
+      cumulative: undefined,
+      sessionPatch: undefined,
+      sessionType: undefined,
+      sessionDropped: true,
     }
-    : { path: title, toolName, type: diff?.type === 'new' ? 'new' : 'diff', additions, removals, patch: diff?.patch || [] };
+    : { path: title, toolName, type: diff?.type === 'new' ? 'new' : 'diff', additions, removals, patch: diff?.patch || [], diffText, sessionDropped: true };
   snap.turn = { ...snap.turn, files: { ...snap.turn.files, [title]: change } };
 }
 
@@ -208,6 +231,14 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
         // 逐个补全未收尾用户块的结束时间
         while (updateBlock(snap, b => b.kind === 'user' && !b.doneTs, b => ({ ...b, doneTs: now } as Block)));
         updateBlock(snap, b => b.kind === 'notice' && b.noticeType === 'plan-implement' && !b.doneTs, b => ({ ...b, doneTs: now } as Block));
+      } else if (!snap.blocks.some(b =>
+        (b.kind === 'user' && !b.queued && !b.doneTs) ||
+        (b.kind === 'notice' && b.noticeType === 'plan-implement' && !b.doneTs))) {
+        // 后台任务通知静默唤醒继续执行（无 input 事件、不开新轮）：重新打开最近的轮次开头，
+        // 耗时按墙钟接着计——空闲间隙里后台子代理实际一直在运行，本轮最终收尾时再盖上总时长
+        updateBlock(snap,
+          b => (b.kind === 'user' && !b.queued) || (b.kind === 'notice' && b.noticeType === 'plan-implement'),
+          b => ({ ...b, doneTs: undefined } as Block));
       }
       break;
     }
@@ -325,7 +356,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       if (!hit) {
         pushBlock(snap, { kind: 'tool', id: toolId, ts: now, agentId: data?.agentId || MAIN_AGENT_ID, toolName: data?.toolName, ...patch }, data?.agentId);
       }
-      if (FILE_EDIT_TOOLS.has(data?.toolName)) mergeFileChange(snap, data.toolName, data?.title || '', data?.content);
+      if (FILE_EDIT_TOOLS.has(data?.toolName)) mergeFileChange(snap, data.toolName, data?.title || '', data?.content, data?.cumulative);
       if (CRON_TOOLS.has(data?.toolName)) pushCronBlock(snap, toolId, now, data);
       break;
     }

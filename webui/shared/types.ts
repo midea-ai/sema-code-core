@@ -155,6 +155,17 @@ export interface FileChange {
   additions: number;
   removals: number;
   patch: Hunk[];
+  /** 新建文件预览被截断时核心给出的省略提示（如 "... (+122 lines)"），补全成功后不存在 */
+  diffText?: string;
+  /** 文件已删除（目前仅 Git 视图能识别） */
+  deleted?: boolean;
+  /** true = patch 是服务端整体重算的轮级总 diff（轮前→轮内最新，替换而非拼接） */
+  cumulative?: boolean;
+  /** 会话级总 diff（会话首次触及前→最新）；缺省且 cumulative 时与 patch 相同 */
+  sessionPatch?: Hunk[];
+  sessionType?: 'diff' | 'new';
+  /** 会话级基线降级：「全部」视图对该文件回退为逐轮拼接 */
+  sessionDropped?: boolean;
 }
 
 export interface ImageAttachmentMeta {

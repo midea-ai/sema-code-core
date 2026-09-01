@@ -1,11 +1,11 @@
-import { createContext, memo, useContext, useMemo, useRef, useState, type ReactNode, type MouseEvent } from 'react';
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
 import rehypeKatex from 'rehype-katex';
-import { Check, Copy, Globe, WrapText } from 'lucide-react';
+import { Check, Code, Copy, Globe, Workflow, WrapText } from 'lucide-react';
 import { cn, useCopy } from '../../common/ui';
 import { getToken } from '../../api/http';
 import { isPrivateUrl } from '../../common/url';
@@ -24,8 +24,8 @@ const urlTransform = (url: string) => (/^file:\/\//i.test(url) ? url : defaultUr
 /** 围栏代码块内的 code 不做文件识别 */
 const InPre = createContext(false);
 
-interface MdCtx { sessionId?: string; stat: (p: string) => PathStat | undefined }
-const Ctx = createContext<MdCtx>({ stat: () => undefined });
+interface MdCtx { sessionId?: string; stat: (p: string) => PathStat | undefined; done: boolean }
+const Ctx = createContext<MdCtx>({ stat: () => undefined, done: true });
 
 /**
  * Markdown 渲染：禁原始 HTML；支持 GFM 与 KaTeX 公式（$...$ / $$...$$）；
@@ -36,7 +36,7 @@ const Ctx = createContext<MdCtx>({ stat: () => undefined });
  */
 export const Markdown = memo(function Markdown({ text, sessionId, className, done = true }: { text: string; sessionId?: string; className?: string; done?: boolean }) {
   const stat = useFileStats(sessionId, text, done);
-  const ctx = useMemo<MdCtx>(() => ({ sessionId, stat }), [sessionId, stat]);
+  const ctx = useMemo<MdCtx>(() => ({ sessionId, stat, done }), [sessionId, stat, done]);
   return (
     <Ctx.Provider value={ctx}>
       <div className={`md ${className || ''}`}>
@@ -156,20 +156,65 @@ function LocalImage({ sessionId, path, alt, onOpen }: { sessionId: string; path:
   return <img src={rawFileUrl(sessionId, path)} alt={alt} className="cursor-pointer md-local-img" title={`${t('md.openImage')}: ${path}`} onClick={onOpen} onError={() => setFailed(true)} />;
 }
 
-/** 围栏代码块：右上角悬浮工具栏（自动换行开关、复制），复制内容取自渲染后的纯文本 */
+/** mermaid 按需加载单例：首次用到才拉包，避免拖慢首屏 */
+let mermaidLib: Promise<typeof import('mermaid').default> | null = null;
+function loadMermaid() {
+  if (!mermaidLib) {
+    mermaidLib = import('mermaid').then(m => { m.default.initialize({ startOnLoad: false, securityLevel: 'strict' }); return m.default; });
+  }
+  return mermaidLib;
+}
+let mermaidSeq = 0;
+
+/** 从 React 节点提取纯文本（rehype-highlight 会把代码拆成 span） */
+function nodeText(node: any): string {
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join('');
+  return nodeText(node.props?.children);
+}
+
+/** 围栏代码块：右上角悬浮工具栏（自动换行开关、复制），复制内容取自渲染后的纯文本；
+ * mermaid 围栏在流式结束后渲染为图表（默认显示图表，工具栏可切换回代码；渲染失败保持代码展示） */
 function CodeBlock({ children }: any) {
   const ref = useRef<HTMLPreElement>(null);
   const [wrap, setWrap] = useState(true);
   const { copied, copy } = useCopy();
+  const { done } = useContext(Ctx);
+  const codeEl = Array.isArray(children) ? children[0] : children;
+  const isMermaid = /\blanguage-mermaid\b/.test(codeEl?.props?.className || '');
+  const code = isMermaid ? nodeText(children).replace(/\n$/, '') : '';
+  const [svg, setSvg] = useState('');
+  const [asCode, setAsCode] = useState(false);
+  useEffect(() => {
+    if (!isMermaid || !done || !code) return;
+    let cancelled = false;
+    const id = `md-mermaid-${++mermaidSeq}`;
+    loadMermaid()
+      .then(m => m.render(id, code))
+      .then(r => { if (!cancelled) setSvg(r.svg); })
+      .catch(() => { document.getElementById(`d${id}`)?.remove(); if (!cancelled) setSvg(''); });
+    return () => { cancelled = true; };
+  }, [isMermaid, done, code]);
+  const showDiagram = isMermaid && !!svg && !asCode;
   return (
     <InPre.Provider value={true}>
       <div className="md-code group">
-        <pre ref={ref} className={cn(wrap && 'md-code-wrap')}>{children}</pre>
+        {showDiagram
+          ? <div className="md-mermaid" dangerouslySetInnerHTML={{ __html: svg }} />
+          : <pre ref={ref} className={cn(wrap && 'md-code-wrap')}>{children}</pre>}
         <div className="md-code-bar">
-          <button type="button" className={cn('md-code-btn', wrap && 'is-on')} title={t(wrap ? 'md.wrapOff' : 'md.wrapOn')} onClick={() => setWrap(v => !v)}>
-            <WrapText size={14} />
-          </button>
-          <button type="button" className="md-code-btn" title={t(copied ? 'common.copied' : 'common.copy')} onClick={() => copy(ref.current?.textContent ?? '')}>
+          {isMermaid && !!svg && (
+            <button type="button" className="md-code-btn" title={t(showDiagram ? 'md.showCode' : 'md.showDiagram')} onClick={() => setAsCode(v => !v)}>
+              {showDiagram ? <Code size={14} /> : <Workflow size={14} />}
+            </button>
+          )}
+          {!showDiagram && (
+            <button type="button" className={cn('md-code-btn', wrap && 'is-on')} title={t(wrap ? 'md.wrapOff' : 'md.wrapOn')} onClick={() => setWrap(v => !v)}>
+              <WrapText size={14} />
+            </button>
+          )}
+          <button type="button" className="md-code-btn" title={t(copied ? 'common.copied' : 'common.copy')} onClick={() => copy(showDiagram ? code : ref.current?.textContent ?? '')}>
             {copied ? <Check size={14} /> : <Copy size={14} />}
           </button>
         </div>
@@ -193,7 +238,10 @@ function htmlImgToMarkdown(text: string): string {
   })).join('');
 }
 
-/** 把裸的本地 URL 变成 markdown 链接（GFM 已处理大部分自动链接，这里补 URL 后紧跟中文的场景） */
+/** 把裸的本地 URL 变成 markdown 链接（GFM 已处理大部分自动链接，这里补 URL 后紧跟中文的场景）；
+ * 排除 `*`（加粗/斜体闭合标记，如 **http://localhost:5173/**）与全角标点，避免被吞进链接；围栏/行内代码内不处理 */
 function linkifyLocalUrls(text: string): string {
-  return text.replace(/(?<![(\[`])(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?[^\s)\]`'"<>，。；]*)/g, (m) => `[${m}](${m})`);
+  return text.split(/(```[\s\S]*?```|`[^`\n]*`)/).map((seg, i) => i % 2 === 1 ? seg
+    : seg.replace(/(?<![(\[])(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?[^\s)\]`'"<>*，。；：（）【】「」！？、]*)/g, (m) => `[${m}](${m})`)
+  ).join('');
 }

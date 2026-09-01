@@ -21,7 +21,6 @@
 | 文档转演示稿 | deck-from-doc | mohitagw15856/pm-claude-skills |
 | 合同风险审查 | contract-review | mohitagw15856/pm-claude-skills |
 | 预算差异分析 | budget-variance-analysis | mohitagw15856/pm-claude-skills |
-| Mermaid 流程图 | mermaid-diagrams | Agents365-ai/mermaid-skill |
 
 ### 写作沟通（writing）
 
@@ -39,6 +38,7 @@
 | 代码审查 | code-review | coderabbitai/skills |
 | 仓库知识库生成 | wiki-page-writer | microsoft/skills |
 | 文档与架构决策记录 | documentation-and-adrs | addyosmani/agent-skills |
+| 架构图生成 | archify | tt-a1i/archify |
 
 ### 网页站点（web）
 

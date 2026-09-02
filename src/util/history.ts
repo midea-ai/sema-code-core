@@ -12,6 +12,7 @@ import {
   HISTORY_CLEANUP_INTERVAL
 } from '../conf/config';
 import { nowMillis } from './time';
+import { getConfManager } from '../manager/ConfManager';
 
 // 清理历史文件的时间间隔（毫秒）
 let lastHistoryCleanupTime: number = 0;
@@ -217,13 +218,25 @@ export async function cleanupOldHistoryFiles(projectPath?: string): Promise<void
 }
 
 /**
+ * 删除类接口的项目路径解析：显式传入优先，缺省回落到 core 配置的 workingDir；
+ * 仍为空则返回 undefined 并告警，调用方跳过不操作（不碰全局目录）。
+ */
+function resolveProjectPath(projectPath: string | undefined, caller: string): string | undefined {
+  const target = projectPath || getConfManager().getCoreConfig()?.workingDir;
+  if (!target) logWarn(`${caller}: 未指定项目路径且 core 无 workingDir，跳过`);
+  return target || undefined;
+}
+
+/**
  * 删除指定项目的全部历史与快照目录（~/.sema/history/<项目目录名> + ~/.sema/snapshots/<项目目录名>）。
  * 供外部（如 webui 会话级项目退场）主动清理使用。
  */
-export function deleteProjectHistory(projectPath: string): void {
+export function deleteProjectHistory(projectPath?: string): void {
+  const target = resolveProjectPath(projectPath, 'deleteProjectHistory');
+  if (!target) return;
   const targets = [
-    { dir: getProjectHistoryDir(projectPath), root: getHistoryDir(), label: '历史' },
-    { dir: getProjectSnapshotsDir(projectPath), root: getSnapshotsDir(), label: '快照' }
+    { dir: getProjectHistoryDir(target), root: getHistoryDir(), label: '历史' },
+    { dir: getProjectSnapshotsDir(target), root: getSnapshotsDir(), label: '快照' }
   ];
   for (const { dir, root, label } of targets) {
     // 护栏：目标必须严格位于对应根目录之内，防止异常路径误删
@@ -248,7 +261,9 @@ export function deleteProjectHistory(projectPath: string): void {
  * 供外部（如 webui 项目内会话退场）主动清理使用。
  */
 export function deleteSessionHistory(sessionId: string, projectPath?: string): void {
-  const historyDir = projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
+  const target = resolveProjectPath(projectPath, 'deleteSessionHistory');
+  if (!target) return;
+  const historyDir = getProjectHistoryDir(target);
   try {
     if (fs.existsSync(historyDir)) {
       const targets = fs.readdirSync(historyDir).filter(file =>
@@ -265,7 +280,7 @@ export function deleteSessionHistory(sessionId: string, projectPath?: string): v
       }
     }
     // 项目级快照按剩余 history 做标记清除，会同步移除该会话的 editlog 和无引用 blobs。
-    if (projectPath) cleanupProjectSnapshots(projectPath);
+    cleanupProjectSnapshots(target);
   } catch (error) {
     logWarn(`删除会话历史失败 ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
   }

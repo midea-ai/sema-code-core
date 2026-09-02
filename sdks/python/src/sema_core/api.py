@@ -170,12 +170,14 @@ class SemaCore:
     # ── 历史清理 ─────────────────────────────────────────────────────────
 
     async def delete_session_history(self, session_id: str, project_path: Optional[str] = None) -> None:
-        """删除单个会话的 core 落盘历史文件（宿主删除历史条目后同步清理）。"""
+        """删除单个会话的 core 落盘历史文件（宿主删除历史条目后同步清理）。
+        project_path 缺省回落到 core 的 workingDir，仍为空则 core 跳过不操作。"""
         await self._call("deleteSessionHistory", _obj(sessionId=session_id, projectPath=project_path))
 
-    async def delete_project_history(self, project_path: str) -> None:
-        """删除指定项目的全部历史与快照目录。"""
-        await self._call("deleteProjectHistory", {"projectPath": project_path})
+    async def delete_project_history(self, project_path: Optional[str] = None) -> None:
+        """删除指定项目的全部历史与快照目录。
+        project_path 缺省回落到 core 的 workingDir，仍为空则 core 跳过不操作。"""
+        await self._call("deleteProjectHistory", _obj(projectPath=project_path))
 
     # ── 插件市场 ─────────────────────────────────────────────────────────
 

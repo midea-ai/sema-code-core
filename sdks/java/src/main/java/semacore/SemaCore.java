@@ -136,17 +136,22 @@ public final class SemaCore implements AutoCloseable {
 
     // ── 历史清理 ─────────────────────────────────────────────────────────
 
-    /** 删除单个会话的 core 落盘历史文件（宿主删除历史条目后同步清理）。 */
+    /** 删除单个会话的 core 落盘历史文件（宿主删除历史条目后同步清理），项目为 core 的 workingDir。 */
     public void deleteSessionHistory(String sessionId) {
         deleteSessionHistory(sessionId, null);
     }
 
-    /** projectPath 缺省为当前工作目录对应项目。 */
+    /** projectPath 缺省回落到 core 的 workingDir；仍为空则 core 跳过不操作。 */
     public void deleteSessionHistory(String sessionId, String projectPath) {
         send("deleteSessionHistory", Json.obj("sessionId", sessionId, "projectPath", projectPath));
     }
 
-    /** 删除指定项目的全部历史与快照目录。 */
+    /** 删除 core workingDir 对应项目的全部历史与快照目录。 */
+    public void deleteProjectHistory() {
+        deleteProjectHistory(null);
+    }
+
+    /** 删除指定项目的全部历史与快照目录；projectPath 缺省回落到 core 的 workingDir，仍为空则 core 跳过不操作。 */
     public void deleteProjectHistory(String projectPath) {
         send("deleteProjectHistory", Json.obj("projectPath", projectPath));
     }

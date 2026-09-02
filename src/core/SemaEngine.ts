@@ -662,6 +662,9 @@ export class SemaEngine {
     // 这里重发一次让面板与回档后的会话重新同步
     this.emit('todos:update', this.runtime.getTodos());
 
+    // 回退后上下文 token 变了：usage 取自最后一条 assistant 的 usage，截断后需重发刷新 UI
+    this.emit('conversation:usage', { usage: getTokens(truncated, this.sessionId) });
+
     logInfo(`原地回退: ${this.sessionId} @ ${messageUuid} (restoreFiles=${!!options.restoreFiles}, restored=${restoredFiles.length}, 历史保留 ${truncated.length} 条)`);
     return { ok: true, sessionId: this.sessionId, restoredFiles };
   }

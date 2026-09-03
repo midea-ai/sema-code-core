@@ -31,9 +31,9 @@ const CRON_KEEP_AFTER_FIRE_MS = 5 * 60_000;
 const CORE_WRITE_ACTIONS = new Set(['core.switchModel', 'core.addModel', 'core.delModel', 'core.applyTaskModel']);
 
 /** 退场上限：项目数、每项目会话数、独立会话数，超出按 lastActiveAt LRU 淘汰 */
-const PROJECT_LIMIT = 30;
-const SESSIONS_PER_PROJECT_LIMIT = 50;
-const STANDALONE_SESSION_LIMIT = 50;
+const PROJECT_LIMIT = 20;
+const SESSIONS_PER_PROJECT_LIMIT = 30;
+const STANDALONE_SESSION_LIMIT = 30;
 
 export interface Subscriber {
   send(frame: any): void;

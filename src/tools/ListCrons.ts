@@ -63,6 +63,7 @@ export const ListCrons = {
     yield {
       type: 'result' as const,
       data,
+      resultForAssistant: this.genResultForAssistant(data),
     }
   },
 } satisfies Tool<typeof toolParams, ToolOut>

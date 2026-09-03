@@ -13,6 +13,16 @@ import { getEventBus } from '../events/EventSystem'
 import { firePreToolUse, firePostToolUse, firePostToolUseFailure } from '../services/hooks/hookTriggers'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
 
+/** 将 tool_result 内容（字符串或 block 数组）转为纯文本，供出错事件与 hook 使用 */
+function toolContentToText(content: Anthropic.ToolResultBlockParam['content']): string {
+  if (typeof content === 'string') return content
+  try {
+    return JSON.stringify(content)
+  } catch {
+    return String(content)
+  }
+}
+
 // hook 注入的上下文文本块（包 system-reminder 壳）
 function buildHookContextBlocks(contextBlocks: string[]): Anthropic.ContentBlockParam[] {
   return contextBlocks.map(text => ({
@@ -313,10 +323,28 @@ export async function* checkPermissionsAndCallTool(
     const generator = tool.call(input as never, { ...agentContext, currentToolUseID: toolUseID })
     for await (const result of generator) {
       switch (result.type) {
-        case 'result':
-          if (tool.genToolResultMessage) {
-            const toolResult = tool.genToolResultMessage(result.data, input)
+        case 'result': {
+          // resultForAssistant 在接口上可选，缺省时按接口契约用 genResultForAssistant 生成
+          const resultContent = result.resultForAssistant ?? tool.genResultForAssistant(result.data)
+          // 工具正常返回但业务上失败（如 MCP isError）；未进入 Tool 接口，按扩展字段读取
+          const isError = (result as { isError?: boolean }).isError === true
+          const toolResult = tool.genToolResultMessage?.(result.data, input)
 
+          // 工具正常返回但业务上失败（如 MCP isError）：事件与 hook 走出错路径，与 throw 一致
+          if (isError) {
+            const errorText = toolResult
+              ? (typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content))
+              : toolContentToText(resultContent)
+            const toolErrorData: ToolExecutionErrorData = {
+              agentId: agentContext.agentId,
+              toolId: toolUseID,
+              toolName: tool.name,
+              title: toolResult?.title ?? (tool.getDisplayTitle?.(input as never) || tool.name),
+              content: errorText,
+              input,
+            }
+            getEventBus().emit('tool:execution:error', toolErrorData, agentContext.sessionId)
+          } else if (toolResult) {
             const toolCompleteData: ToolExecutionCompleteData = {
               agentId: agentContext.agentId,
               toolId: toolUseID,
@@ -331,15 +359,24 @@ export async function* checkPermissionsAndCallTool(
           // 提取控制信号（如果存在）
           const controlSignal = (result.data as any)?.controlSignal as ToolControlSignal | undefined
 
-          // PostToolUse hook：工具已执行完，exit 2 的 stderr 与 additionalContext 仅回灌模型
-          const postHook = await firePostToolUse(
-            agentContext.sessionId,
-            agentContext.agentId,
-            tool.name,
-            input,
-            result.resultForAssistant || result.data,
-            abortController.signal,
-          )
+          // 成功走 PostToolUse，业务失败走 PostToolUseFailure；exit 2 的 stderr 与 additionalContext 仅回灌模型
+          const postHook = isError
+            ? await firePostToolUseFailure(
+                agentContext.sessionId,
+                agentContext.agentId,
+                tool.name,
+                input,
+                toolContentToText(resultContent),
+                abortController.signal,
+              )
+            : await firePostToolUse(
+                agentContext.sessionId,
+                agentContext.agentId,
+                tool.name,
+                input,
+                resultContent,
+                abortController.signal,
+              )
 
           // 生成工具结果消息
           const additionalBlocks = result.additionalBlocks ?? []
@@ -347,19 +384,21 @@ export async function* checkPermissionsAndCallTool(
             [
               {
                 type: 'tool_result',
-                content: result.resultForAssistant || String(result.data),
+                content: resultContent,
                 tool_use_id: toolUseID,
+                ...(isError ? { is_error: true } : {}),
               },
               ...additionalBlocks,
               ...buildHookContextBlocks(postHook.contextBlocks),
             ],
             {
               data: result.data,
-              resultForAssistant: result.resultForAssistant || String(result.data),
+              resultForAssistant: resultContent,
             },
             controlSignal,  // 传递控制信号
           )
           return // 工具执行完成，返回
+        }
       }
     }
   } catch (error) {

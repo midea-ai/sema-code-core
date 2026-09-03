@@ -59,7 +59,7 @@ export function createMCPToolAdapter(
             .join(', ')
         : ''
       return {
-        title: inputStr || `MCP: ${toolDef.name}`,
+        title: inputStr,
         summary: '',
         content: formatMCPResultText(output)
       }

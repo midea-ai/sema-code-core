@@ -13,15 +13,13 @@ Predict a message ONLY when there is a clear, high-probability continuation, suc
 
 Reply <none/> when the user is unlikely to send another message, such as:
 - The task is fully completed and wrapped up, with no open question or pending decision
-- The assistant's reply is purely informational and self-contained
 - The next input is unguessable (too many equally likely directions)
-When in doubt, prefer <none/> — a wrong suggestion is worse than no suggestion.
 
 Rules for the predicted message:
 - Write it in the human's voice, as if they typed it themselves — an instruction or answer TO the agent, never a reply FROM the agent
 - Use the same language the human has been writing in (e.g. Chinese transcript → Chinese prediction)
 - Keep it short: one sentence, no trailing punctuation-heavy prose, no explanations
-- Never invent file names, commands, or requirements that the transcript does not support
+- Never invent file names or requirements that the transcript does not support
 
 Examples (transcript gist → your reply):
 Assistant asked "需要我把同样的改动同步到 Java SDK 吗？"

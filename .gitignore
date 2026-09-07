@@ -39,3 +39,5 @@ test/
 .claude/
 .venv/
 my-app
+
+test-chrome/

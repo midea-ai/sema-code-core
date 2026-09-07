@@ -7,6 +7,8 @@ Routing rules (check BEFORE calling):
 Behavior notes:
 - HTTP auto-upgrades to HTTPS
 - Cross-host redirects return the redirect URL instead of content — re-fetch with the new URL
+- If the page returns a bot check or verification page (e.g. "unusual traffic", "complete verification to continue", "enable JavaScript and cookies") instead of the real content, tell the user this site blocks non-browser clients and that enabling the browser identity for fetch_url in settings (fetchUrlBrowserUserAgent) may get past it, unless that setting is already on
+- Never suggest that setting for login or paywall pages: it cannot log in, so report the content as unavailable and ask the user to paste the text instead
 `
 
 export function buildSecondaryModelPrompt(

@@ -5,7 +5,7 @@ import {
   injectPromptIntoMarkdown,
   type FetchUrlResult,
   fetchUrlAsMarkdown,
-  FETCH_URL_MAX_MARKDOWN_LEN,
+  FETCH_URL_DIRECT_RETURN_LEN,
 } from '../util/fetchUrl'
 import { getEventBus } from '../events/EventSystem'
 import type { ToolExecutionChunkData } from '../events/types'
@@ -128,14 +128,14 @@ Please call ${TOOL_NAME_FETCH_URL} again with the redirected URL:
       return
     }
 
-    const { content, bytes, code, codeText, contentType } = response as FetchUrlResult
+    const { content, bytes, code, codeText } = response as FetchUrlResult
 
     const sizeKB = (bytes / 1024).toFixed(1)
     emitChunk?.(`${getTimeTag()}Retrieved ${sizeKB}KB (HTTP ${code}), processing content...\n`)
 
     let result: string
-    // 对于小型 markdown 内容直接返回，无需 LLM 处理
-    if (contentType.includes('text/markdown') && content.length < FETCH_URL_MAX_MARKDOWN_LEN) {
+    // 转换后内容够短就直接返回，不分类型、不经 LLM 整理：小页面原样给主模型信息更全、更快
+    if (content.length < FETCH_URL_DIRECT_RETURN_LEN) {
       result = content
     } else {
       result = await injectPromptIntoMarkdown(prompt, content, abortController.signal, agentContext.sessionId)

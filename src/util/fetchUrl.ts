@@ -1,11 +1,35 @@
 import { logError } from './log'
 import { buildSecondaryModelPrompt } from '../prompt/tools/fetchUrl'
 import { queryQuick } from '../services/api/queryLLM'
+import { getConfManager } from '../manager/ConfManager'
 
 const MAX_CONTENT_BYTES = 5 * 1024 * 1024 // 5MB
 const TIMEOUT_MS = 30_000
 
+const TOOL_USER_AGENT = 'sema-code-core/1.0 fetch_url'
+
+// 浏览器身份的 User-Agent：仅在 coreConfig.fetchUrlBrowserUserAgent 打开时使用。
+// 平台段是 Chrome 自己冻结的固定值（Mac 一律报 Intel/10_15_7，Win11 也报 NT 10.0），照抄即可；
+// 不探测本机装了什么浏览器，只用 Chrome 一种标识。
+const CHROME_MAJOR = 152 // 随发版定期抬高
+const platformSegment = ({
+  darwin: 'Macintosh; Intel Mac OS X 10_15_7',
+  win32: 'Windows NT 10.0; Win64; x64',
+  linux: 'X11; Linux x86_64',
+} as Record<string, string>)[process.platform] ?? 'X11; Linux x86_64'
+const BROWSER_USER_AGENT =
+  `Mozilla/5.0 (${platformSegment}) AppleWebKit/537.36 (KHTML, like Gecko) ` +
+  `Chrome/${CHROME_MAJOR}.0.0.0 Safari/537.36`
+
+function resolveUserAgent(): string {
+  const coreConfig = getConfManager().getCoreConfig()
+  return coreConfig?.fetchUrlBrowserUserAgent ? BROWSER_USER_AGENT : TOOL_USER_AGENT
+}
+
+// 喂给 quick 模型前的截断上限
 export const FETCH_URL_MAX_MARKDOWN_LEN = 50_000
+// 转换后内容短于此值直接原样返回，不经 quick 模型整理（约 3000 token，主模型可直接消化）
+export const FETCH_URL_DIRECT_RETURN_LEN = 10_000
 
 export type FetchUrlResult = {
   content: string
@@ -25,7 +49,11 @@ type RedirectRecord = {
 function createTurndown() {
   const mod = require('turndown') as any
   const Ctor = mod.default ?? mod
-  return new Ctor() as { turndown(html: string): string }
+  const td = new Ctor()
+  // Drop script/style/noscript/template blocks: turndown keeps their text by default,
+  // and on script-heavy pages that pushes the article past the truncation limit.
+  td.remove(['script', 'style', 'noscript', 'template'])
+  return td as { turndown(html: string): string }
 }
 
 export async function fetchUrlAsMarkdown(
@@ -60,7 +88,7 @@ export async function fetchUrlAsMarkdown(
       redirect: 'follow',
       headers: {
         Accept: 'text/markdown, text/html, */*',
-        'User-Agent': 'sema-code-core/1.0 fetch_url',
+        'User-Agent': resolveUserAgent(),
       },
     })
   } finally {

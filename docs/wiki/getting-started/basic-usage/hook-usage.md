@@ -160,7 +160,6 @@ if ((i.prompt || '').includes('翻译')) console.log('翻译风格要求：口�
 
 ```js
 // tool-guard.js：git push → deny（配合 SessionStart 的部署冻结设定）；hook_ok → allow；其余不表态走原权限流程
-// 注意别用 curl/wget 等验证：它们在内置命令黑名单里，入参校验阶段就被拒，到不了 hook
 const i = JSON.parse(require('fs').readFileSync(0, 'utf8'));
 const cmd = i.tool_input?.command || '';
 const out = (pd, r) => console.log(JSON.stringify({ hookSpecificOutput:

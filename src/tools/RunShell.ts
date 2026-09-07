@@ -19,24 +19,12 @@ import { TOOL_INTERRUPT_MSG } from '../util/message'
 export const RUN_SHELL_MAX_TIMEOUT_MS = 600000; // 最大超时毫秒数 10分钟
 export const DEFAULT_RUN_SHELL_TIMEOUT_MS = 120000; // 默认超时毫秒数 2分钟
 
+// 无条件拒绝的命令（参数校验阶段拦截，位于权限系统之前，不看档位、不问用户）。
+// 仅保留 alias：项目用持久 shell，alias 跨命令生效，`alias ls='rm -rf'` 之后 `ls` 会以只读身份放行。
+// curl/wget/nc 等网络命令已下沉到权限层按风险分类（见 shellSafety 的网络命令分类与
+// PermissionManager.checkRunShellPermission）：用户看到完整命令再决定，Bypass 档直接放行。
 const BANNED_COMMANDS = [
   'alias',
-  'curl',
-  'curlie',
-  'wget',
-  'axel',
-  'aria2c',
-  'nc',
-  'telnet',
-  'lynx',
-  'w3m',
-  'links',
-  'httpie',
-  'xh',
-  'http-prompt',
-  'chrome',
-  'firefox',
-  'safari',
 ]
 
 // 辅助函数：生成显示标题

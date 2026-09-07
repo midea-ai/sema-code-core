@@ -18,7 +18,7 @@ import { normalizeCmpPath } from '../util/platform'
 import { getStateManager, MAIN_AGENT_ID } from './StateManager'
 import { queryLLM } from '../services/api/queryLLM'
 import { AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT } from '../prompt/permission'
-import { isReadonlySafeCommand, isUnsafeForPrefixAuth, classifyDangerousCommand, classifyCommandSubstitutions, DeleteTargetKind } from '../util/shellSafety'
+import { isReadonlySafeCommand, isUnsafeForPrefixAuth, classifyDangerousCommand, classifyCommandSubstitutions, hasNetworkCommand, isLoopbackReadonlyRequest, DeleteTargetKind } from '../util/shellSafety'
 import { extractAutoRunContext, summarizeActionLine } from '../util/autoRunContext'
 import { isBlockedFetchHost } from '../util/fetchSafety'
 import { firePermissionRequest } from '../services/hooks/hookTriggers'
@@ -444,9 +444,14 @@ async function checkRunShellPermission(
   const firstUncovered = subCommands.find(subCmd => !isRunShellCommandPermitted(tool, subCmd, allowedTools)) ?? command
   let prefix: string | null = null
   let allowExact = false
-  // 危险命令（含重定向、rm/sudo/mv 等危险首词、find 危险 flag）不提供「按前缀/精确授权」，
-  // 只允许单次确认；顺带跳过一次前缀提取模型调用。
-  if (!isUnsafeForPrefixAuth(command) && firstUncovered.length <= MAX_PREFIX_EXTRACT_LEN) {
+  // 危险命令（含重定向、rm/sudo/mv 等危险首词、find 危险 flag、curl/wget 等网络命令）不提供
+  // 「按前缀/精确授权」，只允许单次确认；顺带跳过一次前缀提取模型调用。
+  // 网络命令例外：对环回地址的只读请求（如 curl localhost:3000/api/health）放宽为「记住这一条完整命令」，
+  // 保存 run_shell(<完整命令>)，下次同一条免确认，范围不会外溢。固定规则只决定要不要多给这个选项，
+  // 用户仍会看到命令并确认一次，漏判代价很低；AutoRun 档的自动放行仍由上面的模型判断裁决。
+  if (hasNetworkCommand(command)) {
+    allowExact = isLoopbackReadonlyRequest(command)
+  } else if (!isUnsafeForPrefixAuth(command) && firstUncovered.length <= MAX_PREFIX_EXTRACT_LEN) {
     const info = await getCommandPrefix(firstUncovered, abortController.signal, sessionId)
     checkAbortSignal(abortController)
     if (info === null) {

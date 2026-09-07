@@ -51,12 +51,14 @@ textarea, input, select { outline: none; }
 .md pre { background: var(--color-code); border: 1px solid var(--color-border); border-radius: 8px; padding: .75em 1em; overflow-x: auto; margin: .6em 0; }
 .md pre code { background: transparent; padding: 0; font-size: .85em; }
 .md pre code.hljs { background: transparent; padding: 0; }
-.md .md-link { display: inline-flex; align-items: center; gap: .25em; vertical-align: baseline; }
+.md .md-link { display: inline-flex; align-items: center; gap: .25em; vertical-align: baseline; text-decoration: none; }
+.md .md-link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .md .md-link-icon { width: 13px; height: 13px; flex: none; border-radius: 2px; }
 .md .md-file { display: inline-flex; align-items: center; gap: .3em; cursor: pointer; color: var(--color-accent); text-decoration: none; vertical-align: baseline; }
 .md .md-file:hover { text-decoration: underline; text-underline-offset: 2px; }
 .md .md-file-code { color: var(--color-fg); background: #0000000d; }
 .md .md-file-code:hover { color: var(--color-accent); text-decoration: none; }
+.md .md-url-code { background: #0000000d; }
 .md .md-file-icon { flex: none; }
 .md .md-local-img { max-height: 360px; border: 1px solid var(--color-border); }
 .md .md-code { position: relative; }
@@ -113,6 +115,7 @@ textarea, input, select { outline: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
 
 /* 用户气泡在本轮内吸顶（TurnGroup 外层 div 为包含块），被下一轮用户输入顶替 */
-.user-sticky { position: sticky; top: 0; z-index: 10; background: var(--color-bg); }
+/* 负外边距 + 等量内边距：背景延伸到消息流容器的 px-4 内边距里，否则两位数以上的列表序号（"10."）会向左溢出内容区、从吸顶背景旁边露出来 */
+.user-sticky { position: sticky; top: 0; z-index: 10; background: var(--color-bg); margin-left: -1rem; margin-right: -1rem; padding-left: 1rem; padding-right: 1rem; }
 /* 吸顶底部渐变淡出：内容滚到下方时柔和过渡，而非被硬边切断 */
 .user-sticky::after { content: ''; position: absolute; left: 0; right: 0; bottom: -10px; height: 10px; background: linear-gradient(to bottom, var(--color-bg), transparent); pointer-events: none; }

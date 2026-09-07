@@ -66,12 +66,34 @@ function FileRef({ path, line, endLine, label, asCode }: { path: string; line?: 
   );
 }
 
+/** http(s) 链接点击分流（链接 / 行内代码 URL 共用）：有会话走 openLink（本机/局域网右栏内嵌，其他系统浏览器），无会话直接外开 */
+function useOpenUrl() {
+  const { sessionId } = useContext(Ctx);
+  const openLink = useApp(s => s.openLink);
+  const openExternal = useApp(s => s.openExternal);
+  return (href: string) => {
+    if (sessionId) openLink(sessionId, href);
+    else openExternal(href).catch(() => window.open(href, '_blank', 'noopener'));
+  };
+}
+
+/** 行内代码整体是一个 http(s) URL：保留代码底色、用链接强调色，渲染为可点链接（前置站点图标） */
+function UrlCode({ url }: { url: string }) {
+  const openUrl = useOpenUrl();
+  return (
+    <code className="md-file md-url-code" title={url} onClick={() => openUrl(url)}>
+      <SiteIcon url={url} />{url}
+    </code>
+  );
+}
+
 function InlineCode({ children, className, ...rest }: any) {
   const inPre = useContext(InPre);
   const { sessionId, stat } = useContext(Ctx);
-  if (!inPre && sessionId) {
+  if (!inPre) {
     const raw = String(Array.isArray(children) ? children.join('') : children ?? '').trim();
-    if (isPathCandidate(raw)) {
+    if (/^https?:\/\/\S+$/i.test(raw)) return <UrlCode url={raw} />;
+    if (sessionId && isPathCandidate(raw)) {
       const ref = parsePathRef(raw);
       const s = stat(ref.path);
       if (s?.exists && !s.isDir) return <FileRef path={ref.path} line={ref.line} endLine={ref.endLine} label={raw} asCode />;
@@ -84,6 +106,7 @@ function Anchor({ href, children }: any) {
   const { sessionId, stat } = useContext(Ctx);
   const openLink = useApp(s => s.openLink);
   const openExternal = useApp(s => s.openExternal);
+  const openUrl = useOpenUrl();
   if (!href) return <a>{children}</a>;
   // file:// 链接：不带图标，点击在右栏内嵌浏览器打开（openLink 对 file:// 走 openBrowserTab）
   if (/^file:\/\//i.test(href)) {
@@ -108,11 +131,7 @@ function Anchor({ href, children }: any) {
     return <span title={href}>{children}</span>;
   }
   return (
-    <a href={href} className="md-link" title={href} onClick={e => {
-      e.preventDefault();
-      if (sessionId) openLink(sessionId, href);
-      else openExternal(href).catch(() => window.open(href, '_blank', 'noopener'));
-    }}><SiteIcon url={href} />{children}</a>
+    <a href={href} className="md-link" title={href} onClick={e => { e.preventDefault(); openUrl(href); }}><SiteIcon url={href} />{children}</a>
   );
 }
 
@@ -224,7 +243,31 @@ function CodeBlock({ children }: any) {
 }
 
 function preprocess(text: string): string {
-  return linkifyLocalUrls(htmlImgToMarkdown(text));
+  return linkifyBareUrls(padTableBlankLines(htmlImgToMarkdown(text)));
+}
+
+/** 表格分隔行（|---|:--:| 形态，至少含一个 |） */
+const TABLE_SEP_RE = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/** GFM 要求表格前有空行才能从段落/列表项中断开；模型常把表格紧贴在文字后面。
+ * 遇到「非空文本 → 表头行 → 分隔行」时在表头行前补一个空行；围栏代码块内不处理（未闭合的围栏视为延续到文末） */
+function padTableBlankLines(text: string): string {
+  if (!text.includes('|')) return text;
+  return text.split(/(```[\s\S]*?(?:```|$))/).map((seg, i) => {
+    if (i % 2 === 1 || !seg.includes('|')) return seg;
+    const lines = seg.split('\n');
+    const out: string[] = [];
+    for (let k = 0; k < lines.length; k++) {
+      const line = lines[k];
+      if (k >= 2 && line.includes('|') && TABLE_SEP_RE.test(line)) {
+        const header = out[out.length - 1];
+        const prev = out[out.length - 2];
+        if (header.includes('|') && header.trim() !== '' && prev.trim() !== '' && !TABLE_SEP_RE.test(prev)) out.splice(out.length - 1, 0, '');
+      }
+      out.push(line);
+    }
+    return out.join('\n');
+  }).join('');
 }
 
 /** 原始 <img src=".." alt=".."> 标签转为 markdown 图片语法（skipHtml 会丢掉原始 HTML），与参考实现一致；围栏代码块内不处理 */
@@ -238,10 +281,17 @@ function htmlImgToMarkdown(text: string): string {
   })).join('');
 }
 
-/** 把裸的本地 URL 变成 markdown 链接（GFM 已处理大部分自动链接，这里补 URL 后紧跟中文的场景）；
- * 排除 `*`（加粗/斜体闭合标记，如 **http://localhost:5173/**）与全角标点，避免被吞进链接；围栏/行内代码内不处理 */
-function linkifyLocalUrls(text: string): string {
+/** 把裸的 http(s) URL 变成 markdown 链接（GFM 自动链接会把紧跟的中文吞进 URL，这里先行截断）：
+ * URL 字符排除空白、<>"'`)]*（`*` 是加粗/斜体闭合标记，如 **http://localhost:5173/**）以及 CJK 标点/汉字/全角区段，
+ * 让「打开http://localhost:4567/docs查看效果」在中文处截断；结尾的英文句读（.,;:!?）不计入 URL，与 GFM 一致；
+ * 已是链接（前面是 ( [ <）的不重复处理；围栏/行内代码内不处理 */
+const BARE_URL_RE = /(?<![(\[<])https?:\/\/[^\s<>"'`)\]*\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]+/g;
+function linkifyBareUrls(text: string): string {
+  if (!/https?:\/\//i.test(text)) return text;
   return text.split(/(```[\s\S]*?```|`[^`\n]*`)/).map((seg, i) => i % 2 === 1 ? seg
-    : seg.replace(/(?<![(\[])(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?[^\s)\]`'"<>*，。；：（）【】「」！？、]*)/g, (m) => `[${m}](${m})`)
+    : seg.replace(BARE_URL_RE, m => {
+      const url = m.replace(/[.,;:!?]+$/, '');
+      return `[${url}](${url})${m.slice(url.length)}`;
+    })
   ).join('');
 }

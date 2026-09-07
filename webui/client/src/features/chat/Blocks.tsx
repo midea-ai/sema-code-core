@@ -88,9 +88,11 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
     return () => ro.disconnect();
   }, [block.text]);
   const collapsed = overflowing && !expanded;
+  // 展开后的长消息不吸顶：吸顶块比视口还高会把整段回复盖住（回复只能从底下滚过）
+  const sticky = !(overflowing && expanded);
   return (
-    <div className="group flex justify-end user-sticky pt-3 pb-1 mb-2">
-      <div className="max-w-[80%] flex flex-col items-end gap-1">
+    <div className={cn('group flex justify-end pt-3 pb-1 mb-2', sticky && 'user-sticky')}>
+      <div className="max-w-[90%] flex flex-col items-end gap-1">
         {block.source === 'cron' && (
           <button onClick={() => useApp.getState().openCronTab(ctx.sessionId)} className="flex items-center gap-1 text-xs text-muted hover:text-fg hover:underline underline-offset-2" title={t('panel.cron')}>
             <Clock size={12} />{t('chat.sourceCron')}

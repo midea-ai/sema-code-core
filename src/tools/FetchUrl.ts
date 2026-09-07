@@ -134,8 +134,14 @@ Please call ${TOOL_NAME_FETCH_URL} again with the redirected URL:
     emitChunk?.(`${getTimeTag()}Retrieved ${sizeKB}KB (HTTP ${code}), processing content...\n`)
 
     let result: string
-    // 转换后内容够短就直接返回，不分类型、不经 LLM 整理：小页面原样给主模型信息更全、更快
-    if (content.length < FETCH_URL_DIRECT_RETURN_LEN) {
+    if (code < 200 || code >= 300) {
+      // 非 2xx：错误页、挑战页没有整理价值，不走 quick 模型；前置状态行让模型分得清是被拦还是页面本身为空
+      const body = content.length > FETCH_URL_DIRECT_RETURN_LEN
+        ? content.slice(0, FETCH_URL_DIRECT_RETURN_LEN) + '...'
+        : content
+      result = `HTTP ${code}${codeText ? ' ' + codeText : ''}\n\n${body}`
+    } else if (content.length < FETCH_URL_DIRECT_RETURN_LEN) {
+      // 转换后内容够短就直接返回，不分类型、不经 LLM 整理：小页面原样给主模型信息更全、更快
       result = content
     } else {
       result = await injectPromptIntoMarkdown(prompt, content, abortController.signal, agentContext.sessionId)

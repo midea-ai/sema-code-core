@@ -28,8 +28,9 @@ function resolveUserAgent(): string {
 
 // 喂给 quick 模型前的截断上限
 export const FETCH_URL_MAX_MARKDOWN_LEN = 50_000
-// 转换后内容短于此值直接原样返回，不经 quick 模型整理（约 3000 token，主模型可直接消化）
-export const FETCH_URL_DIRECT_RETURN_LEN = 10_000
+// 转换后内容短于此值直接原样返回，不经 quick 模型整理。
+// 按字符计：纯中文约 1 字 1 token，英文约 4 字符 1 token。8000 覆盖短文、文档页、验证页，长文交 quick 模型按 prompt 提炼。
+export const FETCH_URL_DIRECT_RETURN_LEN = 8_000
 
 export type FetchUrlResult = {
   content: string
@@ -54,6 +55,12 @@ function createTurndown() {
   // and on script-heavy pages that pushes the article past the truncation limit.
   td.remove(['script', 'style', 'noscript', 'template'])
   return td as { turndown(html: string): string }
+}
+
+// 去掉行尾空白、把连续空行压成一个：微信等页面每段之间都是空行，turndown 输出里空白能占到六分之一，
+// 白白占用直接返回阈值和模型上下文。只动行尾不动行首，避免破坏缩进代码块和嵌套列表。
+function normalizeMarkdownWhitespace(md: string): string {
+  return md.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 export async function fetchUrlAsMarkdown(
@@ -118,7 +125,7 @@ export async function fetchUrlAsMarkdown(
 
   if (contentType.includes('text/html')) {
     try {
-      content = createTurndown().turndown(content)
+      content = normalizeMarkdownWhitespace(createTurndown().turndown(content))
     } catch {}
   }
 

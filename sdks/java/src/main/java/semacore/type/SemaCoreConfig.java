@@ -5,7 +5,7 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean disableBackgroundTasks, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions) {
+public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean disableBackgroundTasks, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private String workingDir;
@@ -20,6 +20,7 @@ public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream,
         private Boolean skipSkillPermission;
         private Boolean skipMCPToolPermission;
         private Boolean skipFetchUrlPermission;
+        private Boolean fetchUrlBrowserUserAgent;
         private Boolean skipExternalFileReadPermission;
         private Boolean enableLLMCache;
         private List<String> useTools;
@@ -43,6 +44,7 @@ public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream,
         public Builder skipSkillPermission(Boolean skipSkillPermission) { this.skipSkillPermission = skipSkillPermission; return this; }
         public Builder skipMCPToolPermission(Boolean skipMCPToolPermission) { this.skipMCPToolPermission = skipMCPToolPermission; return this; }
         public Builder skipFetchUrlPermission(Boolean skipFetchUrlPermission) { this.skipFetchUrlPermission = skipFetchUrlPermission; return this; }
+        public Builder fetchUrlBrowserUserAgent(Boolean fetchUrlBrowserUserAgent) { this.fetchUrlBrowserUserAgent = fetchUrlBrowserUserAgent; return this; }
         public Builder skipExternalFileReadPermission(Boolean skipExternalFileReadPermission) { this.skipExternalFileReadPermission = skipExternalFileReadPermission; return this; }
         public Builder enableLLMCache(Boolean enableLLMCache) { this.enableLLMCache = enableLLMCache; return this; }
         public Builder useTools(List<String> useTools) { this.useTools = useTools; return this; }
@@ -53,6 +55,6 @@ public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream,
         public Builder enableToolSearch(Boolean enableToolSearch) { this.enableToolSearch = enableToolSearch; return this; }
         public Builder toolSearchDefaultTools(List<String> toolSearchDefaultTools) { this.toolSearchDefaultTools = toolSearchDefaultTools; return this; }
         public Builder maxSessions(Long maxSessions) { this.maxSessions = maxSessions; return this; }
-        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, skipExternalFileReadPermission, enableLLMCache, useTools, disabledTools, agentMode, disableTopicDetection, disableBackgroundTasks, enableToolSearch, toolSearchDefaultTools, maxSessions); }
+        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, enableLLMCache, useTools, disabledTools, agentMode, disableTopicDetection, disableBackgroundTasks, enableToolSearch, toolSearchDefaultTools, maxSessions); }
     }
 }

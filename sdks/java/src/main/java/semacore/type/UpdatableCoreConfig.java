@@ -5,7 +5,7 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record UpdatableCoreConfig(Boolean stream, Boolean thinking, String systemPrompt, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, Boolean disableBackgroundTasks, Boolean enableToolSearch) {
+public record UpdatableCoreConfig(Boolean stream, Boolean thinking, String systemPrompt, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, Boolean disableBackgroundTasks, Boolean enableToolSearch) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private Boolean stream;
@@ -17,6 +17,7 @@ public record UpdatableCoreConfig(Boolean stream, Boolean thinking, String syste
         private Boolean skipSkillPermission;
         private Boolean skipMCPToolPermission;
         private Boolean skipFetchUrlPermission;
+        private Boolean fetchUrlBrowserUserAgent;
         private Boolean skipExternalFileReadPermission;
         private Boolean enableLLMCache;
         private Boolean disableBackgroundTasks;
@@ -31,10 +32,11 @@ public record UpdatableCoreConfig(Boolean stream, Boolean thinking, String syste
         public Builder skipSkillPermission(Boolean skipSkillPermission) { this.skipSkillPermission = skipSkillPermission; return this; }
         public Builder skipMCPToolPermission(Boolean skipMCPToolPermission) { this.skipMCPToolPermission = skipMCPToolPermission; return this; }
         public Builder skipFetchUrlPermission(Boolean skipFetchUrlPermission) { this.skipFetchUrlPermission = skipFetchUrlPermission; return this; }
+        public Builder fetchUrlBrowserUserAgent(Boolean fetchUrlBrowserUserAgent) { this.fetchUrlBrowserUserAgent = fetchUrlBrowserUserAgent; return this; }
         public Builder skipExternalFileReadPermission(Boolean skipExternalFileReadPermission) { this.skipExternalFileReadPermission = skipExternalFileReadPermission; return this; }
         public Builder enableLLMCache(Boolean enableLLMCache) { this.enableLLMCache = enableLLMCache; return this; }
         public Builder disableBackgroundTasks(Boolean disableBackgroundTasks) { this.disableBackgroundTasks = disableBackgroundTasks; return this; }
         public Builder enableToolSearch(Boolean enableToolSearch) { this.enableToolSearch = enableToolSearch; return this; }
-        public UpdatableCoreConfig build() { return new UpdatableCoreConfig(stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, skipExternalFileReadPermission, enableLLMCache, disableBackgroundTasks, enableToolSearch); }
+        public UpdatableCoreConfig build() { return new UpdatableCoreConfig(stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, enableLLMCache, disableBackgroundTasks, enableToolSearch); }
     }
 }

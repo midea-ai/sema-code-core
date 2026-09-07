@@ -49,8 +49,8 @@ AppSessionState = Literal["idle", "processing"]
 UpdatableCoreConfigKeys = Literal[
     "stream", "thinking", "systemPrompt", "customRules", "skipFileEditPermission",
     "skipShellExecPermission", "skipSkillPermission", "skipMCPToolPermission",
-    "skipFetchUrlPermission", "skipExternalFileReadPermission", "enableLLMCache",
-    "disableBackgroundTasks", "enableToolSearch",
+    "skipFetchUrlPermission", "fetchUrlBrowserUserAgent", "skipExternalFileReadPermission",
+    "enableLLMCache", "disableBackgroundTasks", "enableToolSearch",
 ]
 
 
@@ -70,6 +70,7 @@ class SemaCoreConfig(TypedDict, total=False):
     skipSkillPermission: bool
     skipMCPToolPermission: bool
     skipFetchUrlPermission: bool
+    fetchUrlBrowserUserAgent: bool
     skipExternalFileReadPermission: bool
     enableLLMCache: bool
     useTools: Optional[List[str]]
@@ -93,6 +94,7 @@ class UpdatableCoreConfig(TypedDict, total=False):
     skipSkillPermission: bool
     skipMCPToolPermission: bool
     skipFetchUrlPermission: bool
+    fetchUrlBrowserUserAgent: bool
     skipExternalFileReadPermission: bool
     enableLLMCache: bool
     disableBackgroundTasks: bool

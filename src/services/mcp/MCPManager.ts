@@ -7,6 +7,10 @@
  * 状态管理：
  * - 服务启用/禁用：settings.json -> disabledMcpServers（用户级 ~/.sema + 项目级 .sema 取并集生效）
  * - 可用工具列表：settings.json -> enabledMcpServerUseTools（用户级打底、项目级同名覆盖）
+ *
+ * 变量展开：.mcp.json 条目的 command / args / env / url / headers 支持
+ * - ${SEMA_PLUGIN_ROOT}：该 .mcp.json 所属根目录（插件目录；<project>/.sema/.mcp.json 为 <project>）
+ * - ${VAR}、${VAR:-默认值}：进程环境变量，未定义且无默认值时原样保留
  */
 
 import * as fs from 'fs'
@@ -23,6 +27,55 @@ import { findJsonObjectLineRange } from '../../util/file'
 import { existsSync, readFileSync } from 'fs'
 import { readSettings, writeSettings } from '../settings/settingsLoader'
 import { SemaSettings, SettingsScope } from '../../types/settings'
+
+// ==================== .mcp.json 变量展开 ====================
+
+const MCP_EXPANDABLE_FIELDS = ['command', 'args', 'env', 'url', 'headers'] as const
+const MCP_VAR_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g
+
+/**
+ * .mcp.json 所属根目录：文件所在目录叫 .sema 就取上一级（用户级、项目级），否则取本级（插件目录）
+ */
+function mcpConfigRoot(filePath: string): string {
+  const dir = path.dirname(filePath)
+  return path.basename(dir) === '.sema' ? path.dirname(dir) : dir
+}
+
+function expandMcpValue(value: unknown, root: string): unknown {
+  if (typeof value === 'string') {
+    return value.replace(MCP_VAR_PATTERN, (whole, name: string, fallback: string | undefined) => {
+      if (name === 'SEMA_PLUGIN_ROOT') return root
+      const env = process.env[name]
+      if (env !== undefined) return env
+      return fallback !== undefined ? fallback : whole
+    })
+  }
+  if (Array.isArray(value)) return value.map(v => expandMcpValue(v, root))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, expandMcpValue(v, root)]))
+  }
+  return value
+}
+
+/**
+ * 对每个服务条目的 command / args / env / url / headers 做变量展开，返回新对象，不改原始数据
+ */
+function expandMcpServers(servers: Record<string, any>, filePath: string): Record<string, any> {
+  const root = mcpConfigRoot(filePath)
+  const out: Record<string, any> = {}
+  for (const [name, raw] of Object.entries(servers)) {
+    if (!raw || typeof raw !== 'object') {
+      out[name] = raw
+      continue
+    }
+    const entry: Record<string, any> = { ...raw }
+    for (const field of MCP_EXPANDABLE_FIELDS) {
+      if (field in entry) entry[field] = expandMcpValue(entry[field], root)
+    }
+    out[name] = entry
+  }
+  return out
+}
 
 /**
  * MCP 管理器类 - 单例模式
@@ -84,10 +137,8 @@ class MCPManager {
   private readMcpServers(filePath: string): Record<string, any> | null {
     const data = this.readJsonFile(filePath)
     if (!data || typeof data !== 'object') return null
-    if (data.mcpServers && typeof data.mcpServers === 'object') {
-      return data.mcpServers
-    }
-    return data
+    const servers = data.mcpServers && typeof data.mcpServers === 'object' ? data.mcpServers : data
+    return expandMcpServers(servers, filePath)
   }
 
   /**

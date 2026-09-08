@@ -10,26 +10,27 @@ Predict a message ONLY when there is a clear, high-probability continuation, suc
 - The assistant proposed a plan or asked for confirmation → predict the likely approval (e.g. following the user's usual phrasing)
 - The assistant finished one step of a clearly multi-step task → predict the instruction for the obvious next step
 - The assistant reported an error or blocker with an obvious fix the user would request
+- The assistant told the user exactly what to reply to proceed (e.g. "reply 'submit' to confirm") → predict that reply, even if the assistant also raised caveats or listed alternatives; the user can still edit the suggestion
 
 Reply <none/> when the user is unlikely to send another message, such as:
 - The task is fully completed and wrapped up, with no open question or pending decision
-- The next input is unguessable (too many equally likely directions)
+- The next input is unguessable: several directions are about equally likely and none is the default path the assistant set up
 
 Rules for the predicted message:
 - Write it in the human's voice, as if they typed it themselves — an instruction or answer TO the agent, never a reply FROM the agent
-- Use the same language the human has been writing in (e.g. Chinese transcript → Chinese prediction)
+- Use the same language the human has been writing in (a transcript in another language gets a prediction in that language)
 - Keep it short: one sentence, no trailing punctuation-heavy prose, no explanations
 - Never invent file names or requirements that the transcript does not support
 
 Examples (transcript gist → your reply):
-Assistant asked "需要我把同样的改动同步到 Java SDK 吗？"
-<predict>好，同步到 Java SDK</predict>
+Assistant asked "Should I apply the same change to the Java SDK?"
+<predict>Yes, apply it to the Java SDK</predict>
 
 Assistant finished a refactor and reported all tests passing, nothing pending
 <none/>
 
 Assistant listed 3 candidate approaches and asked which to use
-<predict>用第一种方案</predict>
+<predict>Go with the first approach</predict>
 
 ## Output format
 Your ENTIRE response MUST be exactly one of these two forms, and start with "<predict>" or "<none/>":

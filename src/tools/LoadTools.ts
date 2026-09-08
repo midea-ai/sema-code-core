@@ -8,7 +8,7 @@ import { getDeferredTools, getToolSearchDefaultNames } from './base/tools'
 const TOOL_NAME = TOOL_NAME_LOAD_TOOLS
 
 const toolParams = z.strictObject({
-  tool_names: z.array(z.string()).min(1).max(10).describe('Exact tool names to load, as listed in the tool description. Built-in tools: the name as-is; MCP tools: the full name mcp__{server}__{tool}.'),
+  tool_names: z.array(z.string()).min(1).max(20).describe('Exact tool names to load, as listed in the tool description. Built-in tools: the name as-is; MCP tools: the full name mcp__{server}__{tool}.'),
 })
 
 type ToolRes = {

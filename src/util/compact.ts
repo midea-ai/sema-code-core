@@ -1,17 +1,25 @@
 import type Anthropic from '@anthropic-ai/sdk'
 import { AiMessage, Message } from '../types/message'
 import { countTokens } from './tokens'
-import { buildUserMsg, prepareMessagesForApi } from './message'
+import { buildUserMsg, prepareMessagesForApi, REQ_INTERRUPT_MSG } from './message'
 import { queryLLM } from '../services/api/queryLLM'
 import { getModelManager } from '../manager/ModelManager'
-import { logDebug, logError } from './log'
+import { logDebug, logError, logWarn } from './log'
 import { getEventBus } from '../events/EventSystem'
 import { CompactExecData, CompactMicroData } from '../events/types'
-import { microCompactMessages } from './microcompact'
+import { microCompactMessages, estimateTokensFromText } from './microcompact'
 import { Tool } from '../tools/base/Tool'
 import { z } from 'zod'
 import { getTokens } from './tokens'
-import { buildCompressionPrompt, SKILL_CONTEXT_NOTICE, COMPACT_RESUME_NOTICE } from '../prompt/compact'
+import {
+  buildCompressionPrompt,
+  SKILL_CONTEXT_NOTICE,
+  COMPACT_RESUME_NOTICE,
+  LATEST_USER_INSTRUCTION_NOTICE,
+  COMPACT_SUMMARY_LEAD,
+  CONTEXT_TRUNCATED_NOTICE_LEAD,
+  wrapCompactSummary,
+} from '../prompt/compact'
 import { generatePostCompactReminders } from '../services/agents/genSystemReminder'
 import { TOOL_NAME_SKILL } from '../prompt/tool'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
@@ -39,6 +47,15 @@ export const __compactTestHooks = {
  * 提前触发压缩以避免接近token限制时的API调用失败
  */
 const AUTO_COMPACT_THRESHOLD_RATIO = 0.75
+
+/**
+ * 自动压缩时原样保留的最近工具轮次数（一个轮次 = assistant(tool_use) + 紧随的 tool_result user 消息）。
+ * 最后一条 assistant 之后的未消费批次另行无条件保留，不计入此数。
+ */
+const COMPACT_KEEP_RECENT_TOOL_ROUNDS = 4
+
+// 图片块固定估算，与 microcompact 口径一致（勿按 base64 长度折算）
+const IMAGE_BLOCK_TOKEN_ESTIMATE = 1500
 
 export type CompactTruncatedReason =
   | 'EMPTY_SUMMARY'
@@ -155,8 +172,9 @@ function truncateMessages(messages: Message[], targetTokenLimit: number): Messag
       const inputTokens = getInputTokensFromUsage(message.message.usage)
 
       if (inputTokens >= tokensToRemove) {
-        // 从下一条消息开始保留
-        cutIndex = i + 1
+        // 从这条 assistant 开始保留：它的 tool_use 与下一条 user 消息里的 tool_result 配对，
+        // 若从 i + 1 开始会留下孤儿 tool_result，API 会拒绝
+        cutIndex = i
         break
       }
     }
@@ -183,7 +201,7 @@ function truncateMessages(messages: Message[], targetTokenLimit: number): Messag
   // 在开头添加截断提示消息
   if (result.length < messages.length) {
     const truncatedMessage = buildUserMsg(
-      `Context truncated due to token limit. ${messages.length - result.length} earlier messages removed. Recent conversation preserved.`
+      `${CONTEXT_TRUNCATED_NOTICE_LEAD} ${messages.length - result.length} earlier messages removed. Recent conversation preserved.`
     )
     result.unshift(truncatedMessage)
   }
@@ -353,9 +371,19 @@ export async function compactMessages(
   messages: Message[],
   abortController: AbortController,
   sessionId?: string,
-  options: { allowTruncationFallback?: boolean; customInstructions?: string } = {}
+  options: { allowTruncationFallback?: boolean; customInstructions?: string; emitUsageEvent?: boolean } = {}
 ): Promise<CompactResult> {
   const allowTruncationFallback = options.allowTruncationFallback ?? true
+  // 自动压缩路径只压历史的一段，事件口径需按整段上下文计算，由 autoCompact 自行发出
+  const emitUsageEvent = options.emitUsageEvent ?? true
+  const emitUsage = (
+    messagesAfter: Message[] | null,
+    mode: 'summary' | 'truncated' | 'failed',
+    reason?: string,
+    error?: unknown,
+  ) => {
+    if (emitUsageEvent) emitCompactUsage(messages, messagesAfter, sessionId, mode, reason, error)
+  }
 
   if (messages.length < 2) {
     return { kind: 'unchanged', messages }
@@ -365,12 +393,12 @@ export async function compactMessages(
     const summaryResult = await executeAutoCompact(messages, abortController, sessionId, options.customInstructions)
 
     if (summaryResult.kind === 'summary') {
-      emitCompactUsage(messages, summaryResult.messages, sessionId, 'summary')
+      emitUsage(summaryResult.messages, 'summary')
       return summaryResult
     }
 
     if (!allowTruncationFallback) {
-      emitCompactUsage(messages, null, sessionId, 'failed', summaryResult.reason)
+      emitUsage(null, 'failed', summaryResult.reason)
       return {
         kind: 'failed',
         error: new Error(`Compact did not produce a valid summary: ${summaryResult.reason}`),
@@ -380,7 +408,7 @@ export async function compactMessages(
     const contextLimit = getContextLimit(sessionId)
     const targetLimit = contextLimit * 0.5 // 截断到50%容量
     const truncatedMessages = truncateMessages(messages, targetLimit)
-    emitCompactUsage(messages, truncatedMessages, sessionId, 'truncated', summaryResult.reason)
+    emitUsage(truncatedMessages, 'truncated', summaryResult.reason)
 
     return {
       kind: 'truncated',
@@ -389,7 +417,7 @@ export async function compactMessages(
     }
   } catch (error) {
     if (!allowTruncationFallback) {
-      emitCompactUsage(messages, null, sessionId, 'failed', 'COMPACT_ERROR', error)
+      emitUsage(null, 'failed', 'COMPACT_ERROR', error)
       return {
         kind: 'failed',
         error,
@@ -406,7 +434,7 @@ export async function compactMessages(
       const truncatedMessages = truncateMessages(messages, targetLimit)
 
       logError(`Successfully applied truncation fallback, reduced from ${messages.length} to ${truncatedMessages.length} messages`)
-      emitCompactUsage(messages, truncatedMessages, sessionId, 'truncated', 'COMPACT_ERROR', error)
+      emitUsage(truncatedMessages, 'truncated', 'COMPACT_ERROR', error)
 
       return {
         kind: 'truncated',
@@ -416,7 +444,7 @@ export async function compactMessages(
     } catch (truncationError) {
       // 如果连截断都失败，返回失败结果
       logError(`Truncation fallback also failed: ${truncationError}`)
-      emitCompactUsage(messages, null, sessionId, 'failed', 'COMPACT_ERROR', truncationError)
+      emitUsage(null, 'failed', 'COMPACT_ERROR', truncationError)
 
       return {
         kind: 'failed',
@@ -531,14 +559,203 @@ function prependBlocksToLeadingUserMsg(
 }
 
 /**
+ * 按文本长度估算一组消息的 token 数（口径与 microcompact 一致）。
+ * 仅用于 compact:exec 事件里被压区与新前缀的差值计算，不参与压缩决策。
+ */
+function estimateMessagesTokens(messages: Message[]): number {
+  let total = 0
+  for (const msg of messages) {
+    const content = msg.message.content
+    if (typeof content === 'string') {
+      total += estimateTokensFromText(content)
+      continue
+    }
+    if (!Array.isArray(content)) continue
+    for (const block of content as any[]) {
+      switch (block?.type) {
+        case 'text':
+          total += estimateTokensFromText(block.text ?? '')
+          break
+        case 'thinking':
+          total += estimateTokensFromText(block.thinking ?? '')
+          break
+        case 'tool_use':
+          total += estimateTokensFromText(JSON.stringify(block.input ?? {}))
+          break
+        case 'tool_result': {
+          const inner = block.content
+          if (typeof inner === 'string') {
+            total += estimateTokensFromText(inner)
+          } else if (Array.isArray(inner)) {
+            for (const part of inner) {
+              if (part?.type === 'text') total += estimateTokensFromText(part.text ?? '')
+              else if (part?.type === 'image') total += IMAGE_BLOCK_TOKEN_ESTIMATE
+            }
+          }
+          break
+        }
+        case 'image':
+          total += IMAGE_BLOCK_TOKEN_ESTIMATE
+          break
+      }
+    }
+  }
+  return total
+}
+
+/**
+ * 计算自动压缩的切点：messages.slice(0, cutIdx) 为被压区，其余为保留区。
+ *
+ * 切点只落在两类位置，二者都保证 tool_use/tool_result 不被拆散，
+ * 也保证 skill 激活的 tool_use 与其 tool_result/全文块在同一侧（collectSkillActivations 按区域配对）：
+ * - 某个工具轮次的 assistant 消息：保留最后一条 assistant 起的未消费尾部，
+ *   再往前保留 COMPACT_KEEP_RECENT_TOOL_ROUNDS 个已消费轮次，切在最老一个保留轮次的 assistant 上；
+ * - 最后一条真实用户消息：它落在保留窗口内或紧贴切点时（本轮很短、或最新消息就是新查询），
+ *   切到它，用户原话原样保留，等价于旧行为。
+ *
+ * 旧行为整轮豁免：agent 单轮跑几十次工具时可压区几乎为空，再触发只能对上一份摘要复摘，
+ * 摘要越压越大而真实上下文单调增长。
+ */
+function findCompactCut(messages: Message[]): { cutIdx: number; lastRealUserIdx: number } {
+  // 从后往前找最后一条真实用户消息（首块非 tool_result）
+  let lastRealUserIdx = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].type !== 'user') continue
+    const content = messages[i].message.content
+    const isToolResult = Array.isArray(content) &&
+      content.length > 0 &&
+      content[0]?.type === 'tool_result'
+    if (!isToolResult) {
+      lastRealUserIdx = i
+      break
+    }
+  }
+  if (lastRealUserIdx === -1) {
+    return { cutIdx: 0, lastRealUserIdx }
+  }
+
+  let lastAssistantIdx = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].type === 'assistant') {
+      lastAssistantIdx = i
+      break
+    }
+  }
+
+  // 未消费尾部（最后一条 assistant 起）无条件保留，再往前数 N 个 assistant 轮次
+  let cutIdx = lastAssistantIdx
+  if (lastAssistantIdx > 0) {
+    let rounds = 0
+    for (let i = lastAssistantIdx - 1; i >= 0 && rounds < COMPACT_KEEP_RECENT_TOOL_ROUNDS; i--) {
+      if (messages[i].type === 'assistant') {
+        rounds++
+        cutIdx = i
+      }
+    }
+  }
+
+  // 没有 assistant，或最后一条真实用户消息落在保留窗口内/紧贴切点：切到用户消息
+  if (lastAssistantIdx === -1 || lastRealUserIdx >= cutIdx - 1) {
+    cutIdx = lastRealUserIdx
+  }
+
+  return { cutIdx, lastRealUserIdx }
+}
+
+// 回注用户指令原文的上限：超长粘贴不应抵消压缩收益
+const MAX_VERBATIM_INSTRUCTION_CHARS = 4000
+
+/**
+ * 系统合成的 user 文本块，不是用户原话，不得当作指令回注：
+ * reminder-sys 注入、压缩摘要、截断通知、中断标记
+ */
+function isSyntheticUserText(text: string): boolean {
+  return text.startsWith(REMINDER_SYS_OPEN) ||
+    text.startsWith(COMPACT_SUMMARY_LEAD) ||
+    text.startsWith(CONTEXT_TRUNCATED_NOTICE_LEAD) ||
+    text.trim() === REQ_INTERRUPT_MSG
+}
+
+/**
+ * 提取真实用户消息的正文（跳过系统合成块与非文本块），用于压缩后原样回注。
+ * 被压区开头若是上一次压缩的前缀消息，其中回注过的指令块（LATEST_USER_INSTRUCTION_NOTICE 起始）
+ * 原样接力，保证用户指令可跨多次压缩存续；摘要块本身跳过，避免摘要被当作指令滚雪球。
+ */
+function extractUserInstructionText(msg: Message): string {
+  const content = msg.message.content
+  let text = ''
+  if (typeof content === 'string') {
+    text = isSyntheticUserText(content) ? '' : content.trim()
+  } else if (Array.isArray(content)) {
+    const parts: string[] = []
+    for (const block of content as Anthropic.ContentBlockParam[]) {
+      if (block.type !== 'text') continue
+      if (block.text.startsWith(LATEST_USER_INSTRUCTION_NOTICE)) {
+        // 上一次压缩回注的指令块：直接接力，不再拼接其他块
+        return block.text.slice(LATEST_USER_INSTRUCTION_NOTICE.length).trim()
+      }
+      if (isSyntheticUserText(block.text)) continue
+      const trimmed = block.text.trim()
+      if (trimmed) parts.push(trimmed)
+    }
+    text = parts.join('\n\n')
+  }
+  if (text.length > MAX_VERBATIM_INSTRUCTION_CHARS) {
+    text = `${text.slice(0, MAX_VERBATIM_INSTRUCTION_CHARS)}\n[... truncated]`
+  }
+  return text
+}
+
+/**
+ * 自动压缩路径的 compact:exec / conversation:usage 事件。
+ * 被压区只是整段上下文的一段，事件按整段口径计算：
+ * tokenBefore = 触发时的整段占用（含 system prompt 与工具定义，取自上次 API 响应的 usage），
+ * tokenCompact = tokenBefore − 被压区估算 + 新前缀估算。
+ */
+function emitAutoCompactUsage(
+  tokenBefore: number,
+  messagesToCompact: Message[],
+  compactedMessages: Message[],
+  sessionId: string | undefined,
+  mode: 'summary' | 'truncated',
+  reason?: string,
+): void {
+  try {
+    const removed = estimateMessagesTokens(messagesToCompact)
+    const added = estimateMessagesTokens(compactedMessages)
+    const tokenCompact = Math.max(0, tokenBefore - removed + added)
+    if (added >= removed) {
+      logWarn(`[Compact] Compacted prefix (~${added} tokens) is not smaller than the compacted range (~${removed} tokens)`)
+    }
+    logDebug(`[Compact] Usage: before=${tokenBefore}, removed≈${removed}, added≈${added}, after≈${tokenCompact}`)
+
+    const compactExecData: CompactExecData = {
+      tokenBefore,
+      tokenCompact,
+      compactRate: tokenBefore > 0 ? calculateCompactRate(tokenBefore, tokenCompact) : 0,
+      mode,
+      reason,
+    }
+    const eventBus = compactDependencies.getEventBus()
+    eventBus.emit('compact:exec', compactExecData, sessionId)
+    eventBus.emit('conversation:usage', {
+      usage: { useTokens: tokenCompact, maxTokens: getContextLimit(sessionId), promptTokens: tokenCompact },
+    }, sessionId)
+  } catch (usageError) {
+    logError(`Failed to emit auto compact usage: ${usageError}`)
+  }
+}
+
+/**
  * 自动上下文压缩的主要入口函数
  *
  * 该函数在每次查询前被调用，用于检查对话是否已超出容量需要压缩。
- * 找到最后一条真实用户消息（非 tool_result），只压缩它之前的历史，
- * 保留"当前对话轮次"（lastRealUserMsg + assistantMsg + toolResults）不动。
- * 这样可以保证：
- * 1. 压缩后的消息列表以用户消息结尾，LLM 调用不会失败
- * 2. tool_use / tool_result 的配对关系不被破坏
+ * 切点由 findCompactCut 决定：保留最近几个工具轮次与未消费尾部，其余历史（含本轮更早的工具轮次）
+ * 交给摘要。这样可以保证：
+ * 1. tool_use / tool_result 的配对关系不被破坏（切点只落在轮次边界的 assistant 或真实用户消息上）
+ * 2. 压缩后前缀是单条 user 消息（与手动 /compact 同形），保留区无论以 user 还是 assistant 开头，
+ *    角色交替都合法（连续 user 由 prepareMessagesForApi 合并）
+ * 3. 最后一条真实用户消息被压进摘要时，原文回注，模型不丢失用户措辞
  *
  * 执行自动压缩（调用前应先通过 needsAutoCompact 判断是否需要压缩）
  */
@@ -548,35 +765,23 @@ export async function autoCompact(
   sessionId?: string,
   options: { hasSkillTool?: boolean } = {}
 ): Promise<AutoCompactResult> {
-  // 从后往前找最后一条真实用户消息（非 tool_result）的索引
-  let lastRealUserIdx = -1
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].type === 'user') {
-      const content = messages[i].message.content
-      const isToolResult = Array.isArray(content) &&
-        content.length > 0 &&
-        content[0]?.type === 'tool_result'
-      if (!isToolResult) {
-        lastRealUserIdx = i
-        break
-      }
-    }
-  }
+  const { cutIdx, lastRealUserIdx } = findCompactCut(messages)
 
   if (lastRealUserIdx === -1) {
     // 没有找到真实用户消息，跳过压缩
     return { changed: false, messages }
   }
 
-  // 只压缩最后一条真实用户消息之前的历史
-  const messagesToCompact = messages.slice(0, lastRealUserIdx)
-  // 保留当前对话轮次（最后一条真实用户消息及之后的所有内容）
-  const messagesToKeep = messages.slice(lastRealUserIdx)
+  const messagesToCompact = messages.slice(0, cutIdx)
+  const messagesToKeep = messages.slice(cutIdx)
 
   if (messagesToCompact.length < 2) {
     // 历史消息太少，不值得压缩
     return { changed: false, messages }
   }
+
+  // 最后一条真实用户消息落入被压区（长工具轮次场景）：压缩后原样回注
+  const compactedUserMsg = lastRealUserIdx < cutIdx ? messages[lastRealUserIdx] : null
 
   // 收集将被压掉的 skill 激活；保留区仍有同名激活的不补（原文还在）
   let compactedSkills = collectSkillActivations(messagesToCompact)
@@ -585,30 +790,66 @@ export async function autoCompact(
     compactedSkills = compactedSkills.filter(a => !keptNames.has(a.name))
   }
 
-  const compactResult = await compactMessages(messagesToCompact, abortController, sessionId)
+  logDebug(
+    `[Compact] Cut at ${cutIdx}/${messages.length} (lastRealUser=${lastRealUserIdx}, userMsgCompacted=${compactedUserMsg !== null}), ` +
+    `skills to re-inject: [${compactedSkills.map(a => a.name).join(', ')}]`
+  )
+
+  // 触发时的整段上下文占用（上次 API 响应的 usage，含本次响应输出），作为事件基准
+  const tokensBefore = countTokens(messages)
+  const tokenBefore = tokensBefore.inputTokens + tokensBefore.outputTokens
+
+  const compactResult = await compactMessages(messagesToCompact, abortController, sessionId, { emitUsageEvent: false })
 
   if (compactResult.kind === 'summary' || compactResult.kind === 'truncated') {
-    // 截断兜底会保留部分历史：激活消息幸存的不补注，避免重复
-    if (compactResult.kind === 'truncated' && compactedSkills.length > 0) {
+    // 截断兜底会保留部分历史：激活消息 / 用户消息幸存的不补注，避免重复
+    let userMsgSurvived = false
+    if (compactResult.kind === 'truncated') {
       const survivedUuids = new Set<string>(compactResult.messages.map(m => m.uuid))
       compactedSkills = compactedSkills.filter(a => !survivedUuids.has(a.uuid))
+      userMsgSurvived = compactedUserMsg !== null && survivedUuids.has(compactedUserMsg.uuid)
     }
 
-    // 压缩后重新注入被压掉的 skill 原文与 skills/rules reminder（原注入随历史被摘要替换而丢失），
-    // 前置拼进首条通知 user 消息，不新增消息以避免连续 user 消息的顺序问题
+    // 压缩后重新注入被压掉的 skill 原文与 skills/rules reminder（原注入随历史被摘要替换而丢失）
     const reminders = await generatePostCompactReminders(options.hasSkillTool ?? false, compactedSkills)
-    const compactedMessages = reminders.length > 0
-      ? prependBlocksToLeadingUserMsg(compactResult.messages, reminders)
-      : compactResult.messages
 
-    // 组合结果示例（工具调用场景）：
-    //   [compactNotice(user), summaryMsg(assistant), lastRealUserMsg(user), assistantMsg(assistant), toolResult(user)]
-    // 组合结果示例（新查询场景）：
-    //   [compactNotice(user), summaryMsg(assistant), newUserQuery(user)]
-    // 两种场景均以 user 消息结尾，API 调用合法
+    const instruction = compactedUserMsg && !userMsgSurvived ? extractUserInstructionText(compactedUserMsg) : ''
+    const instructionBlocks: Anthropic.ContentBlockParam[] = instruction
+      ? [{ type: 'text', text: `${LATEST_USER_INSTRUCTION_NOTICE}\n\n${instruction}` }]
+      : []
+
+    let compactedMessages: Message[]
+    if (compactResult.kind === 'summary') {
+      // 单条 user 前缀：[reminders..., 包装后的摘要, 用户指令原文]
+      compactedMessages = [buildUserMsg([
+        ...reminders,
+        { type: 'text', text: wrapCompactSummary(compactResult.summary) },
+        ...instructionBlocks,
+      ])]
+    } else {
+      // 截断兜底：前置拼进首条截断通知 user 消息，不新增消息
+      const extraBlocks = [...reminders, ...instructionBlocks]
+      compactedMessages = extraBlocks.length > 0
+        ? prependBlocksToLeadingUserMsg(compactResult.messages, extraBlocks)
+        : compactResult.messages
+    }
+
+    // 组合结果示例（长工具轮次场景）：
+    //   [prefix(user), assistant(tool_use), toolResult(user), ..., assistant(tool_use), toolResult(user)]
+    // 组合结果示例（短轮次 / 新查询场景）：
+    //   [prefix(user), lastRealUserMsg(user), ...]  → 连续 user 由 prepareMessagesForApi 合并
     const finalMessages = [...compactedMessages, ...messagesToKeep]
 
-    logDebug(`[Compact] Final messages count: ${finalMessages.length}, kept current turn: ${messagesToKeep.length} messages`)
+    logDebug(`[Compact] Final messages count: ${finalMessages.length}, kept: ${messagesToKeep.length} messages`)
+
+    emitAutoCompactUsage(
+      tokenBefore,
+      messagesToCompact,
+      compactedMessages,
+      sessionId,
+      compactResult.kind,
+      compactResult.kind === 'truncated' ? compactResult.reason : undefined,
+    )
 
     return {
       changed: true,
@@ -661,12 +902,13 @@ async function executeAutoCompact(
   // 使用 null tool 作为占位，避免模型调用任何工具
   const tools = [NULL_TOOL]
 
-  // 将压缩指令作为 user message 追加到要压缩的历史对话后
-  // 无自定义指示时 buildCompressionPrompt 返回 COMPRESSION_PROMPT 原文，自动压缩路径行为不变
-  const messagesWithPrompt = [
-    ...prepareMessagesForApi([...messages]),
+  // 将压缩指令作为 user message 追加到要压缩的历史对话后，再统一规范化：
+  // 被压区可能以 user(tool_result) 结尾（自动压缩切在轮次边界），规范化会把连续 user 合并
+  // 无自定义指示时 buildCompressionPrompt 返回 COMPRESSION_PROMPT 原文
+  const messagesWithPrompt = prepareMessagesForApi([
+    ...messages,
     buildUserMsg(buildCompressionPrompt(customInstructions))
-  ]
+  ])
 
   const summaryResponse = await compactDependencies.queryLLM(
     messagesWithPrompt,
@@ -708,7 +950,8 @@ async function executeAutoCompact(
   const compactNoticeMessage = buildUserMsg(COMPACT_RESUME_NOTICE)
 
   // 修正 usage：压缩后的实际 token 数应该是压缩通知 + 摘要内容
-  // 估算：压缩通知约 30 tokens，摘要使用 completion_tokens
+  // 估算：压缩通知约 30 tokens，摘要使用 completion_tokens。
+  // countTokens 把 input + output 作为"该点的上下文占用"，摘要只计入 input，output 置 0 避免双计
   const originalUsage = summaryResponse.message.usage as any
   const estimatedNoticeTokens = 30
   const summaryTokens = originalUsage.completion_tokens || originalUsage.output_tokens || 0
@@ -725,17 +968,16 @@ async function executeAutoCompact(
         ...originalUsage,
         // 修正 input_tokens：压缩通知 + 摘要内容
         input_tokens: correctedInputTokens,
-        // 修正 output_tokens：摘要内容
-        output_tokens: summaryTokens,
+        output_tokens: 0,
         // 如果是 OpenAI 格式，也要修正
         prompt_tokens: correctedInputTokens,
-        completion_tokens: summaryTokens,
+        completion_tokens: 0,
       }
     }
   }
 
   logDebug(
-    `[Compact] Corrected summary usage: originalInput=${originalInputTokens}, originalOutput=${originalOutputTokens}, correctedInput=${correctedInputTokens}, correctedOutput=${summaryTokens}`
+    `[Compact] Corrected summary usage: originalInput=${originalInputTokens}, originalOutput=${originalOutputTokens}, correctedInput=${correctedInputTokens}, correctedOutput=0`
   )
 
   // 构建压缩后的消息列表（只包含压缩通知和摘要，不包含新用户消息）

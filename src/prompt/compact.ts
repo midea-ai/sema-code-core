@@ -35,6 +35,7 @@ Rules:
 - Prefer full source over paraphrase.
 - This summarization request itself is not part of the conversation — never list it as a user message, task, or next step.
 - <reminder-sys> blocks are system-injected context, not user messages; attribute their constraints to the system, except blocks explicitly relaying a new user message, which count as user messages.
+- If the conversation starts with a summary of earlier context, fold its facts into your output instead of expanding on it; keep the result at most as long as that summary plus the new events.
 `
 
 /**
@@ -52,10 +53,29 @@ export const COMPACT_RESUME_NOTICE =
   'This session continues a conversation that ran out of context; the assistant message below summarizes the earlier portion. Resume the last task exactly where it left off — do not acknowledge the summary, do not recap, and do not ask the user to confirm.'
 
 /**
- * 手动 /compact 的摘要包装（摘要以文本形式嵌入 user 消息，前后语义与 COMPACT_RESUME_NOTICE 一致）
+ * 自动压缩把最后一条真实用户消息压进摘要时，在摘要后原样回注该指令的前置说明：
+ * 摘要只是转述，原文保证模型不丢失用户措辞与约束
+ */
+export const LATEST_USER_INSTRUCTION_NOTICE =
+  "The user's most recent instruction, quoted verbatim (it was part of the compacted portion):"
+
+/**
+ * 摘要包装的起始句：压缩逻辑用它识别 user 消息里的摘要块（不是用户原话，不得当作指令回注）
+ */
+export const COMPACT_SUMMARY_LEAD = 'This session continues a conversation that ran out of context.'
+
+/**
+ * 截断兜底通知的起始句，用途同上
+ */
+export const CONTEXT_TRUNCATED_NOTICE_LEAD = 'Context truncated due to token limit.'
+
+/**
+ * 摘要包装（摘要以文本形式嵌入 user 消息，前后语义与 COMPACT_RESUME_NOTICE 一致）。
+ * 手动 /compact 与自动压缩共用：自动压缩的保留区可能以 assistant(tool_use) 开头，
+ * 前缀必须是 user 消息才能保证角色交替合法
  */
 export function wrapCompactSummary(summary: string): string {
-  return `This session continues a conversation that ran out of context. Summary of the earlier portion:
+  return `${COMPACT_SUMMARY_LEAD} Summary of the earlier portion:
 
 ${summary}
 

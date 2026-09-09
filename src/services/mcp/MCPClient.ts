@@ -76,6 +76,13 @@ export class MCPClient {
       this._status = 'error'
       const errorMsg = error instanceof Error ? error.message : String(error)
       logError(`MCP Server [${this.config.name}] 连接失败: ${errorMsg}`)
+      // 超时或失败时关掉 transport：stdio 方式已 spawn 的子进程否则会一直活着
+      try {
+        await this.transport?.close()
+      } catch {
+        // 忽略清理错误
+      }
+      this.transport = null
       throw error
     }
   }

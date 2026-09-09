@@ -86,8 +86,9 @@ class MCPManager {
 
   // Server 信息缓存
   private serverInfoCache: MCPServerInfo[] | null = null
-  // 后台加载 Promise
-  private loadingPromise: Promise<MCPServerInfo[]> | null = null
+  // 刷新排队链：所有刷新串行执行，并发进来的刷新看到的是上一次的完整结果，
+  // 避免两次刷新交错时把同一个服务当成"新增"连两遍（新会话级联刷新与构造首刷在启动时会重叠）
+  private refreshChain: Promise<MCPServerInfo[]> = Promise.resolve([])
 
   // MCP 客户端（用于工具调用）
   private clients: Map<string, MCPClient> = new Map()
@@ -100,19 +101,9 @@ class MCPManager {
     this.semaProjectConfigPath = path.join(cwd, '.sema', '.mcp.json')
 
     // 后台静默加载 MCP 配置
-    this.loadingPromise = this.refreshMCPServerConfigs()
-      .catch(err => {
-        logError(`后台加载 MCP 配置失败: ${err}`)
-        return [] as MCPServerInfo[]
-      })
-      .finally(() => { this.loadingPromise = null })
-  }
-
-  /**
-   * 清空缓存
-   */
-  private invalidateCache(): void {
-    this.serverInfoCache = null
+    this.refreshMCPServerConfigs().catch(err => {
+      logError(`后台加载 MCP 配置失败: ${err}`)
+    })
   }
 
   // ==================== 配置文件读取 ====================
@@ -278,7 +269,7 @@ class MCPManager {
    * 按优先级加载：插件 -> 用户级 -> 项目级
    * 后加载的覆盖先加载的
    */
-  private async loadServers(): Promise<void> {
+  private async loadServers(): Promise<MCPServerInfo[]> {
     const serverMap = new Map<string, MCPServerInfo>()
     const semaDisabled = this.readDisabledUnion()
     const semaUseToolsMap: Record<string, string[]> = this.readUseToolsMerged()
@@ -322,7 +313,8 @@ class MCPManager {
     // 清理 settings.json 中已不存在的 server 记录
     this.cleanupStaleSettings(serverMap)
 
-    this.serverInfoCache = Array.from(serverMap.values())
+    // 只返回不发布：由 doRefresh 同步补齐状态后一次性替换缓存
+    return Array.from(serverMap.values())
   }
 
   /**
@@ -378,21 +370,39 @@ class MCPManager {
     info.connectStatus = 'connecting'
     info.error = undefined
     eventBus.emit('mcp:server:status', info)
+    // 连接期间可能发生过刷新，缓存里已是新建的条目（复制了 connecting 状态），结果要写到当前条目上，
+    // 否则界面永远看到 connecting。条目已不存在（被移除或 dispose）、已禁用或配置已变时，这次连接就过期了：
+    // 不写缓存、不进 clients
+    const target = (): MCPServerInfo | null => {
+      const cur = this.serverInfoCache?.find(s => s.config.name === name)
+      return cur && cur.status && this.isConfigEqual(cur.config, info.config) ? cur : null
+    }
     try {
       await this.disconnectClient(name)
       const client = new MCPClient(info.config)
       await client.connect()
+      const cur = target()
+      // 开头已清过同名客户端，落地时又出现说明并发连接先落地了：先落地者赢，自己丢弃，避免覆盖与泄漏
+      if (!cur || this.clients.has(name)) {
+        logDebug(`MCP Server [${name}] 连接完成时条目已变或已有连接落地，丢弃本次连接`)
+        await client.disconnect()
+        return
+      }
       this.clients.set(name, client)
-      info.connectStatus = client.status
-      info.capabilities = client.capabilities ?? undefined
-      info.connectedAt = Date.now()
+      cur.connectStatus = client.status
+      cur.capabilities = client.capabilities ?? undefined
+      cur.connectedAt = Date.now()
+      cur.error = undefined
       logDebug(`MCP Server [${name}] 连接成功`)
-      eventBus.emit('mcp:server:status', info)
+      eventBus.emit('mcp:server:status', cur)
     } catch (err) {
-      info.connectStatus = 'error'
-      info.error = String(err)
+      const cur = target()
+      // 条目已变，或已有别的连接落地（同配置的重复连接后失败）：不把 error 写到别人的结果上
+      if (!cur || this.clients.has(name)) return
+      cur.connectStatus = 'error'
+      cur.error = String(err)
       logError(`连接 MCP Server [${name}] 失败: ${err}`)
-      eventBus.emit('mcp:server:status', info)
+      eventBus.emit('mcp:server:status', cur)
     }
   }
 
@@ -467,44 +477,45 @@ class MCPManager {
    * 初始化 MCP Manager（等待首次加载完成）
    */
   async init(): Promise<void> {
-    if (this.loadingPromise) {
-      await this.loadingPromise
-    } else if (!this.serverInfoCache) {
-      await this.refreshMCPServerConfigs()
-    }
+    await this.refreshChain
+    if (!this.serverInfoCache) await this.refreshMCPServerConfigs()
   }
 
   /**
-   * 获取所有 MCP Server 信息（有缓存则直接返回，否则等待后台加载或重新加载）
+   * 获取所有 MCP Server 信息（有缓存则直接返回，否则等待正在进行的刷新或重新加载）
    */
   async getMCPServerConfigs(): Promise<MCPServerInfo[]> {
     if (this.serverInfoCache) return this.serverInfoCache
-    if (this.loadingPromise) return this.loadingPromise
-    return this.refreshMCPServerConfigs()
+    await this.refreshChain
+    return this.serverInfoCache ?? this.refreshMCPServerConfigs()
   }
 
   /**
-   * 刷新 MCP Server 信息
+   * 刷新 MCP Server 信息（串行排队，见 refreshChain）
    * 对比配置变化，仅重连配置有变动或新增的服务器，配置未变且已连接的保留现有连接
    */
-  async refreshMCPServerConfigs(): Promise<MCPServerInfo[]> {
-    if (this.loadingPromise) return this.loadingPromise
+  refreshMCPServerConfigs(): Promise<MCPServerInfo[]> {
+    const run = this.refreshChain.then(() => this.doRefresh())
+    // 链上只记结果，失败不阻断后续刷新；错误由调用方的 run 拿到
+    this.refreshChain = run.catch(() => this.serverInfoCache ?? [])
+    return run
+  }
+
+  private async doRefresh(): Promise<MCPServerInfo[]> {
     logDebug('刷新 MCP Server 信息...')
     const oldCache = this.serverInfoCache ? [...this.serverInfoCache] : null
 
-    // 重新加载配置（不触发连接）
-    this.invalidateCache()
-    await this.loadServers()
-
-    const newCache = this.serverInfoCache!
+    // 重新加载配置（不触发连接），此时缓存仍是旧的
+    const newCache = await this.loadServers()
     const newNames = new Set(newCache.map(s => s.config.name))
 
-    // 断开已移除的服务器
+    // 已移除的服务器：稍后断开
     const removedNames = Array.from(this.clients.keys()).filter(name => !newNames.has(name))
-    await Promise.all(removedNames.map(name => this.disconnectClient(name)))
 
-    // 对每个新配置，判断是否需要重连
+    // 对每个新配置判断去向。这一段必须同步：从旧条目继承状态要在发布新缓存之前完成，
+    // 发布之后不再回写，否则在途连接在 await 期间写进新缓存的结果会被旧状态盖掉
     const toConnect: MCPServerInfo[] = []
+    const toDisconnect: string[] = []
     for (const newInfo of newCache) {
       const name = newInfo.config.name
       const oldInfo = oldCache?.find(s => s.config.name === name)
@@ -512,11 +523,7 @@ class MCPManager {
 
       if (!newInfo.status) {
         // 已禁用 → 断开连接
-        if (existingClient) {
-          await this.disconnectClient(name)
-          newInfo.connectStatus = 'disconnected'
-          newInfo.capabilities = undefined
-        }
+        if (existingClient) toDisconnect.push(name)
         continue
       }
 
@@ -525,13 +532,17 @@ class MCPManager {
         newInfo.connectStatus = oldInfo.connectStatus
         newInfo.capabilities = oldInfo.capabilities
         newInfo.connectedAt = oldInfo.connectedAt
+        newInfo.error = oldInfo.error
         logDebug(`MCP Server [${name}] 配置未变更，保持现有连接`)
       } else {
-        // 新增或配置有变 → 需要重连
-        if (existingClient) await this.disconnectClient(name)
+        // 新增或配置有变 → 需要重连（connectServer 开头会断开旧客户端）
         toConnect.push(newInfo)
       }
     }
+
+    // 一次性发布新缓存；之后只做断开与连接，状态由 connectServer 写到当前缓存条目上
+    this.serverInfoCache = newCache
+    await Promise.all([...removedNames, ...toDisconnect].map(name => this.disconnectClient(name)))
 
     // 后台连接变更/新增的服务器
     for (const info of toConnect) {
@@ -622,6 +633,11 @@ class MCPManager {
     const info = this.serverInfoCache?.find(s => s.config.name === name)
     if (!info) {
       logWarn(`重连 MCP Server 失败: 未找到 [${name}]`)
+      return this.getMCPServerConfigs()
+    }
+    // 连接中再点重连会起第二个连接，先完成的客户端没人引用就泄漏了；连接中直接忽略，等这次出结果
+    if (info.connectStatus === 'connecting') {
+      logInfo(`MCP Server [${name}] 正在连接中，忽略重复的重连请求`)
       return this.getMCPServerConfigs()
     }
     await this.connectServer(info)

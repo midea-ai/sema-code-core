@@ -67,6 +67,17 @@ public sealed class SemaSession
     public Task UpdatePermissionLevel(PermissionLevel level)
         => VoidCall("updatePermissionLevel", Json.Obj(("level", level)));
 
+    /// <summary>
+    /// 切换本会话主模型（仅本会话生效、不落盘；其他会话与全局指针不受影响）。
+    /// 生效主模型有变化时本会话收到 <c>model:update</c>；返回会话视角的 <see cref="ModelUpdateData"/>。
+    /// </summary>
+    public async Task<ModelUpdateData?> SwitchModel(string modelName)
+        => Json.To<ModelUpdateData>(await Req("switchModel", Json.Obj(("modelName", modelName))).ConfigureAwait(false));
+
+    /// <summary>本会话视角的模型数据：ModelName / TaskConfig.Main 为会话生效值，ModelList / TaskConfig.Quick 沿用全局。</summary>
+    public async Task<ModelUpdateData?> GetModelData()
+        => Json.To<ModelUpdateData>(await Req("getModelData", null).ConfigureAwait(false));
+
     // ── fork / 撤销回退 ──────────────────────────────────────────────────
 
     public async Task<ForkPreview?> GetForkPreview(string messageUuid)

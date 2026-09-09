@@ -73,11 +73,13 @@ await sema.addModel({
 
 ### 切换当前使用的模型
 
-使用 `switchModel` 方法切换主任务模型：
+使用 `switchModel` 方法切换全局主任务模型：
 
 ```javascript
 await sema.switchModel('MiniMax-M2.5[minimax]')
 ```
+
+> 每个会话在创建时钉住当时的全局主模型，之后全局 `switchModel` 只影响新创建的会话。要切换某个已打开会话的主模型，用 `session.switchModel(modelName)`，只对该会话生效、不写配置文件。
 
 ### 删除模型
 

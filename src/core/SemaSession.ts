@@ -9,7 +9,7 @@ import { getTaskManager } from '../manager/TaskManager';
 import { getModelManager } from '../manager/ModelManager';
 import { ToolPermissionResponse, PickOptionResponseData, PlanExitResponseData } from '../events/types';
 import { TaskListItem } from '../types/task';
-import type { AgentMode, PermissionLevel } from '../types';
+import type { AgentMode, PermissionLevel, ModelUpdateData } from '../types';
 import type { InputImageAttachment } from '../types/message';
 import { logInfo } from '../util/log';
 
@@ -73,6 +73,8 @@ export class SemaSession {
   // ==================== 会话级配置 ====================
   updateAgentMode = (mode: AgentMode): void => this.engine.updateAgentMode(mode);
   updatePermissionLevel = (level: PermissionLevel): void => this.engine.updatePermissionLevel(level);
+  switchModel = async (modelName: string): Promise<ModelUpdateData> => getModelManager().switchSessionModel(this.sessionId, modelName);
+  getModelData = (): Promise<ModelUpdateData> => getModelManager().getModelData(this.sessionId);
 
   // ==================== 会话 Fork / 撤销 ====================
   /** 预览：在该用户消息处恢复文件会改动哪些文件、各自增删行数（只读，无副作用） */

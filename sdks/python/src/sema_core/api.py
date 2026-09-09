@@ -394,6 +394,15 @@ class SemaSession:
     async def update_permission_level(self, level: "PermissionLevel") -> None:
         await self._call("updatePermissionLevel", {"level": level})
 
+    async def switch_model(self, model_name: str) -> "ModelUpdateData":
+        """切换本会话主模型（仅本会话生效、不落盘；其他会话与全局指针不受影响）。
+        生效主模型有变化时本会话收到 model:update；返回会话视角的 ModelUpdateData。"""
+        return _parse(await self._call("switchModel", {"modelName": model_name}))
+
+    async def get_model_data(self) -> "ModelUpdateData":
+        """本会话视角的模型数据：modelName/taskConfig.main 为会话生效值，modelList/taskConfig.quick 沿用全局。"""
+        return _parse(await self._call("getModelData", None))
+
     async def get_fork_preview(self, message_uuid: str) -> "ForkPreview":
         return _parse(await self._call("getForkPreview", {"messageUuid": message_uuid}))
 

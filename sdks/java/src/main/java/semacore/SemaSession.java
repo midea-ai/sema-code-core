@@ -97,6 +97,19 @@ public final class SemaSession {
         send("updatePermissionLevel", Json.obj("level", level));
     }
 
+    /**
+     * 切换本会话主模型（仅本会话生效、不落盘；其他会话与全局指针不受影响）。
+     * 生效主模型有变化时本会话收到 {@code model:update}；返回会话视角的 {@link ModelUpdateData}。
+     */
+    public ModelUpdateData switchModel(String modelName) {
+        return call("switchModel", Json.obj("modelName", modelName), ModelUpdateData.class);
+    }
+
+    /** 本会话视角的模型数据：modelName / taskConfig.main 为会话生效值，modelList / taskConfig.quick 沿用全局。 */
+    public ModelUpdateData getModelData() {
+        return call("getModelData", null, ModelUpdateData.class);
+    }
+
     // ── fork / 撤销回退 ──────────────────────────────────────────────────
 
     public ForkPreview getForkPreview(String messageUuid) {

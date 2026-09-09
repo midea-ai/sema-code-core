@@ -6,6 +6,7 @@ import { testApiConnection } from '../services/api/apiUtil';
 import { getModelConfigFilePath } from '../util/savePath';
 import { convertToModelProfile, findModelProfile, parseModelName, createDefaultConfig, validateProviderName } from '../util/model';
 import { logWarn, logError } from '../util/log';
+import { getEventBus } from '../events/EventSystem';
 
 
 /**
@@ -140,6 +141,11 @@ export class ModelManager {
     await this.saveConfig();
     const modelList = this.config.modelProfiles.map(p => p.name);
 
+    // 被会话级覆盖钉住的模型删掉后，这些会话回退全局指针，各自收到一次会话级 model:update
+    for (const sessionId of this.clearSessionOverridesOf(name)) {
+      getEventBus().emit('model:update', this.buildModelData(sessionId), sessionId);
+    }
+
     return {
       modelName: this.config.modelPointers.main,
       modelList,
@@ -239,6 +245,76 @@ export class ModelManager {
   }
 
   /**
+   * 切换会话级主模型：只改该会话的 main 覆盖，保留已有 quick 覆盖，不写 model.conf。
+   * 模型不存在抛错；返回该会话视角的模型数据。
+   * 该会话生效的 main 确有变化时在会话总线上 emit 'model:update'，切到已生效的模型不发事件。
+   */
+  switchSessionModel(sessionId: string, name: string): ModelUpdateData {
+    if (!findModelProfile(name, this.config.modelProfiles)) {
+      throw new Error(`模型不存在: ${name}`);
+    }
+    const before = this.buildModelData(sessionId).modelName;
+    this.sessionOverrides.set(sessionId, { ...this.sessionOverrides.get(sessionId), main: name });
+    const data = this.buildModelData(sessionId);
+    if (data.modelName !== before) {
+      getEventBus().emit('model:update', data, sessionId);
+    }
+    return data;
+  }
+
+  /**
+   * 把当前全局 main 指针钉进会话覆盖（只钉 main，quick 不钉），使会话创建后不受全局指针变化影响。
+   * 会话已有 main 覆盖、或全局 main 为空/解析不到 profile 时不钉（后者让会话继续跟随全局，
+   * 以便先开会话再添加首个模型的场景仍可用）。
+   */
+  pinSessionMainToGlobal(sessionId: string): void {
+    if (this.sessionOverrides.get(sessionId)?.main) return;
+    const globalMain = this.config.modelPointers?.main;
+    if (!globalMain || !findModelProfile(globalMain, this.config.modelProfiles)) return;
+    this.sessionOverrides.set(sessionId, { ...this.sessionOverrides.get(sessionId), main: globalMain });
+  }
+
+  /**
+   * 清除所有会话中指向该模型的覆盖（deleteModel 内部调用）。
+   * 只返回 main 覆盖被清除的 sessionId（这些会话生效的主模型已回退全局，需要发 model:update）；
+   * 仅 quick 覆盖被清除的会话不在其列，因为会话视角的 ModelUpdateData 不体现 quick 覆盖，发了也无变化。
+   */
+  private clearSessionOverridesOf(name: string): string[] {
+    const affected: string[] = [];
+    for (const [sessionId, override] of this.sessionOverrides) {
+      if (override.main === name) {
+        delete override.main;
+        affected.push(sessionId);
+      }
+      if (override.quick === name) {
+        delete override.quick;
+      }
+      if (!override.main && !override.quick) {
+        this.sessionOverrides.delete(sessionId);
+      }
+    }
+    return affected;
+  }
+
+  /**
+   * 拼装模型数据：传入 sessionId 时 modelName 与 taskConfig.main 为该会话生效值
+   * （覆盖优先，回退全局指针），modelList 与 taskConfig.quick 沿用全局。
+   */
+  private buildModelData(sessionId?: string): ModelUpdateData {
+    const globalMain = this.config.modelPointers.main;
+    const overrideMain = sessionId ? this.sessionOverrides.get(sessionId)?.main : undefined;
+    const main = overrideMain && findModelProfile(overrideMain, this.config.modelProfiles) ? overrideMain : globalMain;
+    return {
+      modelName: main,
+      modelList: this.config.modelProfiles.map(p => p.name),
+      taskConfig: {
+        main,
+        quick: this.config.modelPointers.quick
+      }
+    };
+  }
+
+  /**
    * 获取指定类型的模型配置
    * 传入 sessionId 时优先使用该会话的覆盖；覆盖的模型已不存在则告警并回退全局指针
    */
@@ -272,21 +348,10 @@ export class ModelManager {
   }
 
   /**
-   * 获取当前模型数据
+   * 获取当前模型数据；传入 sessionId 时返回该会话视角（main 取会话覆盖，其余沿用全局）
    */
-  async getModelData(): Promise<ModelUpdateData> {
-    const modelList = this.config.modelProfiles.map(p => p.name);
-
-    const result: ModelUpdateData = {
-      modelName: this.config.modelPointers.main,
-      modelList,
-      taskConfig: {
-        main: this.config.modelPointers.main,
-        quick: this.config.modelPointers.quick
-      }
-    };
-
-    return result;
+  async getModelData(sessionId?: string): Promise<ModelUpdateData> {
+    return this.buildModelData(sessionId);
   }
 
 }

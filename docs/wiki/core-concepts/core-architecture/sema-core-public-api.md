@@ -52,8 +52,8 @@ interface CreateSessionOptions {
   sessionId?: string             // 可选：恢复指定历史会话；不传则新建
   agentMode?: 'Agent' | 'Plan' | 'Design'
   permissionLevel?: 'Ask' | 'AutoEdit' | 'AutoRun' | 'Bypass'   // 可选：会话初始权限档位，默认 'Ask'
-  mainModel?: string             // 可选：会话级主要模型（profile 名，同 switchModel 参数），仅本会话生效、不持久化
-  quickModel?: string            // 可选：会话级快速模型，同上；不传沿用全局模型配置
+  mainModel?: string             // 可选：会话级主要模型（profile 名，同 switchModel 参数），仅本会话生效、不持久化；不传则钉住创建时刻的全局 main
+  quickModel?: string            // 可选：会话级快速模型，同上；不传沿用全局 quick 指针（跟随全局变化）
 }
 
 type CreateSessionResult =
@@ -91,15 +91,17 @@ addModel(config: ModelConfig, skipValidation?: boolean): Promise<ModelUpdateData
 // 删除模型
 delModel(modelName: string): Promise<ModelUpdateData>
 
-// 切换当前主模型
+// 切换全局主模型指针
 switchModel(modelName: string): Promise<ModelUpdateData>
 
 // 配置 main / quick 双模型指针
 applyTaskModel(config: TaskConfig): Promise<ModelUpdateData>
 
-// 获取模型数据快照
+// 获取全局视角的模型数据快照
 getModelData(): Promise<ModelUpdateData>
 ```
+
+> 主模型是会话级的：每个会话在创建时钉住当时的全局 main（或 `createSession({ mainModel })` 指定的模型），之后 `switchModel` / `applyTaskModel` 改的是全局指针，只影响之后创建的会话。要改某个已打开会话的主模型用 `SemaSession.switchModel()`，查看会话实际生效的模型用 `SemaSession.getModelData()`。`delModel` 删除的模型若被某些会话钉住，这些会话回退全局并各自收到会话级 `model:update`。quick 指针不钉住，改动对所有会话即时生效。
 
 ## 工具 API（无会话状态依赖）
 

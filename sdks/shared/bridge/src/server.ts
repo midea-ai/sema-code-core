@@ -138,9 +138,17 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         // 并跨连接广播 model:update，让兄弟面板（聊天页模型指示器）同步刷新（D2；对齐 VSCode onModelUpdate 双面板广播）。
         case 'addModel':         { const r = await manager.instance.addModel(payload.config, payload.skipValidation); broadcast('model:update', r); ack(id, r); return; }
         case 'delModel':         { const r = await manager.instance.delModel(payload.modelName); broadcast('model:update', r); ack(id, r); return; }
-        case 'switchModel':      { const r = await manager.instance.switchModel(payload.modelName); broadcast('model:update', r); ack(id, r); return; }
+        // switchModel / getModelData 双层级：带 session_id → 会话级（只改/只看该会话，会话级 model:update 由 SessionBinder 按 sessionId 帧下发，不做进程级广播）；
+        // session_id 空 → 全局指针（只影响之后创建的会话）。
+        case 'switchModel': {
+          if (sessionId) { ack(id, await (requireSession(sessionId, action) as any).switchModel(payload.modelName)); return; }
+          const r = await manager.instance.switchModel(payload.modelName); broadcast('model:update', r); ack(id, r); return;
+        }
         case 'applyTaskModel':   { const r = await manager.instance.applyTaskModel(payload); broadcast('model:update', r); ack(id, r); return; }
-        case 'getModelData':     { const data = await manager.instance.getModelData(); ack(id, data); return; }
+        case 'getModelData': {
+          if (sessionId) { ack(id, await (requireSession(sessionId, action) as any).getModelData()); return; }
+          ack(id, await manager.instance.getModelData()); return;
+        }
         case 'listSessions':     ack(id, { sessions: manager.listSessions() }); return;
         case 'setActiveSession': ack(id, { ok: manager.instance.setActiveSession(payload.sessionId) }); return;
 

@@ -25,6 +25,7 @@ import type { AgentContext } from '../types/agent'
 import { getStateManager, MAIN_AGENT_ID, PendingUserInput, SessionRuntime } from '../manager/StateManager';
 import { getCheckpointManager } from '../manager/CheckpointManager';
 import { handleCommand } from '../services/commands/runCommand';
+import { getPluginsManager } from '../services/plugins/pluginsManager';
 import { getTaskManager } from '../manager/TaskManager';
 import { getCronManager } from '../manager/CronManager';
 import { handlequickchat } from '../util/quickchat';
@@ -85,9 +86,20 @@ export class SemaEngine {
     if (opts.mainModel || opts.quickModel) {
       getModelManager().setSessionModelOverride(this.sessionId, { main: opts.mainModel, quick: opts.quickModel });
     }
+    // 未指定 mainModel：钉住创建时刻的全局 main（只钉 main），之后全局 switchModel/applyTaskModel 不再影响本会话；
+    // 全局 main 为空或解析不到时不钉，会话继续跟随全局
+    if (!opts.mainModel) {
+      getModelManager().pinSessionMainToGlobal(this.sessionId);
+    }
 
     // 初始化系统配置与模型检查
     await this.initialize();
+
+    // 新会话重扫插件清单（本地磁盘读取），完成后级联后台刷新 agents/skills/commands/MCP，
+    // 使运行期间新装/手改的插件与配置无需重启 core 即可在新会话生效
+    await getPluginsManager().refreshMarketplacePluginsInfo().catch(err => {
+      logWarn(`新会话刷新插件信息失败: ${err instanceof Error ? err.message : String(err)}`);
+    });
 
     // 会话级配置：Agent 模式
     const coreConfig = getConfManager().getCoreConfig();

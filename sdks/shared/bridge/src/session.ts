@@ -18,6 +18,9 @@ export const SESSION_EVENTS = [
   'conversation:usage', 'file:reference',
   'permissionLevel:update', 'quickchat:response',
   'hook:notice',
+  // 会话级模型变更（SemaSession.switchModel / delModel 清除会话覆盖后），帧带 sessionId；
+  // 与进程级 model:update 广播帧（sessionId 空）是两条路，客户端按 (event, sessionId) 精确匹配不会重复投递
+  'model:update',
 ];
 
 /** 事件推送回调：把会话事件写回对应的 gRPC 流，并带上所属 session_id */

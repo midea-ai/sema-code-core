@@ -83,3 +83,7 @@ dotnet add package Semacore
 ```
 
 各语言的 Quickstart 与接入指南见 `sdks/<lang>/README.md`，可运行示例见 `example/<lang>-demo`。
+
+## API 对照
+
+四语言方法名、参数、事件与类型的对照表只维护一份：[docs/wiki/sdk/api-reference.md](../docs/wiki/sdk/api-reference.md)（对外文档站「API 与事件对照」页）。SDK 接口变更时同步更新该文件。

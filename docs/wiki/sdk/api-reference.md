@@ -1,16 +1,31 @@
 # API 与事件对照
 
-各语言 SDK 是 Node 版 sema-core 的镜像客户端,方法名/参数名/事件名与 core 一一对应。本文按**导入与入口**、**进程级 API**、**会话级 API**、**事件**、**类型清单**五部分给出对照,方便跨语言查阅。安装与生命周期见 [SDK 概述](wiki/sdk/overview)。
+各语言 SDK 是 Node 版 sema-core 的镜像客户端,方法名/参数名/事件名与 core 一一对应。本文按**导入与入口**、**进程级 API**、**会话级 API**、**事件**、**类型清单**五部分给出对照,方便跨语言查阅。安装与生命周期见 [SDK 概述](wiki/sdk/overview)。本文是 SDK 接口的唯一对照表,SDK 接口变更时同步更新此文。
 
 ## 一、导入与入口
 
-core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`sema-core/types`(配置/参数/返回)、`sema-core/event`(事件数据)。各语言 SDK 提供对应入口,类型名跨语言完全一致。
+core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`sema-core/types`(配置/参数/返回)、`sema-core/event`(事件数据)。各语言 SDK 提供对应入口,**类型名跨语言完全一致**(均 PascalCase、与 core 同名,不像方法名要按语言转写),差异只在导入语法;字段名亦保持 wire 上的 camelCase(C# 属性 PascalCase + `[JsonPropertyName]` 锚定 wire 名)。
 
 | 入口 | Node | Python | Java | C# |
 | --- | --- | --- | --- | --- |
 | 主 API | `import { SemaCore } from 'sema-core'` | `from sema_core import SemaCore` | `import semacore.*;` | `using Semacore;` |
 | 类型 | `import { ModelConfig } from 'sema-core/types'` | `from sema_core.types import ModelConfig` | `import semacore.type.*;` | `using Semacore.Types;` |
 | 事件 | `import { TextChunkData } from 'sema-core/event'` | `from sema_core.event import TextChunkData` | `import semacore.event.*;` | `using Semacore.Events;` |
+
+> 各入口都带 `core`、无 `com`/`github`/`sdk`。连字符仅 Node 合法;Python 用下划线 `sema_core`,Java 包名/C# 命名空间不允许连字符故写作 `semacore` / `Semacore`(C# 命名空间取品牌词一体化 PascalCase `Semacore`,避免与主类 `SemaCore` 同名冲突:`using SemaCore;` 后 `SemaCore.Start(...)` 会被解析成命名空间成员查找而编译失败)。
+
+### 命名与形态约定
+
+| 维度 | sema-core (Node) | Python | Java | C# |
+| --- | --- | --- | --- | --- |
+| 方法名 | `camelCase` | `snake_case` | `camelCase` | `PascalCase` |
+| 事件订阅 | `on("session:ready", …)`(事件字符串) | 同 Node(裸字符串) | 同 Node(裸字符串) | 同 Node(裸字符串) |
+| 返回数据 | 原生类型 | `dict` / `list`(TypedDict 类型化) | 强类型 DTO(同步直接返回,见下方说明) | 强类型 DTO(`Task<T>`) |
+| 类型 DTO | `sema-core` / `/types` / `/event` | `sema_core` / `.types` / `.event` | `semacore.type` / `semacore.event` | `Semacore.Types` / `Semacore.Events` |
+
+> **异步/同步形态**:Python 协程 / C# `Task` 为异步,调用需 `await`;**Java 为同步阻塞、直接返回结果**,请求方法内部阻塞、直接返回强类型 DTO,不暴露 `CompletableFuture`、无需 `join`(语义等价于其它语言的 `await` 行);各语言中 Node 侧 `void` 的方法仍无返回。⚠️ Java 会阻塞的方法不要在事件回调线程里调用(会死锁)。
+>
+> 下表 `sema-core` 列以 `await` 前缀标注该方法在 Node 侧即为异步;未加前缀表示 Node 侧同步。跨语言经 gRPC 桥调用必为一次往返,故「Node 同步 / SDK 跨进程」这一差异不在「差异点备注」逐条重复,备注仅记录方法名/参数名/返回值/行为上的真实差异,无则记 `—`。参数中必填项标注 `(必填)`,无参数记为 `—`。
 
 ---
 
@@ -27,7 +42,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await createSession` | `create_session` | `createSession` | `CreateSession` | `opts: CreateSessionOptions` | — |
+| `await createSession` | `create_session` | `createSession` | `CreateSession` | `opts: CreateSessionOptions` | `opts` 含 `sessionId?/agentMode?/permissionLevel?/mainModel?/quickModel?`;`mainModel`/`quickModel` 为会话级模型覆盖(profile 名,同 switchModel 参数),仅本会话生效、不持久化;`mainModel` 不传则钉住创建时刻的全局 main |
 | `getSession` | `session` / `get_session` | `session` / `getSession` | `Session` / `GetSession` | `sessionId: string`(必填) | core 查池、无则 `undefined`;SDK 只造句柄、恒有返回,用时才校验存在 |
 | `listSessions` | `list_sessions` | `listSessions` | `ListSessions` | — | — |
 | `setActiveSession` | `set_active_session` | `setActiveSession` | `SetActiveSession` | `sessionId: string`(必填) | — |
@@ -48,10 +63,10 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
 | `await addModel` | `add_model` | `addModel` | `AddModel` | `config: ModelConfig`(必填), `skipValidation: boolean` | — |
-| `await delModel` | `del_model` | `delModel` | `DelModel` | `modelName: string`(必填) | — |
-| `await switchModel` | `switch_model` | `switchModel` | `SwitchModel` | `modelName: string`(必填) | — |
-| `await applyTaskModel` | `apply_task_model` | `applyTaskModel` | `ApplyTaskModel` | `config: TaskConfig`(必填) | — |
-| `await getModelData` | `get_model_data` | `getModelData` | `GetModelData` | — | — |
+| `await delModel` | `del_model` | `delModel` | `DelModel` | `modelName: string`(必填) | 被会话钉住的模型删除后,这些会话回退全局并各自收到会话级 `model:update` |
+| `await switchModel` | `switch_model` | `switchModel` | `SwitchModel` | `modelName: string`(必填) | 切全局主模型指针,只影响之后创建的会话;已打开会话用 `SemaSession.switchModel` |
+| `await applyTaskModel` | `apply_task_model` | `applyTaskModel` | `ApplyTaskModel` | `config: TaskConfig`(必填) | `main` 同 switchModel 只影响新会话;`quick` 不钉住,对所有会话即时生效 |
+| `await getModelData` | `get_model_data` | `getModelData` | `GetModelData` | — | 全局视角;会话实际生效的模型用 `SemaSession.getModelData` |
 
 ### 配置管理
 
@@ -98,8 +113,10 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getSkillsInfo` | `get_skills_info` | `getSkillsInfo` | `GetSkillsInfo` | `concise: boolean`, `refresh: boolean` | — |
+| `await getSkillsInfo` | `get_skills_info` | `getSkillsInfo` | `GetSkillsInfo` | `concise: boolean`, `refresh: boolean` | 返回含禁用项,`status: false` 表示已禁用 |
 | `await removeSkillConf` | `remove_skill_conf` | `removeSkillConf` | `RemoveSkillConf` | `name`(必填) | — |
+| `await enableSkill` | `enable_skill` | `enableSkill` | `EnableSkill` | `name`(必填) | 写入层跟随技能所在层(用户级技能全局生效) |
+| `await disableSkill` | `disable_skill` | `disableSkill` | `DisableSkill` | `name`(必填) | 写入 settings 的 `disabledSkills`(用户级+项目级并集生效) |
 
 ### Commands 管理
 
@@ -118,9 +135,9 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `await addMCPServer` | `add_mcp_server` | `addMCPServer` | `AddMCPServer` | `mcpConfig: MCPServerConfig`(必填) | — |
 | `await removeMCPServer` | `remove_mcp_server` | `removeMCPServer` | `RemoveMCPServer` | `name`(必填) | — |
 | `await reconnectMCPServer` | `reconnect_mcp_server` | `reconnectMCPServer` | `ReconnectMCPServer` | `name`(必填) | — |
-| `await disableMCPServer` | `disable_mcp_server` | `disableMCPServer` | `DisableMCPServer` | `name`(必填) | — |
-| `await enableMCPServer` | `enable_mcp_server` | `enableMCPServer` | `EnableMCPServer` | `name`(必填) | — |
-| `await updateMCPUseTools` | `update_mcp_use_tools` | `updateMCPUseTools` | `UpdateMCPUseTools` | `name`(必填), `toolNames: string[]`(必填) | — |
+| `await disableMCPServer` | `disable_mcp_server` | `disableMCPServer` | `DisableMCPServer` | `name`(必填) | 写入 settings 的 `disabledMcpServers`(用户级+项目级并集生效),写入层跟随 server 所在层 |
+| `await enableMCPServer` | `enable_mcp_server` | `enableMCPServer` | `EnableMCPServer` | `name`(必填) | 只从 server 所在层移除禁用记录;另一层仍禁用时不会连接 |
+| `await updateMCPUseTools` | `update_mcp_use_tools` | `updateMCPUseTools` | `UpdateMCPUseTools` | `name`(必填), `toolNames: string[] \| null`(必填,null=全部可用) | 写入 settings 的 `enabledMcpServerUseTools`(用户级打底、项目级同名覆盖),写入层跟随 server 所在层 |
 
 ### Memory 管理
 
@@ -185,6 +202,8 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | --- | --- | --- | --- | --- | --- |
 | `updateAgentMode` | `update_agent_mode` | `updateAgentMode` | `UpdateAgentMode` | `mode: AgentMode`(必填) | — |
 | `updatePermissionLevel` | `update_permission_level` | `updatePermissionLevel` | `UpdatePermissionLevel` | `level: PermissionLevel`(必填) | — |
+| `await switchModel` | `switch_model` | `switchModel` | `SwitchModel` | `modelName: string`(必填) | 只切本会话主模型(不落盘);生效主模型有变化时本会话收到 `model:update`。全局指针用 `SemaCore.switchModel`,只影响之后创建的会话 |
+| `await getModelData` | `get_model_data` | `getModelData` | `GetModelData` | — | 会话视角:`modelName`/`taskConfig.main` 为会话生效值,`modelList`/`taskConfig.quick` 沿用全局 |
 
 ### 会话 Fork / 撤销
 
@@ -192,6 +211,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | --- | --- | --- | --- | --- | --- |
 | `getForkPreview` | `get_fork_preview` | `getForkPreview` | `GetForkPreview` | `messageUuid: string`(必填) | — |
 | `await fork` | `fork` | `fork` | `Fork` | `messageUuid: string`(必填), `options: ForkOptions` | — |
+| `await branch` | `branch` | `branch` | `Branch` | `beforeMessageUuid: string` | 分支到新聊天:复制截断历史到新会话(源会话与工作区不动),返回 `BranchResult`(含新 sessionId);锚点缺省则全量复制 |
 
 ### 后台任务(仅本会话)
 
@@ -214,7 +234,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 ## 四、事件(Events)
 
-事件名跨语言完全一致,各端都用同一个**事件字符串**订阅(如 `session.on("plan:implement", ...)`),与 Node 写法一致——SDK 不提供事件名常量。各事件的数据结构类型见[五、类型清单](#五类型清单)。
+事件名跨语言完全一致,各端都用同一个**事件字符串**订阅(如 `session.on("plan:implement", ...)`),与 Node 写法一致,SDK 不提供事件名常量。各事件的数据结构类型见[五、类型清单](#五类型清单)。
 
 ### 会话级事件
 
@@ -227,8 +247,9 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `session:cleared` | `SessionClearedData` | 会话历史被清空 |
 | `state:update` | `StateUpdateData` | `idle` / `processing` |
 | **输入与消息流** | | |
-| `input:received` | `InputReceivedData` | 收到用户输入(处理中则入队等待)；`source` 标记来源(缺省 `user`，`cron`=定时任务自动发送) |
-| `input:processing` | `InputProcessingData` | 开始处理该用户输入；`source` 含义同上 |
+| `input:received` | `InputReceivedData` | 收到用户输入(处理中则入队等待);`source` 标记来源(缺省 `user`,`cron`=定时任务自动发送) |
+| `input:processing` | `InputProcessingData` | 开始处理该用户输入;`source` 含义同上 |
+| `input:predict` | `InputPredictData` | 用户输入预测结果(需 `enableInputPrediction` 开启;`prediction` 空串表示预计不回复,UI 应清空提示) |
 | `message:text:chunk` | `TextChunkData` | 回复文本流式增量 |
 | `message:thinking:chunk` | `ThinkingChunkData` | 思考内容流式增量 |
 | `message:complete` | `MessageCompleteData` | 一条 AI 消息完成(完整内容 + 工具调用) |
@@ -252,9 +273,11 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | **其它状态与统计** | | |
 | `topic:update` | `TopicUpdateData` | 会话话题标题更新 |
 | `compact:exec` | `CompactExecData` | 上下文压缩统计 |
+| `compact:micro` | `CompactMicroData` | Micro 压缩统计(旧工具结果替换为占位符;历史未被摘要替换,UI 不应据此隐藏 transcript) |
 | `conversation:usage` | `ConversationUsageData` | token 用量 |
 | `file:reference` | `FileReferenceData` | 文件/目录引用解析结果 |
 | `permissionLevel:update` | `PermissionLevelUpdateData` | 权限档位变更(Ask / AutoEdit / AutoRun / Bypass) |
+| `model:update` | `ModelUpdateData` | 本会话生效主模型变化(`session.switchModel`,或被钉住的模型被删除后回退全局);与下方进程级同名广播互不重复 |
 | `quickchat:response` | `quickchatResponseData` | 旁路问答,不影响主对话 |
 | `hook:notice` | `HookNoticeData` | hook 提示(`kind`: `systemMessage` 展示 / `warning` 告警 / `blocked` 输入被拦截),展示给用户、不进模型上下文 |
 
@@ -273,7 +296,7 @@ core 无此事件,由 gRPC 桥合成,仅在 SDK 侧存在。
 
 | 事件名 | 数据(参数) | 说明 |
 | --- | --- | --- |
-| `model:update` | 模型数据 | 模型变更跨连接广播(进程级) |
+| `model:update` | 模型数据 | 全局模型变更(`addModel`/`delModel`/`switchModel`/`applyTaskModel`)跨连接广播(进程级,`SemaCore.on` 订阅) |
 | `task:watch:delta` | `{taskId, delta}` | `watchTask` 流式输出,内部使用 |
 
 ---
@@ -281,6 +304,12 @@ core 无此事件,由 gRPC 桥合成,仅在 SDK 侧存在。
 ## 五、类型清单
 
 导入写法见[一、导入与入口](#一导入与入口);下列符号名在各语言中完全一致,按语言换用对应入口即可。
+
+### 主入口 `sema-core`
+
+```
+SemaCore, SemaSession                                        // 主类:进程级 / 会话级
+```
 
 ### 类型 `sema-core/types`
 
@@ -292,7 +321,7 @@ FetchModelsParams, FetchModelsResult                         // 拉取可用模�
 ApiTestParams, ApiTestResult                                 // API 连通测试:参数 / 结果
 ToolInfo, FileReferenceInfo                                  // 工具信息 / 文件引用
 AgentConfig, AgentScope                                      // Agents:配置 / 作用域
-SkillConfig, SkillScope                                      // Skills:配置 / 作用域
+SkillConfig, SkillScope                                      // Skills:配置(含 status 启用态)/ 作用域
 CommandConfig, CommandScope                                  // Commands:配置 / 作用域
 MCPServerConfig, MCPServerInfo                               // MCP:配置 / 运行信息
 MemoryConfig, RuleConfig, RuleScope                          // Memory / Rule(含作用域)
@@ -307,6 +336,10 @@ InputImageAttachment                                         // 图片附件(pro
 MAIN_AGENT_ID                                                // 常量:主代理 agentId
 ```
 
+> `Fork*` 与 `InputImageAttachment` 归 `types` 入口(Python 已如此;Node 侧 `index.ts` 待同步,原在主入口导出)。
+>
+> `defaultCoreConfig`(含超大默认 systemPrompt)与 `TOOL_NAME_*` 常量暂未纳入 SDK,如需再议。
+>
 > `systemPromptMode`:`'append'`(默认,配置的 systemPrompt 叠加在内置提示词前)| `'replace'`(替换内置系统提示词,memory/env 上下文仍附加)| `'replaceAll'`(完全替换,系统提示词仅为 systemPrompt,不附加 memory/env/gitStatus,turn-level reminder 也不注入 MEMORY.md);replace/replaceAll 未配 systemPrompt 时回落 append。仅构造时生效,不支持动态更新。
 
 ### 事件数据 `sema-core/event`
@@ -314,12 +347,12 @@ MAIN_AGENT_ID                                                // 常量:主代理
 ```
 SessionReadyData, SessionInterruptedData, SessionErrorData, SessionClearedData  // 会话:就绪/中断/错误/清空
 AppSessionState, StateUpdateData                             // 运行状态:状态枚举 / 更新事件
-InputReceivedData, InputProcessingData                       // 用户输入:已接收 / 开始处理
+InputReceivedData, InputProcessingData, InputPredictData     // 用户输入:已接收 / 开始处理 / 下一句预测
 ThinkingChunkData, TextChunkData, MessageCompleteData        // AI 消息:思考增量 / 文本增量 / 完成
 ToolPermissionRequestData, ToolPermissionAutoData, ToolPermissionResponse  // 工具权限:请求 / 自动放行 / 应答
 ToolExecutionCompleteData, ToolExecutionChunkData, ToolExecutionErrorData   // 工具执行:完成 / 中间态 / 错误
 TodosUpdateData, PermissionLevelUpdateData, TopicUpdateData  // 待办更新 / 档位更新 / 主题更新
-Usage, ConversationUsageData, CompactExecData               // 用量 / 对话用量 / 压缩统计
+Usage, ConversationUsageData, CompactExecData, CompactMicroData  // 用量 / 对话用量 / 压缩统计 / micro 压缩统计
 FileReferenceData                                           // 文件引用
 PickOptionQuestion, PickOptionRequestData, PickOptionResponseData  // 问答:题型(判别联合) / 请求 / 应答
 PlanExitRequestData, PlanExitResponseData, PlanImplementData       // Plan 模式:退出请求 / 应答 / 实施
@@ -329,3 +362,5 @@ quickchatResponseData                                       // quickchat 旁路�
 CronUpdateData, MCPServerStatusData                         // 进程级事件数据:cron 变更 / MCP 状态
 ProcessEvent                                                // 进程级事件名联合
 ```
+
+> `EventListener` / `EventBusInterface`(core 的 JS 事件总线接口)不镜像,各 SDK 有各自的 `on`/`once`/`wait_for` 订阅模型。判别联合 `PickOptionQuestion` 建 tagged 层级(Python `Union` + `Literal`,Java sealed 层级,C# 多态 record)。

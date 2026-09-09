@@ -77,9 +77,9 @@ service SemaBridge {
 | `init`           | 初始化/确认 SemaCore 就绪（非破坏式），payload 为核心配置对象；ack 回 `{ ready: true }` |
 | `addModel`       | 添加模型，`{ config, skipValidation? }`                     |
 | `delModel`       | 删除模型，`{ modelName }`                                  |
-| `switchModel`    | 切换模型，`{ modelName }`                                  |
+| `switchModel`    | 切换全局主模型指针，`{ modelName }`；只影响之后创建的会话（已打开会话各自钉住创建时刻的 main）。带 `session_id` 时改为会话级，见下表 |
 | `applyTaskModel` | 应用任务模型，`{ main, quick }`                             |
-| `getModelData`   | 获取模型信息（数据随 `ack` 的 `data` 返回）                  |
+| `getModelData`   | 获取全局视角模型信息（数据随 `ack` 的 `data` 返回）。带 `session_id` 时改为会话视角，见下表 |
 | `updateCoreConfig` | 更新核心配置                                             |
 | `listSessions`   | 列出会话 ID（随 `ack` 的 `data.sessions` 返回）             |
 | `createSession`  | 创建会话，可选 `{ sessionId?, permissionLevel?, agentMode?, mainModel?, quickModel? }`（`mainModel`/`quickModel` 为会话级模型覆盖，profile 名，仅本会话生效、不持久化）；`ack` 回 `{ sessionId }`，随后触发 `session:ready` |
@@ -96,6 +96,8 @@ service SemaBridge {
 | `respondToPlanExit`        | 回应计划退出请求，`{ selected }`                         |
 | `updateAgentMode`          | 切换代理模式，`{ mode }`                                |
 | `updatePermissionLevel`    | 切换权限档位，`{ level }`                               |
+| `switchModel`              | 切换本会话主模型，`{ modelName }`；仅本会话生效、不落盘，其他会话与全局指针不受影响；`ack` 回会话视角 `ModelUpdateData`；生效主模型确有变化时才下发会话级 `model:update` |
+| `getModelData`             | 获取本会话视角模型信息：`modelName`/`taskConfig.main` 为会话生效值，`modelList`/`taskConfig.quick` 沿用全局 |
 
 ### 典型调用流程
 
@@ -141,6 +143,7 @@ init  ─▶  addModel  ─▶  applyTaskModel  ─▶  createSession
 | `pick:option:request`      | AI 发起选项询问     |
 | `plan:exit:request`        | AI 请求退出计划模式  |
 | `permissionLevel:update`   | 权限档位变更        |
+| `model:update`             | 本会话模型变更（会话级 `switchModel`，或被钉住的模型被删除后回退全局）；进程级模型广播同名但 `session_id` 留空 |
 | `conversation:usage`       | Token 使用统计     |
 | `file:reference`           | 文件引用信息        |
 | `ack`                      | 指令确认（含 `cmd_id`）|

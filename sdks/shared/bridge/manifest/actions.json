@@ -11,9 +11,9 @@
     "updateCoreConfByKey": { "level": "core", "payload": ["key", "value"], "ack": "delivery" },
     "addModel": { "level": "core", "payload": ["config", "skipValidation"], "ack": "value", "note": "并广播 model:update" },
     "delModel": { "level": "core", "payload": ["modelName"], "ack": "value", "note": "并广播 model:update" },
-    "switchModel": { "level": "core", "payload": ["modelName"], "ack": "value", "note": "并广播 model:update" },
+    "switchModel": { "level": "core|session", "payload": ["modelName"], "ack": "value", "note": "session_id 空：切全局指针并广播 model:update（只影响之后创建的会话）；带 session_id：只切该会话主模型（不落盘），生效主模型有变化时会话级 model:update 按 sessionId 帧下发" },
     "applyTaskModel": { "level": "core", "payload": ["main", "quick"], "ack": "value", "note": "并广播 model:update" },
-    "getModelData": { "level": "core", "payload": [], "ack": "value" },
+    "getModelData": { "level": "core|session", "payload": [], "ack": "value", "note": "session_id 空：全局视角；带 session_id：该会话视角（main 为会话生效值，modelList/quick 沿用全局）" },
     "fetchAvailableModels": { "level": "core", "payload": ["<参数对象透传>"], "ack": "value" },
     "testApiConnection": { "level": "core", "payload": ["<参数对象透传>"], "ack": "value" },
     "getModelAdapter": { "level": "core", "payload": ["provider", "modelName", "baseURL"], "ack": "value" },
@@ -93,11 +93,12 @@
       "compact:exec",
       "conversation:usage", "file:reference",
       "permissionLevel:update", "quickchat:response",
-      "hook:notice"
+      "hook:notice",
+      "model:update"
     ],
     "process": ["cron:update", "mcp:server:status"],
     "synthetic": {
-      "model:update": "模型变更四连的跨连接广播（进程级帧）",
+      "model:update": "模型变更四连的跨连接广播（进程级帧，sessionId 空）；会话级 switchModel / delModel 清除会话覆盖后另有会话级帧（带 sessionId）",
       "task:watch:delta": "watchTask 的增量输出（会话级帧）"
     }
   }

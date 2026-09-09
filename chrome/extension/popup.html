@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Sema 浏览器控制</title>
+<style>
+  body { font: 13px/1.5 system-ui, -apple-system, sans-serif; margin: 0; width: 320px; color: #1f2933; background: #fff; }
+  section { padding: 12px 14px; border-bottom: 1px solid #e5e7eb; }
+  section:last-child { border-bottom: 0; }
+  h1 { font-size: 14px; margin: 0 0 6px; display: flex; align-items: center; gap: 8px; }
+  h2 { font-size: 12px; margin: 0 0 6px; color: #52606d; font-weight: 600; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #9aa5b1; flex: none; }
+  .dot.on { background: #16a34a; }
+  .dot.off { background: #d13438; }
+  .dot.stopped { background: #d97706; }
+  .muted { color: #7b8794; font-size: 12px; margin: 0; word-break: break-all; }
+  ul { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+  li { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  li .host { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; flex: 1; word-break: break-all; }
+  li .kind { font-size: 11px; color: #7b8794; flex: none; }
+  button { font: inherit; padding: 4px 10px; border-radius: 5px; border: 1px solid #cbd5e1; background: #fff; color: #1f2933; cursor: pointer; }
+  button.link { border: 0; padding: 2px 4px; color: #b42318; font-size: 12px; }
+  button.stop { width: 100%; padding: 9px 0; font-weight: 600; background: #d13438; border-color: #d13438; color: #fff; }
+  button.resume { width: 100%; padding: 9px 0; font-weight: 600; background: #16a34a; border-color: #16a34a; color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .empty { color: #9aa5b1; font-size: 12px; }
+  .stopped-note { color: #b45309; font-size: 12px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+  <section>
+    <h1><span class="dot" id="dot"></span><span id="state">连接中…</span></h1>
+    <p class="muted" id="detail"></p>
+  </section>
+  <section>
+    <button id="stop" class="stop" hidden>立即停止</button>
+    <button id="resume" class="resume" hidden>允许继续</button>
+    <p class="stopped-note" id="stoppedNote" hidden>已停止。Agent 的浏览器操作会立即失败，直到你点"允许继续"或重启宿主应用。</p>
+  </section>
+  <section>
+    <h2>站点授权</h2>
+    <ul id="auth"></ul>
+    <div class="empty" id="authEmpty" hidden>还没有授权任何站点。Agent 第一次访问某个站点时会弹窗询问。</div>
+  </section>
+  <script src="popup.js"></script>
+</body>
+</html>

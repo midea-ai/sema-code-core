@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "chrome": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "sema-chrome-host"]
+    }
+  }
+}

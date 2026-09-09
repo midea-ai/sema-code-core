@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Sema Browser Control",
+  "version": "0.5.0",
+  "description": "让装在你自己电脑上的桌面助手在你的 Chrome 里打开、阅读和操作网页。",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlnC8k0KOD2ayAZlH031uJI1EaQZnGljat0HV8GVBQ+VItLI9QRrr6NHVcOXc6VBjmhK+J/sX/v4biNUZYTdKde3wYco1O04zTnNZYqKGu/3YMnHSpL9XupHqS/UqzsD7e5dcjv6GypEQ9gajY5e+zzuHkASHeI2YTBfI1JRuwSUERSBUjqy6Cdd6D01LvsOX8AhCPs7eJI98/vGB+5up9wehlzvI/1RChLAXHOFRSLZ29PWUTtTmLq93Wc8vAGmzMH7gIggp+GdX5TF0ESNO63PzNUk/nQHoTojv+3HV836L7EWJkSvjXonuePU6+7kewjmI2jNJwqPIjlBY/omi+QIDAQAB",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["tabs", "tabGroups", "scripting", "storage", "nativeMessaging", "webNavigation"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Sema 浏览器控制",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  }
+}

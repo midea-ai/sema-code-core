@@ -1,0 +1,5 @@
+# 根 .gitignore 忽略了所有 lib/（编译产物），这里的 lib/ 是源码，需要入库
+!extension/lib/
+!host/lib/
+# 根 .gitignore 忽略了 .sema/（项目运行时配置），这里的 .sema/ 是随目录分发的接入样例，需要入库
+!.sema/

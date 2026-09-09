@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Sema 站点授权</title>
+<style>
+  body { font: 14px/1.6 system-ui, -apple-system, sans-serif; margin: 0; padding: 24px 28px; color: #1f2933; background: #fff; }
+  h1 { font-size: 16px; margin: 0 0 12px; }
+  .host { font: 600 18px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; margin: 0 0 12px; color: #0b57d0; }
+  p { margin: 0 0 8px; color: #52606d; }
+  .actions { display: flex; gap: 10px; margin-top: 20px; }
+  button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; color: #1f2933; cursor: pointer; }
+  button.primary { background: #0b57d0; border-color: #0b57d0; color: #fff; }
+  button.danger { color: #b42318; margin-left: auto; }
+  .hint { font-size: 12px; color: #9aa5b1; margin-top: 14px; }
+</style>
+</head>
+<body>
+  <h1>Sema 想要访问这个站点</h1>
+  <div class="host" id="host"></div>
+  <p>允许后，Agent 可以在该站点打开页面、读取内容并操作。页面内容只发给本机的 Sema 运行时，不会发往其他服务。</p>
+  <div class="actions">
+    <button id="once">仅本次</button>
+    <button id="always" class="primary">总是允许</button>
+    <button id="deny" class="danger">拒绝</button>
+  </div>
+  <div class="hint" id="hint"></div>
+  <script src="authorize.js"></script>
+</body>
+</html>

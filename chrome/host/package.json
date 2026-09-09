@@ -1,0 +1,30 @@
+{
+  "name": "sema-chrome-host",
+  "version": "0.6.0",
+  "description": "Sema browser control: native messaging host and stdio MCP bridge for the Sema Browser Control Chrome extension",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "sema-chrome-host": "bridge.js",
+    "sema-chrome-native-host": "native-host.js"
+  },
+  "files": [
+    "bridge.js",
+    "native-host.js",
+    "lib/",
+    "README.md"
+  ],
+  "keywords": [
+    "sema",
+    "mcp",
+    "chrome",
+    "browser-automation",
+    "native-messaging"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.1"
+  }
+}

@@ -14,7 +14,6 @@ import { getTokens } from '../util/tokens'
 import { REQ_INTERRUPT_MSG, TOOL_INTERRUPT_MSG } from '../util/message'
 import { getStateManager, MAIN_AGENT_ID } from '../manager/StateManager'
 import { getEventBus } from '../events/EventSystem'
-import { getTaskManager } from '../manager/TaskManager'
 import { getAvailableTools } from '../tools/base/tools'
 import { getConfManager } from '../manager/ConfManager'
 import { generateRulesReminders, generateSkillsReminder } from '../services/agents/genSystemReminder'
@@ -48,7 +47,7 @@ export async function* ReAct(
     messages = micro.messages
 
     if (micro.needFullCompact) {
-      getTaskManager().disposeSession(sessionId);
+      // 不清后台任务：保留区仍含最近工具轮次，摘要也会记录任务状态，任务 ID 可继续查询
       const compactResult = await autoCompact(messages, abortController, sessionId, {
         hasSkillTool: tools.some(tool => tool.name === TOOL_NAME_SKILL),
       })

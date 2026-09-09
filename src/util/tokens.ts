@@ -3,7 +3,11 @@ import { isSyntheticAiMessage } from './message'
 import { Usage } from '../events/types'
 import { getModelManager } from '../manager/ModelManager'
 
-export function countTokens(messages: Message[]): { inputTokens: number; outputTokens: number } {
+/**
+ * 从后往前找最近一条带有效 usage 的 assistant 消息（跳过合成消息与零 usage），返回其 token 数。
+ * index 为该消息在 messages 中的下标，未找到时为 -1；调用方据此估算该消息之后新增的内容。
+ */
+export function countTokens(messages: Message[]): { inputTokens: number; outputTokens: number; index: number } {
   let i = messages.length - 1
   while (i >= 0) {
     const message = messages[i]
@@ -32,7 +36,8 @@ export function countTokens(messages: Message[]): { inputTokens: number; outputT
           }
           return {
             inputTokens,
-            outputTokens
+            outputTokens,
+            index: i,
           }
         } else if ('prompt_tokens' in usage && 'completion_tokens' in usage) {
           // OpenAI 格式
@@ -45,14 +50,15 @@ export function countTokens(messages: Message[]): { inputTokens: number; outputT
           }
           return {
             inputTokens,
-            outputTokens
+            outputTokens,
+            index: i,
           }
         }
       }
     }
     i--
   }
-  return { inputTokens: 0, outputTokens: 0 }
+  return { inputTokens: 0, outputTokens: 0, index: -1 }
 }
 
 export function getTokens(messages: Message[], sessionId?: string): Usage {

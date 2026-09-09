@@ -322,7 +322,7 @@ export interface CompactExecData {
 export interface CompactMicroData {
   clearedCount: number;          // 本次清理的 tool_result 块数
   estimatedSavedTokens: number;  // 估算释放的 token 数
-  estimatedTokenAfter: number;   // 清理后预估输入 token（清理前真实 usage − 估算节省，下限 0；清理前值见上一条 conversation:usage）
+  estimatedTokenAfter: number;   // 清理后预估上下文占用（清理前估算占用 − 估算节省，下限 0；口径与自动压缩判断一致：上次 usage 的 input + output + 其后新增消息估算）
   skippedFullCompact: boolean;   // 清理后是否足以跳过全量摘要
 }
 

@@ -4,7 +4,7 @@ import { countTokens } from './tokens'
 import { buildUserMsg, prepareMessagesForApi, REQ_INTERRUPT_MSG } from './message'
 import { queryLLM } from '../services/api/queryLLM'
 import { getModelManager } from '../manager/ModelManager'
-import { logDebug, logError, logWarn } from './log'
+import { logDebug, logError, logInfo, logWarn } from './log'
 import { getEventBus } from '../events/EventSystem'
 import { CompactExecData, CompactMicroData } from '../events/types'
 import { microCompactMessages, estimateTokensFromText } from './microcompact'
@@ -285,19 +285,30 @@ function emitCompactUsage(
 }
 
 /**
- * 根据令牌使用量判断是否应触发自动压缩
- * 只计算输入token数，因为API调用时主要关心的是输入token限制
+ * 估算当前上下文占用，口径为"即将发送的请求"：
+ * 最近有效 usage 的 input（上次请求的上下文）+ 该次 output（本次响应已进入上下文）
+ * + 该 assistant 之后新增消息（工具结果、新用户输入）的估算。
+ * 只看 input 会滞后一轮，单轮新增多个大工具结果时可能撞限。
+ * 没有任何有效 usage 时（如全是合成消息的历史）按全部消息估算。
+ * 压缩判断与 compact:micro 事件统计共用此函数，保证口径一致。
+ */
+function estimateContextTokens(messages: Message[]): number {
+  const { inputTokens, outputTokens, index } = countTokens(messages)
+  return inputTokens + outputTokens + estimateMessagesTokens(messages.slice(index + 1))
+}
+
+/**
+ * 根据令牌使用量判断是否应触发自动压缩（口径见 estimateContextTokens）
  *
- * @param discountTokens 估算折扣：countTokens 读的是上一次 API 响应的 usage，
- * micro 清理的节省要到下一次响应才可见，期间用该折扣修正判断。默认 0，行为与原先一致。
+ * @param discountTokens 估算折扣：usage 读的是上一次 API 响应，
+ * micro 清理的节省要到下一次响应才可见，期间用该折扣修正判断。默认 0。
+ * 传入的 messages 应是清理前的历史，否则 usage 下标之后被清理的块会在估算与折扣中重复扣减。
  */
 export function needsAutoCompact(messages: Message[], discountTokens = 0, sessionId?: string): boolean {
   if (messages.length < 3) return false
 
-  const inputTokenCount = countTokens(messages).inputTokens
   const autoCompactThreshold = getContextLimit(sessionId) * AUTO_COMPACT_THRESHOLD_RATIO
-
-  return (inputTokenCount - discountTokens) >= autoCompactThreshold
+  return (estimateContextTokens(messages) - discountTokens) >= autoCompactThreshold
 }
 
 export type MicroCompactApplyResult = {
@@ -324,11 +335,12 @@ export function applyMicroCompact(messages: Message[], sessionId?: string): Micr
       return { messages, needFullCompact: true, changed: false }
     }
 
-    const stillOver = needsAutoCompact(result.messages, result.estimatedSavedTokens, sessionId)
+    // 在清理前的 messages 上判断再减本次节省：清理后的消息里 usage 下标之后的块已是占位符，
+    // 若在其上估算再减全部节省，这部分会被扣两次而低估占用
+    const stillOver = needsAutoCompact(messages, result.estimatedSavedTokens, sessionId)
 
-    // estimatedTokenAfter = 上次 API 响应的真实 usage − 估算节省，与"要不要全量摘要"的判断口径一致；
-    // 清理前的值不重复携带（= 紧邻上一条 conversation:usage 的 promptTokens）
-    const tokenBefore = countTokens(result.messages).inputTokens
+    // estimatedTokenAfter = 清理前的估算占用 − 估算节省，与 stillOver 的判断口径完全一致
+    const tokenBefore = estimateContextTokens(messages)
     const microData: CompactMicroData = {
       clearedCount: result.clearedCount,
       estimatedSavedTokens: result.estimatedSavedTokens,
@@ -392,6 +404,12 @@ export async function compactMessages(
   try {
     const summaryResult = await executeAutoCompact(messages, abortController, sessionId, options.customInstructions)
 
+    // 用户中断：适配层不抛错而是返回部分内容，不能当成摘要，也不能进有损的截断兜底
+    if (abortController.signal.aborted) {
+      logInfo('[Compact] Aborted by user, keeping messages unchanged')
+      return { kind: 'unchanged', messages }
+    }
+
     if (summaryResult.kind === 'summary') {
       emitUsage(summaryResult.messages, 'summary')
       return summaryResult
@@ -416,6 +434,12 @@ export async function compactMessages(
       reason: summaryResult.reason,
     }
   } catch (error) {
+    // 用户中断（SDK 层抛出中断异常的路径）：同上，直接退出不降级
+    if (abortController.signal.aborted) {
+      logInfo('[Compact] Aborted by user, keeping messages unchanged')
+      return { kind: 'unchanged', messages }
+    }
+
     if (!allowTruncationFallback) {
       emitUsage(null, 'failed', 'COMPACT_ERROR', error)
       return {
@@ -560,7 +584,8 @@ function prependBlocksToLeadingUserMsg(
 
 /**
  * 按文本长度估算一组消息的 token 数（口径与 microcompact 一致）。
- * 仅用于 compact:exec 事件里被压区与新前缀的差值计算，不参与压缩决策。
+ * 用于 compact:exec 事件里被压区与新前缀的差值计算，以及 needsAutoCompact 对
+ * 最近 usage 之后新增消息的估算。
  */
 function estimateMessagesTokens(messages: Message[]): number {
   let total = 0

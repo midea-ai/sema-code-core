@@ -441,6 +441,20 @@ SubAgent 执行结束。
 }
 ```
 
+## 会话模型
+
+### `model:update`
+
+本会话生效的主模型发生变化时触发：`session.switchModel()` 切到不同模型，或被本会话钉住的模型被 `delModel` 删除后回退全局。切到已生效的模型不触发。
+
+```typescript
+{
+  modelName: string                          // 本会话生效的主模型 profile 名
+  modelList: string[]                        // 全局模型列表
+  taskConfig: { main: string; quick: string } // main 为本会话生效值，quick 沿用全局
+}
+```
+
 ## 定时任务
 
 ### `cron:update`

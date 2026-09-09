@@ -9,8 +9,8 @@ export interface PathRef { path: string; line?: number; endLine?: number }
 export interface PathStat { exists: boolean; isDir: boolean; inside: boolean; image: boolean }
 
 const MAX_CANDIDATES = 60;
-// 路径形态：可选盘符/~/./../ 前缀 + 若干段，段内允许字母数字 _ - . @ + 空格以外的常见字符；可带 :12 / :12-20 行号
-const PATH_RE = /^(?:[a-zA-Z]:[\\/]|~[\\/]|\.{1,2}[\\/]|[\\/])?[\w@.\-+]+(?:[\\/][\w@.\-+]+)*[\\/]?(?::\d+(?:[-~]\d+)?)?$/;
+// 路径形态：可选盘符/~/./../ 前缀 + 若干段，段内允许任意语言字母数字（\p{L}\p{N}，含中文）及 _ - . @ +；可带 :12 / :12-20 行号
+const PATH_RE = /^(?:[a-zA-Z]:[\\/]|~[\\/]|\.{1,2}[\\/]|[\\/])?[\p{L}\p{N}_@.\-+]+(?:[\\/][\p{L}\p{N}_@.\-+]+)*[\\/]?(?::\d+(?:[-~]\d+)?)?$/u;
 
 /** 是否像文件路径：必须含 / 或 .，排除 URL、含空白、版本号、纯数字、过长文本 */
 export function isPathCandidate(s: string): boolean {

@@ -28,6 +28,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "test": "tsx --test \"tests/**/*.test.ts\"",
     "lint": "eslint src/**/*.ts",
     "prepublishOnly": "npm run build"
   },

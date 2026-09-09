@@ -1010,11 +1010,16 @@ function truncateLines(lines: string[]): string[] {
 export function formatOutput(content: string, headTailLines = STDOUT_HEAD_TAIL_LINES, { resolveCR = true }: { resolveCR?: boolean } = {}) {
   // 处理 \r（回车符）：模拟终端行为，只保留每行最后一次 \r 后的内容
   const resolved = resolveCR
-    ? content.split('\n').map(line => {
-        if (!line.includes('\r')) return line
-        const parts = line.split('\r')
-        return parts[parts.length - 1]
-      }).join('\n')
+    ? content
+        // Windows 上 Python / PowerShell / cmd 的输出以 \r\n 结尾，行尾的 \r 是换行的一部分
+        // 而不是重绘，必须先归一，否则每行都会被下面的折叠抹成空串。
+        // 用 \r+ 是为了顺带处理 \r\r\n（程序写了 \r\n、运行时又翻译了一次 \n）。
+        .replace(/\r+\n/g, '\n')
+        .split('\n').map(line => {
+          if (!line.includes('\r')) return line
+          const parts = line.split('\r')
+          return parts[parts.length - 1]
+        }).join('\n')
     : content
   const lines = truncateLines(resolved.split('\n'))
   const totalLines = lines.length

@@ -196,8 +196,11 @@ export function prepareMessagesForApi(
             ...(Array.isArray(lastContent) ? lastContent : [{ type: 'text' as const, text: lastContent }]),
             ...(Array.isArray(currentContent) ? currentContent : [{ type: 'text' as const, text: currentContent }]),
           ]
+          // 合并后保留轮次锚点：压缩摘要 / 上下文重建消息在前、真实输入在后时，边界靠这一行传递
+          const checkpointSeq = lastMessage.checkpointSeq ?? message.checkpointSeq
           result[result.length - 1] = {
             ...lastMessage,
+            ...(checkpointSeq !== undefined ? { checkpointSeq } : {}),
             message: {
               ...lastMessage.message,
               content: mergedContent,

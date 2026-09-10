@@ -33,11 +33,3 @@ export function normalizeUrl(input: string): string {
   if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/.test(s)) return `http://${s}`;
   return `http://${s}`;
 }
-
-/** 从任意文本中提取本地 URL（工具输出发现 dev server 用） */
-export function extractLocalUrls(text: string): string[] {
-  const out = new Set<string>();
-  const re = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?(?:\/[^\s"'<>)\]]*)?/g;
-  for (const m of text.matchAll(re)) out.add(m[0].replace(/[.,;:]+$/, ''));
-  return [...out];
-}

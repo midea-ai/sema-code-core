@@ -206,6 +206,7 @@ export class MCPClient {
             properties: tool.inputSchema.properties as Record<string, any> | undefined,
             required: tool.inputSchema.required,
           },
+          annotations: tool.annotations,
         }))
       }
     } catch {

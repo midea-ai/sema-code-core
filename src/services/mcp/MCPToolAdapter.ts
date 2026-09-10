@@ -26,7 +26,11 @@ export function createMCPToolAdapter(
     description: toolDef.description || `MCP Tool: ${toolDef.name} from ${serverName}`,
     toolParams,
 
-    isSafe: () => false, 
+    isSafe: () => false,
+
+    // 仅 server 显式标 destructiveHint=true 且未标只读才算破坏性；未标注按协议默认应视为 true，
+    // 但这里刻意按「用户自装即信任」处理为非破坏性，否则 auto 模式下等同于全部转人工
+    isDestructive: () => toolDef.annotations?.destructiveHint === true && toolDef.annotations?.readOnlyHint !== true,
 
     async *call(input: z.infer<typeof toolParams>) {
 

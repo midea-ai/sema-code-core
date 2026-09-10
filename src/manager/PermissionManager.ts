@@ -631,7 +631,7 @@ type AutoApproveOutcome = { approved: boolean; byModel: boolean }
 
 /**
  * AutoRun 档位下尝试自动放行：
- * 1) 确定性：文件编辑只看路径（项目内放行/项目外转人工）；Skill 放行；MCP 转人工——均不走 LLM
+ * 1) 确定性：文件编辑只看路径（项目内放行/项目外转人工）；Skill 放行；MCP 只看 destructiveHint 注解——均不走 LLM
  * 2) fetch_url：先做确定性 SSRF 兜底（命中内网/元数据等直接转人工），未命中再交给快速模型判断
  * 3) 其余动作交给快速模型做安全判断；失败/超时/异常一律失败关闭（转人工）
  */
@@ -655,9 +655,12 @@ async function autoApproveInAutoRun(
     return { approved: true, byModel: false }
   }
 
-  // MCP：外部且不可逆的副作用，下游不再拦截，工具语义对模型不透明，未白名单一律转人工
+  // MCP：server 由用户自行安装，默认信任；仅 server 显式标注 destructiveHint=true（且非只读）的工具转人工，
+  // 未标注/只读一律放行。注解是 server 自报的提示而非安全边界，工具语义对模型不透明，故不交给快速模型判断
   if (isMCPTool(tool)) {
-    return { approved: false, byModel: false }
+    const destructive = tool.isDestructive?.() === true
+    if (destructive) logDebug(`[Permission][AutoRun]${tool.name} 标注 destructiveHint，转人工申请`)
+    return { approved: !destructive, byModel: false }
   }
 
   // fetch_url：先做确定性 SSRF 兜底，命中内网/链路本地/元数据等直接转人工，不交给模型

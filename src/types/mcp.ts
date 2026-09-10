@@ -49,6 +49,13 @@ export interface MCPServerConfig {
 /**
  * MCP 工具定义
  */
+export interface MCPToolAnnotations {
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
+}
+
 export interface MCPToolDefinition {
   name: string
   description?: string
@@ -57,6 +64,7 @@ export interface MCPToolDefinition {
     properties?: Record<string, any>
     required?: string[]
   }
+  annotations?: MCPToolAnnotations
 }
 
 /**

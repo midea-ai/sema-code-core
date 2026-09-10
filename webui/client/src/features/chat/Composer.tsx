@@ -330,7 +330,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
               onChange={changeLevel} compact tone={LEVEL_TONE[permissionLevel]}
               renderValue={v => <span>{t(`level.${v}` as any)}</span>} />
             <span className="flex-1" />
-            {usagePct !== null && <TokenProgress useTokens={usage!.useTokens} maxTokens={usage!.maxTokens} />}
+            {usagePct !== null && <TokenProgress useTokens={usage!.useTokens} maxTokens={usage!.maxTokens} promptTokens={usage!.promptTokens} cacheReadTokens={usage!.cacheReadTokens} />}
             {processing ? (
               <button onClick={() => interrupt(sessionId!).catch(e => toast(e.message, 'error'))} title={t('chat.stop')}
                 className="h-8 w-8 rounded-full bg-primary hover:bg-black text-white flex items-center justify-center"><Square size={12} fill="currentColor" /></button>
@@ -346,14 +346,17 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
 }
 
 /** 上下文用量：圆环 + 百分比（对齐插件 TokenProgress）；低占用只显圆环，hover 才显示数字 */
-function TokenProgress({ useTokens, maxTokens }: { useTokens: number; maxTokens: number }) {
+function TokenProgress({ useTokens, maxTokens, promptTokens, cacheReadTokens }: { useTokens: number; maxTokens: number; promptTokens: number; cacheReadTokens?: number }) {
   const pct = maxTokens > 0 ? Math.min((useTokens / maxTokens) * 100, 100) : 0;
   const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
   const low = pct < 50;
   const ring = pct > 85 ? 'stroke-danger' : pct > 60 ? 'stroke-warn' : 'stroke-fg/70';
   const text = pct > 85 ? 'text-danger' : 'text-muted';
+  // 服务商返回了缓存命中数才显示命中行；旧历史无该字段时不显示
+  const title = `${t('chat.usage')}已使用 ${fmt(useTokens)} / ${fmt(maxTokens)} tokens`
+    + (cacheReadTokens !== undefined ? `\n${t('chat.cacheHit')} ${fmt(cacheReadTokens)} / ${fmt(promptTokens)}` : '');
   return (
-    <div className="group flex items-center gap-1 h-7 px-1.5 mr-1.5 rounded-md select-none hover:bg-black/[0.04]" title={`${t('chat.usage')}已使用 ${fmt(useTokens)} / ${fmt(maxTokens)} tokens`}>
+    <div className="group flex items-center gap-1 h-7 px-1.5 mr-1.5 rounded-md select-none hover:bg-black/[0.04]" title={title}>
       <span className={cn('text-[11px] tabular-nums tracking-wide', text, low && 'hidden group-hover:inline')}>{pct.toFixed(1)}%</span>
       <svg viewBox="0 0 36 36" className="w-3.5 h-3.5 -rotate-90 shrink-0">
         <circle cx="18" cy="18" r="15.5" fill="none" strokeWidth="3.5" className="stroke-black/10" />

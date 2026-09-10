@@ -523,7 +523,7 @@ export function getPreviewSnapshot(sessionId: string, workingDir: string): Sessi
     state: PREVIEW_PROCESSING ? 'processing' : 'idle',
     agentMode: 'Agent',
     permissionLevel: 'Bypass',
-    usage: { useTokens: 42_000, maxTokens: 200_000, promptTokens: 38_000 },
+    usage: { useTokens: 42_000, maxTokens: 200_000, promptTokens: 38_000, cacheReadTokens: 35_000 },
     todos: MOCK_TODOS,
     blocks,
     turn: null,

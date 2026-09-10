@@ -288,6 +288,8 @@ export interface Usage {
   useTokens: number;    // 当前会话已使用的token数
   maxTokens: number;    // 模型最大token限制
   promptTokens: number; // 提示词使用的token数
+  cacheReadTokens?: number;  // 最近一次请求命中缓存的输入 token 数；缺失表示服务商未返回
+  cacheWriteTokens?: number; // 最近一次请求写入缓存的 token 数（仅 Anthropic 格式有）；缺失表示服务商未返回
 }
 
 /**

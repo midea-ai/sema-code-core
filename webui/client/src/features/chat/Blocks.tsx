@@ -12,7 +12,7 @@ import { Button, cn, Spinner, useCopy, Popover, MenuSep } from '../../common/ui'
 import { OpenWithItems, useOpenWithApps } from '../../common/openWith';
 import { api, getToken } from '../../api/http';
 import { contentToString, toolDisplayName, stripAnsi, fmtTime, displayPath } from '../../common/text';
-import { extractLocalUrls, normalizeUrl } from '../../common/url';
+import { normalizeUrl } from '../../common/url';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { t } from '../../i18n';
@@ -337,7 +337,6 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   /** skill：只显示「已使用技能 名称」，不展开内容，点技能名在右栏打开 SKILL.md */
   const isSkill = block.toolName === 'skill';
   const [open, setOpen] = useState(false);
-  const openBrowserTab = useApp(s => s.openBrowserTab);
 
   const bodyText = useMemo(() => {
     const parts: string[] = [];
@@ -348,7 +347,6 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
     }
     return parts.join('\n');
   }, [block.output, block.content]);
-  const localUrls = useMemo(() => (isShell || block.status === 'done') ? extractLocalUrls(bodyText).slice(0, 3) : [], [bodyText, isShell, block.status]);
   const diff = isDiffContent(block.content) ? block.content : null;
   const Icon = toolIcon(block.toolName);
   const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
@@ -370,15 +368,6 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
         {block.summary && !isShell && !isEdit && !isRead && !isSearch && !isGeneric && !isSkill && <span className="text-xs truncate max-w-[40%]">{block.summary}</span>}
         {isEdit && diff && <DiffStat patch={diff.patch} />}
       </div>
-      {localUrls.length > 0 && (
-        <div className="pl-6 pb-1 flex gap-1.5 flex-wrap">
-          {localUrls.map(u => (
-            <button key={u} onClick={() => openBrowserTab(ctx.sessionId, u)} className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-accent/10 border border-accent/20 text-xs text-accent hover:bg-accent/15">
-              <Globe size={11} /> {u}
-            </button>
-          ))}
-        </div>
-      )}
       {open && expandable && (
         <div className="pl-6 py-1">
           {isShell && block.summary && <div className="text-xs text-muted mb-1.5 whitespace-pre-wrap break-words">{block.title}</div>}

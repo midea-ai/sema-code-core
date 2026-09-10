@@ -7,7 +7,15 @@ import { getModelManager } from '../manager/ModelManager'
  * 从后往前找最近一条带有效 usage 的 assistant 消息（跳过合成消息与零 usage），返回其 token 数。
  * index 为该消息在 messages 中的下标，未找到时为 -1；调用方据此估算该消息之后新增的内容。
  */
-export function countTokens(messages: Message[]): { inputTokens: number; outputTokens: number; index: number } {
+export interface TokenCount {
+  inputTokens: number
+  outputTokens: number
+  index: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+}
+
+export function countTokens(messages: Message[]): TokenCount {
   let i = messages.length - 1
   while (i >= 0) {
     const message = messages[i]
@@ -34,13 +42,12 @@ export function countTokens(messages: Message[]): { inputTokens: number; outputT
             i--
             continue
           }
-          return {
-            inputTokens,
-            outputTokens,
-            index: i,
-          }
+          const result: TokenCount = { inputTokens, outputTokens, index: i }
+          if (typeof usage.cache_read_input_tokens === 'number') result.cacheReadTokens = usage.cache_read_input_tokens
+          if (typeof usage.cache_creation_input_tokens === 'number') result.cacheWriteTokens = usage.cache_creation_input_tokens
+          return result
         } else if ('prompt_tokens' in usage && 'completion_tokens' in usage) {
-          // OpenAI 格式
+          // OpenAI 格式（旧历史兼容，prompt_tokens 已含缓存部分）
           const inputTokens = usage.prompt_tokens
           const outputTokens = usage.completion_tokens
           // 如果 tokens 都为 0，跳过此消息，继续向前查找
@@ -48,11 +55,10 @@ export function countTokens(messages: Message[]): { inputTokens: number; outputT
             i--
             continue
           }
-          return {
-            inputTokens,
-            outputTokens,
-            index: i,
-          }
+          const result: TokenCount = { inputTokens, outputTokens, index: i }
+          const cached = usage.prompt_tokens_details?.cached_tokens ?? usage.prompt_cache_hit_tokens
+          if (typeof cached === 'number') result.cacheReadTokens = cached
+          return result
         }
       }
     }
@@ -72,10 +78,9 @@ export function getTokens(messages: Message[], sessionId?: string): Usage {
   // 如果没有找到模型配置，使用默认值
   const maxTokens = modelProfile?.contextLength || 128000;
 
-  return {
-    useTokens,
-    maxTokens,
-    promptTokens
-  };
+  const usage: Usage = { useTokens, maxTokens, promptTokens }
+  if (tokens.cacheReadTokens !== undefined) usage.cacheReadTokens = tokens.cacheReadTokens
+  if (tokens.cacheWriteTokens !== undefined) usage.cacheWriteTokens = tokens.cacheWriteTokens
+  return usage
 }
 

@@ -203,7 +203,12 @@ async function streamChat(
       prompt_tokens: finalResponse?.usage?.prompt_tokens || 0,
       completion_tokens: finalResponse?.usage?.completion_tokens || 0,
       total_tokens: (finalResponse?.usage?.prompt_tokens || 0) + (finalResponse?.usage?.completion_tokens || 0),
-    },
+      // 透传缓存命中字段：OpenAI 官方/Kimi/Qwen/GLM 用 prompt_tokens_details.cached_tokens，DeepSeek 用 prompt_cache_hit_tokens
+      ...(finalResponse?.usage?.prompt_tokens_details ? { prompt_tokens_details: finalResponse.usage.prompt_tokens_details } : {}),
+      ...((finalResponse?.usage as any)?.prompt_cache_hit_tokens !== undefined
+        ? { prompt_cache_hit_tokens: (finalResponse!.usage as any).prompt_cache_hit_tokens }
+        : {}),
+    } as OpenAI.CompletionUsage,
   };
 }
 
@@ -587,12 +592,29 @@ function convertToAiMessage(
       content: contentBlocks,
       stop_reason: mapFinishReasonToStopReason(choice?.finish_reason),
       stop_sequence: null,
-      usage: {
-        input_tokens: chatCompletion.usage?.prompt_tokens || 0,
-        output_tokens: chatCompletion.usage?.completion_tokens || 0,
-      },
+      usage: convertOpenAIUsage(chatCompletion.usage),
     } as any,
   }
+}
+
+/**
+ * 把 OpenAI 语义的 usage 转成 Anthropic 形态。
+ * OpenAI 的 prompt_tokens 已包含缓存命中部分，而 Anthropic 的 input_tokens 不含缓存部分，
+ * 各处求和（countTokens / compact）按 input + cache_creation + cache_read 计算，
+ * 因此这里必须写成 input_tokens = prompt_tokens - cached，避免重复计数。
+ */
+function convertOpenAIUsage(usage?: OpenAI.CompletionUsage): Record<string, number> {
+  const promptTokens = usage?.prompt_tokens || 0
+  const cached = usage?.prompt_tokens_details?.cached_tokens ?? (usage as any)?.prompt_cache_hit_tokens
+  const result: Record<string, number> = {
+    input_tokens: promptTokens,
+    output_tokens: usage?.completion_tokens || 0,
+  }
+  if (typeof cached === 'number') {
+    result.input_tokens = Math.max(0, promptTokens - cached)
+    result.cache_read_input_tokens = cached
+  }
+  return result
 }
 
 function safeParseJSON(jsonString?: string, toolName?: string): any {

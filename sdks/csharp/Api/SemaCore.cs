@@ -138,6 +138,9 @@ public sealed class SemaCore : IAsyncDisposable
     public Task<ModelUpdateData?> GetModelData()
         => Call<ModelUpdateData>("getModelData", null);
 
+    public Task<ModelProfile?> GetModelProfile(string provider, string modelName)
+        => Call<ModelProfile>("getModelProfile", Json.Obj(("provider", provider), ("modelName", modelName)));
+
     public Task<FetchModelsResult?> FetchAvailableModels(FetchModelsParams @params)
         => Call<FetchModelsResult>("fetchAvailableModels", @params);
 

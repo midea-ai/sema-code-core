@@ -67,6 +67,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `await switchModel` | `switch_model` | `switchModel` | `SwitchModel` | `modelName: string`(必填) | 切全局主模型指针,只影响之后创建的会话;已打开会话用 `SemaSession.switchModel` |
 | `await applyTaskModel` | `apply_task_model` | `applyTaskModel` | `ApplyTaskModel` | `config: TaskConfig`(必填) | `main` 同 switchModel 只影响新会话;`quick` 不钉住,对所有会话即时生效 |
 | `await getModelData` | `get_model_data` | `getModelData` | `GetModelData` | — | 全局视角;会话实际生效的模型用 `SemaSession.getModelData` |
+| `getModelProfile` | `get_model_profile` | `getModelProfile` | `GetModelProfile` | `provider: string`(必填), `modelName: string`(必填) | 只读,返回磁盘上的完整 `ModelProfile`(含明文 apiKey),不存在为 null/None;不触发 `model:update` |
 
 ### 配置管理
 
@@ -316,7 +317,7 @@ SemaCore, SemaSession                                        // 主类:进程级
 ```
 AgentMode, PermissionLevel, SystemPromptMode                 // Agent 模式 / 权限档位 / 系统提示词模式
 SemaCoreConfig, UpdatableCoreConfig, UpdatableCoreConfigKeys // Core 配置 / 可更新子集 / 可更新键名
-ModelConfig, TaskConfig, ModelInfo, ModelUpdateData          // 模型:配置 / 主快指针 / 模型项 / 变更结果
+ModelConfig, ModelProfile, TaskConfig, ModelInfo, ModelUpdateData // 模型:配置 / 磁盘完整 profile / 主快指针 / 模型项 / 变更结果
 FetchModelsParams, FetchModelsResult                         // 拉取可用模型:参数 / 结果
 ApiTestParams, ApiTestResult                                 // API 连通测试:参数 / 结果
 ToolInfo, FileReferenceInfo                                  // 工具信息 / 文件引用

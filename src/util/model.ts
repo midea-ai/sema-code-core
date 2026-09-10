@@ -67,7 +67,7 @@ export function findModelProfile(name: string, profiles: ModelProfile[]): ModelP
  * 将 ModelConfig 转换为 ModelProfile
  */
 export function convertToModelProfile(config: ModelConfig): ModelProfile {
-  return {
+  const profile: ModelProfile = {
     name: `${config.modelName}[${config.provider}]`,
     provider: config.provider,
     modelName: config.modelName,
@@ -77,4 +77,9 @@ export function convertToModelProfile(config: ModelConfig): ModelProfile {
     contextLength: config.contextLength,
     adapt: config.adapt
   };
+  // 只在有值时写入，避免配置文件出现 undefined 字段
+  if (config.thinkingHistoryPolicy) {
+    profile.thinkingHistoryPolicy = config.thinkingHistoryPolicy;
+  }
+  return profile;
 }

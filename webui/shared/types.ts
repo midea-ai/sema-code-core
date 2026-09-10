@@ -125,6 +125,8 @@ export interface Usage {
   useTokens: number;
   maxTokens: number;
   promptTokens: number;
+  cacheReadTokens?: number;  
+  cacheWriteTokens?: number; 
 }
 
 export interface TodoItem {

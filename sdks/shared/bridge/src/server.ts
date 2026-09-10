@@ -149,6 +149,8 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
           if (sessionId) { ack(id, await (requireSession(sessionId, action) as any).getModelData()); return; }
           ack(id, await manager.instance.getModelData()); return;
         }
+        // 进程级只读：ack 为磁盘上的完整 profile或 null，不广播事件
+        case 'getModelProfile':  ack(id, manager.instance.getModelProfile(payload.provider, payload.modelName)); return;
         case 'listSessions':     ack(id, { sessions: manager.listSessions() }); return;
         case 'setActiveSession': ack(id, { ok: manager.instance.setActiveSession(payload.sessionId) }); return;
 

@@ -20,6 +20,8 @@
     useTokens: number              // 当前会话已使用的 token 数
     maxTokens: number              // 模型最大 token 限制
     promptTokens: number           // 提示词使用的 token 数
+    cacheReadTokens?: number       // 最近一次请求命中缓存的输入 token 数；服务商未返回时缺失
+    cacheWriteTokens?: number      // 最近一次请求写入缓存的 token 数（仅 Anthropic 格式有）
   }
   projectInputHistory: string[]    // 项目历史输入记录
   todos: TodoItem[]                // 待办事项列表
@@ -519,9 +521,11 @@ hook 的提示通道：`systemMessage` 展示、超时/配置告警、输入被 
 ```typescript
 {
   usage: {
-    useTokens: number     // 当前会话已使用的 token 数
-    maxTokens: number     // 模型最大 token 限制
-    promptTokens: number  // 提示词使用的 token 数
+    useTokens: number          // 当前会话已使用的 token 数
+    maxTokens: number          // 模型最大 token 限制
+    promptTokens: number       // 提示词使用的 token 数
+    cacheReadTokens?: number   // 最近一次请求命中缓存的输入 token 数；服务商未返回时缺失，命中率可按 cacheReadTokens / promptTokens 计算
+    cacheWriteTokens?: number  // 最近一次请求写入缓存的 token 数（仅 Anthropic 格式有）
   }
 }
 ```

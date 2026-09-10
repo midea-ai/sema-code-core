@@ -5,5 +5,5 @@ package semacore.event;
 import java.util.List;
 import java.util.Map;
 
-public record Usage(long useTokens, long maxTokens, long promptTokens) {
+public record Usage(long useTokens, long maxTokens, long promptTokens, Long cacheReadTokens, Long cacheWriteTokens) {
 }

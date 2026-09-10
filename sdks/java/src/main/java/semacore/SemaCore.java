@@ -182,6 +182,10 @@ public final class SemaCore implements AutoCloseable {
         return call("getModelData", null, ModelUpdateData.class);
     }
 
+    public ModelProfile getModelProfile(String provider, String modelName) {
+        return call("getModelProfile", Json.obj("provider", provider, "modelName", modelName), ModelProfile.class);
+    }
+
     public FetchModelsResult fetchAvailableModels(FetchModelsParams params) {
         return call("fetchAvailableModels", params, FetchModelsResult.class);
     }

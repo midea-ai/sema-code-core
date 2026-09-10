@@ -34,6 +34,8 @@ class Usage(TypedDict):
     useTokens: int
     maxTokens: int
     promptTokens: int
+    cacheReadTokens: NotRequired[int] 
+    cacheWriteTokens: NotRequired[int] 
 
 
 # ==================== 会话生命周期 / 状态 ====================

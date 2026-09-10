@@ -368,6 +368,8 @@ public record Usage
     [JsonPropertyName("useTokens")] public long UseTokens { get; init; }
     [JsonPropertyName("maxTokens")] public long MaxTokens { get; init; }
     [JsonPropertyName("promptTokens")] public long PromptTokens { get; init; }
+    [JsonPropertyName("cacheReadTokens")] public long? CacheReadTokens { get; init; }
+    [JsonPropertyName("cacheWriteTokens")] public long? CacheWriteTokens { get; init; }
 }
 
 public record quickchatResponseData

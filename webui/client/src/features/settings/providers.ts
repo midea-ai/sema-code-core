@@ -1,5 +1,6 @@
 /** 模型提供商预设（对齐参考实现的字段规格） */
 export type AdapterType = 'openai' | 'anthropic';
+export type ThinkingHistoryPolicy = 'preserve' | 'current_turn' | 'omit';
 export interface ProviderDefaults {
   name: string; baseURL: string; baseURLPlaceholder?: string; apiKeyPlaceholder?: string; defaultModel?: string;
   modelsUrl?: string; apikeyUrl?: string; requiresApiKeyForModelList?: boolean; defaultAdapt?: AdapterType;

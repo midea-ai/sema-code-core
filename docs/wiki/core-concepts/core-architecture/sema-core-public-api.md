@@ -99,6 +99,9 @@ applyTaskModel(config: TaskConfig): Promise<ModelUpdateData>
 
 // 获取全局视角的模型数据快照
 getModelData(): Promise<ModelUpdateData>
+
+// 读取磁盘上的完整模型 profile，供配置页编辑回填；不存在返回 null
+getModelProfile(provider: string, modelName: string): ModelProfile | null
 ```
 
 > 主模型是会话级的：每个会话在创建时钉住当时的全局 main（或 `createSession({ mainModel })` 指定的模型），之后 `switchModel` / `applyTaskModel` 改的是全局指针，只影响之后创建的会话。要改某个已打开会话的主模型用 `SemaSession.switchModel()`，查看会话实际生效的模型用 `SemaSession.getModelData()`。`delModel` 删除的模型若被某些会话钉住，这些会话回退全局并各自收到会话级 `model:update`。quick 指针不钉住，改动对所有会话即时生效。

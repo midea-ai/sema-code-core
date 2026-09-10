@@ -5,7 +5,7 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record ModelConfig(String provider, String modelName, String baseURL, String apiKey, long maxTokens, long contextLength, AdapterType adapt) {
+public record ModelConfig(String provider, String modelName, String baseURL, String apiKey, long maxTokens, long contextLength, AdapterType adapt, ThinkingHistoryPolicy thinkingHistoryPolicy) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private String provider;
@@ -15,6 +15,7 @@ public record ModelConfig(String provider, String modelName, String baseURL, Str
         private long maxTokens;
         private long contextLength;
         private AdapterType adapt;
+        private ThinkingHistoryPolicy thinkingHistoryPolicy;
         private Builder() {}
         public Builder provider(String provider) { this.provider = provider; return this; }
         public Builder modelName(String modelName) { this.modelName = modelName; return this; }
@@ -23,6 +24,7 @@ public record ModelConfig(String provider, String modelName, String baseURL, Str
         public Builder maxTokens(long maxTokens) { this.maxTokens = maxTokens; return this; }
         public Builder contextLength(long contextLength) { this.contextLength = contextLength; return this; }
         public Builder adapt(AdapterType adapt) { this.adapt = adapt; return this; }
-        public ModelConfig build() { return new ModelConfig(provider, modelName, baseURL, apiKey, maxTokens, contextLength, adapt); }
+        public Builder thinkingHistoryPolicy(ThinkingHistoryPolicy thinkingHistoryPolicy) { this.thinkingHistoryPolicy = thinkingHistoryPolicy; return this; }
+        public ModelConfig build() { return new ModelConfig(provider, modelName, baseURL, apiKey, maxTokens, contextLength, adapt, thinkingHistoryPolicy); }
     }
 }

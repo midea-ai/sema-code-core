@@ -30,7 +30,7 @@ if TYPE_CHECKING:
         CommandConfig, CreateSessionOptions, CronTask, DesignSkillInfo, DesignSystemInfo,
         FetchModelsParams, FetchModelsResult, ForkOptions, ForkPreview, ForkResult,
         HooksInfo, InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
-        MCPServerInfo, MemoryConfig, ModelConfig, ModelUpdateData, PermissionLevel,
+        MCPServerInfo, MemoryConfig, ModelConfig, ModelProfile, ModelUpdateData, PermissionLevel,
         RuleConfig, SemaCoreConfig, SkillConfig, TaskConfig, TaskListItem, ToolInfo,
     )
     from .event import PickOptionResponseData, PlanExitResponseData, ToolPermissionResponse
@@ -122,6 +122,10 @@ class SemaCore:
 
     async def get_model_data(self) -> "ModelUpdateData":
         return await self._json("getModelData", None)
+
+    async def get_model_profile(self, provider: str, model_name: str) -> "Optional[ModelProfile]":
+        """读取磁盘上的完整模型 profile，供配置页编辑回填；不存在返回 None。"""
+        return await self._json("getModelProfile", _obj(provider=provider, modelName=model_name))
 
     async def fetch_available_models(self, params: "FetchModelsParams") -> "FetchModelsResult":
         return await self._json("fetchAvailableModels", params)

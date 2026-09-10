@@ -2,6 +2,8 @@ import { getConfManager } from '../../../manager/ConfManager'
 import { getEventBus } from '../../../events/EventSystem'
 import { ThinkingChunkData, TextChunkData, SessionErrorData } from '../../../events/types'
 import { logDebug, logError } from '../../../util/log'
+import { UserMsg, AiMessage } from '../../../types/message'
+import { ThinkingHistoryPolicy } from '../../../types/model'
 
 
 const STREAM_TIMEOUT_MS = 10 * 60 * 1000 // 整体超时 10 分钟
@@ -79,4 +81,56 @@ export function getChunkEventBus(emitChunkEvents: boolean) {
   const eventBus = getEventBus()
   const shouldEmit = getConfManager().getCoreConfig()?.stream !== false
   return shouldEmit ? eventBus : null
+}
+
+const THINKING_BLOCK_TYPES = new Set(['thinking', 'redacted_thinking'])
+
+/**
+ * 按模型的历史思考回传策略过滤 assistant 消息中的 thinking 块。
+ *
+ * - preserve：原样返回。
+ * - current_turn：轮次边界取最后一条带 checkpointSeq 的 user 消息（只有 startQuery 生成的真实输入带它，
+ *   工具结果 / 压缩摘要 / 上下文重建 / 中断哨兵都没有）；只清除边界之前的 assistant 思考块。
+ *   找不到边界（如子代理会话）时保守地原样返回。
+ * - omit：清除全部 assistant 思考块。
+ *
+ * 只动 assistant 消息里的 thinking / redacted_thinking，其他块保持原引用；过滤后 content 为空则丢弃整条消息。
+ * 只新建被改动的消息对象和外层数组，原始历史不被修改。
+ */
+export function applyThinkingHistoryPolicy(
+  messages: (UserMsg | AiMessage)[],
+  policy: ThinkingHistoryPolicy,
+): (UserMsg | AiMessage)[] {
+  if (policy === 'preserve') return messages
+
+  let boundary = -1
+  if (policy === 'current_turn') {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.type === 'user' && m.checkpointSeq !== undefined) {
+        boundary = i
+        break
+      }
+    }
+    if (boundary === -1) return messages
+  }
+
+  const result: (UserMsg | AiMessage)[] = []
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    const inScope = policy === 'omit' || i < boundary
+    if (!inScope || m.type !== 'assistant') {
+      result.push(m)
+      continue
+    }
+    const content = m.message.content
+    if (!Array.isArray(content) || !content.some(block => THINKING_BLOCK_TYPES.has(block.type))) {
+      result.push(m)
+      continue
+    }
+    const filtered = content.filter(block => !THINKING_BLOCK_TYPES.has(block.type))
+    if (filtered.length === 0) continue
+    result.push({ ...m, message: { ...m.message, content: filtered } })
+  }
+  return result
 }

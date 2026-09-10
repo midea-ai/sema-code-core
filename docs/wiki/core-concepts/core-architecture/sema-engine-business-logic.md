@@ -69,7 +69,7 @@ async createSession(opts?: CreateSessionOptions): Promise<void>
   sessionId: string,
   historyLoaded: boolean,
   projectInputHistory: string[],
-  usage: { useTokens, maxTokens, promptTokens },
+  usage: { useTokens, maxTokens, promptTokens, cacheReadTokens?, cacheWriteTokens? },
   todos: TodoItem[],
   readFileTimestamps: Record<string, number>
 }

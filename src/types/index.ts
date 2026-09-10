@@ -80,6 +80,7 @@ export interface ModelConfig {
   maxTokens: number;
   contextLength: number;
   adapt: import('./model').AdapterType;
+  thinkingHistoryPolicy?: import('./model').ThinkingHistoryPolicy;
 }
 
 export interface TaskConfig {
@@ -243,6 +244,9 @@ export {
 } from '../prompt/tool';
 
 export type { CreateSessionOptions, CreateSessionResult } from './session';
+
+// 磁盘上的完整模型 profile，getModelProfile 返回值
+export type { ModelProfile, ThinkingHistoryPolicy } from './model';
 
 // 导出 Hook 相关类型
 export type {

@@ -32,6 +32,7 @@ interface ModelConfig {
   maxTokens: number     // 单次响应最大 token 数
   contextLength: number // 上下文窗口大小
   adapt?: 'anthropic' | 'openai'  // SDK 适配类型，可选，为空时自动检测
+  thinkingHistoryPolicy?: 'preserve' | 'current_turn' | 'omit'  // 历史思考回传策略，可选，缺失等同 preserve
 }
 ```
 
@@ -61,6 +62,19 @@ await sema.addModel({
 - `maxTokens`: 最大输出 token 数
 - `contextLength`: 上下文窗口大小
 - `adapt`: API 适配器类型（可选），支持 `anthropic` 或 `openai`，为空时系统自动检测
+- `thinkingHistoryPolicy`: 历史思考回传策略（可选），缺失等同 `preserve`，见下文
+
+### 历史思考回传策略
+
+开启思考模式后，每轮 assistant 回复都带有思考块并写入会话历史。`thinkingHistoryPolicy` 控制后续请求把多少历史思考块发回服务商，不影响本轮是否开启思考：
+
+- `preserve`：全部回传（默认），行为与旧版本一致
+- `current_turn`：只回传当前用户轮内的思考块，上一轮及更早的全部剔除；工具循环内的思考块属于当前轮，仍会回传
+- `omit`：所有历史思考块都不回传
+
+策略只作用于发送给服务商的请求副本，会话历史里的思考块和签名不会被修改。关闭思考模式时策略不生效，沿用原有过滤逻辑。
+
+注意：部分模型在思考模式下调用工具时要求回传思考内容，`omit` 会导致这类请求失败；Anthropic 官方接口服务端本来就会忽略历史轮的思考块，`preserve` 与 `current_turn` 在其上效果相同。同名重新 `addModel` 会整体覆盖 profile，可用来修改已有模型的策略。
 
 ### 自动检测逻辑
 

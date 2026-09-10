@@ -71,7 +71,7 @@ Sema Core 的核心架构采用进程级门面 + 会话级门面的两层 API：
 |--------|------|------|
 | 会话池 | `createSession` / `getSession` / `listSessions` / `setActiveSession` / `closeSession` | 创建、查找、切换 UI 活跃会话、关闭会话 |
 | 进程级事件 | `on` / `once` / `off` | 订阅 `cron:update`、`mcp:server:status` |
-| 模型 | `addModel` / `delModel` / `switchModel` / `applyTaskModel` / `getModelData` | 模型 CRUD |
+| 模型 | `addModel` / `delModel` / `switchModel` / `applyTaskModel` / `getModelData` / `getModelProfile` | 模型 CRUD |
 | 配置 | `updateCoreConfByKey` / `updateCoreConfig` / `updateDisabledTools` | 运行时核心配置调整 |
 | 工具 | `fetchAvailableModels` / `testApiConnection` / `getModelAdapter` / `getToolInfos` | 独立工具函数与工具信息 |
 | 插件市场 | `addMarketplaceFromGit` ~ `uninstallPlugin` | 插件市场完整管理 |

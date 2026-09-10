@@ -29,6 +29,8 @@ AgentMode = Literal["Agent", "Plan", "Design"]
 SystemPromptMode = Literal["append", "replace", "replaceAll"]
 PermissionLevel = Literal["Ask", "AutoEdit", "AutoRun", "Bypass"]
 AdapterType = Literal["openai", "anthropic"]
+# 历史思考回传策略：preserve=全部保留（默认）；current_turn=仅当前轮；omit=不回传
+ThinkingHistoryPolicy = Literal["preserve", "current_turn", "omit"]
 MCPTransportType = Literal["stdio", "sse", "http"]
 MCPScopeType = Literal["local", "project", "user", "plugin"]
 MCPServerStatus = Literal["disconnected", "connecting", "connected", "error"]
@@ -109,6 +111,20 @@ class ModelConfig(TypedDict):
     maxTokens: int
     contextLength: int
     adapt: AdapterType
+    thinkingHistoryPolicy: NotRequired[ThinkingHistoryPolicy]  # 缺失等同 preserve
+
+
+class ModelProfile(TypedDict):
+    """get_model_profile 返回：磁盘上的完整模型 profile，供配置页编辑回填。"""
+    name: str
+    provider: str
+    modelName: str
+    baseURL: NotRequired[str]
+    apiKey: str
+    maxTokens: int
+    contextLength: int
+    adapt: AdapterType
+    thinkingHistoryPolicy: NotRequired[ThinkingHistoryPolicy]
 
 
 class TaskConfig(TypedDict):

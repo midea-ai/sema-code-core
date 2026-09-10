@@ -6,7 +6,7 @@ import { wsClient } from '../../api/ws';
 import { Button, Modal, Toggle, Spinner, Dropdown, cn, useDialog } from '../../common/ui';
 import ProviderLogo, { parseProviderKey, stripProviderSuffix } from '../../common/ProviderLogo';
 import { t } from '../../i18n';
-import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, AdapterType } from './providers';
+import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, AdapterType, ThinkingHistoryPolicy } from './providers';
 import { PERMISSION_LEVELS, DEFAULT_SYSTEM_PROMPT } from '../../../../shared/types';
 import type { WebUISettings } from '../../../../shared/types';
 
@@ -142,6 +142,7 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [adapt, setAdapt] = useState<AdapterType>(PROVIDERS[DEFAULT_PROVIDER].defaultAdapt || 'openai');
+  const [thinkingHistoryPolicy, setThinkingHistoryPolicy] = useState<ThinkingHistoryPolicy>('preserve');
   const [manual, setManual] = useState(false);
   const [modelName, setModelName] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
@@ -219,7 +220,7 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
     if (aliasError) { setStatus({ type: 'error', text: `服务商名称不合法: ${aliasError}` }); return; }
     setSaving(true);
     try {
-      await wsClient.request('core.addModel', undefined, { config: { provider: provider === 'custom' && customProviderName ? customProviderName : provider, modelName: currentModel, baseURL, apiKey, maxTokens: parseInt(maxTokens), contextLength: parseInt(contextLength), adapt }, skipValidation: true });
+      await wsClient.request('core.addModel', undefined, { config: { provider: provider === 'custom' && customProviderName ? customProviderName : provider, modelName: currentModel, baseURL, apiKey, maxTokens: parseInt(maxTokens), contextLength: parseInt(contextLength), adapt, thinkingHistoryPolicy }, skipValidation: true });
       toast(t('settings.saved'));
       onSaved();
     } catch (e: any) { setStatus({ type: 'error', text: e.message }); } finally { setSaving(false); }
@@ -274,6 +275,18 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
         </Field>
         <Field label={t('settings.adapt')}>
           <IconSelect value={adapt} onChange={v => setAdapt(v as AdapterType)} options={[{ value: 'openai', label: 'OpenAI 格式' }, { value: 'anthropic', label: 'Anthropic 格式' }]} />
+        </Field>
+        <Field label={t('settings.thinkingHistoryPolicy')}>
+          <IconSelect value={thinkingHistoryPolicy} onChange={v => setThinkingHistoryPolicy(v as ThinkingHistoryPolicy)}
+            options={[
+              { value: 'preserve', label: t('settings.thinkingHistoryPolicy.preserve') },
+              { value: 'current_turn', label: t('settings.thinkingHistoryPolicy.currentTurn') },
+              { value: 'omit', label: t('settings.thinkingHistoryPolicy.omit') },
+            ]} />
+          <div className="text-xs text-muted">{t('settings.thinkingHistoryPolicy.desc')}</div>
+          {thinkingHistoryPolicy !== 'preserve' && (
+            <div className="text-xs text-warn">{t('settings.thinkingHistoryPolicy.warn')}</div>
+          )}
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label={t('settings.maxTokens')}>

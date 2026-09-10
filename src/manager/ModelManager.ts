@@ -157,6 +157,14 @@ export class ModelManager {
   }
 
   /**
+   * 按 provider + modelName 读取磁盘上的完整 profile，供配置页编辑回填；不存在返回 null。
+   * 定位谓词与 deleteModel 一致。
+   */
+  getModelProfile(provider: string, modelName: string): ModelProfile | null {
+    return this.config.modelProfiles.find(p => p.provider === provider && p.modelName === modelName) ?? null;
+  }
+
+  /**
    * 切换当前模型
    */
   async switchCurrentModel(name: string): Promise<ModelUpdateData> {

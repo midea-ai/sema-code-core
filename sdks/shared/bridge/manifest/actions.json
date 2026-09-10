@@ -14,6 +14,7 @@
     "switchModel": { "level": "core|session", "payload": ["modelName"], "ack": "value", "note": "session_id 空：切全局指针并广播 model:update（只影响之后创建的会话）；带 session_id：只切该会话主模型（不落盘），生效主模型有变化时会话级 model:update 按 sessionId 帧下发" },
     "applyTaskModel": { "level": "core", "payload": ["main", "quick"], "ack": "value", "note": "并广播 model:update" },
     "getModelData": { "level": "core|session", "payload": [], "ack": "value", "note": "session_id 空：全局视角；带 session_id：该会话视角（main 为会话生效值，modelList/quick 沿用全局）" },
+    "getModelProfile": { "level": "core", "payload": ["provider", "modelName"], "ack": "value", "note": "ack 为磁盘上的完整 ModelProfile，不存在为 null；只读，不广播" },
     "fetchAvailableModels": { "level": "core", "payload": ["<参数对象透传>"], "ack": "value" },
     "testApiConnection": { "level": "core", "payload": ["<参数对象透传>"], "ack": "value" },
     "getModelAdapter": { "level": "core", "payload": ["provider", "modelName", "baseURL"], "ack": "value" },

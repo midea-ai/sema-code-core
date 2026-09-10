@@ -13,6 +13,7 @@ import { Tool } from '../../tools/base/Tool'
 // 导入适配层
 import { queryOpenAI } from './adapt/openai'
 import { queryAnthropic } from './adapt/anthropic'
+import { applyThinkingHistoryPolicy } from './adapt/util'
 
 // ============================================================================
 // 主入口函数
@@ -61,9 +62,14 @@ export async function queryLLM(
     const enableThinking = !disableThinking && coreConfig?.thinking !== false;  // 默认启用
     const emitChunkEvents = !disableChunkEvents && shouldStream !== false;  // 默认启用
 
+    // 按模型级策略裁剪历史思考块；未开启 thinking 时由适配器沿用原有过滤逻辑
+    // 过滤后的副本只用于本次请求（含缓存 key 计算），原始历史不受影响
+    const thinkingHistoryPolicy = modelProfile.thinkingHistoryPolicy ?? 'preserve'
+    const requestMessages = enableThinking ? applyThinkingHistoryPolicy(messages, thinkingHistoryPolicy) : messages
+
     if (shouldUseCache) {
       const cachedResponse = await tryGetCachedResponse(
-        messages,
+        requestMessages,
         systemPromptContent,
         modelProfile.modelName,
         shouldStream,
@@ -74,7 +80,7 @@ export async function queryLLM(
       )
       if (cachedResponse) {
         // 缓存命中时也记录请求和响应
-        logLLMRequest({ cached: true, model: modelProfile.modelName, messages }, sessionId)
+        logLLMRequest({ cached: true, model: modelProfile.modelName, messages: requestMessages }, sessionId)
         logLLMResponse(cachedResponse, sessionId)
         return cachedResponse
       }
@@ -85,11 +91,11 @@ export async function queryLLM(
 
     switch (modelProfile.adapt) {
       case 'anthropic':
-        result = await queryAnthropic(messages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents, sessionId)
+        result = await queryAnthropic(requestMessages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents, sessionId)
         break
       case 'openai':
       default:
-        result = await queryOpenAI(messages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents, sessionId)
+        result = await queryOpenAI(requestMessages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents, sessionId)
         break
     }
 
@@ -108,7 +114,7 @@ export async function queryLLM(
         block.type === 'tool_use'
       )
       if (hasContent) {
-        setCachedResponse(messages, systemPromptContent, modelProfile.modelName, result, enableThinking)
+        setCachedResponse(requestMessages, systemPromptContent, modelProfile.modelName, result, enableThinking)
         logDebug(`LLM响应已缓存，当前缓存条目数: ${getCacheSize()}`)
       }
     }

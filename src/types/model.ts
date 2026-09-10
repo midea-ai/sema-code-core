@@ -7,6 +7,9 @@ export interface ModelConfiguration {
 // API 适配器类型
 export type AdapterType = 'openai' | 'anthropic'
 
+/** 历史思考回传策略：preserve=全部保留（默认）；current_turn=仅当前轮；omit=不回传 */
+export type ThinkingHistoryPolicy = 'preserve' | 'current_turn' | 'omit'
+
 // 模型配置接口
 export interface ModelProfile {
   name: string              // 模型唯一标识  deepseek v3.1[custom]
@@ -17,6 +20,7 @@ export interface ModelProfile {
   maxTokens: number         // 最大输出 token
   contextLength: number     // 上下文窗口大小
   adapt: AdapterType        // API 适配器类型
+  thinkingHistoryPolicy?: ThinkingHistoryPolicy  // 历史思考回传策略，缺失等同 preserve
 }
 
 // 模型指针配置

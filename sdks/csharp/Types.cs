@@ -9,6 +9,9 @@ namespace Semacore.Types;
 public enum AdapterType { openai, anthropic }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ThinkingHistoryPolicy { preserve, current_turn, omit }
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AgentMode { Agent, Plan, Design }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -394,6 +397,22 @@ public record ModelConfig
     [JsonPropertyName("maxTokens")] public long MaxTokens { get; init; }
     [JsonPropertyName("contextLength")] public long ContextLength { get; init; }
     [JsonPropertyName("adapt")] public AdapterType? Adapt { get; init; }
+    /// <summary>历史思考回传策略；null 等同 preserve。</summary>
+    [JsonPropertyName("thinkingHistoryPolicy")] public ThinkingHistoryPolicy? ThinkingHistoryPolicy { get; init; }
+}
+
+/// <summary>GetModelProfile 返回：磁盘上的完整模型 profile，供配置页编辑回填。</summary>
+public record ModelProfile
+{
+    [JsonPropertyName("name")] public string? Name { get; init; }
+    [JsonPropertyName("provider")] public string? Provider { get; init; }
+    [JsonPropertyName("modelName")] public string? ModelName { get; init; }
+    [JsonPropertyName("baseURL")] public string? BaseURL { get; init; }
+    [JsonPropertyName("apiKey")] public string? ApiKey { get; init; }
+    [JsonPropertyName("maxTokens")] public long MaxTokens { get; init; }
+    [JsonPropertyName("contextLength")] public long ContextLength { get; init; }
+    [JsonPropertyName("adapt")] public AdapterType? Adapt { get; init; }
+    [JsonPropertyName("thinkingHistoryPolicy")] public ThinkingHistoryPolicy? ThinkingHistoryPolicy { get; init; }
 }
 
 public record ModelInfo

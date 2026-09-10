@@ -226,5 +226,11 @@ controlSignal: {
 session.on('conversation:usage', ({ usage }) => {
   console.log(`已用: ${usage.useTokens} / ${usage.maxTokens}`)
   console.log(`Prompt tokens: ${usage.promptTokens}`)
+  // 服务商返回了缓存统计才有以下字段；命中率 = cacheReadTokens / promptTokens
+  if (usage.cacheReadTokens !== undefined) {
+    console.log(`缓存命中: ${usage.cacheReadTokens}，缓存写入: ${usage.cacheWriteTokens ?? 0}`)
+  }
 })
 ```
+
+`cacheReadTokens` 取自最近一次请求的服务商 usage：Anthropic 格式读 `cache_read_input_tokens` 与 `cache_creation_input_tokens`；OpenAI 兼容格式读 `prompt_tokens_details.cached_tokens`，DeepSeek 读 `prompt_cache_hit_tokens`，这类格式没有写入统计，`cacheWriteTokens` 缺失。

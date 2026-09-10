@@ -67,7 +67,6 @@ export class SemaSession {
   // ==================== 会话交互 ====================
   processUserInput = (input: string, originalInput?: string, attachments?: InputImageAttachment[]): void =>
     this.engine.processUserInput(input, originalInput, false, attachments);
-
   interrupt = (): void => this.engine.interruptSession();
 
   // ==================== 会话级配置 ====================
@@ -77,24 +76,9 @@ export class SemaSession {
   getModelData = (): Promise<ModelUpdateData> => getModelManager().getModelData(this.sessionId);
 
   // ==================== 会话 Fork / 撤销 ====================
-  /** 预览：在该用户消息处恢复文件会改动哪些文件、各自增删行数（只读，无副作用） */
-  getForkPreview = (messageUuid: string): ForkPreview =>
-    getCheckpointManager().preview(this.sessionId, messageUuid);
-
-  /**
-   * 原地回退（Fork / 撤销）：把会话历史截断到该用户消息之前；
-   * restoreFiles=true 时同时回滚文件。会话 id 不变，继续使用。
-   */
-  fork = (messageUuid: string, options?: ForkOptions): Promise<ForkResult> =>
-    this.engine.rewind(messageUuid, options);
-
-  /**
-   * 分支到新聊天：创建新会话 id，新会话历史 = 当前历史截到该用户输入之前
-   * （不传则全量复制）。原会话与工作区文件均不动。
-   * 调用方拿到新 sessionId 后用 SemaSession.create({ sessionId }) 打开新聊天。
-   */
-  branch = (beforeMessageUuid?: string): Promise<BranchResult> =>
-    this.engine.branchToNewChat(beforeMessageUuid);
+  getForkPreview = (messageUuid: string): ForkPreview => getCheckpointManager().preview(this.sessionId, messageUuid);
+  fork = (messageUuid: string, options?: ForkOptions): Promise<ForkResult> => this.engine.rewind(messageUuid, options);
+  branch = (beforeMessageUuid?: string): Promise<BranchResult> => this.engine.branchToNewChat(beforeMessageUuid);
 
   // ==================== 后台任务（仅本会话）====================
   getTaskList = (): TaskListItem[] => getTaskManager().getTaskList(this.sessionId);

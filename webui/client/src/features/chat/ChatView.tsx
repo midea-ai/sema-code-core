@@ -135,7 +135,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       useApp.getState().setView({ type: 'chat', sessionId: next.id });
     } catch (e: any) {
       setBranching(false);
-      toast(e.message || '分支失败', 'error');
+      toast(e.message || t('chat.branchFailed'), 'error');
     }
   }, [branching, sessionId, toast]);
 
@@ -150,7 +150,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     if (title !== null) useApp.getState().renameSession(sessionId, title).catch(e => toast(e.message, 'error'));
   };
 
-  if (!record) return <div className="flex-1 flex items-center justify-center text-muted">会话不存在</div>;
+  if (!record) return <div className="flex-1 flex items-center justify-center text-muted">{t('chat.sessionNotFound')}</div>;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -245,10 +245,10 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 
 function fmtDuration(ms: number) {
   const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s}秒`;
+  if (s < 60) return t('time.dur.s', { s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}分钟 ${s % 60}秒`;
-  return `${Math.floor(m / 60)}小时 ${m % 60}分钟`;
+  if (m < 60) return t('time.dur.ms', { m, s: s % 60 });
+  return t('time.dur.hm', { h: Math.floor(m / 60), m: m % 60 });
 }
 
 /** 轮次开头：用户消息，或「清理上下文并开始实施计划」后的合成 plan-implement 提示块 */

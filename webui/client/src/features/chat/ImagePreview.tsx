@@ -58,10 +58,10 @@ export function ImageThumb({ src, className, onDelete, label, title }: { src: st
       <div title={title || label} className={cn('px-1.5 rounded-xl border border-border text-muted flex flex-col items-center justify-center gap-1 text-center overflow-hidden shrink-0', className)}>
         <ImageOff size={16} className="shrink-0" />
         <span className="text-[10px] leading-tight max-w-full truncate">{label}</span>
-        <span className="text-[10px] leading-tight opacity-70">文件已不存在</span>
+        <span className="text-[10px] leading-tight opacity-70">{t('image.missing')}</span>
       </div>
     ) : (
-      <div className={cn('px-2 rounded-xl border border-border text-xs text-muted flex items-center', className || 'h-10')}>图片</div>
+      <div className={cn('px-2 rounded-xl border border-border text-xs text-muted flex items-center', className || 'h-10')}>{t('common.image')}</div>
     );
   }
   const img = (

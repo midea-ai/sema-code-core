@@ -5,6 +5,7 @@ import { wsClient, type WsStatus } from '../api/ws';
 import type { Registry, WebUISettings, ProjectRecord, SessionRecord } from '../../../shared/types';
 import { SERVER_EVENTS } from '../../../shared/protocol';
 import { isPrivateUrl, normalizeUrl } from '../common/url';
+import { setLang, t } from '../i18n';
 
 
 export type View =
@@ -149,6 +150,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   async bootstrap() {
     const data = await api<{ registry: Registry; settings: WebUISettings; status: any; liveSessions?: string[]; platform: string }>('GET', '/api/bootstrap');
+    setLang(data.settings.coreConfig.lang);
     set({ registry: data.registry, settings: data.settings, status: data.status, liveSessions: toLiveMap(data.liveSessions), platform: data.platform, ready: true });
     // 恢复视图：会话已不存在则回到空
     const v = get().view;
@@ -170,7 +172,7 @@ export const useApp = create<AppState>((set, get) => ({
     wsClient.onOpen(() => {
       const tryLoad = (n: number) => get().refreshModelData().catch(e => {
         if (n > 0) setTimeout(() => tryLoad(n - 1), 2000);
-        else get().toast(`模型配置加载失败：${e.message}`, 'error');
+        else get().toast(t('settings.modelLoadFailed', { error: e.message }), 'error');
       });
       tryLoad(2);
     });
@@ -273,6 +275,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
   async saveSettings(patch) {
     const s = await api<WebUISettings>('PUT', '/api/settings', patch);
+    setLang(s.coreConfig.lang);
     set({ settings: s });
   },
   async openExternal(url) { await api('POST', '/api/open-external', { url }); },

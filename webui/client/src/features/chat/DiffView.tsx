@@ -4,6 +4,7 @@ import type { Hunk } from '../../../../shared/types';
 import { useApp } from '../../store/app';
 import { cn } from '../../common/ui';
 import { langOf, escapeHtml } from '../../common/text';
+import { t, useLang } from '../../i18n';
 
 /** 折叠态最大高度（px） */
 const COLLAPSED_MAX_PX = 100;
@@ -22,6 +23,7 @@ interface Row { kind: RowKind; lineNo?: number; text: string; marks?: Array<[num
 export const DiffView = memo(function DiffView({ patch, path, sessionId, diffText, maxLines, collapsible = false, collapsedMaxPx = COLLAPSED_MAX_PX, className }: {
   patch: Hunk[]; path?: string; sessionId?: string; diffText?: string; maxLines?: number; collapsible?: boolean; collapsedMaxPx?: number; className?: string;
 }) {
+  useLang(); // memo 组件自行订阅语言
   // 新建文件未被服务端补全时（超限/读取失败/老快照），事件里只有前几行，算出省略行数做提示
   const omitted = useMemo(() => omittedNewLines(patch), [patch]);
   const rows = useMemo(() => computeWordDiffs(toRows(patch)), [patch]);
@@ -49,10 +51,10 @@ export const DiffView = memo(function DiffView({ patch, path, sessionId, diffTex
           </tbody>
         </table>
       </div>
-      {hidden > 0 && !collapsed && <div className="px-2 py-1 text-xs text-muted border-t border-border">… 还有 {hidden} 行</div>}
+      {hidden > 0 && !collapsed && <div className="px-2 py-1 text-xs text-muted border-t border-border">{t('diff.moreLines', { n: hidden })}</div>}
       {omitted > 0 && !collapsed && (path && sessionId
         ? <button type="button" onClick={e => { e.stopPropagation(); useApp.getState().openFileTab(sessionId, path); }}
-            className="block w-full text-left px-2 py-1 text-xs text-muted border-t border-border hover:text-fg hover:underline">{diffText || `... (+${omitted} lines)`} · 点击打开文件</button>
+            className="block w-full text-left px-2 py-1 text-xs text-muted border-t border-border hover:text-fg hover:underline">{diffText || `... (+${omitted} lines)`} · {t('diff.clickToOpen')}</button>
         : <div className="px-2 py-1 text-xs text-muted border-t border-border">{diffText || `... (+${omitted} lines)`}</div>)}
       {collapsible && overflowing && <CollapseToggle expanded={expanded} onToggle={() => setExpanded(v => !v)} />}
     </div>
@@ -93,7 +95,7 @@ export function useCollapsible(enabled: boolean, deps: unknown, maxPx = COLLAPSE
 export function CollapseToggle({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
   return (
     <button type="button" onClick={e => { e.stopPropagation(); onToggle(); }} className="block w-full text-left px-2 py-1 text-xs text-muted hover:text-fg hover:underline">
-      {expanded ? '收起' : '展开'}
+      {expanded ? t('chat.collapse') : t('chat.expand')}
     </button>
   );
 }

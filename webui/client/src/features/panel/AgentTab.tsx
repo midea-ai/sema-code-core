@@ -7,7 +7,8 @@ import { useSessions } from '../../store/sessions';
 import { cn } from '../../common/ui';
 import { usePausableElapsed } from '../../common/useElapsed';
 import { renderBlockList, type BlockCtx } from '../chat/Blocks';
-import { STATUS_TEXT, statusTone } from '../chat/AgentCard';
+import { statusText, statusTone } from '../chat/AgentCard';
+import { t } from '../../i18n';
 
 /** 从会话块列表中递归查找子代理块（子代理可能嵌套在其他 agent 块内） */
 function findAgent(blocks: Block[], id: string): AgentBlock | undefined {
@@ -33,7 +34,7 @@ function maxTs(blocks: Block[]): number {
 
 const fmtDur = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000));
-  return s < 60 ? `${s}秒` : `${Math.floor(s / 60)}分${s % 60}秒`;
+  return s < 60 ? t('time.dur.s', { s }) : t('time.durShort.ms', { m: Math.floor(s / 60), s: s % 60 });
 };
 
 /** 子代理详情标签页：状态徽标 + 标题 + 耗时；正文按主消息流同样方式渲染子代理的块，贴底时自动跟随 */
@@ -67,7 +68,7 @@ export function AgentTab({ sessionId, tab }: { sessionId: string; tab: PanelTab 
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-sm text-muted gap-2 p-6 text-center">
         <Bot size={30} className="text-fg" />
-        <div>未找到子代理记录</div>
+        <div>{t('agent.notFound')}</div>
       </div>
     );
   }
@@ -80,13 +81,13 @@ export function AgentTab({ sessionId, tab }: { sessionId: string; tab: PanelTab 
   return (
     <>
       <div className="h-9 shrink-0 flex items-center gap-2 px-3 border-b border-border">
-        <span className={cn('text-xs px-1.5 py-0.5 rounded shrink-0', tone === 'run' && 'bg-accent/10 text-accent', tone === 'ok' && 'bg-ok/10 text-ok', tone === 'danger' && 'bg-danger/10 text-danger')}>{STATUS_TEXT[block.status]}</span>
+        <span className={cn('text-xs px-1.5 py-0.5 rounded shrink-0', tone === 'run' && 'bg-accent/10 text-accent', tone === 'ok' && 'bg-ok/10 text-ok', tone === 'danger' && 'bg-danger/10 text-danger')}>{statusText(block.status)}</span>
         <span className="font-medium text-sm truncate flex-1" title={title}>{title}</span>
-        <span className="text-xs text-muted shrink-0">耗时 {fmtDur(elapsedMs)}</span>
+        <span className="text-xs text-muted shrink-0">{t('chat.elapsed')} {fmtDur(elapsedMs)}</span>
       </div>
       <div ref={ref} onScroll={onScroll} className="flex-1 min-h-0 overflow-auto px-4 py-3">
         {block.instructions && <div className="text-xs text-muted whitespace-pre-wrap mb-2 pb-2 border-b border-border/60">{block.instructions}</div>}
-        {block.blocks.length === 0 ? <div className="text-sm text-muted text-center py-10">暂无消息记录</div> : renderBlockList(block.blocks, ctx)}
+        {block.blocks.length === 0 ? <div className="text-sm text-muted text-center py-10">{t('agent.noMessages')}</div> : renderBlockList(block.blocks, ctx)}
       </div>
     </>
   );

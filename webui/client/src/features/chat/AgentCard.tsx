@@ -7,7 +7,7 @@ import type { BlockCtx } from './Blocks';
 
 type Status = AgentBlock['status'];
 
-export const STATUS_TEXT: Record<Status, string> = { running: '运行中...', completed: '已完成', failed: '失败', interrupted: '已中断' };
+export const statusText = (s: Status) => t(`agent.status.${s}` as const);
 export const statusTone = (s: Status) => s === 'running' ? 'run' : s === 'completed' ? 'ok' : 'danger';
 
 function StatusIcon({ status }: { status: Status }) {

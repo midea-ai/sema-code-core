@@ -10,7 +10,7 @@ import { cn, useCopy } from '../../common/ui';
 import { getToken } from '../../api/http';
 import { isPrivateUrl } from '../../common/url';
 import { FileIcon } from '../../common/fileicon/FileIcon';
-import { t } from '../../i18n';
+import { t, useLang } from '../../i18n';
 import { useApp } from '../../store/app';
 import { isLocalHref, isPathCandidate, parsePathRef, rawFileUrl, useFileStats, type PathStat } from './fileRefs';
 
@@ -35,6 +35,7 @@ const Ctx = createContext<MdCtx>({ stat: () => undefined, done: true });
  * done=false（流式中）不发起文件确认，避免半截路径抖动
  */
 export const Markdown = memo(function Markdown({ text, sessionId, className, done = true }: { text: string; sessionId?: string; className?: string; done?: boolean }) {
+  useLang(); // memo 组件自行订阅语言
   const stat = useFileStats(sessionId, text, done);
   const ctx = useMemo<MdCtx>(() => ({ sessionId, stat, done }), [sessionId, stat, done]);
   return (

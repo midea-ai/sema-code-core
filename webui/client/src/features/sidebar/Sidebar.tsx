@@ -67,7 +67,7 @@ export function Sidebar({ width }: { width: number }) {
       <div className="p-2 pb-0.5 flex flex-col gap-0.5">
         <div className="flex items-center justify-between px-2 h-8 mb-1.5">
           <span className="text-base font-semibold tracking-wide">{t('app.name')}</span>
-          <button onClick={() => setSidebarCollapsed(true)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title="隐藏侧边栏"><PanelLeft size={15} /></button>
+          <button onClick={() => setSidebarCollapsed(true)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.hideSidebar')}><PanelLeft size={15} /></button>
         </div>
         <NavItem icon={<Plus size={15} />} label={t('sidebar.newSession')} active={view.type === 'draft' && !view.projectId} onClick={() => newSession()} />
       </div>
@@ -253,9 +253,9 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
             {session.title || t('chat.untitled')}
           </span>
         </span>
-        {pending > 0 ? <span className="h-2 w-2 rounded-full bg-dot-pending shrink-0" title="待应答" />
-          : state === 'processing' ? <span className="h-2 w-2 rounded-full bg-dot-processing pulse shrink-0" title="处理中" />
-            : doneUnread ? <span className="h-2 w-2 rounded-full bg-dot-done shrink-0" title="已完成" /> : null}
+        {pending > 0 ? <span className="h-2 w-2 rounded-full bg-dot-pending shrink-0" title={t('sidebar.statusPending')} />
+          : state === 'processing' ? <span className="h-2 w-2 rounded-full bg-dot-processing pulse shrink-0" title={t('sidebar.statusProcessing')} />
+            : doneUnread ? <span className="h-2 w-2 rounded-full bg-dot-done shrink-0" title={t('sidebar.statusDone')} /> : null}
         <span className="text-[10px] text-muted shrink-0 group-hover:hidden">{relTime(session.lastActiveAt)}</span>
         <button onClick={e => { e.stopPropagation(); menu.open(e); }} className="hidden group-hover:block p-0.5 rounded text-muted hover:text-fg"><MoreHorizontal size={13} /></button>
       </div>

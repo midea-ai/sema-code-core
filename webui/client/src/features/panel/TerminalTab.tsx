@@ -54,7 +54,7 @@ export function TerminalTab({ sessionId, tab }: { sessionId: string; tab: PanelT
       ws.onmessage = ev => {
         // 二进制帧 = 终端输出；文本帧 = 控制消息（exit）
         if (typeof ev.data === 'string') {
-          try { if (JSON.parse(ev.data)?.type === 'exit') { setExited(true); term.write('\r\n\x1b[90m[进程已退出]\x1b[0m\r\n'); } } catch { /* ignore */ }
+          try { if (JSON.parse(ev.data)?.type === 'exit') { setExited(true); term.write(`\r\n\x1b[90m${t('panel.termExited')}\x1b[0m\r\n`); } } catch { /* ignore */ }
           return;
         }
         term.write(new Uint8Array(ev.data));

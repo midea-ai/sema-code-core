@@ -7,6 +7,7 @@ import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
 import { DEFAULT_PERMISSION_LEVEL, DEFAULT_SYSTEM_PROMPT, normalizeLevel } from '../../../shared/types';
+import { DEFAULT_LANG, defaultCustomRules, isBuiltinCustomRules, normalizeLang } from '../../../shared/lang';
 import type { Registry, ProjectRecord, SessionRecord, WebUISettings, AgentMode, PermissionLevel } from '../../../shared/types';
 
 export const WEBUI_HOME = path.join(os.homedir(), '.sema', 'webui');
@@ -22,10 +23,11 @@ const FIXED_CORE_CONFIG = { stream: true, thinking: true } as const;
 
 export const DEFAULT_SETTINGS: WebUISettings = {
   coreConfig: {
+    lang: DEFAULT_LANG,
     stream: true,
     thinking: true,
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
-    customRules: '- 中文回答',
+    customRules: defaultCustomRules(DEFAULT_LANG),
     skipFileEditPermission: false,
     skipShellExecPermission: false,
     skipSkillPermission: false,
@@ -90,6 +92,7 @@ export class RegistryStore {
       coreConfig: { ...DEFAULT_SETTINGS.coreConfig, ...(s.coreConfig || {}), ...FIXED_CORE_CONFIG },
     };
     this.normalizeSystemPrompt();
+    this.settings.coreConfig.lang = normalizeLang(this.settings.coreConfig.lang);
     // 旧数据里的 Ask 档位归一化为 AutoEdit
     if (s.defaultPermissionLevel) this.settings.defaultPermissionLevel = normalizeLevel(s.defaultPermissionLevel);
     for (const sess of this.data.sessions) {
@@ -125,11 +128,19 @@ export class RegistryStore {
 
   private save() { writeJsonAtomic(INDEX_FILE, this.data); }
 
+  /**
+   * 切换界面语言的规则集中在此（设置页与未配置模型面板都经 PUT /api/settings 到这里）：
+   * 保存后的 customRules 仍是某个语言的内置默认值时，随语言换成目标语言默认值；用户改过的规则一律不动。
+   */
   updateSettings(patch: Partial<WebUISettings>): WebUISettings {
+    const prevLang = this.settings.coreConfig.lang;
     this.settings = {
       ...this.settings, ...patch,
       coreConfig: { ...this.settings.coreConfig, ...(patch.coreConfig || {}), ...FIXED_CORE_CONFIG },
     };
+    const cc = this.settings.coreConfig;
+    cc.lang = normalizeLang(cc.lang);
+    if (cc.lang !== prevLang && isBuiltinCustomRules(cc.customRules)) cc.customRules = defaultCustomRules(cc.lang);
     this.normalizeSystemPrompt();
     this.settings.defaultPermissionLevel = normalizeLevel(this.settings.defaultPermissionLevel);
     writeJsonAtomic(SETTINGS_FILE, this.settings);

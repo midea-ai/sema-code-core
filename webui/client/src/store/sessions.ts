@@ -6,6 +6,7 @@ import type { SessionSnapshot, SessionRecord, AgentMode, PermissionLevel, EventF
 import { applyEvent, applyLocal, LocalAction } from '../../../shared/transcript';
 import { SERVER_EVENTS } from '../../../shared/protocol';
 import { useApp } from './app';
+import { t } from '../i18n';
 
 interface Draft { text: string; images: { dataUrl: string; media_type: string; data: string }[] }
 
@@ -116,7 +117,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
       useApp.getState().openQuickchatTab(frame.sessionId);
     }
     if (frame.event === 'session:error') {
-      useApp.getState().toast(frame.data?.error?.message || '会话出错', 'error');
+      useApp.getState().toast(frame.data?.error?.message || t('chat.sessionError'), 'error');
     }
   },
 

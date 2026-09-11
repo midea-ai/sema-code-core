@@ -223,10 +223,10 @@ export function useCopy() {
 
 export function relTime(ts: number): string {
   const d = Date.now() - ts;
-  if (d < 60_000) return '刚刚';
-  if (d < 3600_000) return `${Math.floor(d / 60_000)} 分钟前`;
-  if (d < 86400_000) return `${Math.floor(d / 3600_000)} 小时前`;
-  if (d < 30 * 86400_000) return `${Math.floor(d / 86400_000)} 天前`;
-  if (d < 365 * 86400_000) return `${Math.floor(d / (30 * 86400_000))} 个月前`;
-  return `${Math.floor(d / (365 * 86400_000))} 年前`;
+  if (d < 60_000) return t('time.justNow');
+  if (d < 3600_000) return t('time.minutesAgo', { n: Math.floor(d / 60_000) });
+  if (d < 86400_000) return t('time.hoursAgo', { n: Math.floor(d / 3600_000) });
+  if (d < 30 * 86400_000) return t('time.daysAgo', { n: Math.floor(d / 86400_000) });
+  if (d < 365 * 86400_000) return t('time.monthsAgo', { n: Math.floor(d / (30 * 86400_000)) });
+  return t('time.yearsAgo', { n: Math.floor(d / (365 * 86400_000)) });
 }

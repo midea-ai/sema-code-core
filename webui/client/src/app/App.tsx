@@ -10,12 +10,14 @@ import { SchedulePage } from '../features/schedule/SchedulePage';
 import { EcoPage } from '../features/eco/EcoPage';
 import { DraftView } from '../features/chat/DraftView';
 import { DialogProvider, cn, Spinner } from '../common/ui';
-import { t } from '../i18n';
+import { t, useLang } from '../i18n';
 import { PanelLeft } from 'lucide-react';
 import { ResizeHandle, usePanelWidth } from '../common/Resizer';
 import { useStatusFavicon } from '../common/favicon';
 
 export function App() {
+  // 订阅界面语言：切换时整棵树重渲染（memo 组件内各自 useLang）
+  useLang();
   const ready = useApp(s => s.ready);
   const view = useApp(s => s.view);
   const bootstrap = useApp(s => s.bootstrap);
@@ -33,7 +35,7 @@ export function App() {
     initToken();
     bootstrap().catch(e => {
       useApp.getState().toast(`${t('common.error')}: ${e.message}`, 'error');
-      if (e.status === 401) document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;color:#ccc">未授权：请使用服务端启动时打印的带 token 的地址访问。</div>';
+      if (e.status === 401) document.body.innerHTML = `<div style="padding:40px;font-family:sans-serif;color:#ccc">${t('app.unauthorized')}</div>`;
     });
   }, [bootstrap]);
 
@@ -59,7 +61,7 @@ export function App() {
             </div>
           )}
           {sidebarCollapsed && (
-            <button onClick={() => setSidebarCollapsed(false)} className="absolute left-2 top-2 z-10 p-1.5 rounded-md text-muted hover:text-fg hover:bg-black/[0.05]" title="显示侧边栏">
+            <button onClick={() => setSidebarCollapsed(false)} className="absolute left-2 top-2 z-10 p-1.5 rounded-md text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.showSidebar')}>
               <PanelLeft size={16} />
             </button>
           )}

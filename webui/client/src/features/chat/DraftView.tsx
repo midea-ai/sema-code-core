@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Folder, Search, Check, Plus, X } from 'lucide-react';
+import { Folder, Search, Check, Plus, X, Settings2 } from 'lucide-react';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { Composer } from './Composer';
-import { Popover, cn } from '../../common/ui';
+import { Button, Popover, cn } from '../../common/ui';
 import { CreateProjectDialog } from '../../common/CreateProjectDialog';
+import { LanguageSelect } from '../../common/LanguageSelect';
 import { t } from '../../i18n';
 
 /** 新会话草稿页：不创建会话记录，首次发送时由 Composer 创建并跳转；顶部可选择所属项目 */
@@ -27,16 +28,29 @@ export function DraftView({ projectId }: { projectId?: string }) {
           {isDesign ? t('chat.emptyTitleDesign') : t('chat.emptyTitle')}
           {isDesign && <span className="text-[11px] leading-none px-1.5 py-1 rounded bg-design/10 text-design font-medium">Design</span>}
         </div>
-        <div className="text-muted max-w-md">{isDesign ? t('chat.emptyHintDesign') : project ? t('draft.projectHint', { name: project.name }) : t('chat.emptyHint')}</div>
-        {!hasModel && modelData && (
-          <button onClick={() => setView({ type: 'settings', tab: 'models' })} className="h-9 px-4 rounded-md border border-border text-sm hover:bg-black/[0.05]">{t('chat.goConfigModel')}</button>
+        {!hasModel && modelData ? (
+          /* 未配置模型引导卡片：取代描述文案与输入框上方警告条；首次使用即可在右下角切换语言 */
+          <div className="w-full max-w-md mt-2 rounded-xl border border-border bg-white p-4 text-left">
+            <div className="flex items-start gap-3">
+              <span className="h-9 w-9 rounded-lg bg-warn/10 text-warn flex items-center justify-center shrink-0"><Settings2 size={16} /></span>
+              <div className="min-w-0">
+                <div className="text-sm font-medium">{t('chat.noModelTitle')}</div>
+                <div className="text-xs text-muted mt-0.5">{t('chat.noModelDesc')}</div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between mt-4">
+              <Button variant="primary" size="sm" onClick={() => setView({ type: 'settings', tab: 'models' })}>{t('chat.goConfigModel')}</Button>
+              <LanguageSelect compact />
+            </div>
+          </div>
+        ) : (
+          <div className="text-muted max-w-md">{isDesign ? t('chat.emptyHintDesign') : project ? t('draft.projectHint', { name: project.name }) : t('chat.emptyHint')}</div>
         )}
       </div>
-      {/* 输入框上方：浅灰底带 + 项目选择胶囊，底带与下方输入卡片相接（对齐参考效果）；
-          未配置模型警告条会插在两者之间时，去掉负 margin 避免贴住警告条 */}
+      {/* 输入框上方：浅灰底带 + 项目选择胶囊，底带与下方输入卡片相接（对齐参考效果） */}
       <div className="shrink-0 px-4">
         <div className="max-w-3xl mx-auto px-3">
-          <div className={cn('rounded-t-xl bg-black/[0.035] px-2.5 pt-2 pb-5 flex items-center gap-2', !hasModel && modelData ? undefined : '-mb-4')}>
+          <div className="rounded-t-xl bg-black/[0.035] px-2.5 pt-2 pb-5 -mb-4 flex items-center gap-2">
             <ProjectPicker projectId={projectId} onChange={id => setView({ type: 'draft', projectId: id })} />
           </div>
         </div>

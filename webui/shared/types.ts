@@ -2,6 +2,7 @@
  * WebUI 共享类型：注册表 / 会话快照 / 消息块 / 协议帧。
  * 服务端与前端共用，仅依赖纯类型，不 import sema-core 运行时。
  */
+import type { Language } from './lang';
 
 export type AgentMode = 'Agent' | 'Plan' | 'Design';
 /** WebUI 可选权限档位：不开放 Ask，最低 AutoEdit，默认 Bypass */
@@ -53,6 +54,8 @@ export const DEFAULT_SYSTEM_PROMPT = "You are SemaWork, an Agent AI for work.";
 /** WebUI 全局设置（落盘 ~/.sema/webui/settings.json） */
 export interface WebUISettings {
   coreConfig: {
+    /** 界面语言，同时透传给 core 驱动其 UI 文案；切换时内置默认的 customRules 随之切换（见 registry.updateSettings） */
+    lang: Language;
     stream: boolean;
     thinking: boolean;
     systemPrompt: string;

@@ -5,9 +5,11 @@ import { useApp } from '../../store/app';
 import { wsClient } from '../../api/ws';
 import { Button, Modal, Toggle, Spinner, Dropdown, cn, useDialog } from '../../common/ui';
 import ProviderLogo, { parseProviderKey, stripProviderSuffix } from '../../common/ProviderLogo';
-import { t } from '../../i18n';
-import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, AdapterType, ThinkingHistoryPolicy } from './providers';
+import { LanguageSelect } from '../../common/LanguageSelect';
+import { t, languageLabel, type I18nKey } from '../../i18n';
+import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, providerLabel, apiKeyPlaceholder, AdapterType, ThinkingHistoryPolicy } from './providers';
 import { PERMISSION_LEVELS, DEFAULT_SYSTEM_PROMPT } from '../../../../shared/types';
+import { defaultCustomRules } from '../../../../shared/lang';
 import type { WebUISettings } from '../../../../shared/types';
 
 export function SettingsPage({ tab }: { tab: 'models' | 'system' }) {
@@ -83,7 +85,7 @@ function ModelsSettings() {
                   const task = taskOf(name);
                   return (
                     <tr key={name} className="hover:bg-black/[0.02]">
-                      <td className="px-4 py-2.5"><span className="inline-flex items-center gap-2"><ProviderLogo provider={provider} />{provider === 'custom' ? provider : (PROVIDERS[provider]?.name || provider)}</span></td>
+                      <td className="px-4 py-2.5"><span className="inline-flex items-center gap-2"><ProviderLogo provider={provider} />{provider === 'custom' ? provider : providerLabel(provider)}</span></td>
                       <td className="px-4 py-2.5 font-mono text-[13px]">{stripProviderSuffix(name)}</td>
                       <td className="px-4 py-2.5">
                         {task === 'main' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">{t('settings.mainModel')}</span>}
@@ -91,7 +93,7 @@ function ModelsSettings() {
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <button disabled={busy} title={t('settings.delete')} className="p-1 rounded text-muted hover:text-danger hover:bg-danger/10" onClick={async () => {
-                          if (await dialog.confirm({ title: t('settings.delete'), message: `${t('settings.delete')} ${name}？`, danger: true })) run(() => wsClient.request('core.delModel', undefined, { modelName: name }));
+                          if (await dialog.confirm({ title: t('settings.delete'), message: t('settings.confirmDeleteModel', { name }), danger: true })) run(() => wsClient.request('core.delModel', undefined, { modelName: name }));
                         }}><Trash2 size={14} /></button>
                       </td>
                     </tr>
@@ -178,18 +180,19 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
   };
 
   const fetchModels = async () => {
-    if (!baseURL) { setStatus({ type: 'error', text: '请输入模型地址' }); return; }
-    if (p.requiresApiKeyForModelList !== false && !apiKey) { setStatus({ type: 'error', text: '请输入 API Key' }); return; }
-    setFetching(true); setStatus({ type: 'info', text: '正在获取模型列表...' });
+    if (!baseURL) { setStatus({ type: 'error', text: t('settings.err.baseURL') }); return; }
+    if (p.requiresApiKeyForModelList !== false && !apiKey) { setStatus({ type: 'error', text: t('settings.err.apiKey') }); return; }
+    setFetching(true); setStatus({ type: 'info', text: t('settings.fetchingModels') });
     try {
       const r = await wsClient.request<any>('core.fetchAvailableModels', undefined, { params: { provider, baseURL, apiKey, adapt, modelsUrl: p.modelsUrl } });
-      if (!r?.success) throw new Error(r?.message || '获取模型列表失败');
+      if (!r?.success) throw new Error(r?.message || t('settings.fetchModelsFailed'));
       const list: FetchedModel[] = r.models || [];
-      if (!list.length) { setFetchFailed(true); setStatus({ type: 'error', text: '请求成功，但没有返回可用模型' }); return; }
+      if (!list.length) { setFetchFailed(true); setStatus({ type: 'error', text: t('settings.fetchModelsEmpty') }); return; }
       setModels(list); setFetchFailed(false);
       const pick = (p.defaultModel && list.find(m => m.id === p.defaultModel)) ? p.defaultModel! : list[0].id;
-      setStatus({ type: 'ok', text: `成功获取 ${list.length} 个模型` });
-      setTimeout(() => setStatus(s => s?.text.startsWith('成功获取') ? null : s), 3000);
+      const okText = t('settings.fetchModelsOk', { n: list.length });
+      setStatus({ type: 'ok', text: okText });
+      setTimeout(() => setStatus(s => s?.text === okText ? null : s), 3000);
       // 用刚拿到的列表应用默认模型（models state 尚未更新，直接读 list）
       setSelectedModel(pick); invalidate();
       const m = list.find(x => x.id === pick);
@@ -200,10 +203,10 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
   };
 
   const testConn = async () => {
-    if (!baseURL) { setStatus({ type: 'error', text: '请输入模型地址' }); return; }
-    if (!apiKey) { setStatus({ type: 'error', text: '请输入 API Key' }); return; }
-    if (!currentModel) { setStatus({ type: 'error', text: '请先获取模型或手动输入模型名称' }); return; }
-    setTesting(true); setStatus({ type: 'info', text: '正在测试连接...' });
+    if (!baseURL) { setStatus({ type: 'error', text: t('settings.err.baseURL') }); return; }
+    if (!apiKey) { setStatus({ type: 'error', text: t('settings.err.apiKey') }); return; }
+    if (!currentModel) { setStatus({ type: 'error', text: t('settings.err.needModel') }); return; }
+    setTesting(true); setStatus({ type: 'info', text: t('settings.testingConn') });
     try {
       const r = await wsClient.request<any>('core.testApiConnection', undefined, { params: { provider, baseURL, apiKey, modelName: currentModel, adapt } });
       setTested(r?.success ? 'ok' : 'fail');
@@ -212,12 +215,12 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
   };
 
   const save = async () => {
-    if (!apiKey) { setStatus({ type: 'error', text: '请输入 API Key' }); return; }
-    if (!currentModel) { setStatus({ type: 'error', text: '请先获取模型或手动输入模型名称' }); return; }
-    if (tested === 'none') { setStatus({ type: 'error', text: '请先点击「测试连接」验证配置' }); return; }
-    if (tested === 'fail') { setStatus({ type: 'error', text: '连接测试未通过，请修正配置后重新测试' }); return; }
+    if (!apiKey) { setStatus({ type: 'error', text: t('settings.err.apiKey') }); return; }
+    if (!currentModel) { setStatus({ type: 'error', text: t('settings.err.needModel') }); return; }
+    if (tested === 'none') { setStatus({ type: 'error', text: t('settings.err.testFirst') }); return; }
+    if (tested === 'fail') { setStatus({ type: 'error', text: t('settings.err.testFailed') }); return; }
     const aliasError = provider === 'custom' ? validateCustomProviderName(customProviderName) : null;
-    if (aliasError) { setStatus({ type: 'error', text: `服务商名称不合法: ${aliasError}` }); return; }
+    if (aliasError) { setStatus({ type: 'error', text: t('settings.err.providerName', { error: aliasError }) }); return; }
     setSaving(true);
     try {
       await wsClient.request('core.addModel', undefined, { config: { provider: provider === 'custom' && customProviderName ? customProviderName : provider, modelName: currentModel, baseURL, apiKey, maxTokens: parseInt(maxTokens), contextLength: parseInt(contextLength), adapt, thinkingHistoryPolicy }, skipValidation: true });
@@ -234,12 +237,12 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
       <div className="flex flex-col gap-4 text-sm">
         <Field label={t('settings.provider')}>
           <IconSelect value={provider} onChange={onProvider}
-            options={PROVIDER_ORDER.filter(k => PROVIDERS[k]).map(k => ({ value: k, label: PROVIDERS[k].name, icon: <ProviderLogo provider={k} /> }))} />
+            options={PROVIDER_ORDER.filter(k => PROVIDERS[k]).map(k => ({ value: k, label: providerLabel(k), icon: <ProviderLogo provider={k} /> }))} />
         </Field>
         {provider === 'custom' && (
           <Field label={t('settings.providerName')}>
             <input value={customProviderName} onChange={e => { setCustomProviderName(e.target.value.trim()); invalidate(); }}
-              placeholder="为该服务命名以区分多个自定义服务，小写字母/数字/短横线，2~20 字符，留空默认为 custom"
+              placeholder={t('settings.providerNamePlaceholder')}
               className="w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent" />
             {validateCustomProviderName(customProviderName) && (
               <div className="text-xs text-danger">{validateCustomProviderName(customProviderName)}</div>
@@ -249,32 +252,32 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
         <Field label={t('settings.baseURL')}>
           <input value={baseURL} onChange={e => { setBaseURL(e.target.value); invalidate(); }} placeholder={p.baseURLPlaceholder || p.baseURL} className="w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent" />
         </Field>
-        <Field label={t('settings.apiKey')} hint={docUrl ? <a className={linkCls} href={docUrl} target="_blank" rel="noreferrer" title={docUrl}>获取 API Key ↗</a> : undefined}>
+        <Field label={t('settings.apiKey')} hint={docUrl ? <a className={linkCls} href={docUrl} target="_blank" rel="noreferrer" title={docUrl}>{t('settings.getApiKey')}</a> : undefined}>
           <div className="relative">
-            <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => { setApiKey(e.target.value.trim()); invalidate(); }} placeholder={p.apiKeyPlaceholder} className="w-full h-9 pl-3 pr-9 rounded-md bg-white border border-border focus:border-accent" />
-            <button type="button" onClick={() => setShowKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted hover:text-fg" title={showKey ? '隐藏' : '显示'}>{showKey ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+            <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => { setApiKey(e.target.value.trim()); invalidate(); }} placeholder={apiKeyPlaceholder(provider)} className="w-full h-9 pl-3 pr-9 rounded-md bg-white border border-border focus:border-accent" />
+            <button type="button" onClick={() => setShowKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted hover:text-fg" title={showKey ? t('settings.hideKey') : t('settings.showKey')}>{showKey ? <EyeOff size={14} /> : <Eye size={14} />}</button>
           </div>
         </Field>
-        <Field label={t('settings.modelName')} hint={<span className={linkCls} onClick={() => { setManual(v => !v); invalidate(); }}>{manual ? '从列表选择' : '手动输入'}</span>}>
+        <Field label={t('settings.modelName')} hint={<span className={linkCls} onClick={() => { setManual(v => !v); invalidate(); }}>{manual ? t('settings.pickFromList') : t('settings.manualInput')}</span>}>
           {manual ? (
-            <input value={modelName} onChange={e => { setModelName(e.target.value); invalidate(); }} placeholder={p.defaultModel ? `输入模型名称，例如: ${p.defaultModel}` : '输入模型名称'} className="w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent" />
+            <input value={modelName} onChange={e => { setModelName(e.target.value); invalidate(); }} placeholder={p.defaultModel ? t('settings.modelNamePlaceholderEg', { model: p.defaultModel }) : t('settings.modelNamePlaceholder')} className="w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent" />
           ) : (
             <div className="flex flex-col gap-1.5">
               <div className="flex gap-2 items-center">
                 <div className="flex-1 min-w-0">
-                  <IconSelect value={selectedModel} onChange={applyModel} disabled={models.length === 0} placeholder="-- 请先获取模型列表 --"
+                  <IconSelect value={selectedModel} onChange={applyModel} disabled={models.length === 0} placeholder={t('settings.fetchModelsFirst')}
                     options={models.map(m => ({ value: m.id, label: m.name || m.id }))} />
                 </div>
-                <Button onClick={fetchModels} disabled={fetching} className="h-9">{fetching ? <Spinner /> : <RefreshCw size={13} />}{fetching ? '获取中...' : t('settings.fetchModels')}</Button>
+                <Button onClick={fetchModels} disabled={fetching} className="h-9">{fetching ? <Spinner /> : <RefreshCw size={13} />}{fetching ? t('settings.fetching') : t('settings.fetchModels')}</Button>
               </div>
               {fetchFailed && models.length === 0 && (
-                <div className="text-xs text-muted">获取不到模型列表？该服务商可能不支持列出模型，可以 <span className={linkCls} onClick={() => setManual(true)}>手动输入模型名称</span></div>
+                <div className="text-xs text-muted">{t('settings.fetchModelsHint')} <span className={linkCls} onClick={() => setManual(true)}>{t('settings.manualModelName')}</span></div>
               )}
             </div>
           )}
         </Field>
         <Field label={t('settings.adapt')}>
-          <IconSelect value={adapt} onChange={v => setAdapt(v as AdapterType)} options={[{ value: 'openai', label: 'OpenAI 格式' }, { value: 'anthropic', label: 'Anthropic 格式' }]} />
+          <IconSelect value={adapt} onChange={v => setAdapt(v as AdapterType)} options={[{ value: 'openai', label: t('settings.adapt.openai') }, { value: 'anthropic', label: t('settings.adapt.anthropic') }]} />
         </Field>
         <Field label={t('settings.thinkingHistoryPolicy')}>
           <IconSelect value={thinkingHistoryPolicy} onChange={v => setThinkingHistoryPolicy(v as ThinkingHistoryPolicy)}
@@ -283,7 +286,6 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
               { value: 'current_turn', label: t('settings.thinkingHistoryPolicy.currentTurn') },
               { value: 'omit', label: t('settings.thinkingHistoryPolicy.omit') },
             ]} />
-          <div className="text-xs text-muted">{t('settings.thinkingHistoryPolicy.desc')}</div>
           {thinkingHistoryPolicy !== 'preserve' && (
             <div className="text-xs text-warn">{t('settings.thinkingHistoryPolicy.warn')}</div>
           )}
@@ -307,8 +309,8 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
         )}
         <div className="flex justify-end gap-2 mt-1">
           <Button variant="ghost" onClick={onClose}>{t('dialog.cancel')}</Button>
-          <Button onClick={testConn} disabled={testing}>{testing ? <Spinner /> : null}{testing ? '测试中...' : t('settings.test')}</Button>
-          <Button variant="primary" onClick={save} disabled={saving}>{saving ? <Spinner /> : null}{saving ? '添加中...' : t('settings.addModel')}</Button>
+          <Button onClick={testConn} disabled={testing}>{testing ? <Spinner /> : null}{testing ? t('settings.testing') : t('settings.test')}</Button>
+          <Button variant="primary" onClick={save} disabled={saving}>{saving ? <Spinner /> : null}{saving ? t('settings.adding') : t('settings.addModel')}</Button>
         </div>
       </div>
     </Modal>
@@ -327,18 +329,19 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
 // ==================== 系统配置 ====================
 
 type CoreBoolKey = 'skipFileEditPermission' | 'skipShellExecPermission' | 'skipSkillPermission' | 'skipMCPToolPermission' | 'skipFetchUrlPermission' | 'skipExternalFileReadPermission' | 'disableBackgroundTasks' | 'enableToolSearch' | 'enableInputPrediction';
-const BASIC_KEYS: Array<{ key: CoreBoolKey; label: string }> = [
-  { key: 'enableToolSearch', label: t('settings.enableToolSearch') },
-  { key: 'disableBackgroundTasks', label: t('settings.disableBg') },
-  { key: 'enableInputPrediction', label: t('settings.enableInputPrediction') },
+// 存 key、渲染时取文案：模块顶层调 t() 切换语言后不会更新
+const BASIC_KEYS: Array<{ key: CoreBoolKey; label: I18nKey }> = [
+  { key: 'enableToolSearch', label: 'settings.enableToolSearch' },
+  { key: 'disableBackgroundTasks', label: 'settings.disableBg' },
+  { key: 'enableInputPrediction', label: 'settings.enableInputPrediction' },
 ];
-const PERMISSION_KEYS: Array<{ key: CoreBoolKey; label: string }> = [
-  { key: 'skipFileEditPermission', label: t('settings.skipFileEdit') },
-  { key: 'skipShellExecPermission', label: t('settings.skipShell') },
-  { key: 'skipSkillPermission', label: t('settings.skipSkill') },
-  { key: 'skipMCPToolPermission', label: t('settings.skipMCP') },
-  { key: 'skipFetchUrlPermission', label: t('settings.skipFetch') },
-  { key: 'skipExternalFileReadPermission', label: t('settings.skipExternalRead') },
+const PERMISSION_KEYS: Array<{ key: CoreBoolKey; label: I18nKey }> = [
+  { key: 'skipFileEditPermission', label: 'settings.skipFileEdit' },
+  { key: 'skipShellExecPermission', label: 'settings.skipShell' },
+  { key: 'skipSkillPermission', label: 'settings.skipSkill' },
+  { key: 'skipMCPToolPermission', label: 'settings.skipMCP' },
+  { key: 'skipFetchUrlPermission', label: 'settings.skipFetch' },
+  { key: 'skipExternalFileReadPermission', label: 'settings.skipExternalRead' },
 ];
 
 function SystemSettings() {
@@ -354,9 +357,10 @@ function SystemSettings() {
   if (!settings) return null;
 
   const patch = async (p: Partial<WebUISettings>) => { try { await save(p); } catch (e: any) { toast(e.message, 'error'); } };
-  const ToggleRow = ({ k, label }: { k: CoreBoolKey; label: string }) => (
+  const defaultRules = defaultCustomRules(settings.coreConfig.lang);
+  const ToggleRow = ({ k, label }: { k: CoreBoolKey; label: I18nKey }) => (
     <div className="flex items-center justify-between px-4 py-2.5 text-sm">
-      <span>{label}<span className="ml-2 text-xs text-muted font-mono">{k}</span></span>
+      <span>{t(label)}<span className="ml-2 text-xs text-muted font-mono">{k}</span></span>
       <Toggle checked={!!settings.coreConfig[k]} onChange={v => patch({ coreConfig: { ...settings.coreConfig, [k]: v } })} />
     </div>
   );
@@ -366,6 +370,10 @@ function SystemSettings() {
       <section>
         <h2 className="text-base font-semibold mb-3">{t('settings.basic')}</h2>
         <div className="rounded-lg border border-border bg-white divide-y divide-border">
+          <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+            <span>{languageLabel()}<span className="ml-2 text-xs text-muted font-mono">lang</span></span>
+            <div className="w-40"><LanguageSelect /></div>
+          </div>
           {BASIC_KEYS.map(({ key, label }) => <ToggleRow key={key} k={key} label={label} />)}
         </div>
       </section>
@@ -382,7 +390,10 @@ function SystemSettings() {
       <section>
         <h2 className="text-base font-semibold mb-3">{t('settings.customRules')}</h2>
         <textarea value={rules} onChange={e => setRules(e.target.value)} rows={5} className="w-full p-3 rounded-md bg-white border border-border text-sm font-mono resize-y" />
-        <div className="flex justify-end mt-2">
+        <div className="flex justify-end gap-2 mt-2">
+          {/* 恢复为当前界面语言的默认规则 */}
+          <Button variant="ghost" size="sm" disabled={savingRules || (rules === defaultRules && settings.coreConfig.customRules === defaultRules)}
+            onClick={async () => { setRules(defaultRules); if (settings.coreConfig.customRules !== defaultRules) { setSavingRules(true); await patch({ coreConfig: { ...settings.coreConfig, customRules: defaultRules } }); setSavingRules(false); toast(t('settings.saved')); } }}>{t('settings.resetDefault')}</Button>
           <Button variant="primary" size="sm" disabled={savingRules || rules === settings.coreConfig.customRules}
             onClick={async () => { setSavingRules(true); await patch({ coreConfig: { ...settings.coreConfig, customRules: rules } }); setSavingRules(false); toast(t('settings.saved')); }}>{t('settings.save')}</Button>
         </div>

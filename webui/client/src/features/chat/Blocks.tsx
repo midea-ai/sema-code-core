@@ -15,7 +15,7 @@ import { contentToString, toolDisplayName, stripAnsi, fmtTime, displayPath } fro
 import { normalizeUrl } from '../../common/url';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
-import { t } from '../../i18n';
+import { t, useLang } from '../../i18n';
 
 export interface BlockCtx {
   sessionId: string;
@@ -27,6 +27,7 @@ export interface BlockCtx {
 // ==================== 分发 ====================
 
 export const BlockRenderer = memo(function BlockRenderer({ block, ctx }: { block: Block; ctx: BlockCtx }) {
+  useLang(); // memo 组件自行订阅语言，切换时重渲染
   switch (block.kind) {
     case 'user': return <UserBubble block={block} ctx={ctx} />;
     case 'assistant': return <AssistantMsg block={block} ctx={ctx} />;
@@ -58,7 +59,7 @@ function BranchOrigin({ block }: { block: BranchOriginBlock }) {
         disabled={!available}
         onClick={() => available && setView({ type: 'chat', sessionId: block.sourceSessionId })}
         className={cn('inline-flex items-center gap-2 font-medium', available ? 'text-accent hover:underline underline-offset-2' : 'text-muted cursor-default')}
-        title={available ? `打开原聊天：${source.title || block.sourceTitle}` : t('chat.branchSourceDeleted')}
+        title={available ? t('chat.openBranchSource', { title: source.title || block.sourceTitle }) : t('chat.branchSourceDeleted')}
       >
         <GitBranch size={16} />
         <span>{available ? t('chat.branchFrom') : t('chat.branchSourceDeleted')}</span>
@@ -102,7 +103,7 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
           <div className="flex gap-1.5 flex-wrap justify-end">
             {block.attachments.map((a, i) => a.dataUrl
               ? <ImageThumb key={i} src={a.dataUrl} className="h-20 w-20" />
-              : <div key={i} className="h-10 px-2 rounded-md border border-border text-xs text-muted flex items-center">图片</div>)}
+              : <div key={i} className="h-10 px-2 rounded-md border border-border text-xs text-muted flex items-center">{t('common.image')}</div>)}
           </div>
         )}
         <div className={cn('rounded-2xl px-4 py-2 bg-panel', block.queued && 'opacity-60')}>
@@ -125,7 +126,8 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
 /** 用户消息悬浮工具栏：时间 · 复制 · 回退 */
 function UserBubbleBar({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   const { copied, copy } = useCopy();
-  const time = useMemo(() => fmtTime(block.ts), [block.ts]);
+  const lang = useLang();
+  const time = useMemo(() => fmtTime(block.ts), [block.ts, lang]);
   const btn = 'text-muted hover:text-fg inline-flex items-center p-0.5 rounded';
   return (
     <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1.5 text-[11px] text-muted">
@@ -244,24 +246,28 @@ function isDiffContent(c: any): c is { type: 'diff' | 'new'; patch: any[]; diffT
   return !!c && typeof c === 'object' && Array.isArray(c.patch);
 }
 
+/** 工具状态三态：对应字典里 tool.<kind>.running / done / error */
+function verbState(status: ToolBlock['status']) {
+  return status === 'running' ? 'running' as const : status === 'error' ? 'error' as const : 'done' as const;
+}
+
 /** 工具行动词：按状态三态区分（正在运行 / 已运行 / 运行出错），失败不用「已」 */
 function toolVerb(block: ToolBlock, diff: { type: 'diff' | 'new' } | null): string {
-  const st = block.status;
-  const pick = (running: string, done: string, error: string) => st === 'running' ? running : st === 'error' ? error : done;
+  const st = verbState(block.status);
+  const pick = (kind: 'shell' | 'create' | 'edit' | 'read' | 'search' | 'fetch' | 'agent' | 'skill' | 'ask' | 'bgStart' | 'bgStop') => t(`tool.${kind}.${st}` as const);
   const n = block.toolName;
-  if (n === 'run_shell') return pick('正在运行', '已运行', '运行出错');
-  if (n === 'write_file' && diff?.type === 'new') return pick('正在创建', '已创建', '创建失败');
-  if (n === 'write_file' || n === 'patch_file' || n === 'edit_notebook') return pick('正在编辑', '已编辑', '编辑失败');
-  if (n === 'view_file') return pick('正在读取', '已读取', '读取失败');
-  if (n === 'search_files' || n === 'search_content') return pick('正在搜索', '已搜索', '搜索失败');
-  if (n === 'fetch_url') return pick('正在抓取', '已抓取', '抓取失败');
-  if (n === 'sub_agent') return pick('正在调用子代理', '已调用子代理', '子代理调用失败');
-  if (n === 'skill') return pick('正在使用技能', '已使用技能', '技能调用失败');
-  if (n === 'ask_form') return pick('等待用户回应', '用户已回应', '未获得用户回应');
-  if (n === 'peek_bg_job') return pick('正在启动后台任务', '已启动后台任务', '后台任务启动失败');
-  if (n === 'stop_bg_job') return pick('正在停止后台任务', '已停止后台任务', '后台任务停止失败');
-  if (st === 'error') return `调用 ${toolDisplayName(n)} 失败`;
-  return `${st === 'running' ? '正在调用' : '已调用'} ${toolDisplayName(n)}`;
+  if (n === 'run_shell') return pick('shell');
+  if (n === 'write_file' && diff?.type === 'new') return pick('create');
+  if (n === 'write_file' || n === 'patch_file' || n === 'edit_notebook') return pick('edit');
+  if (n === 'view_file') return pick('read');
+  if (n === 'search_files' || n === 'search_content') return pick('search');
+  if (n === 'fetch_url') return pick('fetch');
+  if (n === 'sub_agent') return pick('agent');
+  if (n === 'skill') return pick('skill');
+  if (n === 'ask_form') return pick('ask');
+  if (n === 'peek_bg_job') return pick('bgStart');
+  if (n === 'stop_bg_job') return pick('bgStop');
+  return t(`tool.call.${st}` as const, { name: toolDisplayName(n) });
 }
 
 const FILE_TOOLS = new Set(['view_file', 'write_file', 'patch_file', 'edit_notebook']);
@@ -298,9 +304,8 @@ function searchLabel(block: ToolBlock): string {
   const dir = String(block.input?.path || m('path') || '.');
   const pattern = block.input?.pattern ?? m('pattern');
   const pat = pattern ? `“${pattern}”` : '';
-  const verb = block.toolName === 'search_files' ? '查找文件' : '搜索';
-  if (block.status === 'error') return `在 ${dir} 中${verb}${pat}失败`;
-  return `${block.status === 'running' ? '正在' : '已在'} ${dir} 中${verb}${pat}`;
+  const kind = block.toolName === 'search_files' ? 'findFiles' as const : 'searchContent' as const;
+  return t(`tool.${kind}.${verbState(block.status)}` as const, { dir, pat });
 }
 
 function toolIcon(n: string): any {
@@ -381,7 +386,7 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
                 <pre className={cn('font-mono text-[12px] leading-5 whitespace-pre-wrap break-words p-2', block.status === 'error' && 'text-danger')}>{bodyText.length > 20000 ? bodyText.slice(-20000) : bodyText}</pre>
               </Collapsible>
             )
-              : <div className="text-xs text-muted">{block.status === 'running' ? t('card.running') : '(无输出)'}</div>
+              : <div className="text-xs text-muted">{block.status === 'running' ? t('card.running') : t('card.noOutput')}</div>
           )}
         </div>
       )}
@@ -399,7 +404,7 @@ function ImageReadCard({ blocks, ctx }: { blocks: ToolBlock[]; ctx: BlockCtx }) 
     <div className="my-0.5 text-[13px] text-dim">
       <button onClick={() => setOpen(v => !v)} className="flex items-center gap-2 py-0.5 text-left cursor-pointer hover:text-fg">
         {running ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : <Images size={14} className="shrink-0" />}
-        <span>{running ? '正在查看图片' : `已查看 ${paths.length} 张图片`}</span>
+        <span>{running ? t('card.viewingImages') : t('card.viewedImages', { n: paths.length })}</span>
         {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
       </button>
       {open && (
@@ -502,12 +507,12 @@ function DiffStat({ patch, additions, removals }: { patch?: any[]; additions?: n
 
 /** 权限卡标题里的工具类别文案 */
 function permissionKind(n: string): string {
-  if (n === 'run_shell') return '终端Shell';
-  if (n === 'write_file' || n === 'patch_file' || n === 'edit_notebook') return '文件编辑';
-  if (n === 'view_file') return '文件读取';
-  if (n === 'fetch_url') return '网页访问';
-  if (n === 'skill') return '技能';
-  if (n.startsWith('mcp__')) return `MCP 工具 ${toolDisplayName(n)}`;
+  if (n === 'run_shell') return t('perm.shell');
+  if (n === 'write_file' || n === 'patch_file' || n === 'edit_notebook') return t('perm.fileEdit');
+  if (n === 'view_file') return t('perm.fileRead');
+  if (n === 'fetch_url') return t('perm.web');
+  if (n === 'skill') return t('perm.skill');
+  if (n.startsWith('mcp__')) return t('perm.mcp', { name: toolDisplayName(n) });
   return toolDisplayName(n);
 }
 
@@ -623,7 +628,7 @@ function NoticeBar({ block }: { block: NoticeBlock }) {
         <div className="whitespace-pre-wrap break-words">{block.text}</div>
         {block.detail && (
           <>
-            <button onClick={() => setOpen(v => !v)} className="text-muted hover:text-fg mt-0.5">{open ? t('card.collapse') : '详情'}</button>
+            <button onClick={() => setOpen(v => !v)} className="text-muted hover:text-fg mt-0.5">{open ? t('card.collapse') : t('card.details')}</button>
             {open && <pre className="mt-1 whitespace-pre-wrap max-h-60 overflow-auto text-muted">{block.detail}</pre>}
           </>
         )}

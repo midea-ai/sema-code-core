@@ -1,3 +1,5 @@
+import { t, dateLocale, type I18nKey } from '../i18n';
+
 export function contentToString(c: any): string {
   if (c == null) return '';
   if (typeof c === 'string') return c;
@@ -8,13 +10,13 @@ export function contentToString(c: any): string {
 export function toolDisplayName(name: string): string {
   if (!name) return '';
   if (name.startsWith('mcp__')) { const [, server, ...rest] = name.split('__'); return `${server} · ${rest.join('__')}`; }
-  const map: Record<string, string> = {
-    view_file: '读取', run_shell: '命令', write_file: '写入', patch_file: '编辑', search_files: '查找文件', search_content: '搜索内容',
-    fetch_url: '抓取', skill: 'Skill', sub_agent: '子代理', ask_form: '提问', plan_to_agent: '退出计划', edit_notebook: '编辑 Notebook',
-    create_todo: '待办', update_todo: '待办', list_todos: '待办', get_todo: '待办', peek_bg_job: '后台任务', stop_bg_job: '停止后台任务',
-    create_cron: '定时任务', list_crons: '定时任务', del_cron: '定时任务', load_tools: '加载工具',
+  const map: Record<string, I18nKey> = {
+    view_file: 'toolName.read', run_shell: 'toolName.shell', write_file: 'toolName.write', patch_file: 'toolName.edit', search_files: 'toolName.findFiles', search_content: 'toolName.searchContent',
+    fetch_url: 'toolName.fetch', skill: 'toolName.skill', sub_agent: 'toolName.subagent', ask_form: 'toolName.ask', plan_to_agent: 'toolName.exitPlan', edit_notebook: 'toolName.editNotebook',
+    create_todo: 'toolName.todo', update_todo: 'toolName.todo', list_todos: 'toolName.todo', get_todo: 'toolName.todo', peek_bg_job: 'toolName.bgJob', stop_bg_job: 'toolName.stopBgJob',
+    create_cron: 'toolName.cron', list_crons: 'toolName.cron', del_cron: 'toolName.cron', load_tools: 'toolName.loadTools',
   };
-  return map[name] || name.replace(/_/g, ' ');
+  return map[name] ? t(map[name]) : name.replace(/_/g, ' ');
 }
 
 export function stripAnsi(s: string): string {
@@ -43,7 +45,7 @@ export function langOf(p: string): string | undefined {
   return EXT_LANG[ext];
 }
 
-/** 消息时间分级显示：今天→时分；7 天内→星期 时分；本年→M月D日 时分；跨年→YYYY年M月D日 时分 */
+/** 消息时间分级显示（日期部分按界面语言本地化）：今天→时分；7 天内→星期 时分；本年→M月D日 时分；跨年→YYYY年M月D日 时分 */
 export function fmtTime(ts: number): string {
   const d = new Date(ts);
   const now = new Date();
@@ -51,9 +53,10 @@ export function fmtTime(ts: number): string {
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const dayDiff = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
   if (dayDiff <= 0) return hm;
-  if (dayDiff < 7) return `星期${'日一二三四五六'[d.getDay()]} ${hm}`;
-  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+  const loc = dateLocale();
+  if (dayDiff < 7) return `${d.toLocaleDateString(loc, { weekday: 'long' })} ${hm}`;
+  if (d.getFullYear() === now.getFullYear()) return `${d.toLocaleDateString(loc, { month: 'short', day: 'numeric' })} ${hm}`;
+  return `${d.toLocaleDateString(loc, { year: 'numeric', month: 'short', day: 'numeric' })} ${hm}`;
 }
 
 /** 绝对路径缩写为 ~ 相对形式：/Users/xxx/Documents → ~/Documents */

@@ -154,7 +154,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const addFiles = useCallback((files: FileList | File[]) => {
     for (const f of Array.from(files)) {
       if (!ACCEPT.includes(f.type)) continue;
-      if (f.size > 8 * 1024 * 1024) { toast('图片超过 8MB，已忽略', 'warn'); continue; }
+      if (f.size > 8 * 1024 * 1024) { toast(t('chat.imageTooLarge'), 'warn'); continue; }
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = String(reader.result);
@@ -268,7 +268,8 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   return (
     <div className="shrink-0 px-4 pb-3 pt-2">
       <div className="max-w-3xl mx-auto">
-        {!hasModel && modelData && (
+        {/* 未配置模型警告条只在已有会话里显示；草稿页由中间的引导卡片提示 */}
+        {!hasModel && modelData && sessionId && (
           <div className="mb-2 text-xs rounded-md border border-warn/40 bg-warn/10 px-3 py-1.5 flex items-center gap-2">
             <span>{t('chat.noModel')}</span>
             <button className="underline" onClick={() => setView({ type: 'settings', tab: 'models' })}>{t('chat.goConfigModel')}</button>
@@ -353,7 +354,7 @@ function TokenProgress({ useTokens, maxTokens, promptTokens, cacheReadTokens }: 
   const ring = pct > 85 ? 'stroke-danger' : pct > 60 ? 'stroke-warn' : 'stroke-fg/70';
   const text = pct > 85 ? 'text-danger' : 'text-muted';
   // 服务商返回了缓存命中数才显示命中行；旧历史无该字段时不显示
-  const title = `${t('chat.usage')}已使用 ${fmt(useTokens)} / ${fmt(maxTokens)} tokens`
+  const title = t('chat.usageTitle', { used: fmt(useTokens), max: fmt(maxTokens) })
     + (cacheReadTokens !== undefined ? `\n${t('chat.cacheHit')} ${fmt(cacheReadTokens)} / ${fmt(promptTokens)}` : '');
   return (
     <div className="group flex items-center gap-1 h-7 px-1.5 mr-1.5 rounded-md select-none hover:bg-black/[0.04]" title={title}>

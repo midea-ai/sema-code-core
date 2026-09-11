@@ -3,6 +3,7 @@
  * 状态：connecting / open / closed（退避重连中）/ unauthorized（token 被拒，停止重连）/ failed（连续失败超限，等手动重试）
  */
 import { api, ApiError, getToken } from './http';
+import { t } from '../i18n';
 import type { EventFrame, ProcEventFrame, ResFrame } from '../../../shared/types';
 
 type Listener = (frame: EventFrame | ProcEventFrame) => void;
@@ -46,7 +47,7 @@ export class WsClient {
       if (frame && typeof frame.event === 'string') this.listeners.forEach(f => f(frame));
     };
     ws.onclose = () => {
-      for (const [id, p] of this.pending) { clearTimeout(p.timer); p.reject(new Error('连接已断开')); this.pending.delete(id); }
+      for (const [id, p] of this.pending) { clearTimeout(p.timer); p.reject(new Error(t('ws.disconnected'))); this.pending.delete(id); }
       if (this.closedByUser) { this.setStatus('closed'); return; }
       this.scheduleReconnect();
     };
@@ -81,12 +82,12 @@ export class WsClient {
    */
   private waitOpen(timeoutMs = 10_000): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve();
-    if (this.status === 'unauthorized' || this.status === 'failed' || this.closedByUser) return Promise.reject(new Error('未连接到服务端'));
+    if (this.status === 'unauthorized' || this.status === 'failed' || this.closedByUser) return Promise.reject(new Error(t('ws.notConnected')));
     return new Promise((resolve, reject) => {
       const cleanup = () => { offOpen(); offStatus(); clearTimeout(timer); };
-      const timer = window.setTimeout(() => { cleanup(); reject(new Error('未连接到服务端')); }, timeoutMs);
+      const timer = window.setTimeout(() => { cleanup(); reject(new Error(t('ws.notConnected'))); }, timeoutMs);
       const offOpen = this.onOpen(() => { cleanup(); resolve(); });
-      const offStatus = this.onStatus(s => { if (s === 'unauthorized' || s === 'failed') { cleanup(); reject(new Error('未连接到服务端')); } });
+      const offStatus = this.onStatus(s => { if (s === 'unauthorized' || s === 'failed') { cleanup(); reject(new Error(t('ws.notConnected'))); } });
     });
   }
 
@@ -95,7 +96,7 @@ export class WsClient {
     const ws = this.ws!;
     const id = `c${++this.seq}`;
     return new Promise<T>((resolve, reject) => {
-      const timer = window.setTimeout(() => { this.pending.delete(id); reject(new Error(`请求超时: ${action}`)); }, timeoutMs);
+      const timer = window.setTimeout(() => { this.pending.delete(id); reject(new Error(t('ws.timeout', { action }))); }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       ws.send(JSON.stringify({ id, action, sessionId, payload }));
     });

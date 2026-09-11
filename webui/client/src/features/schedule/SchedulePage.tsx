@@ -4,7 +4,7 @@ import type { CronGroup } from '../../../../shared/types';
 import { useApp } from '../../store/app';
 import { api } from '../../api/http';
 import { cn, Spinner, Button } from '../../common/ui';
-import { t } from '../../i18n';
+import { t, dateLocale } from '../../i18n';
 import { CronTaskCard, parseCronFileRef } from '../panel/CronTaskCard';
 import { shortPath } from '../../common/text';
 import { sortCronTasks } from '../panel/CronTab';
@@ -35,7 +35,7 @@ function dayLabel(ts: number, now: number): string {
   if (key === dayKey(now)) return t('schedule.today');
   if (key === dayKey(now + 86400000)) return t('schedule.tomorrow');
   const d = new Date(ts);
-  return `${d.getMonth() + 1}月${d.getDate()}日 周${'日一二三四五六'[d.getDay()]}`;
+  return d.toLocaleDateString(dateLocale(), { month: 'short', day: 'numeric', weekday: 'short' });
 }
 
 function fmtTime(ts: number): string {

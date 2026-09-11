@@ -104,7 +104,7 @@ export function PickCard({ block, ctx }: { block: PickBlock; ctx: BlockCtx }) {
   const submit = () => {
     const fv = finalValues();
     const errs: Record<string, string> = {};
-    for (const q of questions) if (q.required && !isAnswered(q, fv[q.id])) errs[q.id] = isChoice(q) && otherActive[q.id] ? '请填写 Other 内容' : '此项为必填';
+    for (const q of questions) if (q.required && !isAnswered(q, fv[q.id])) errs[q.id] = isChoice(q) && otherActive[q.id] ? t('pick.fillOther') : t('pick.required');
     if (Object.keys(errs).length) { setErrors(errs); return; }
     void send(formatAnswers(questions, fv));
   };
@@ -118,7 +118,7 @@ export function PickCard({ block, ctx }: { block: PickBlock; ctx: BlockCtx }) {
   const inputCls = 'w-full px-2.5 rounded-md bg-bg border border-border text-[13px] focus:outline-none focus:border-accent disabled:opacity-70';
 
   const otherInput = (q: Question) => (
-    <input type="text" value={otherText[q.id] || ''} placeholder="请输入其他内容..." disabled={readonly} maxLength={OTHER_INPUT_MAX}
+    <input type="text" value={otherText[q.id] || ''} placeholder={t('pick.otherPlaceholder')} disabled={readonly} maxLength={OTHER_INPUT_MAX}
       onChange={e => setOtherTxt(q.id, e.target.value.slice(0, OTHER_INPUT_MAX))} className={cn(inputCls, 'h-8 mt-2')} />
   );
 
@@ -151,7 +151,7 @@ export function PickCard({ block, ctx }: { block: PickBlock; ctx: BlockCtx }) {
               <button key={opt} type="button" disabled={dis} className={chip(on, dis)} onClick={() => setValue(q.id, on ? arr.filter(x => x !== opt) : [...arr, opt])}>{opt}</button>
             ); })}
             <button type="button" disabled={readonly || (full && !otherSel)} className={chip(otherSel, readonly || (full && !otherSel))} onClick={() => setOther(q.id, !otherSel)}>{OTHER_LABEL}</button>
-            {max ? <span className="text-xs text-muted ml-1">最多选择 {max} 项（已选 {count}/{max}）</span> : null}
+            {max ? <span className="text-xs text-muted ml-1">{t('pick.maxSelect', { max, count })}</span> : null}
           </div>
           {otherSel && otherInput(q)}
         </>
@@ -161,7 +161,7 @@ export function PickCard({ block, ctx }: { block: PickBlock; ctx: BlockCtx }) {
         <>
           <select value={otherSel ? OTHER_SELECT_SENTINEL : ((v as string) || '')} disabled={readonly} className={cn(inputCls, 'h-8 max-w-xs')}
             onChange={e => { const val = e.target.value; if (val === OTHER_SELECT_SENTINEL) { setOther(q.id, true); setValues(p => ({ ...p, [q.id]: '' })); } else { setOther(q.id, false); setValue(q.id, val); } }}>
-            <option value="">请选择...</option>
+            <option value="">{t('pick.selectPlaceholder')}</option>
             {q.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
             <option value={OTHER_SELECT_SENTINEL}>{OTHER_LABEL}...</option>
           </select>
@@ -189,18 +189,18 @@ export function PickCard({ block, ctx }: { block: PickBlock; ctx: BlockCtx }) {
     );
   };
 
-  const title = block.estimatedTime ? `快速确认（${block.estimatedTime}）` : '快速确认';
+  const title = block.estimatedTime ? t('pick.titleWithTime', { time: block.estimatedTime }) : t('pick.title');
 
   return (
     <div ref={boxRef} tabIndex={readonly ? -1 : 0} className={cn('my-2 rounded-lg border text-sm outline-none', readonly ? 'border-border bg-panel-2' : 'border-accent/50 bg-accent/5')}>
-      <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left" title={open ? '收起' : '展开'}>
+      <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left" title={open ? t('chat.collapse') : t('chat.expand')}>
         {open ? <ChevronDown size={14} className="text-muted shrink-0" /> : <ChevronRight size={14} className="text-muted shrink-0" />}
         <ClipboardList size={14} className={readonly ? 'text-muted' : 'text-accent'} />
         <div className="flex-1 min-w-0">
           <div className="font-medium">{title}</div>
           {block.intro && <div className="text-xs text-muted truncate">{block.intro}</div>}
         </div>
-        <span className={cn('text-[11px] px-2 h-5 inline-flex items-center rounded-full border shrink-0', readonly ? 'border-border text-muted' : 'border-accent/40 text-accent bg-accent/10')}>{readonly ? '已回答' : '待回答'}</span>
+        <span className={cn('text-[11px] px-2 h-5 inline-flex items-center rounded-full border shrink-0', readonly ? 'border-border text-muted' : 'border-accent/40 text-accent bg-accent/10')}>{readonly ? t('pick.answered') : t('pick.pending')}</span>
       </button>
       {open && (
         <div className="px-3 pb-3 flex flex-col gap-3">

@@ -75,7 +75,7 @@ export function RightPanel({ sessionId, width }: { sessionId: string; width: num
   if (panel.collapsed) {
     return (
       <div className="w-10 shrink-0 border-l border-border flex flex-col items-center py-2 gap-2 bg-white">
-        <button onClick={() => updatePanel(sessionId, p => ({ ...p, collapsed: false }))} className="p-1.5 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title="显示侧边栏"><PanelRight size={16} /></button>
+        <button onClick={() => updatePanel(sessionId, p => ({ ...p, collapsed: false }))} className="p-1.5 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.showSidebar')}><PanelRight size={16} /></button>
         <button onClick={openMenu} className="p-1.5 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('panel.newTab')}><Plus size={16} /></button>
         {newMenu}
       </div>
@@ -108,7 +108,7 @@ export function RightPanel({ sessionId, width }: { sessionId: string; width: num
           ))}
         </div>
         <button onClick={openMenu} className="h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-fg hover:bg-black/[0.05] shrink-0" title={t('panel.newTab')}><Plus size={14} /></button>
-        <button onClick={() => updatePanel(sessionId, p => ({ ...p, collapsed: true }))} className="h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-fg hover:bg-black/[0.05] shrink-0" title="隐藏侧边栏"><PanelRight size={15} /></button>
+        <button onClick={() => updatePanel(sessionId, p => ({ ...p, collapsed: true }))} className="h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-fg hover:bg-black/[0.05] shrink-0" title={t('app.hideSidebar')}><PanelRight size={15} /></button>
         {newMenu}
       </div>
       {/* 内容 */}

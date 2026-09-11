@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Popover, cn } from './ui';
+import { t } from '../i18n';
 
 export interface IconSelectOption {
   value: string;
@@ -39,12 +40,12 @@ export function IconSelect({ id, value, options, onChange, disabled, placeholder
         <div style={{ minWidth: rect?.width ?? 200 }}>
           {searchable && (
             <div className="px-2 pb-1">
-              <input autoFocus value={filter} onChange={e => setFilter(e.target.value)} placeholder="搜索..."
+              <input autoFocus value={filter} onChange={e => setFilter(e.target.value)} placeholder={t('common.searchPlaceholder')}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const f = visible.find(o => !o.disabled); if (f) pick(f); } }}
                 className="w-full h-8 px-2 rounded-md bg-panel border border-border text-sm" />
             </div>
           )}
-          {visible.length === 0 && <div className="px-3 py-2 text-sm text-muted">无匹配选项</div>}
+          {visible.length === 0 && <div className="px-3 py-2 text-sm text-muted">{t('common.noOptions')}</div>}
           <div className="max-h-72 overflow-auto">
             {visible.map(o => (
               <button key={o.value} type="button" onClick={() => pick(o)} disabled={o.disabled}

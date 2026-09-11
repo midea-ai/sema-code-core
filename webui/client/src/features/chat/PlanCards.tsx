@@ -18,7 +18,7 @@ function PlanHeader({ filePath, ctx, right }: { filePath: string; ctx: BlockCtx;
   return (
     <div className="flex items-center gap-1.5 min-w-0">
       <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-ok/10 text-ok shrink-0">Plan</span>
-      <span className="shrink-0">规划文档</span>
+      <span className="shrink-0">{t('plan.doc')}</span>
       <span onClick={e => { e.stopPropagation(); if (filePath) openFileTab(ctx.sessionId, rel); }} className="font-mono text-[12.5px] text-accent truncate cursor-pointer hover:underline" title={filePath}>{name}</span>
       <span className="flex-1" />
       {right}
@@ -47,7 +47,7 @@ export function PlanExitCard({ block, ctx }: { block: PlanExitBlock; ctx: BlockC
         <span className="font-medium">Ready to code</span>
         <span className="flex-1" />
         <span className={cn('text-[11px] px-2 h-5 inline-flex items-center rounded-full border shrink-0', resolved ? 'border-border text-muted' : 'border-ok/40 text-ok bg-ok/10')}>
-          {resolved ? (resolved === '__interrupted' ? t('card.interrupted') : block.options[resolved] || resolved) : '待确认'}
+          {resolved ? (resolved === '__interrupted' ? t('card.interrupted') : block.options[resolved] || resolved) : t('plan.pending')}
         </span>
       </button>
       {open && (
@@ -61,7 +61,7 @@ export function PlanExitCard({ block, ctx }: { block: PlanExitBlock; ctx: BlockC
               {Object.entries(block.options).map(([k, label]) => (
                 <Button key={k} size="sm" variant={k === 'clearContextAndStart' ? 'primary' : 'outline'} disabled={busy} onClick={() => pick(k)}>{label}</Button>
               ))}
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => pick('cancel')} title="中断本轮，继续在 Plan 模式下补充需求">{t('card.keepPlanning')}</Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => pick('cancel')} title={t('plan.keepPlanningTip')}>{t('card.keepPlanning')}</Button>
             </div>
           )}
         </div>

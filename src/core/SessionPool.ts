@@ -4,6 +4,7 @@ import { getConfManager } from '../manager/ConfManager';
 import { getCronManager } from '../manager/CronManager';
 import { getStateManager } from '../manager/StateManager';
 import { logWarn } from '../util/log';
+import { t } from '../util/i18n';
 
 /**
  * 会话池 - 管理多会话的创建、查找与销毁。
@@ -23,7 +24,7 @@ class SessionPool {
       return { ok: true, session: this.sessions.get(opts.sessionId)! };
     }
     if (typeof maxSessions === 'number' && this.sessions.size >= maxSessions) {
-      const error = `已达到会话数量上限 (${maxSessions})，请先关闭已有会话`;
+      const error = t('session.limitReached', { max: maxSessions });
       logWarn(error);
       return { ok: false, error };
     }
@@ -38,7 +39,7 @@ class SessionPool {
       return { ok: true, session };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      return { ok: false, error: `会话初始化失败: ${msg}` };
+      return { ok: false, error: t('session.initFailed', { error: msg }) };
     }
   };
 

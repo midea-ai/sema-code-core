@@ -49,7 +49,7 @@ AppSessionState = Literal["idle", "processing"]
 
 # 支持动态更新的核心配置字段名（≙ core UpdatableCoreConfigKeys）
 UpdatableCoreConfigKeys = Literal[
-    "stream", "thinking", "systemPrompt", "customRules", "skipFileEditPermission",
+    "lang", "stream", "thinking", "systemPrompt", "customRules", "skipFileEditPermission",
     "skipShellExecPermission", "skipSkillPermission", "skipMCPToolPermission",
     "skipFetchUrlPermission", "fetchUrlBrowserUserAgent", "skipExternalFileReadPermission",
     "enableLLMCache", "disableBackgroundTasks", "enableToolSearch",
@@ -62,6 +62,7 @@ class SemaCoreConfig(TypedDict, total=False):
     """SemaCore 构造配置（init payload）；全字段可选。"""
     workingDir: str
     logLevel: Literal["debug", "info", "warn", "error", "none"]
+    lang: Literal["zh", "en", "de", "fr", "it"]
     stream: bool
     thinking: bool
     systemPrompt: str
@@ -87,6 +88,7 @@ class SemaCoreConfig(TypedDict, total=False):
 
 class UpdatableCoreConfig(TypedDict, total=False):
     """updateCoreConfig 可动态更新的核心配置子集（≙ core UpdatableCoreConfig）。"""
+    lang: Literal["zh", "en", "de", "fr", "it"]
     stream: bool
     thinking: bool
     systemPrompt: str

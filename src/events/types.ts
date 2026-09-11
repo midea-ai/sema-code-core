@@ -425,9 +425,9 @@ export interface PlanExitRequestData {
   agentId: string;          // 代理ID
   planFilePath: string;     // 计划文件相对路径
   planContent: string;      // 计划文件内容
-  options: {
-    startEditing: string;           // "开始代码编辑"
-    clearContextAndStart: string;   // "清理上下文，并开始代码编辑"
+  options: {                        // 按钮文案按核心配置 lang 输出（zh/en）
+    startEditing: string;           // 如 "直接开始编码" / "Start coding now"
+    clearContextAndStart: string;   // 如 "重置上下文后开始编码" / "Reset context and start coding"
   };
 }
 

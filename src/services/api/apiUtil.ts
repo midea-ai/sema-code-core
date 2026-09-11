@@ -8,6 +8,7 @@ import {
 } from '../../types';
 import { useMaxCompletionTokens } from '../../util/adapter';
 import { API_CONNECTION_TEST_PROMPT } from '../../prompt/define';
+import { t } from '../../util/i18n';
 
 // ============ 通用 HTTP 请求工具 ============
 
@@ -56,10 +57,10 @@ function httpRequest(options: HttpRequestOptions): Promise<HttpResponse> {
       });
     });
 
-    req.on('error', (error) => reject(new Error(`连接失败: ${error.message}`)));
+    req.on('error', (error) => reject(new Error(t('model.connectFailed', { error: error.message }))));
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error('模型响应超时，请检查网络与模型服务状态'));
+      reject(new Error(t('model.responseTimeout')));
     });
 
     if (body) req.write(body);
@@ -165,12 +166,12 @@ export async function testApiConnection(params: ApiTestParams): Promise<ApiTestR
     if (response.statusCode === 200) {
       // 直接检查响应字符串中是否包含 "YES"，不做格式校验
       if (response.data.includes('YES')) {
-        result = { success: true, message: '✓ 连接测试成功！API 配置正确。' };
+        result = { success: true, message: t('model.testSuccess') };
       } else {
-        result = { success: false, message: `✗ API 响应异常，未找到 YES 标识。响应: ${response.data.substring(0, 200)}`, curlCommand };
+        result = { success: false, message: t('model.testNoYes', { response: response.data.substring(0, 200) }), curlCommand };
       }
     } else {
-      const errorMessage = `✗ API 返回错误 (${response.statusCode}): ${response.data.substring(0, 500)}`;
+      const errorMessage = t('model.testHttpError', { status: response.statusCode, body: response.data.substring(0, 500) });
       result = { success: false, message: errorMessage, curlCommand };
     }
 
@@ -254,7 +255,7 @@ export async function fetchModels(params: FetchModelsParams): Promise<FetchModel
       // console.log('models:', models)
 
       if (models.length === 0) {
-        result = { success: false, message: '获取模型列表为空', curlCommand };
+        result = { success: false, message: t('model.listEmpty'), curlCommand };
       } else {
         result = {
           success: true,
@@ -262,7 +263,7 @@ export async function fetchModels(params: FetchModelsParams): Promise<FetchModel
         };
       }
     } else {
-      result = { success: false, message: `获取模型列表失败 (${response.statusCode})`, curlCommand };
+      result = { success: false, message: t('model.listFailed', { status: response.statusCode }), curlCommand };
     }
 
   } catch (error) {

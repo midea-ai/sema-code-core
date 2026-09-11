@@ -14,6 +14,7 @@ import {
   MCPToolDefinition
 } from '../../types/mcp'
 import { logDebug, logError } from '../../util/log'
+import { t } from '../../util/i18n'
 
 type McpTransport = StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport
 
@@ -60,14 +61,14 @@ export class MCPClient {
       await this.withTimeout(
         this.client.connect(this.transport),
         MCPClient.CONNECT_TIMEOUT,
-        `连接超时 (${MCPClient.CONNECT_TIMEOUT / 1000}s)`
+        t('mcp.connectTimeout', { seconds: MCPClient.CONNECT_TIMEOUT / 1000 })
       )
 
       // 获取能力（也需要超时保护）
       await this.withTimeout(
         this.fetchCapabilities(),
         MCPClient.CONNECT_TIMEOUT,
-        `获取能力超时 (${MCPClient.CONNECT_TIMEOUT / 1000}s)`
+        t('mcp.capabilitiesTimeout', { seconds: MCPClient.CONNECT_TIMEOUT / 1000 })
       )
 
       this._status = 'connected'
@@ -119,7 +120,7 @@ export class MCPClient {
         await this.withTimeout(
           this.client.close(),
           5000, // 5秒超时
-          '关闭客户端超时'
+          t('mcp.closeTimeout')
         )
       }
       logDebug(`MCP Server [${this.config.name}] 已断开`)
@@ -148,7 +149,7 @@ export class MCPClient {
    */
   async callTool(toolName: string, args: Record<string, unknown>): Promise<MCPToolResult> {
     if (this._status !== 'connected') {
-      throw new Error(`MCP Server [${this.config.name}] 未连接`)
+      throw new Error(t('mcp.notConnected', { name: this.config.name }))
     }
 
     const result = await this.client.callTool({
@@ -166,7 +167,7 @@ export class MCPClient {
     switch (this.config.transport) {
       case 'stdio':
         if (!this.config.command) {
-          throw new Error('stdio 传输需要配置 command')
+          throw new Error(t('mcp.stdioNeedsCommand'))
         }
         return new StdioClientTransport({
           command: this.config.command,
@@ -177,20 +178,20 @@ export class MCPClient {
 
       case 'sse':
         if (!this.config.url) {
-          throw new Error('sse 传输需要配置 url')
+          throw new Error(t('mcp.sseNeedsUrl'))
         }
         return new SSEClientTransport(new URL(this.config.url))
 
       case 'http':
         if (!this.config.url) {
-          throw new Error('http 传输需要配置 url')
+          throw new Error(t('mcp.httpNeedsUrl'))
         }
         return new StreamableHTTPClientTransport(new URL(this.config.url), {
           requestInit: this.config.headers ? { headers: this.config.headers } : undefined
         })
 
       default:
-        throw new Error(`不支持的传输类型: ${this.config.transport}`)
+        throw new Error(t('mcp.unsupportedTransport', { transport: String(this.config.transport) }))
     }
   }
 

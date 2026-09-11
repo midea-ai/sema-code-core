@@ -3,6 +3,7 @@ import * as os from 'os';
 import { ModelConfiguration, ModelProfile } from '../types/model';
 import { ModelConfig } from '../types';
 import { logWarn } from './log';
+import { t } from './i18n';
 
 
 /**
@@ -26,10 +27,10 @@ export function createDefaultConfig(): ModelConfiguration {
  */
 export function validateProviderName(provider: string): string | null {
   if (provider.length < 2 || provider.length > 20) {
-    return '长度需为 2~20 个字符';
+    return t('model.providerNameLength');
   }
   if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(provider)) {
-    return '仅支持小写字母、数字和短横线(-)，需以字母开头且不能以短横线结尾';
+    return t('model.providerNameFormat');
   }
   return null;
 }

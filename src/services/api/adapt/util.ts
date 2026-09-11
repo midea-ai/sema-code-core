@@ -4,6 +4,7 @@ import { ThinkingChunkData, TextChunkData, SessionErrorData } from '../../../eve
 import { logDebug, logError } from '../../../util/log'
 import { UserMsg, AiMessage } from '../../../types/message'
 import { ThinkingHistoryPolicy } from '../../../types/model'
+import { t } from '../../../util/i18n'
 
 
 const STREAM_TIMEOUT_MS = 10 * 60 * 1000 // 整体超时 10 分钟
@@ -34,7 +35,8 @@ export function withStreamTimeout(signal?: AbortSignal, sessionId?: string): {
   }
 
   const totalTimeoutId = setTimeout(
-    () => fire('STREAM_TIMEOUT', 'LLM流式请求超时(10min)'),
+    // 文案在触发时取，随当前 lang 输出
+    () => fire('STREAM_TIMEOUT', t('error.streamTimeout', { minutes: STREAM_TIMEOUT_MS / 60000 })),
     STREAM_TIMEOUT_MS,
   )
 
@@ -43,7 +45,7 @@ export function withStreamTimeout(signal?: AbortSignal, sessionId?: string): {
     if (idleTimeoutId) clearTimeout(idleTimeoutId)
     if (controller.signal.aborted) return
     idleTimeoutId = setTimeout(
-      () => fire('STREAM_IDLE_TIMEOUT', 'LLM流式请求空闲超时(2min无新数据)'),
+      () => fire('STREAM_IDLE_TIMEOUT', t('error.streamIdleTimeout', { minutes: STREAM_IDLE_TIMEOUT_MS / 60000 })),
       STREAM_IDLE_TIMEOUT_MS,
     )
   }

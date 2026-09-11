@@ -13,14 +13,20 @@ export type SystemPromptMode = 'append' | 'replace' | 'replaceAll';
 // - Bypass：所有工具调用直接放行，跳过全部安全检查（危险）
 export type PermissionLevel = 'Ask' | 'AutoEdit' | 'AutoRun' | 'Bypass';
 
+// UI 可见文案语言（权限面板选项、Plan 退出选项、错误提示等），与提示词语言、customRules 无关
+// 新增语言：此处加值 + util/i18n 下加 <lang>.ts 并在 MESSAGES 注册（漏注册编译报错）
+export const SUPPORTED_LANGUAGES = ['zh', 'en', 'de', 'fr', 'it'] as const;
+export type Language = typeof SUPPORTED_LANGUAGES[number];
+
 export interface SemaCoreConfig {
   workingDir?: string;               // 项目绝对路径
   logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'none'; // 默认 'info'
+  lang?: Language;                   // UI 可见文案语言，默认 'zh'；支持运行时更新，切换即时生效
   stream?: boolean;                  // 流式输出ai响应，默认 是
   thinking?: boolean;                // 流式输出ai响应，默认 否
   systemPrompt?: string;             // 系统提示
   systemPromptMode?: SystemPromptMode; // 系统提示词模式，默认 'append'；'replace'/'replaceAll' 时未配 systemPrompt 则回落 append；仅构造时生效，不支持动态更新
-  customRules?: string;              // 用户规则
+  customRules?: string;              // 用户规则，不传即无规则（无默认值，与 lang 无关）
   skipFileEditPermission?: boolean;  // 是否跳过文件编辑权限检查，默认 否
   skipShellExecPermission?: boolean;  // 是否跳过run_shell执行权限检查，默认 否
   skipSkillPermission?: boolean;     // 是否跳过Skill权限检查，默认 否
@@ -52,6 +58,7 @@ export type UpdatableCoreConfigKeys = keyof typeof defaultCoreConfig;
 
 // 默认核心配置
 export const defaultCoreConfig = {
+  lang: 'zh' as Language,
   stream: false,
   thinking: false,
   skipFileEditPermission: false,
@@ -62,7 +69,7 @@ export const defaultCoreConfig = {
   fetchUrlBrowserUserAgent: false,
   skipExternalFileReadPermission: false,
   systemPrompt: DEFINE_SYSTEM_PROMPT,
-  customRules: "- 中文回答",
+  customRules: '',
   enableLLMCache: false,
   disableBackgroundTasks: false,
   enableToolSearch: false,

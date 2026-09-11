@@ -13,6 +13,7 @@ import { getAvailableTools } from '../../tools/base/tools';
 import { TOOL_NAME_SKILL } from '../../prompt/tool';
 import { generatePostCompactReminders } from '../agents/genSystemReminder';
 import { wrapCompactSummary } from '../../prompt/compact';
+import { t } from '../../util/i18n';
 
 interface CustomCommandResult {
   processedText: string;
@@ -82,7 +83,7 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
   const messages = mainAgentState.getMessageHistory();
 
   if (messages.length === 0) {
-    const errMsg = 'Empty history, skip compact';
+    const errMsg = t('error.compactEmptyHistory');
     logInfo(errMsg);
     eventBus.emit('compact:exec', {
       errMsg,
@@ -111,7 +112,7 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
     }
 
     if (result.kind !== 'summary') {
-      const errorMsg = `Compact did not produce a valid summary: ${result.kind}`;
+      const errorMsg = t('error.compactNoSummary', { kind: result.kind });
       logError(errorMsg);
       eventBus.emit('session:error', {
         type: 'compact_error',
@@ -147,7 +148,7 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
       logInfo('压缩操作被用户中断');
       return;
     }
-    const errorMsg = `压缩失败: ${error instanceof Error ? error.message : String(error)}`;
+    const errorMsg = t('error.compactFailed', { error: error instanceof Error ? error.message : String(error) });
     logError(errorMsg);
     eventBus.emit('session:error', {
       type: 'compact_error',

@@ -9,6 +9,7 @@ import { getEventBus } from '../../events/EventSystem'
 import { SessionErrorData } from '../../events/types'
 import { tryGetCachedResponse, setCachedResponse, getCacheSize } from './cache'
 import { Tool } from '../../tools/base/Tool'
+import { t } from '../../util/i18n'
 
 // 导入适配层
 import { queryOpenAI } from './adapt/openai'
@@ -52,7 +53,7 @@ export async function queryLLM(
   const modelProfile = getModelManager().getModel(modelPointer, sessionId)
 
   if (!modelProfile) {
-    throw new Error(`解析模型失败: ${modelPointer}${sessionId ? ` (session=${sessionId})` : ''}`)
+    throw new Error(t('error.modelResolve', { pointer: `${modelPointer}${sessionId ? ` (session=${sessionId})` : ''}` }))
   }
 
   try {
@@ -104,7 +105,7 @@ export async function queryLLM(
     // 检测空响应：既没有文本内容，也没有工具调用（统一在这里处理）
     if (!signal.aborted && result.message.content.length === 0) {
       logError(`API返回空响应: messageId=${result.message.id}, model=${modelProfile.modelName}, stopReason=${result.message.stop_reason}`)
-      throw new Error('API返回空响应：模型暂时没有返回有效内容，请重试一次。若多次重试仍失败，请稍后再试。')
+      throw new Error(t('error.emptyResponse'))
     }
 
     // 保存到缓存（仅当内容或工具调用非空时，且未被中断）
@@ -136,7 +137,7 @@ function emitSessionError(error: any, type: SessionErrorData['type'] = 'api_erro
   const eventBus = getEventBus()
 
   let errorCode = 'UNKNOWN_ERROR'
-  let errorMessage = '未知错误'
+  let errorMessage = t('error.unknown')
 
   if (error instanceof Error) {
     errorMessage = error.message
@@ -156,13 +157,13 @@ function emitSessionError(error: any, type: SessionErrorData['type'] = 'api_erro
       // 对常见错误提供用户友好的提示
       if (statusCode === 401) {
         errorCode = 'AUTH_ERROR'
-        errorMessage = 'API认证失败，请检查API密钥是否正确'
+        errorMessage = t('error.apiAuth')
       } else if (statusCode === 403) {
         errorCode = 'PERMISSION_DENIED'
-        errorMessage = 'API权限不足，请检查API密钥权限'
+        errorMessage = t('error.apiForbidden')
       } else if (statusCode === 429) {
         errorCode = 'RATE_LIMIT'
-        errorMessage = 'API调用频率超限，请稍后重试'
+        errorMessage = t('error.apiRateLimit')
       }
     }
     // 检测 API request failed (xxx) 格式的错误
@@ -174,23 +175,23 @@ function emitSessionError(error: any, type: SessionErrorData['type'] = 'api_erro
       type = 'api_error'
     } else if (error.message.includes('JSON')) {
       errorCode = 'API_RESPONSE_ERROR'
-      errorMessage = 'API响应格式错误，无法解析数据'
+      errorMessage = t('error.apiParse')
       type = 'api_error'
     } else if (error.message.includes('fetch') || error.message.includes('network')) {
       errorCode = 'NETWORK_ERROR'
-      errorMessage = '网络连接错误，请检查网络连接'
+      errorMessage = t('error.network')
       type = 'api_error'
     } else if (error.message.includes('401') || error.message.includes('auth')) {
       errorCode = 'AUTH_ERROR'
-      errorMessage = 'API认证失败，请检查API密钥'
+      errorMessage = t('error.apiAuth')
       type = 'api_error'
     } else if (error.message.includes('429') || error.message.includes('rate limit')) {
       errorCode = 'RATE_LIMIT'
-      errorMessage = 'API调用频率超限，请稍后重试'
+      errorMessage = t('error.apiRateLimit')
       type = 'api_error'
     } else if (error.message.includes('context') || error.message.includes('token')) {
       errorCode = 'CONTEXT_TOO_LONG'
-      errorMessage = '上下文长度超出限制'
+      errorMessage = t('error.contextTooLong')
       type = 'context_length_exceeded'
     }
   }

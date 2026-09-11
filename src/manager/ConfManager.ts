@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { SemaCoreConfig, UpdatableCoreConfigKeys, UpdatableCoreConfig, defaultCoreConfig, AgentMode } from '../types/index'
+import { SemaCoreConfig, UpdatableCoreConfigKeys, UpdatableCoreConfig, defaultCoreConfig, AgentMode, Language, SUPPORTED_LANGUAGES } from '../types/index'
 import { ProjectConfig, GlobalProjectConfig } from '../types/config'
 import { PROJECT_LENGTH_LIMIT, PROJECT_HISTORY_LENGTH_LIMIT } from '../conf/config'
 import { getProjectConfigFilePath} from '../util/savePath';
@@ -29,7 +29,8 @@ export class ConfigManager {
    * 设置核心配置
    */
   async setCoreConfig(config: SemaCoreConfig): Promise<void> {
-    this.coreConfig = this.applyDisabledTools(config);
+    // lang 归一化：不在 SUPPORTED_LANGUAGES 内一律 'zh'
+    this.coreConfig = this.applyDisabledTools({ ...config, lang: normalizeLang(config.lang) });
 
     // 设置日志级别（优先设置，确保后续日志能正确过滤）
     setLogLevel(config.logLevel || 'info');
@@ -40,7 +41,7 @@ export class ConfigManager {
     // 校验 workingDir 必须是真实存在的目录，避免误用不存在的路径建出空会话
     if (config.workingDir) {
       if (!fs.existsSync(workingDir) || !fs.statSync(workingDir).isDirectory()) {
-        throw new Error(`workingDir 不存在或不是目录: ${workingDir}`);
+        throw new Error(`workingDir does not exist or is not a directory: ${workingDir}`);
       }
     }
 
@@ -69,6 +70,20 @@ export class ConfigManager {
   }
 
   /**
+   * 当前 UI 文案语言；核心配置未初始化时返回 'zh'
+   */
+  getLanguage(): Language {
+    return normalizeLang(this.coreConfig?.lang);
+  }
+
+  /**
+   * 更新时对 lang 做归一化（其余字段原样）
+   */
+  private normalizeConfig(next: SemaCoreConfig): SemaCoreConfig {
+    return next.lang === undefined ? next : { ...next, lang: normalizeLang(next.lang) };
+  }
+
+  /**
    * 更新核心配置的单个字段
    */
   updateCoreConfByKey<K extends UpdatableCoreConfigKeys>(key: K, value: SemaCoreConfig[K]): void {
@@ -84,10 +99,10 @@ export class ConfigManager {
     }
 
     // 更新核心配置对象
-    this.coreConfig = {
+    this.coreConfig = this.normalizeConfig({
       ...this.coreConfig,
       [key]: value
-    };
+    });
 
     logInfo(`核心配置已更新: ${String(key)} = ${String(value)}`);
   }
@@ -112,10 +127,10 @@ export class ConfigManager {
     }
 
     // 批量更新核心配置对象
-    this.coreConfig = {
+    this.coreConfig = this.normalizeConfig({
       ...this.coreConfig,
       ...config
-    };
+    });
 
     const updatedFields = configKeys.map(key => `${String(key)} = ${String(config[key])}`).join(', ');
     logInfo(`核心配置批量更新: ${updatedFields}`);
@@ -325,6 +340,11 @@ export class ConfigManager {
 }
 
 // ===================== 全局配置管理器 =====================
+
+// lang 归一化：仅识别 SUPPORTED_LANGUAGES 内的值，其余（含未传/非法值）一律 'zh'
+function normalizeLang(lang: unknown): Language {
+  return SUPPORTED_LANGUAGES.includes(lang as Language) ? (lang as Language) : 'zh';
+}
 
 let globalConfigManager: ConfigManager | null = null;
 

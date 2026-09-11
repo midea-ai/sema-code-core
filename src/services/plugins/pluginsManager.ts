@@ -14,6 +14,7 @@ import { readInitialCwd } from '../../util/cwd'
 import { execFileSafely } from '../../util/file'
 import { searchWithRipgrep } from '../../util/ripgrep'
 import { getSettingsPath, readSettingsFile, writeSettingsFile } from '../settings/settingsLoader'
+import { t } from '../../util/i18n'
 import type {
   PluginScopeKind,
   GithubSource,
@@ -201,7 +202,7 @@ class PluginsManager {
       'git', ['clone', `https://github.com/${repo}.git`, targetDir]
     )
     if (code !== 0) {
-      throw new Error(`git clone 失败 [${repo}]: ${stderr}`)
+      throw new Error(t('plugin.gitCloneFailed', { repo, stderr }))
     }
   }
 
@@ -213,7 +214,7 @@ class PluginsManager {
       'git', ['-C', targetDir, 'pull']
     )
     if (code !== 0) {
-      throw new Error(`git pull 失败 [${targetDir}]: ${stderr}`)
+      throw new Error(t('plugin.gitPullFailed', { dir: targetDir, stderr }))
     }
   }
 
@@ -301,7 +302,7 @@ class PluginsManager {
       const marketplaceJson = await this.readMarketplaceJson(tmpDir)
       if (!marketplaceJson?.name) {
         await this.removeDir(tmpDir)
-        throw new Error(`无法从 ${repo} 获取市场名称，请确认 marketplace.json 存在`)
+        throw new Error(t('plugin.marketplaceNameFromRepo', { repo }))
       }
 
       const marketplaceName = marketplaceJson.name
@@ -334,12 +335,12 @@ class PluginsManager {
     logInfo(`添加本地目录市场: ${dirPath}`)
 
     if (!fs.existsSync(dirPath)) {
-      throw new Error(`目录不存在: ${dirPath}`)
+      throw new Error(t('plugin.dirNotFound', { dir: dirPath }))
     }
 
     const marketplaceJson = await this.readMarketplaceJson(dirPath)
     if (!marketplaceJson?.name) {
-      throw new Error(`无法获取市场名称，请确认 marketplace.json 存在`)
+      throw new Error(t('plugin.marketplaceNameMissing'))
     }
 
     const marketplaceName = marketplaceJson.name
@@ -364,9 +365,9 @@ class PluginsManager {
 
     const known = await this.readKnownMarketplaces()
     const marketplace = known[marketplaceName]
-    if (!marketplace) throw new Error(`市场不存在: ${marketplaceName}`)
+    if (!marketplace) throw new Error(t('plugin.marketplaceNotFound', { name: marketplaceName }))
     if (marketplace.source.source !== 'github') {
-      throw new Error(`市场 [${marketplaceName}] 不是 github 来源，无法更新`)
+      throw new Error(t('plugin.marketplaceNotGithub', { name: marketplaceName }))
     }
 
     await this.gitPullMarketplace(marketplace.installLocation)
@@ -444,13 +445,13 @@ class PluginsManager {
 
     const known = await this.readKnownMarketplaces()
     const marketplace = known[marketplaceName]
-    if (!marketplace) throw new Error(`市场不存在: ${marketplaceName}`)
+    if (!marketplace) throw new Error(t('plugin.marketplaceNotFound', { name: marketplaceName }))
 
     const marketplaceJson = await this.readMarketplaceJson(marketplace.installLocation)
-    if (!marketplaceJson) throw new Error(`无法读取市场信息: ${marketplaceName}`)
+    if (!marketplaceJson) throw new Error(t('plugin.marketplaceUnreadable', { name: marketplaceName }))
 
     const pluginDef = marketplaceJson.plugins.find(p => p.name === pluginName)
-    if (!pluginDef) throw new Error(`插件 [${pluginName}] 不存在于市场 [${marketplaceName}]`)
+    if (!pluginDef) throw new Error(t('plugin.notInMarketplace', { plugin: pluginName, name: marketplaceName }))
 
     // 解析插件源路径，url 来源需要先 git clone
     let pluginSourcePath: string
@@ -461,7 +462,7 @@ class PluginsManager {
       tmpPluginDir = path.join(this.cacheDir, `_tmp_plugin_${Date.now()}`)
       logInfo(`克隆插件源: ${urlSource.url} -> ${tmpPluginDir}`)
       const { code, stderr } = await execFileSafely('git', ['clone', urlSource.url, tmpPluginDir])
-      if (code !== 0) throw new Error(`git clone 插件失败 [${urlSource.url}]: ${stderr}`)
+      if (code !== 0) throw new Error(t('plugin.gitClonePluginFailed', { url: urlSource.url, stderr }))
       pluginSourcePath = tmpPluginDir
     } else {
       pluginSourcePath = path.resolve(marketplace.installLocation, pluginDef.source as string)

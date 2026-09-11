@@ -8,11 +8,12 @@
 interface SemaCoreConfig {
   workingDir?: string;               // 项目绝对路径
   logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'none'; // 默认 'info'
+  lang?: 'zh' | 'en' | 'de' | 'fr' | 'it'; // UI 可见文案语言（权限面板选项、Plan 退出选项、错误提示等），默认 'zh'；支持运行时更新，切换即时生效
   stream?: boolean;                  // 流式输出 AI 响应，默认 否
   thinking?: boolean;                // 流式输出 AI 思考过程，默认 否
   systemPrompt?: string;             // 系统提示
   systemPromptMode?: 'append' | 'replace' | 'replaceAll'; // 系统提示词模式，默认 'append'（叠加在内置提示词前）；'replace' 替换内置系统提示词（memory/env 上下文仍附加）；'replaceAll' 完全替换（仅 systemPrompt，不附加 memory/env/gitStatus，turn-level reminder 也不注入 MEMORY.md）；未配 systemPrompt 时回落 append，仅构造时生效
-  customRules?: string;              // 用户规则（内联字符串）
+  customRules?: string;              // 用户规则（内联字符串），不传即无规则
   skipFileEditPermission?: boolean;  // 是否跳过文件编辑权限检查，默认 否
   skipShellExecPermission?: boolean; // 是否跳过 run_shell 执行权限检查，默认 否
   skipSkillPermission?: boolean;     // 是否跳过 Skill 权限检查，默认 否

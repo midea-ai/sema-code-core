@@ -1,11 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ModelConfiguration, ModelProfile, ModelPointerType, ModelPointers } from '../types/model';
-import { ModelConfig, TaskConfig, ModelUpdateData } from '../types';
+import { ModelConfig, TaskConfig, ModelUpdateData, ApiTestResult } from '../types';
 import { testApiConnection } from '../services/api/apiUtil';
 import { getModelConfigFilePath } from '../util/savePath';
 import { convertToModelProfile, findModelProfile, parseModelName, createDefaultConfig, validateProviderName } from '../util/model';
 import { logWarn, logError } from '../util/log';
+import { t } from '../util/i18n';
 import { getEventBus } from '../events/EventSystem';
 
 
@@ -39,7 +40,7 @@ export class ModelManager {
       const configContent = JSON.stringify(this.config, null, 2);
       fs.writeFileSync(this.configPath, configContent, 'utf8');
     } catch (error) {
-      throw new Error('保存模型配置失败');
+      throw new Error(t('model.saveFailed'));
     }
   }
 
@@ -51,34 +52,33 @@ export class ModelManager {
   async addNewModel(config: ModelConfig, skipValidation: boolean = false): Promise<ModelUpdateData> {
     const providerError = validateProviderName(config.provider);
     if (providerError) {
-      throw new Error(`服务商名称不合法: ${providerError}`);
+      throw new Error(t('model.invalidProvider', { error: providerError }));
     }
     const profile = convertToModelProfile(config);
     const existingModelIndex = this.config.modelProfiles.findIndex(p => p.name === profile.name);
 
     // 进行API连接测试（可选）
     if (!skipValidation) {
+      // 测试结果与测试过程异常分开处理：不靠错误文案识别（文案随 lang 变化）
+      let testResult: ApiTestResult;
       try {
-        const testResult = await testApiConnection({
+        testResult = await testApiConnection({
           provider: config.provider,
           baseURL: config.baseURL,
           apiKey: config.apiKey,
           modelName: config.modelName,
           adapt: config.adapt
         });
-
-        if (!testResult.success) {
-          const errorMessage = testResult.curlCommand
-            ? `${testResult.message}\n\n调试命令：\n${testResult.curlCommand}`
-            : testResult.message;
-
-          throw new Error(`API连接测试失败: ${errorMessage}`);
-        }
       } catch (error) {
-        if (error instanceof Error && error.message.includes('API连接测试失败')) {
-          throw error;
-        }
-        throw new Error(`API校验过程中出现错误: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(t('model.validateError', { error: error instanceof Error ? error.message : String(error) }));
+      }
+
+      if (!testResult.success) {
+        const errorMessage = testResult.curlCommand
+          ? `${testResult.message}\n\n${t('model.debugCommand')}\n${testResult.curlCommand}`
+          : testResult.message;
+
+        throw new Error(t('model.testFailed', { error: errorMessage }));
       }
     }
 
@@ -115,7 +115,7 @@ export class ModelManager {
     // 解析模型名称格式 "modelName[provider]"
     const parsed = parseModelName(name);
     if (!parsed) {
-      throw new Error(`模型名称格式错误: ${name}. 期望格式: "modelName[provider]"`);
+      throw new Error(t('model.invalidName', { name }));
     }
     const { modelName, provider } = parsed;
     const modelIndex = this.config.modelProfiles.findIndex(
@@ -123,7 +123,7 @@ export class ModelManager {
     );
 
     if (modelIndex === -1) {
-      throw new Error(`模型不存在: ${name}`);
+      throw new Error(t('model.notFound', { name }));
     }
 
     // 检查是否被模型指针引用
@@ -134,7 +134,7 @@ export class ModelManager {
 
     if (usedInPointers.length > 0) {
       const pointerNames = usedInPointers.map(([key]) => key).join(', ');
-      throw new Error(`模型正在被模型指针使用，无法删除: ${pointerNames}`);
+      throw new Error(t('model.inUseByPointer', { pointers: pointerNames }));
     }
 
     this.config.modelProfiles.splice(modelIndex, 1);
@@ -170,7 +170,7 @@ export class ModelManager {
   async switchCurrentModel(name: string): Promise<ModelUpdateData> {
     const profile = findModelProfile(name, this.config.modelProfiles);
     if (!profile) {
-      throw new Error(`模型不存在: ${name}`);
+      throw new Error(t('model.notFound', { name }));
     }
     this.config.modelPointers.main = name;
     if (!this.config.modelPointers.quick) {
@@ -196,11 +196,11 @@ export class ModelManager {
   async applyTaskModelConfig(config: TaskConfig): Promise<ModelUpdateData> {
     const mainProfile = findModelProfile(config.main, this.config.modelProfiles);
     if (!mainProfile) {
-      throw new Error(`main模型不存在: ${config.main}`);
+      throw new Error(t('model.mainNotFound', { name: config.main }));
     }
     const quickProfile = findModelProfile(config.quick, this.config.modelProfiles);
     if (!quickProfile) {
-      throw new Error(`quick模型不存在: ${config.quick}`);
+      throw new Error(t('model.quickNotFound', { name: config.quick }));
     }
 
     this.config.modelPointers.main = config.main;
@@ -231,7 +231,7 @@ export class ModelManager {
       const name = override[pointer];
       if (!name) continue;
       if (!findModelProfile(name, this.config.modelProfiles)) {
-        throw new Error(`模型不存在: ${name}`);
+        throw new Error(t('model.notFound', { name }));
       }
       result[pointer] = name;
     }
@@ -259,7 +259,7 @@ export class ModelManager {
    */
   switchSessionModel(sessionId: string, name: string): ModelUpdateData {
     if (!findModelProfile(name, this.config.modelProfiles)) {
-      throw new Error(`模型不存在: ${name}`);
+      throw new Error(t('model.notFound', { name }));
     }
     const before = this.buildModelData(sessionId).modelName;
     this.sessionOverrides.set(sessionId, { ...this.sessionOverrides.get(sessionId), main: name });

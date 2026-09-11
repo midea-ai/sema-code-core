@@ -12,6 +12,7 @@ import { checkToolPermission } from '../manager/PermissionManager'
 import { getEventBus } from '../events/EventSystem'
 import { firePreToolUse, firePostToolUse, firePostToolUseFailure } from '../services/hooks/hookTriggers'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
+import { t } from '../util/i18n'
 
 /** 将 tool_result 内容（字符串或 block 数组）转为纯文本，供出错事件与 hook 使用 */
 function toolContentToText(content: Anthropic.ToolResultBlockParam['content']): string {
@@ -220,7 +221,7 @@ export async function* checkPermissionsAndCallTool(
   if (isValidCall?.result === false) {
 
     // 发送工具出错事件 但不会阻塞agent继续执行
-    const errorMessage = isValidCall!.message || '工具调用验证失败'
+    const errorMessage = isValidCall!.message || t('error.toolValidation')
     const toolErrorData: ToolExecutionErrorData = {
       agentId: agentContext.agentId,
       toolId: toolUseID,

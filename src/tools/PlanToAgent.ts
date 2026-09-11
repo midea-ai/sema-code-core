@@ -12,6 +12,7 @@ import { PlanExitRequestData, PlanExitResponseData } from '../events/types'
 import { checkAbortSignal } from '../types/errors'
 import { getStateManager, MAIN_AGENT_ID } from '../manager/StateManager'
 import { buildUserMsg } from '../util/message'
+import { t } from '../util/i18n'
 
 // 输入 schema
 const toolParams = z.strictObject({
@@ -82,8 +83,8 @@ export const PlanToAgent = {
       planFilePath: relativePath,
       planContent: content,
       options: {
-        startEditing: '直接开始编码',
-        clearContextAndStart: '重置上下文后开始编码',
+        startEditing: t('plan.startEditing'),
+        clearContextAndStart: t('plan.clearContextAndStart'),
       },
     }
 
@@ -123,6 +124,9 @@ export const PlanToAgent = {
     // 退出Plan模式，切换回Agent模式（会话级）
     runtime.agentMode = 'Agent'
 
+    // 计划实施提示：作为新的首条用户消息，UI 也按用户输入回显，故随 lang 输出
+    const implementPrompt = `${t('plan.implementPrompt')}\n\n${content}`
+
     // 如果选择清理上下文
     if (selected === 'clearContextAndStart') {
       // 清空 plan 阶段所有上下文
@@ -136,7 +140,7 @@ export const PlanToAgent = {
       const newUserMessage = buildUserMsg([
         {
           type: 'text',
-          text: `按照以下计划进行实现：\n\n${content}`,
+          text: implementPrompt,
         },
       ])
       runtime.setMessageHistory([newUserMessage], MAIN_AGENT_ID)
@@ -160,7 +164,7 @@ export const PlanToAgent = {
           // 如果选择清理上下文，传递重建消息
           rebuildMessage: selected === 'clearContextAndStart' ? [{
             type: 'text',
-            text: `按照以下计划进行实现：\n\n${content}`,
+            text: implementPrompt,
           }] : undefined,
         },
       },

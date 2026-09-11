@@ -16,6 +16,7 @@ import { parseFile } from '../../util/formatter'
 import { DEFAULT_BUILT_IN_AGENTS_CONFS } from '../../prompt/agents'
 import { isToolAlias, normalizeToolName } from '../../prompt/toolAliases'
 import { getPluginsManager } from '../plugins/pluginsManager'
+import { t } from '../../util/i18n'
 
 /**
  * Agents 管理器类 - 单例模式
@@ -382,11 +383,11 @@ class AgentsManager {
    */
   async addAgentConf(agentConf: AgentConfig): Promise<AgentConfig[]> {
     if (!agentConf.name || !agentConf.description || !agentConf.prompt) {
-      throw new Error(`添加 Agent 失败: 缺少必需字段 name、prompt 或 description`)
+      throw new Error(t('agent.addMissingFields'))
     }
 
     if (!agentConf.locate || (agentConf.locate !== 'project' && agentConf.locate !== 'user')) {
-      throw new Error(`添加 Agent 失败: locate 必须为 'project' 或 'user'`)
+      throw new Error(t('agent.addInvalidLocate'))
     }
 
     // 如果已存在同名 agent，记录覆盖日志

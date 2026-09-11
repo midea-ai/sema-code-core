@@ -135,7 +135,9 @@ updateDisabledTools(toolNames: string[] | null): void
 getToolInfos(): ToolInfo[]
 ```
 
-> `updateCoreConfByKey` 仅支持以下字段的运行时更新：`stream`、`thinking`、`systemPrompt`、`customRules`、`skipFileEditPermission`、`skipShellExecPermission`、`skipSkillPermission`、`skipMCPToolPermission`、`skipFetchUrlPermission`、`fetchUrlBrowserUserAgent`、`skipExternalFileReadPermission`、`enableLLMCache`、`disableBackgroundTasks`、`enableToolSearch`。Agent 模式和权限档位属于会话级配置，请使用 `SemaSession.updateAgentMode()` / `SemaSession.updatePermissionLevel()`。
+> `updateCoreConfByKey` 仅支持以下字段的运行时更新：`lang`、`stream`、`thinking`、`systemPrompt`、`customRules`、`skipFileEditPermission`、`skipShellExecPermission`、`skipSkillPermission`、`skipMCPToolPermission`、`skipFetchUrlPermission`、`fetchUrlBrowserUserAgent`、`skipExternalFileReadPermission`、`enableLLMCache`、`disableBackgroundTasks`、`enableToolSearch`。Agent 模式和权限档位属于会话级配置，请使用 `SemaSession.updateAgentMode()` / `SemaSession.updatePermissionLevel()`。
+>
+> `lang`（`'zh' | 'en' | 'de' | 'fr' | 'it'`，默认 `'zh'`，非法值回落 `'zh'`）控制权限面板选项、Plan 退出选项、错误提示等 UI 可见文案的语言，切换即时生效；不影响 `customRules` 与提示词。
 
 ## 插件市场管理
 

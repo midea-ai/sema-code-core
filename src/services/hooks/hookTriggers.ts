@@ -13,6 +13,7 @@ import { LoadedHookEntry } from '../../types/hook'
 import { readInitialCwd } from '../../util/cwd'
 import { logInfo, logWarn } from '../../util/log'
 import { getHooksManager } from './hooksManager'
+import { t } from '../../util/i18n'
 import {
   MAX_ADDITIONAL_CONTEXT_CHARS,
   executeHookCommand,
@@ -88,7 +89,7 @@ async function runEventHooks(
       emitNotice(sessionId, {
         kind: 'warning',
         hookEvent: event,
-        message: `hook 执行超时（${entry.timeoutMs / 1000}s）已终止: ${entry.command}`,
+        message: t('hook.timeout', { seconds: entry.timeoutMs / 1000, command: entry.command }),
         command: entry.command,
         source: entry.source,
       })
@@ -100,7 +101,7 @@ async function runEventHooks(
       emitNotice(sessionId, {
         kind: 'warning',
         hookEvent: event,
-        message: `${event} 事件不支持阻断，hook 的 block 输出已忽略: ${entry.command}`,
+        message: t('hook.blockIgnored', { event, command: entry.command }),
         command: entry.command,
         source: entry.source,
       })

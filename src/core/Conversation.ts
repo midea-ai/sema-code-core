@@ -21,6 +21,7 @@ import { runToolsConcurrently, runToolsSerially } from './RunTools'
 import { processFileReferences } from '../util/fileReference'
 import { TOOL_NAME_SKILL } from '../prompt/tool'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
+import { t } from '../util/i18n'
 
 
 /**
@@ -116,8 +117,8 @@ export async function* ReAct(
   if (isTruncated) {
     const hasToolCallsInContent = assistantMessage.message.content.some(b => b.type === 'tool_use')
     const errorMsg = hasToolCallsInContent
-      ? 'API输出超长导致工具参数截断，可尝试调整模型最大输出token'
-      : 'API输出超长导致内容截断，可尝试调整模型最大输出token'
+      ? t('error.truncatedToolArgs')
+      : t('error.truncatedContent')
     logWarn(`[Truncation] 模型输出被截断 (max_tokens)，${hasToolCallsInContent ? '存在工具调用导致参数不完整，停止会话循环' : '纯文本输出，作为正常响应处理'}`)
     getEventBus().emit('session:error', {
       type: 'api_error',

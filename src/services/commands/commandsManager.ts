@@ -18,6 +18,7 @@ import { readInitialCwd } from '../../util/cwd'
 import { parseFile } from '../../util/formatter'
 import { getPluginsManager } from '../plugins/pluginsManager'
 import { CommandConfig } from '../../types/command'
+import { t } from '../../util/i18n'
 
 
 /**
@@ -364,11 +365,11 @@ class CommandsManager {
    */
   async addCommandConf(commandConf: CommandConfig): Promise<CommandConfig[]> {
     if (!commandConf.name || !commandConf.description || !commandConf.prompt) {
-      throw new Error(`添加 Command 失败: 缺少必需字段 name、description 或 prompt`)
+      throw new Error(t('command.addMissingFields'))
     }
 
     if (!commandConf.locate || (commandConf.locate !== 'project' && commandConf.locate !== 'user')) {
-      throw new Error(`添加 Command 失败: locate 必须为 'project' 或 'user'`)
+      throw new Error(t('command.addInvalidLocate'))
     }
 
     if (this.commandConfigs.has(commandConf.name)) {

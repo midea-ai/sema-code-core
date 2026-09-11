@@ -22,6 +22,7 @@ import { isReadonlySafeCommand, isUnsafeForPrefixAuth, classifyDangerousCommand,
 import { extractAutoRunContext, summarizeActionLine } from '../util/autoRunContext'
 import { isBlockedFetchHost } from '../util/fetchSafety'
 import { firePermissionRequest } from '../services/hooks/hookTriggers'
+import { t } from '../util/i18n'
 
 // ==================== 辅助函数 ====================
 
@@ -693,7 +694,7 @@ function emitAutoApproved(tool: Tool, agentId: string, sessionId: string, toolId
     agentId,
     toolId,
     toolName: tool.name,
-    content: 'Allowed by model check · auto mode',
+    content: t('permission.autoApproved'),
   }
   getEventBus().emit('tool:permission:auto', data, sessionId)
 }
@@ -834,47 +835,51 @@ function buildPermissionOptions(
   prefix: string | null,
   showAllow = true
 ): Record<string, string> {
+  // 文案按当前 lang 输出（见 util/i18n）
+  const agree = t('permission.agree')
+  const refuse = t('permission.refuse')
+
   // run_shell工具
   if (tool.name === RunShell.name) {
     const command = ((input as any).command || '').trim()
 
     if (!showAllow) {
-      return { agree: '确认', refuse: '拒绝' }
+      return { agree, refuse }
     }
 
     if (prefix) {
       return {
-        agree: '确认',
-        allow: `确认，本项目不再询问 \`${prefix}\` 开头的命令`,
-        refuse: '拒绝'
+        agree,
+        allow: t('permission.allowShellPrefix', { prefix }),
+        refuse
       }
     }
 
     const allowText = command
-      ? `确认，本项目不再询问 \`${command}\` 命令`
-      : '确认，本项目不再询问此命令'
+      ? t('permission.allowShellExact', { command })
+      : t('permission.allowShellThis')
 
-    return { agree: '确认', allow: allowText, refuse: '拒绝' }
+    return { agree, allow: allowText, refuse }
   }
 
   // 编辑工具
   if (isFileEditTool(tool)) {
     return {
-      agree: '确认',
-      allow: '确认, 本次会话不再询问文件编辑',
-      refuse: '拒绝'
+      agree,
+      allow: t('permission.allowEdit'),
+      refuse
     }
   }
 
   // 文件读取工具：按父目录会话级授权；无父目录则不提供「允许」
   if (tool.name === TOOL_NAME_VIEW_FILE) {
     if (!prefix) {
-      return { agree: '确认', refuse: '拒绝' }
+      return { agree, refuse }
     }
     return {
-      agree: '确认',
-      allow: `确认，本次会话不再询问 ${prefix} 目录下的读取`,
-      refuse: '拒绝'
+      agree,
+      allow: t('permission.allowReadDir', { dir: prefix }),
+      refuse
     }
   }
 
@@ -882,20 +887,20 @@ function buildPermissionOptions(
   if (isSkillTool(tool)) {
     const skillName = (input as any).skill || ''
     return {
-      agree: '确认',
+      agree,
       allow: skillName
-        ? `确认，本项目不再询问 ${skillName} Skill`
-        : `确认，本项目不再询问 Skill 工具`,
-      refuse: '拒绝'
+        ? t('permission.allowSkill', { skill: skillName })
+        : t('permission.allowSkillAny'),
+      refuse
     }
   }
 
   // MCP 工具
   if (isMCPTool(tool)) {
     return {
-      agree: '确认',
-      allow: `确认，本项目不再询问 ${tool.name} 工具`,
-      refuse: '拒绝'
+      agree,
+      allow: t('permission.allowMcp', { tool: tool.name }),
+      refuse
     }
   }
 
@@ -903,22 +908,22 @@ function buildPermissionOptions(
   if (isFetchUrlTool(tool)) {
     // SSRF 兜底命中（内网/元数据等）时 showAllow=false：不提供「永久允许域名」，只许单次确认
     if (!showAllow) {
-      return { agree: '确认', refuse: '拒绝' }
+      return { agree, refuse }
     }
     const url = (input as any).url || ''
     const domain = extractDomain(url)
     return {
-      agree: '确认',
+      agree,
       allow: domain
-        ? `确认，本项目不再询问 ${domain} 域名`
-        : '确认，本项目不再询问此域名',
-      refuse: '拒绝'
+        ? t('permission.allowFetchDomain', { domain })
+        : t('permission.allowFetchThis'),
+      refuse
     }
   }
 
   return {
-    agree: '同意',
-    allow: `同意，本项目不再询问 ${tool.name} 权限`,
-    refuse: '拒绝'
+    agree: t('permission.approve'),
+    allow: t('permission.allowGeneric', { tool: tool.name }),
+    refuse
   }
 }

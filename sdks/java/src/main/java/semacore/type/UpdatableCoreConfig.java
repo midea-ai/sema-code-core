@@ -5,9 +5,10 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record UpdatableCoreConfig(Boolean stream, Boolean thinking, String systemPrompt, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, Boolean disableBackgroundTasks, Boolean enableToolSearch) {
+public record UpdatableCoreConfig(String lang, Boolean stream, Boolean thinking, String systemPrompt, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, Boolean disableBackgroundTasks, Boolean enableToolSearch) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
+        private String lang;
         private Boolean stream;
         private Boolean thinking;
         private String systemPrompt;
@@ -23,6 +24,7 @@ public record UpdatableCoreConfig(Boolean stream, Boolean thinking, String syste
         private Boolean disableBackgroundTasks;
         private Boolean enableToolSearch;
         private Builder() {}
+        public Builder lang(String lang) { this.lang = lang; return this; }
         public Builder stream(Boolean stream) { this.stream = stream; return this; }
         public Builder thinking(Boolean thinking) { this.thinking = thinking; return this; }
         public Builder systemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; return this; }
@@ -37,6 +39,6 @@ public record UpdatableCoreConfig(Boolean stream, Boolean thinking, String syste
         public Builder enableLLMCache(Boolean enableLLMCache) { this.enableLLMCache = enableLLMCache; return this; }
         public Builder disableBackgroundTasks(Boolean disableBackgroundTasks) { this.disableBackgroundTasks = disableBackgroundTasks; return this; }
         public Builder enableToolSearch(Boolean enableToolSearch) { this.enableToolSearch = enableToolSearch; return this; }
-        public UpdatableCoreConfig build() { return new UpdatableCoreConfig(stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, enableLLMCache, disableBackgroundTasks, enableToolSearch); }
+        public UpdatableCoreConfig build() { return new UpdatableCoreConfig(lang, stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, enableLLMCache, disableBackgroundTasks, enableToolSearch); }
     }
 }

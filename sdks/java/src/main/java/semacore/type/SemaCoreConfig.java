@@ -5,11 +5,12 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean disableBackgroundTasks, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions) {
+public record SemaCoreConfig(String workingDir, String logLevel, String lang, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean disableBackgroundTasks, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private String workingDir;
         private String logLevel;
+        private String lang;
         private Boolean stream;
         private Boolean thinking;
         private String systemPrompt;
@@ -34,6 +35,7 @@ public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream,
         private Builder() {}
         public Builder workingDir(String workingDir) { this.workingDir = workingDir; return this; }
         public Builder logLevel(String logLevel) { this.logLevel = logLevel; return this; }
+        public Builder lang(String lang) { this.lang = lang; return this; }
         public Builder stream(Boolean stream) { this.stream = stream; return this; }
         public Builder thinking(Boolean thinking) { this.thinking = thinking; return this; }
         public Builder systemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; return this; }
@@ -55,6 +57,6 @@ public record SemaCoreConfig(String workingDir, String logLevel, Boolean stream,
         public Builder enableToolSearch(Boolean enableToolSearch) { this.enableToolSearch = enableToolSearch; return this; }
         public Builder toolSearchDefaultTools(List<String> toolSearchDefaultTools) { this.toolSearchDefaultTools = toolSearchDefaultTools; return this; }
         public Builder maxSessions(Long maxSessions) { this.maxSessions = maxSessions; return this; }
-        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, enableLLMCache, useTools, disabledTools, agentMode, disableTopicDetection, disableBackgroundTasks, enableToolSearch, toolSearchDefaultTools, maxSessions); }
+        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, lang, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, enableLLMCache, useTools, disabledTools, agentMode, disableTopicDetection, disableBackgroundTasks, enableToolSearch, toolSearchDefaultTools, maxSessions); }
     }
 }

@@ -9,3 +9,5 @@ export type {
   BranchResult,
 } from './types/fork';
 export type { InputImageAttachment } from './types/message';
+export type { Language } from './types/index';
+export { SUPPORTED_LANGUAGES } from './types/index';

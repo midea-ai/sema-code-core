@@ -35,6 +35,7 @@ import { fireSessionStart, fireUserPromptSubmit, fireSessionEnd, fireStop } from
 import type { AgentMode, PermissionLevel } from '../types';
 import type { FileReferenceInfo } from '../types/index';
 import type { CreateSessionOptions } from '../types/session';
+import { t } from '../util/i18n';
 
 // 粘贴图片单张体积上限，超出则压缩（与 ViewFile 的 MAX_OUTPUT_BYTES 保持一致）
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024
@@ -334,7 +335,7 @@ export class SemaEngine {
             this.emit('hook:notice', {
               kind: 'blocked',
               hookEvent: 'UserPromptSubmit',
-              message: promptHook.reason || '输入被 UserPromptSubmit hook 拦截',
+              message: promptHook.reason || t('error.promptBlockedByHook'),
             });
             continue;
           }
@@ -613,13 +614,13 @@ export class SemaEngine {
 
     // idle 守卫：处理中回退会导致 editlog / history / 磁盘不一致
     if (mainAgentState.getCurrentState() !== 'idle') {
-      return { ok: false, error: '会话忙，请等待空闲后再撤销' };
+      return { ok: false, error: t('session.busyRewind') };
     }
 
     const history = mainAgentState.getMessageHistory();
     const idx = history.findIndex(m => m.uuid === messageUuid);
     if (idx < 0) {
-      return { ok: false, error: `未找到消息: ${messageUuid}` };
+      return { ok: false, error: t('session.msgNotFound', { uuid: messageUuid }) };
     }
 
     // 回退只接受真实用户输入消息：checkpointSeq 仅打在真实用户输入上（见 startQuery），
@@ -628,7 +629,7 @@ export class SemaEngine {
     // 后续准备 API 请求时丢失该轮 assistant 内容，静默破坏会话历史。
     const forkMsg = history[idx];
     if (forkMsg.type !== 'user' || forkMsg.checkpointSeq === undefined) {
-      return { ok: false, error: `该消息不是可回退的用户输入: ${messageUuid}` };
+      return { ok: false, error: t('session.notRewindable', { uuid: messageUuid }) };
     }
 
     const forkSeq = forkMsg.checkpointSeq; // 真实用户输入必有锚点
@@ -692,7 +693,7 @@ export class SemaEngine {
 
     // idle 守卫：处理中分支会把写到一半的回合复制进新会话
     if (mainAgentState.getCurrentState() !== 'idle') {
-      return { ok: false, error: '会话忙，请等待空闲后再分支' };
+      return { ok: false, error: t('session.busyFork') };
     }
 
     const history = mainAgentState.getMessageHistory();
@@ -704,13 +705,13 @@ export class SemaEngine {
     if (beforeMessageUuid !== undefined) {
       const idx = history.findIndex(m => m.uuid === beforeMessageUuid);
       if (idx < 0) {
-        return { ok: false, error: `未找到消息: ${beforeMessageUuid}` };
+        return { ok: false, error: t('session.msgNotFound', { uuid: beforeMessageUuid }) };
       }
       // 同 rewind：只接受带 checkpointSeq 的真实用户输入作为截断点，
       // 其他消息不是干净回合边界，在其之上截断会留下孤儿 tool_use
       const anchorMsg = history[idx];
       if (anchorMsg.type !== 'user' || anchorMsg.checkpointSeq === undefined) {
-        return { ok: false, error: `该消息不是可分支的用户输入: ${beforeMessageUuid}` };
+        return { ok: false, error: t('session.notForkable', { uuid: beforeMessageUuid }) };
       }
       branchedMessages = history.slice(0, idx);
       forkSeq = anchorMsg.checkpointSeq;
@@ -720,7 +721,7 @@ export class SemaEngine {
     }
 
     if (branchedMessages.length === 0) {
-      return { ok: false, error: '没有可分支的历史' };
+      return { ok: false, error: t('session.noForkHistory') };
     }
 
     const newSessionId = generateSessionId();
@@ -782,7 +783,7 @@ export class SemaEngine {
         // 延迟一拍：等调用方在返回的 SemaSession 上注册监听器
         setImmediate(() => {
           this.emit('config:no_models', {
-            message: '未配置任何模型，请先添加模型配置',
+            message: t('error.noModels'),
             suggestion: ''
           });
         });
@@ -793,7 +794,7 @@ export class SemaEngine {
         type: 'model_error',
         error: {
           code: 'MODEL_CONFIG_ERROR',
-          message: '模型配置文件加载失败，可尝试删除模型配置文件后重新添加模型',
+          message: t('error.modelConfLoad'),
           details: { error: errorMessage }
         }
       });

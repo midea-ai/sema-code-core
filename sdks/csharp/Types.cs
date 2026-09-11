@@ -66,7 +66,7 @@ public enum TodoTaskStatus { pending, in_progress, completed }
 public enum ToolStatus { enable, disable }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum UpdatableCoreConfigKeys { stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, enableLLMCache, disableBackgroundTasks, enableToolSearch }
+public enum UpdatableCoreConfigKeys { lang, stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, enableLLMCache, disableBackgroundTasks, enableToolSearch }
 
 /// <summary>判别联合（≙ core CreateSessionResult）：按 <c>Ok</c> 分派到 CreateSessionResultOk / CreateSessionResultErr。</summary>
 public abstract record CreateSessionResult
@@ -468,6 +468,7 @@ public record SemaCoreConfig
 {
     [JsonPropertyName("workingDir")] public string? WorkingDir { get; init; }
     [JsonPropertyName("logLevel")] public string? LogLevel { get; init; }
+    [JsonPropertyName("lang")] public string? Lang { get; init; }
     [JsonPropertyName("stream")] public bool? Stream { get; init; }
     [JsonPropertyName("thinking")] public bool? Thinking { get; init; }
     [JsonPropertyName("systemPrompt")] public string? SystemPrompt { get; init; }
@@ -552,6 +553,7 @@ public record ToolInfo
 
 public record UpdatableCoreConfig
 {
+    [JsonPropertyName("lang")] public string? Lang { get; init; }
     [JsonPropertyName("stream")] public bool? Stream { get; init; }
     [JsonPropertyName("thinking")] public bool? Thinking { get; init; }
     [JsonPropertyName("systemPrompt")] public string? SystemPrompt { get; init; }

@@ -50,7 +50,7 @@ export function stoppedError(method) {
   const during = method ? ` while ${method} was running` : ''
   return new RpcError(
     ErrorCode.USER_STOPPED,
-    `The user pressed Stop in the Sema extension${during}. End your turn now and report what was in progress. Do not retry: browser tools stay blocked until the user clicks "允许继续" (Resume) in the extension popup.`,
+    `The user pressed Stop in the Sema extension${during}. End your turn now and report what was in progress. Do not retry: browser tools stay blocked until the user clicks "继续" (Resume) in the extension popup.`,
   )
 }
 

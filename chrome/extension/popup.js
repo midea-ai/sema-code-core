@@ -1,4 +1,4 @@
-// 扩展弹窗：连接状态、立即停止 / 允许继续、站点授权列表可撤销。全部经后台处理。
+// 扩展弹窗：连接状态与停止 / 继续按钮、黑名单增删、访问前询问开关、站点授权列表可撤销。全部经后台处理。
 const $ = (id) => document.getElementById(id)
 
 async function call(op, extra = {}) {
@@ -22,43 +22,71 @@ function render(s) {
   if (!s.connected) {
     dot.classList.add('off')
     $('state').textContent = '未连接原生宿主'
-    $('detail').textContent = `${s.reason || ''}。请确认宿主应用（SemaWork 或 IDE 插件）已启动过一次，扩展会自动重连。`
+    $('detail').textContent = s.reason ? `请先启动宿主应用（${s.reason}）` : '请先启动宿主应用'
   } else if (s.stopped) {
     dot.classList.add('stopped')
     $('state').textContent = '已停止'
-    $('detail').textContent = `扩展 ${s.version}，Agent 打开的标签页 ${s.agent_tabs} 个`
+    $('detail').textContent = `扩展 ${s.version}`
   } else {
     dot.classList.add('on')
     $('state').textContent = s.inflight.length ? `运行中：${s.inflight.join('、')}` : '已连接，空闲'
-    $('detail').textContent = `扩展 ${s.version}，Agent 打开的标签页 ${s.agent_tabs} 个`
+    $('detail').textContent = `扩展 ${s.version}`
   }
 
   $('stop').hidden = s.stopped
   $('resume').hidden = !s.stopped
   $('stoppedNote').hidden = !s.stopped
 
-  const list = $('auth')
-  list.textContent = ''
+  renderList(
+    $('block'),
+    s.auth.block.map((h) => [h, '']),
+    '移除',
+    (host) => call('unblock', { host }),
+  )
+
+  $('ask').checked = s.auth.ask
+  $('auth').hidden = !s.auth.ask
   const rows = [...s.auth.always.map((h) => [h, '总是允许']), ...s.auth.once.map((h) => [h, '仅本次'])]
-  $('authEmpty').hidden = rows.length > 0
+  renderList($('auth'), rows, '撤销', (host) => call('revoke', { host }))
+}
+
+function renderList(list, rows, action, onClick) {
+  list.textContent = ''
   for (const [host, kind] of rows) {
     const li = document.createElement('li')
     const name = document.createElement('span')
     name.className = 'host'
     name.textContent = host
-    const tag = document.createElement('span')
-    tag.className = 'kind'
-    tag.textContent = kind
     const btn = document.createElement('button')
     btn.className = 'link'
-    btn.textContent = '撤销'
-    btn.addEventListener('click', () => call('revoke', { host }))
-    li.append(name, tag, btn)
+    btn.textContent = action
+    btn.addEventListener('click', () => onClick(host))
+    li.append(name)
+    if (kind) {
+      const tag = document.createElement('span')
+      tag.className = 'kind'
+      tag.textContent = kind
+      li.append(tag)
+    }
+    li.append(btn)
     list.append(li)
   }
 }
 
+function addBlock() {
+  const input = $('blockInput')
+  const host = input.value.trim()
+  if (!host) return
+  input.value = ''
+  call('block', { host })
+}
+
 $('stop').addEventListener('click', () => call('stop'))
 $('resume').addEventListener('click', () => call('resume'))
+$('ask').addEventListener('change', (e) => call('setAsk', { on: e.target.checked }))
+$('blockAdd').addEventListener('click', addBlock)
+$('blockInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') addBlock()
+})
 call('status')
 setInterval(() => call('status'), 2000)

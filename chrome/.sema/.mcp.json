@@ -3,7 +3,7 @@
     "chrome": {
       "transport": "stdio",
       "command": "npx",
-      "args": ["-y", "sema-chrome-host"]
+      "args": ["-y", "sema-chrome-host@0.6.0"]
     }
   }
 }

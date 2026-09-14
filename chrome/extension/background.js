@@ -1,11 +1,19 @@
 // Sema 浏览器控制：扩展后台（MV3 service worker）。
 // 连原生宿主，收到 {v, id, method, params} 就分发到 methods，回 {v, id, result|error}。
-// 弹窗经 runtime 消息问状态、撤销授权、立即停止与允许继续。
+// 弹窗经 runtime 消息问状态、切换首次访问询问、维护黑名单、撤销授权、立即停止与允许继续。
 import { ErrorCode, RpcError } from './lib/protocol.js'
 import { NativeLink } from './lib/native.js'
 import { methods } from './lib/methods.js'
-import { handleAuthorizeReply, handleWindowRemoved, listAuthorizations, revokeAuthorization } from './lib/auth.js'
-import { agentTabIds, unmarkAgentTab } from './lib/tabs.js'
+import {
+  blockHost,
+  handleAuthorizeReply,
+  handleWindowRemoved,
+  listAuthorizations,
+  revokeAuthorization,
+  setAskEnabled,
+  unblockHost,
+} from './lib/auth.js'
+import { unmarkAgentTab } from './lib/tabs.js'
 import { cleanupEarlyHooks, reinjectOnCommit, unmarkControlled } from './lib/inject.js'
 import { clearOnCommit, forgetTab, recordEntries } from './lib/capture.js'
 
@@ -50,11 +58,20 @@ async function handlePopup(msg) {
     case 'revoke':
       if (typeof msg.host === 'string' && msg.host) await revokeAuthorization(msg.host)
       break
+    case 'setAsk':
+      await setAskEnabled(msg.on)
+      break
+    case 'block':
+      if (typeof msg.host === 'string') await blockHost(msg.host)
+      break
+    case 'unblock':
+      if (typeof msg.host === 'string' && msg.host) await unblockHost(msg.host)
+      break
     default:
       break
   }
-  const [auth, agent] = await Promise.all([listAuthorizations(), agentTabIds()])
-  return { ...link.status(), auth, agent_tabs: agent.size, version: chrome.runtime.getManifest().version }
+  const auth = await listAuthorizations()
+  return { ...link.status(), auth, version: chrome.runtime.getManifest().version }
 }
 
 // 授权页与弹窗的消息只认扩展自己的页面

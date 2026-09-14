@@ -4,7 +4,7 @@
 
 ```
 chrome/
-├── .sema/                    # .mcp.json、skills/chrome-use/SKILL.md，即生态卡片插件目录布局
+├── .sema/                    # .mcp.json、skills/chrome-use/SKILL.md，可整体作为 sema-core 插件安装
 ├── release.sh                # 产出 dist/ 下的扩展 zip 与 host tgz
 ├── extension/                # MV3 扩展，纯 JS 无构建
 │   ├── manifest.json         # key 是商店公钥，解压加载与商店安装同一 ID
@@ -19,50 +19,70 @@ chrome/
     └── lib/                  # protocol、framing、manifest、client、upload、tools
 ```
 
-## 运行
-
-根目录 `npm install` 过即可。`~/.sema/.mcp.json`：
+## 本地开发
 
 ```json
-"chrome": { "transport": "stdio", "command": "node", "args": ["/绝对路径/sema-core/chrome/host/bridge.js"] }
+{
+    "chrome": {
+        "transport": "stdio",
+        "command": "node",
+        "args": [
+            "$PWD/chrome/host/bridge.js"
+        ]
+    }
+}
 ```
 
-扩展：`chrome://extensions` 开"开发者模式"，"加载已解压的扩展程序"选 `chrome/extension/`，先移除商店那份。改扩展点卡片刷新，改 host 重启宿主应用。
-
-## 打包
-
-```bash
-chrome/release.sh
-# extension: dist/sema-browser-control-<版本>.zip   商店格式，manifest 在根、去 key
-# host:      dist/sema-chrome-host-<版本>.tgz
-```
-
-用 tgz 本地验证时 `.mcp.json` 写：
-
-```json
-"args": ["-y", "-p", "/绝对路径/dist/sema-chrome-host-<版本>.tgz", "sema-chrome-host"]
-```
+浏览器扩展：`chrome://extensions` ，先移除商店那份，"加载已解压的扩展程序"选当前项目的 `chrome/extension/`
 
 ## 发布
 
-```bash
-# 扩展：① 改 extension/manifest.json 的 version（商店要求递增） ② 打包
-chrome/release.sh
-# ③ 后台 https://chrome.google.com/webstore/devconsole → 套件 → 上传 zip → 提交审查
+### chrome extension
 
-# host：① 改 host/package.json 的 version ② 发布
-cd chrome/host && npm publish
+```bash
+# 打包
+chrome/release.sh
+
+# 在页面上传
+open https://chrome.google.com/webstore/devconsole
 ```
 
-两边独立发。加了新工具时先发扩展，审核通过后再发 host，否则审核期间新工具返回 `[unsupported]`。
+### sema-chrome-host npm
 
-## 调试
+```bash
+cd chrome/host
 
-- 红色 `!`：没连上原生宿主，弹窗看原因；`[not_connected]` 看 `~/.sema/chrome/host.sock` 与清单
-- 橙色"停"：点过"立即停止"，弹窗"允许继续"或重启宿主应用解除
-- 后台日志：扩展卡片点"Service Worker"；原生宿主日志 `~/.sema/chrome/native-host.log`
-- 动作没生效：看回执的 `navigated` 与 `dialog`
-- 缺加载期 console / network：钩子装晚了，reload 再读
+# 发布
+npm publish
+```
+
+发完把 `chrome/.sema/.mcp.json` 与 `chrome/host/README.md` 里的 `sema-chrome-host@<版本>` 改成新版本。
+
+约束：
+- 两边独立发。加新工具先发扩展，审核通过再发 host，否则审核期间新工具返回 `[unsupported]`。
+- 扩展必须兼容旧 host。商店把新扩展推给所有人，用户的 host 钉在安装时的版本，只加方法、加字段，不改已有语义。
+
+## 从零验证
+
+1、清理 mcp、skill、原生宿主清单、npx 缓存
+
+```bash
+node -e "const f=process.env.HOME+'/.sema/.mcp.json',fs=require('fs');if(fs.existsSync(f)){const c=JSON.parse(fs.readFileSync(f,'utf8'));delete (c.mcpServers||{}).chrome;fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')}"
+rm -rf ~/.sema/skills/chrome-use ~/.sema/chrome
+rm -f ~/Library/Application\ Support/Google/Chrome/NativeMessagingHosts/com.sema.chrome.json
+grep -l '"sema-chrome-host' ~/.npm/_npx/*/package.json 2>/dev/null | xargs -n1 dirname | xargs rm -rf
+```
+
+2、`chrome://extensions` 移除已装的 Sema Browser Control
+
+3、重新安装：扩展 + skill + mcp
+
+扩展 Chrome Web Store 凭链接安装 <https://chromewebstore.google.com/detail/pjofgjgagohldpbcnkgnfjeehealejie>
+
+```bash
+mkdir -p ~/.sema/skills && cp -R chrome/.sema/skills/chrome-use ~/.sema/skills/
+cat chrome/.sema/.mcp.json  # 只打印，需要手动安装至mcp
+```
 
 ## 数据位置
 
@@ -71,4 +91,4 @@ cd chrome/host && npm publish
 | 原生宿主清单 | `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.sema.chrome.json` |
 | 包装脚本、套接字、日志 | `~/.sema/chrome/` |
 | host 包（npx） | `~/.npm/_npx/<hash>/node_modules/sema-chrome-host/` |
-| 授权与标签状态 | `chrome.storage.local` 键 `siteAuth`；`chrome.storage.session` 键 `siteAuthSession`、`agentTabs`、`controlledTabs`、`stopped` |
+| 授权与标签状态 | `chrome.storage.local` 键 `siteBlock`、`siteAsk`、`siteAuth`；`chrome.storage.session` 键 `siteAuthSession`、`agentTabs`、`controlledTabs`、`stopped` |

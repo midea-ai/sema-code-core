@@ -25,11 +25,11 @@ sema-core                      工具名 mcp__chrome__*
 前提：Chrome ≥ 116，Node ≥ 18，宿主应用已装好。
 
 1. 从商店链接装扩展，图标红色 `!` 正常
-2. `.sema/.mcp.json` 合并进 `~/.sema/.mcp.json`
+2. `.sema/.mcp.json` 合并进 `~/.sema/.mcp.json`（host 版本钉死，升级时改版本号）
 3. `.sema/skills/chrome-use/SKILL.md` 复制到 `~/.sema/skills/chrome-use/`
 4. 重启宿主应用，红 `!` 消失即连上
 
-`.sema/` 可整体作为生态卡片安装，此时工具名前缀变为 `mcp__plugin_<插件名>_chrome__`。
+扩展由商店自动更新；host 与 skill 不自动更新，升级时重做第 2、3 步。`.sema/` 可整体作为 sema-core 插件安装，此时工具名前缀变为 `mcp__plugin_<插件名>_chrome__`。
 
 ## 文档
 

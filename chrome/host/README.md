@@ -12,11 +12,13 @@ Sema 浏览器控制的本机部分：原生消息宿主 `native-host.js` 与 st
     "chrome": {
       "transport": "stdio",
       "command": "npx",
-      "args": ["-y", "sema-chrome-host"]
+      "args": ["-y", "sema-chrome-host@0.6.0"]
     }
   }
 }
 ```
+
+版本号钉死，不写裸包名：`npx` 对裸包名命中缓存后不再更新，钉死版本后换版本即拉新包，离线时已缓存的版本照常可用。
 
 桥接进程启动时会把 Chrome 原生宿主清单写到 `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.sema.chrome.json`，包装脚本与套接字放在 `~/.sema/chrome/`。需要 Node ≥ 18、Chrome ≥ 116。
 

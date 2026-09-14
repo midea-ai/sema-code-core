@@ -61,11 +61,18 @@ export const methods = {
     if (url) await ensureAuthorized(hostOf(target), signal)
     throwIfAborted(signal)
 
+    // Agent 自己已经开着完全相同网址的标签就复用并重新加载，不再堆新标签；用户的标签不碰
+    if (url) {
+      const existing = await findAgentTab(target)
+      if (existing) return methods.navigate({ tab_id: existing.id, url: target }, { signal })
+    }
+
     const win = await pickWindow()
     // 带 url 时先对目标 URL 注册 document_start 钩子，首次加载的报错与请求就能捕获
     return withEarlyHook(url ? target : null, async () => {
+      // 后台打开，不把用户正在看的页面切走；没有普通窗口时才新建一个
       const tab = win
-        ? await chrome.tabs.create({ windowId: win.id, url: target, active: true })
+        ? await chrome.tabs.create({ windowId: win.id, url: target, active: false })
         : (await chrome.windows.create({ url: target, focused: true })).tabs[0]
       await markAgentTab(tab.id)
       // 自己开的标签从一开始就受控：导航提交即注脚本，加载期的对话框才接得住
@@ -237,9 +244,13 @@ export const methods = {
     const tab = await requireTab(tab_id)
     await ensureAuthorized(hostOf(tab.url), signal)
     throwIfAborted(signal)
-    await activateTab(tab)
-    const full = full_page === true
-    const shots = full ? await captureFullPage(tab, signal) : await captureViewport(tab)
+    const previous = await activateTab(tab)
+    let shots
+    try {
+      shots = full_page === true ? await captureFullPage(tab, signal) : await captureViewport(tab)
+    } finally {
+      await restoreTab(previous)
+    }
     const image = await stitch(shots.frames, shots.width, shots.height)
     const fresh = await chrome.tabs.get(tab.id)
     return {
@@ -340,16 +351,28 @@ function sleep(ms) {
 
 // ---------- 截图 ----------
 
-// captureVisibleTab 只截活动标签：激活它，窗口最小化的话还原，但不抢焦点
+// captureVisibleTab 只截活动标签：临时激活它，窗口最小化的话还原，但不抢焦点。
+// 返回之前的活动标签，截完由 restoreTab 切回去，用户正在看的页面只被打断一瞬
 async function activateTab(tab) {
+  let previous = null
   try {
     const win = await chrome.windows.get(tab.windowId)
     if (win.state === 'minimized') await chrome.windows.update(tab.windowId, { state: 'normal' })
-    if (!tab.active) await chrome.tabs.update(tab.id, { active: true })
+    if (!tab.active) {
+      const [current] = await chrome.tabs.query({ windowId: tab.windowId, active: true })
+      if (current && current.id !== tab.id) previous = current.id
+      await chrome.tabs.update(tab.id, { active: true })
+    }
   } catch (e) {
     throw new RpcError(ErrorCode.BAD_REQUEST, `Cannot activate tab ${tab.id}: ${e.message}`)
   }
   await sleep(ACTIVATE_SETTLE_MS)
+  return previous
+}
+
+async function restoreTab(previous) {
+  if (previous === null) return
+  await chrome.tabs.update(previous, { active: true }).catch(() => {})
 }
 
 async function captureBitmap(windowId) {
@@ -600,6 +623,23 @@ async function drainDialogs(tabId) {
     return r?.dialog || null
   } catch {
     return null
+  }
+}
+
+// 网址完全一致（按 URL 解析后的 href 比较）的 Agent 标签，不含隐身窗口
+async function findAgentTab(target) {
+  const agent = await agentTabIds()
+  if (agent.size === 0) return null
+  const href = new URL(target).href
+  const tabs = await chrome.tabs.query({})
+  return tabs.find((t) => t.id !== undefined && agent.has(t.id) && !t.incognito && sameHref(t.url, href)) || null
+}
+
+function sameHref(url, href) {
+  try {
+    return new URL(url || '').href === href
+  } catch {
+    return false
   }
 }
 

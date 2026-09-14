@@ -32,7 +32,7 @@ JSON 消息，请求 `{v, id, method, params}`，响应 `{v, id, result}` 或 `{
 | upload_chunk | upload_id*，file*（文件序号），index*（片序号），data*（base64） | `{file, received, size}` |
 | upload_commit | upload_id* | 回执，加 `uploaded: [{name, size}]` |
 
-tabs_list 不列隐身窗口和扩展自己的页面。tabs_open 把新标签放进名为 Sema 的标签组，传 url 时等加载完成再返回。tabs_close 只关 Agent 开的标签。tabs_open 与 navigate 的 url 无协议时补 https，本机回环地址（localhost、`*.localhost`、127.x、`[::1]`）补 http；navigate 等 load 事件，30 秒超时返回错误但不回滚。
+tabs_list 不列隐身窗口和扩展自己的页面。tabs_open 在后台新建标签，不切走用户正在看的页面，放进名为 Sema 的标签组，传 url 时等加载完成再返回；没有普通窗口时才新建窗口。Agent 自己已开着网址完全一致的标签时不新建，改为在该标签上重新加载（等同 navigate），用户的标签不复用。screenshot 因 `captureVisibleTab` 只截活动标签，会临时切到目标标签，截完切回用户原来的标签。tabs_close 只关 Agent 开的标签。tabs_open 与 navigate 的 url 无协议时补 https，本机回环地址（localhost、`*.localhost`、127.x、`[::1]`）补 http；navigate 等 load 事件，30 秒超时返回错误但不回滚。
 
 ## 回执
 
@@ -99,11 +99,11 @@ MIME 按扩展名从桥接进程内置的小表取，没有的记 `application/o
 
 ## 立即停止与弹窗
 
-工具栏弹窗 `popup.html` 显示连接状态与未连接原因、正在执行的方法、Agent 打开的标签页数、授权列表（分"总是允许"与"仅本次"，每条可撤销，撤销后下次访问重新弹窗），以及"立即停止"按钮。弹窗与后台之间是 `runtime.sendMessage` 的 `sema:popup` 消息，后台只认扩展自己的页面。
+工具栏弹窗 `popup.html` 显示连接状态与未连接原因、正在执行的方法、禁止访问的站点列表（可增删）、"访问前询问"开关及其授权列表（分"总是允许"与"仅本次"，每条可撤销，撤销后下次访问重新弹窗），状态行右侧是"停止"/"继续"按钮。弹窗与后台之间是 `runtime.sendMessage` 的 `sema:popup` 消息，后台只认扩展自己的页面。
 
-停止是全局的，做在连接层：进行中的每个请求立刻收到 `user_stopped` 错误，对应的 `AbortSignal` 触发，方法本身稍后跑完的结果丢弃。方法在几处看这个信号：等授权时关掉授权窗口、以 `user_stopped` 失败且不缓存为拒绝；调内容脚本前不再派发，等回复期间立刻失败；等页面加载、整页截图逐屏、eval_js 执行都立刻失败；上传分片不再收。已经派给页面的点击或导航收不回来。之后所有请求不执行直接返回 `user_stopped`，只放行 `ping` 与 `hello`。角标显示橙色"停"。复位有两条路：用户在弹窗点"允许继续"，或收到任一桥接进程的 `hello`，也就是有宿主应用重启后连上来。停止标记存 `chrome.storage.session`，后台 worker 重启不丢。
+停止是全局的，做在连接层：进行中的每个请求立刻收到 `user_stopped` 错误，对应的 `AbortSignal` 触发，方法本身稍后跑完的结果丢弃。方法在几处看这个信号：等授权时关掉授权窗口、以 `user_stopped` 失败且不缓存为拒绝；调内容脚本前不再派发，等回复期间立刻失败；等页面加载、整页截图逐屏、eval_js 执行都立刻失败；上传分片不再收。已经派给页面的点击或导航收不回来。之后所有请求不执行直接返回 `user_stopped`，只放行 `ping` 与 `hello`。角标显示橙色"停"。复位有两条路：用户在弹窗点"继续"，或收到任一桥接进程的 `hello`，也就是有宿主应用重启后连上来。停止标记存 `chrome.storage.session`，后台 worker 重启不丢。
 
-错误文字告诉模型立即结束本轮、汇报进行到哪一步、不要重试，浏览器工具在用户点"允许继续"前一直不可用。
+错误文字告诉模型立即结束本轮、汇报进行到哪一步、不要重试，浏览器工具在用户点"继续"前一直不可用。
 
 ## 元素树
 
@@ -122,19 +122,23 @@ get_text 取正文容器：页面只有一个 `article` 时取它，否则取 `m
 | 错误码 | 含义 |
 |---|---|
 | not_connected | 桥接进程连不上套接字时自己返回，扩展不产生 |
-| site_not_authorized | 站点未授权或隐身标签，`data.host` 是域名 |
+| site_not_authorized | 站点在黑名单（`data.reason` 为 `blocked`）、未授权（`not_authorized`）或隐身标签，`data.host` 是域名 |
 | tab_not_found | 标签页不存在 |
 | tab_not_owned | 标签页不是 Agent 开的 |
 | ref_invalid | 元素编号失效 |
 | timeout | 页面加载或内容脚本调用超时，`data` 带当前回执 |
 | bad_request | 参数错误、内部页（`chrome://` 等）、无法注入、元素不可点或不可填 |
 | unsupported | 扩展版本不支持该方法 |
-| user_stopped | 用户在弹窗点了"立即停止"：进行中的请求被中断，或停止后又来了请求 |
+| user_stopped | 用户在弹窗点了"停止"：进行中的请求被中断，或停止后又来了请求 |
 | internal | 其他异常 |
 
-## 站点授权
+## 站点访问控制
 
-按域名记录，`file://` 归为一个域。首次访问某域名弹窗，三个选择：总是允许存 `chrome.storage.local`，仅本次存 `chrome.storage.session`（浏览器关闭失效），拒绝后 5 分钟内同域名直接返回 `site_not_authorized` 不再弹窗。55 秒不选按拒绝，比桥接进程的 60 秒请求超时短，保证错误能送达。同一域名并发请求共用一个弹窗。两种授权都能在工具栏弹窗里撤销。
+按域名判断，`file://` 归为一个域。顺序是先查黑名单，再看询问开关：
+
+- **黑名单**：存 `chrome.storage.local` 键 `siteBlock`，域名相等或是其子域即命中，直接返回 `site_not_authorized`，`data.reason` 为 `blocked`，错误文字告诉模型不要重试。导航后重注脚本同样跳过。
+- **首次访问询问开关**：存 `chrome.storage.local` 键 `siteAsk`，默认关，关着时黑名单以外的站点全部放行。
+- **开关打开时**：首次访问某域名弹窗，三个选择：总是允许存 `chrome.storage.local`，仅本次存 `chrome.storage.session`（浏览器关闭失效），拒绝后 5 分钟内同域名直接返回 `site_not_authorized` 不再弹窗。55 秒不选按拒绝，比桥接进程的 60 秒请求超时短，保证错误能送达。同一域名并发请求共用一个弹窗。两种授权都能在工具栏弹窗里撤销。
 
 ## 传输
 

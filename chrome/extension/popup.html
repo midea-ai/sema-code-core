@@ -20,27 +20,39 @@
   li .kind { font-size: 11px; color: #7b8794; flex: none; }
   button { font: inherit; padding: 4px 10px; border-radius: 5px; border: 1px solid #cbd5e1; background: #fff; color: #1f2933; cursor: pointer; }
   button.link { border: 0; padding: 2px 4px; color: #b42318; font-size: 12px; }
-  button.stop { width: 100%; padding: 9px 0; font-weight: 600; background: #d13438; border-color: #d13438; color: #fff; }
-  button.resume { width: 100%; padding: 9px 0; font-weight: 600; background: #16a34a; border-color: #16a34a; color: #fff; }
+  h1 #state { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button.stop { flex: none; padding: 3px 10px; font-size: 12px; font-weight: 600; background: #d13438; border-color: #d13438; color: #fff; }
+  button.resume { flex: none; padding: 3px 10px; font-size: 12px; font-weight: 600; background: #16a34a; border-color: #16a34a; color: #fff; }
   button:disabled { opacity: .5; cursor: default; }
-  .empty { color: #9aa5b1; font-size: 12px; }
   .stopped-note { color: #b45309; font-size: 12px; margin: 6px 0 0; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row input[type="text"] { flex: 1; font: inherit; padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 5px; min-width: 0; }
+  label.switch { display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0 0 6px; }
+  label.switch input { margin: 0; }
 </style>
 </head>
 <body>
   <section>
-    <h1><span class="dot" id="dot"></span><span id="state">连接中…</span></h1>
+    <h1>
+      <span class="dot" id="dot"></span><span id="state">连接中…</span>
+      <button id="stop" class="stop" hidden>停止</button>
+      <button id="resume" class="resume" hidden>继续</button>
+    </h1>
     <p class="muted" id="detail"></p>
+    <p class="stopped-note" id="stoppedNote" hidden>Agent 的浏览器操作已暂停，点"继续"恢复</p>
   </section>
   <section>
-    <button id="stop" class="stop" hidden>立即停止</button>
-    <button id="resume" class="resume" hidden>允许继续</button>
-    <p class="stopped-note" id="stoppedNote" hidden>已停止。Agent 的浏览器操作会立即失败，直到你点"允许继续"或重启宿主应用。</p>
+    <h2>禁止访问的站点</h2>
+    <div class="row">
+      <input type="text" id="blockInput" placeholder="例如 bank.com">
+      <button id="blockAdd">添加</button>
+    </div>
+    <ul id="block"></ul>
   </section>
   <section>
     <h2>站点授权</h2>
-    <ul id="auth"></ul>
-    <div class="empty" id="authEmpty" hidden>还没有授权任何站点。Agent 第一次访问某个站点时会弹窗询问。</div>
+    <label class="switch"><input type="checkbox" id="ask"><span>访问前询问</span></label>
+    <ul id="auth" hidden></ul>
   </section>
   <script src="popup.js"></script>
 </body>

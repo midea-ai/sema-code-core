@@ -115,7 +115,7 @@ export class NativeLink {
     } else if (this.stopped) {
       text = '停'
       color = '#b45309'
-      title = 'Sema 浏览器控制：已停止，点开弹窗允许继续'
+      title = 'Sema 浏览器控制：已停止，点开弹窗继续'
     }
     chrome.action.setBadgeText({ text })
     chrome.action.setBadgeBackgroundColor({ color })

@@ -298,6 +298,8 @@ export function uninstallResource(id: string): true {
   if (!r) throw new Error(`资源不存在: ${id}`);
   if (r.kind === 'skill') {
     fs.rmSync(userSkillDir(r.id), { recursive: true, force: true });
+    // 与 mcp 分支、removeInstalled 对称：清掉禁用残留，否则重装后开关显示开、实际仍禁用
+    try { setDisabled('disabledSkills', r.skillName, false); } catch { /* settings 损坏不阻塞卸载 */ }
     return true;
   }
   const conf = readUserMcp();

@@ -310,7 +310,7 @@ export const zh = {
   'settings.saving': '保存中…',
   'settings.testOk': '连接成功',
   'settings.testFail': '连接失败',
-  'settings.noModelsYet': '还没有配置模型。添加一个模型并测试连通后即可开始对话。',
+  'settings.noModelsYet': '尚未配置模型。添加一个模型并测试连通后即可开始对话。',
   'settings.rolePrompt': 'AI 助手角色',
   'settings.resetDefault': '恢复默认',
   'settings.customRules': '自定义规则',
@@ -519,6 +519,6 @@ export const zh = {
   'settings.manualModelName': '手动输入模型名称',
   'settings.adapt.openai': 'OpenAI 格式',
   'settings.adapt.anthropic': 'Anthropic 格式',
-  'chat.noModelTitle': '还没有配置模型',
+  'chat.noModelTitle': '尚未配置模型',
   'chat.noModelDesc': '添加一个模型并测试连通后即可开始对话',
 } as const;

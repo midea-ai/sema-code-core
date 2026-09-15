@@ -1,0 +1,49 @@
+appId: com.midea.semawork
+productName: SemaWork
+copyright: AIRC Sema Team
+
+directories:
+  buildResources: assets
+  output: release
+
+# 第一版关掉 asar：worker 用 fork 起、node-pty 的 spawn-helper 与 ripgrep 二进制都要在真实文件系统上
+asar: false
+# node-pty 1.1.0 是 N-API 预编译，不需要按 Electron ABI 重编
+npmRebuild: false
+
+files:
+  - dist/**
+  - package.json
+  - "!**/*.map"
+
+afterPack: scripts/afterPack.js
+
+mac:
+  category: public.app-category.developer-tools
+  icon: assets/icon.png
+  # 不签名：afterPack 里做 ad-hoc 签名，Apple Silicon 才能启动；用户首次打开需在系统设置里「仍要打开」
+  identity: null
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  extendInfo:
+    NSDocumentsFolderUsageDescription: SemaWork 需要读写「文稿」中的项目目录
+    NSDesktopFolderUsageDescription: SemaWork 需要读写「桌面」中的项目目录
+    NSDownloadsFolderUsageDescription: SemaWork 需要读写「下载」中的项目目录
+
+win:
+  icon: assets/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  icon: assets/icon.png
+  category: Development
+  target:
+    - target: AppImage
+      arch: [x64]

@@ -1,0 +1,38 @@
+{
+  "name": "semawork-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SemaWork 桌面版：Electron 壳，进程内运行 webui/server，不进入 sema-core npm 包",
+  "author": "AIRC Sema Team",
+  "main": "dist/main.js",
+  "engines": {
+    "node": ">=20.18.1"
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit",
+    "start": "electron .",
+    "dev": "node esbuild.mjs && electron .",
+    "dist": "node esbuild.mjs && electron-builder",
+    "pack": "node esbuild.mjs && electron-builder --mac --arm64 --dir",
+    "dist:mac": "node esbuild.mjs && electron-builder --mac",
+    "dist:mac:arm64": "node esbuild.mjs && electron-builder --mac --arm64",
+    "dist:win": "node esbuild.mjs && electron-builder --win",
+    "dist:linux": "node esbuild.mjs && electron-builder --linux"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "cron-parser": "^5.5.0",
+    "diff": "7.0.0",
+    "node-pty": "^1.1.0",
+    "sema-core": "2.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -11,7 +11,8 @@ const common = {
   logLevel: 'info',
 };
 const entries = [
-  { entryPoints: ['src/index.ts'], outfile: 'dist/index.js' },
+  { entryPoints: ['src/index.ts'], outfile: 'dist/index.js' },          // 命令行入口（npm start）
+  { entryPoints: ['src/server.ts'], outfile: 'dist/server.js' },        // 库入口（desktop/ Electron 主进程 require）
   { entryPoints: ['src/workers/entry.ts'], outfile: 'dist/worker-entry.js' },
 ];
 

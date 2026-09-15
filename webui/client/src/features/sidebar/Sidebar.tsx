@@ -8,6 +8,7 @@ import type { ProjectRecord, SessionRecord } from '../../../../shared/types';
 import { Popover, MenuItem, MenuSep, useContextMenu, useDialog, cn, relTime } from '../../common/ui';
 import { t } from '../../i18n';
 import { CreateProjectDialog } from '../../common/CreateProjectDialog';
+import { macTitleBar } from '../../common/desktop';
 
 /** 侧栏布局持久化（项目展开集合 + 两个分组开合），刷新后保持不变 */
 const LAYOUT_KEY = 'sema.webui.sidebar';
@@ -65,9 +66,15 @@ export function Sidebar({ width }: { width: number }) {
         </defs>
       </svg>
       <div className="p-2 pb-0.5 flex flex-col gap-0.5">
+        {/* macOS 桌面版：顶部单独一行充当标题栏，红绿灯在左、收起按钮紧随其后，整行可拖动窗口；标题落到下一行 */}
+        {macTitleBar && (
+          <div className="app-drag flex items-center h-11 -mx-2 -mt-2 pl-[76px]">
+            <button onClick={() => setSidebarCollapsed(true)} className="app-no-drag p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.hideSidebar')}><PanelLeft size={15} /></button>
+          </div>
+        )}
         <div className="flex items-center justify-between px-2 h-8 mb-1.5">
           <span className="text-base font-semibold tracking-wide">{t('app.name')}</span>
-          <button onClick={() => setSidebarCollapsed(true)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.hideSidebar')}><PanelLeft size={15} /></button>
+          {!macTitleBar && <button onClick={() => setSidebarCollapsed(true)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.hideSidebar')}><PanelLeft size={15} /></button>}
         </div>
         <NavItem icon={<Plus size={15} />} label={t('sidebar.newSession')} active={view.type === 'draft' && !view.projectId} onClick={() => newSession()} />
       </div>

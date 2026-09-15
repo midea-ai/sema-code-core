@@ -117,6 +117,8 @@ export class WorkerPool extends EventEmitter {
         ...process.env,
         SEMA_WEBUI_WORKING_DIR: workingDir,
         SEMA_WEBUI_CORE_CONFIG: JSON.stringify(this.opts.getCoreConfig()),
+        // 宿主是 Electron 时 fork 用的是 Electron 二进制，显式让子进程按纯 Node 运行
+        ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
       },
       stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
       // 脱离前台进程组：Ctrl+C 的 SIGINT 只打到主进程，worker 及其 MCP 子进程

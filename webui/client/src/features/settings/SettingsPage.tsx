@@ -7,6 +7,7 @@ import { Button, Modal, Toggle, Spinner, Dropdown, cn, useDialog } from '../../c
 import ProviderLogo, { parseProviderKey, stripProviderSuffix } from '../../common/ProviderLogo';
 import { LanguageSelect } from '../../common/LanguageSelect';
 import { t, languageLabel, type I18nKey } from '../../i18n';
+import { collapsedHeaderPad } from '../../common/desktop';
 import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, providerLabel, apiKeyPlaceholder, AdapterType, ThinkingHistoryPolicy } from './providers';
 import { PERMISSION_LEVELS, DEFAULT_SYSTEM_PROMPT } from '../../../../shared/types';
 import { defaultCustomRules } from '../../../../shared/lang';
@@ -17,7 +18,7 @@ export function SettingsPage({ tab }: { tab: 'models' | 'system' }) {
   const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && 'pl-12')}>
+      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
         <TabBtn active={tab === 'models'} onClick={() => setView({ type: 'settings', tab: 'models' })}>{t('settings.models')}</TabBtn>
         <TabBtn active={tab === 'system'} onClick={() => setView({ type: 'settings', tab: 'system' })}>{t('settings.system')}</TabBtn>
       </div>

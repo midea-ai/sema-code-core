@@ -9,6 +9,7 @@ import { Composer } from './Composer';
 import { Button, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { usePausableElapsed } from '../../common/useElapsed';
 import { t } from '../../i18n';
+import { collapsedHeaderPad } from '../../common/desktop';
 import { fmtTime, shortPath } from '../../common/text';
 
 export function ChatView({ sessionId }: { sessionId: string }) {
@@ -155,7 +156,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {/* 头部 */}
-      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && 'pl-12')}>
+      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
         <button onClick={renameTitle} className="group inline-flex items-center gap-2 min-w-0 max-w-[60%]" title={record.workingDir}>
           <span className="truncate font-medium">{record.title || t('chat.untitled')}</span>
           <Pencil size={12} className="text-muted opacity-0 group-hover:opacity-100 shrink-0" />

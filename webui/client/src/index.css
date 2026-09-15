@@ -2,6 +2,10 @@
 @import "highlight.js/styles/github.css";
 @import "katex/dist/katex.min.css";
 
+/* 桌面版隐藏标题栏后的窗口拖动区；按钮等可点元素要标 no-drag，否则点击被拖动吞掉 */
+.app-drag { -webkit-app-region: drag; }
+.app-no-drag { -webkit-app-region: no-drag; }
+
 @theme {
   --color-bg: #ffffff;
   --color-panel: #f4f4f4;

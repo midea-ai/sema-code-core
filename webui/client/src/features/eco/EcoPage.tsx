@@ -13,6 +13,7 @@ import { FileIcon } from '../../common/fileicon/FileIcon';
 import { usePanelWidth, ResizeHandle } from '../../common/Resizer';
 import { FileTab } from '../panel/FileTab';
 import { t } from '../../i18n';
+import { collapsedHeaderPad } from '../../common/desktop';
 import type { EcoItem, EcoInstalled, EcoInstalledMcp, EcoMcpTool, EcoMcpStatus } from '../../../../shared/types';
 
 /** 插件页文件窗口的面板作用域：server 端把该 id 解析到用户级技能目录 ~/.sema/skills */
@@ -29,7 +30,7 @@ export function EcoPage() {
   const [manage, setManage] = useState<{ kind: 'skill' | 'mcp'; id: string } | null>(null);
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && 'pl-12')}>
+      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
         <TabBtn active={tab === 'market'} onClick={() => { setManage(null); setTab('market'); }}>{t('eco.tabMarket')}</TabBtn>
         <TabBtn active={tab === 'installed'} onClick={() => { setManage(null); setTab('installed'); }}>{t('eco.tabInstalled')}</TabBtn>
       </div>

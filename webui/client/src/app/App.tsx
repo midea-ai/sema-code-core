@@ -10,8 +10,9 @@ import { SchedulePage } from '../features/schedule/SchedulePage';
 import { EcoPage } from '../features/eco/EcoPage';
 import { DraftView } from '../features/chat/DraftView';
 import { DialogProvider, cn, Spinner } from '../common/ui';
+import { macTitleBar } from '../common/desktop';
 import { t, useLang } from '../i18n';
-import { PanelLeft } from 'lucide-react';
+import { PanelLeft, Plus } from 'lucide-react';
 import { ResizeHandle, usePanelWidth } from '../common/Resizer';
 import { useStatusFavicon } from '../common/favicon';
 
@@ -24,6 +25,7 @@ export function App() {
   const wsStatus = useApp(s => s.wsStatus);
   const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
   const setSidebarCollapsed = useApp(s => s.setSidebarCollapsed);
+  const setView = useApp(s => s.setView);
   const [sidebarW, setSidebarW] = usePanelWidth('sidebar', 256, 180, 480);
   useStatusFavicon();
   const [panelW, setPanelW] = usePanelWidth('panel', 520, 320, 1200);
@@ -60,10 +62,17 @@ export function App() {
               )}
             </div>
           )}
+          {/* 侧栏收起后展开按钮盖在各页面头部行（h-11）左侧，页面头部用 collapsedHeaderPad 让位；
+              macOS 桌面版红绿灯也落在这一行，按钮挪到红绿灯右侧，并给红绿灯周围一块窗口拖动区 */}
           {sidebarCollapsed && (
-            <button onClick={() => setSidebarCollapsed(false)} className="absolute left-2 top-2 z-10 p-1.5 rounded-md text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.showSidebar')}>
-              <PanelLeft size={16} />
-            </button>
+            <>
+              {macTitleBar && <div className="absolute left-0 top-0 w-[72px] h-11 z-10 app-drag" />}
+              {/* 展开按钮与侧栏里的收起按钮同尺寸；后面跟一个新会话按钮，行为与侧栏「新会话」一致（切到草稿页） */}
+              <div className={cn('absolute top-2.5 z-10 flex items-center gap-1', macTitleBar ? 'left-[76px]' : 'left-2')}>
+                <button onClick={() => setSidebarCollapsed(false)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.showSidebar')}><PanelLeft size={15} /></button>
+                <button onClick={() => setView({ type: 'draft' })} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newSession')}><Plus size={15} /></button>
+              </div>
+            </>
           )}
           {view.type === 'settings' && <SettingsPage tab={view.tab} />}
           {view.type === 'schedule' && <SchedulePage />}

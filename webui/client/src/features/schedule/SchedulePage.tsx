@@ -5,6 +5,7 @@ import { useApp } from '../../store/app';
 import { api } from '../../api/http';
 import { cn, Spinner, Button } from '../../common/ui';
 import { t, dateLocale } from '../../i18n';
+import { collapsedHeaderPad } from '../../common/desktop';
 import { CronTaskCard, parseCronFileRef } from '../panel/CronTaskCard';
 import { shortPath } from '../../common/text';
 import { sortCronTasks } from '../panel/CronTab';
@@ -95,7 +96,7 @@ export function SchedulePage() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col @container">
-      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && 'pl-12')}>
+      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
         <span className="text-sm font-medium">{t('schedule.title')}</span>
         <span className="flex-1" />
         <div className="flex items-center gap-1 @3xl:hidden">

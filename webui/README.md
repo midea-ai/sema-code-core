@@ -27,7 +27,8 @@ webui/
 ├── server/
 │   ├── esbuild.mjs       # 打包 dist/index.js（服务端）与 dist/worker-entry.js（core 子进程）
 │   └── src/
-│       ├── index.ts      # 入口：参数、token、HTTP 静态托管、WS 升级
+│       ├── index.ts      # 命令行入口（npm start）：参数、token 落盘、信号处理
+│       ├── server.ts     # 库入口 startServer()：HTTP 静态托管、WS 升级；桌面版 desktop/ 进程内调用
 │       ├── sessions.ts   # SessionManager：快照 / 订阅 / 动作分发 / worker 存活 / LRU 退场
 │       ├── workers/      # 子进程池、子进程入口（SemaCore + 事件转发）、cron 文件读取
 │       ├── registry/     # 注册表与设置（原子写入）

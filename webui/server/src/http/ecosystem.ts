@@ -16,8 +16,10 @@ import type { EcoItem, EcoInstalled, EcoInstalledSkill, EcoInstalledMcp } from '
 
 const execFileP = promisify(execFile);
 
-// dist 产物为 webui/server/dist/index.js（cjs 单文件），__dirname 即 dist 目录
-const RESOURCES_DIR = path.join(__dirname, '..', '..', 'resources');
+// dist 产物为 webui/server/dist/index.js（cjs 单文件），__dirname 即 dist 目录，资源在 webui/resources；
+// 桌面版打包时把 webui/resources 拷到 desktop/dist/resources，优先取 __dirname 同级
+const RESOURCES_DIR = [path.join(__dirname, 'resources'), path.join(__dirname, '..', '..', 'resources')].find(d => fs.existsSync(path.join(d, 'skills')))
+  || path.join(__dirname, '..', '..', 'resources');
 
 /** 用户级根目录：与 core 的 getSemaRootDir 同规则（SEMA_ROOT 环境变量，否则 ~/.sema） */
 function semaRoot(): string {

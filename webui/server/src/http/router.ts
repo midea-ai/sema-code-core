@@ -13,6 +13,7 @@ import { listOpenWithApps, appIconPath } from '../files/apps';
 import { gitDiffList, gitDiffFile, gitRepoCheck } from '../files/gitDiff';
 import { listCatalog, installResource, uninstallResource, listInstalled, toggleInstalled, removeInstalled, updateMcpConfig, updateMcpUseTools, userSkillsRoot, readUserMcp } from './ecosystem';
 import { listMcpTools } from './mcpTools';
+import { BrowserControl, browserControlState } from './browserControl';
 
 /** handler 自行写响应时返回此标记，handle() 不再套 json 包装 */
 export const HANDLED = Symbol('handled');
@@ -443,6 +444,15 @@ export class Router {
     // 已安装 MCP 的实时连接状态：读配置 worker（~/.sema/webui/workspace，启动即常驻）里 core 的连接信息
     this.add('GET', '/api/eco/installed/mcp/status', async () =>
       mapMcpStatus(await sm.dispatch('core.getMCPServerInfo', undefined, {})));
+    // 浏览器控制开关：配置 worker 里装/删 skill 与 MCP，全部成功才落 enableBrowserControl；失败键保持原值，错误信息随响应返回
+    const browserControl = new BrowserControl(sm);
+    this.add('GET', '/api/browser-control', () => browserControlState(!!reg.getSettings().enableBrowserControl));
+    this.add('POST', '/api/browser-control', async (_r, _s, _p, body) => {
+      const enabled = await browserControl.setEnabled(!!body?.enabled);
+      // 配置 worker 已生效，其余会话 worker 广播重扫 skill / 重连 MCP
+      refreshSkills(); refreshMcp();
+      return browserControlState(enabled);
+    });
     this.add('POST', '/api/probe-url', async (_r, _s, _p, body) => probeEmbeddable(String(body?.url || '')));
     // 页面元信息：标题 + 图标地址（右栏浏览器标签）
     this.add('POST', '/api/page-meta', async (_r, _s, _p, body) => fetchPageMeta(String(body?.url || '')));

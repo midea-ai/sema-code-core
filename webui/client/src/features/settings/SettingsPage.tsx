@@ -3,6 +3,7 @@ import { Plus, Trash2, RefreshCw, Check, X, Eye, EyeOff } from 'lucide-react';
 import { IconSelect } from '../../common/IconSelect';
 import { useApp } from '../../store/app';
 import { wsClient } from '../../api/ws';
+import { api } from '../../api/http';
 import { Button, Modal, Toggle, Spinner, Dropdown, cn, useDialog } from '../../common/ui';
 import ProviderLogo, { parseProviderKey, stripProviderSuffix } from '../../common/ProviderLogo';
 import { LanguageSelect } from '../../common/LanguageSelect';
@@ -11,7 +12,10 @@ import { collapsedHeaderPad } from '../../common/desktop';
 import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, providerLabel, apiKeyPlaceholder, AdapterType, ThinkingHistoryPolicy } from './providers';
 import { PERMISSION_LEVELS, DEFAULT_SYSTEM_PROMPT } from '../../../../shared/types';
 import { defaultCustomRules } from '../../../../shared/lang';
-import type { WebUISettings } from '../../../../shared/types';
+import type { WebUISettings, BrowserControlState } from '../../../../shared/types';
+
+/** Chrome 扩展商店页（Sema Browser Control） */
+const CHROME_EXTENSION_STORE_URL = 'https://chromewebstore.google.com/detail/pjofgjgagohldpbcnkgnfjeehealejie';
 
 export function SettingsPage({ tab }: { tab: 'models' | 'system' }) {
   const setView = useApp(s => s.setView);
@@ -333,8 +337,8 @@ type CoreBoolKey = 'skipFileEditPermission' | 'skipShellExecPermission' | 'skipS
 // 存 key、渲染时取文案：模块顶层调 t() 切换语言后不会更新
 const BASIC_KEYS: Array<{ key: CoreBoolKey; label: I18nKey }> = [
   { key: 'enableToolSearch', label: 'settings.enableToolSearch' },
-  { key: 'disableBackgroundTasks', label: 'settings.disableBg' },
   { key: 'enableInputPrediction', label: 'settings.enableInputPrediction' },
+  { key: 'disableBackgroundTasks', label: 'settings.disableBg' },
 ];
 const PERMISSION_KEYS: Array<{ key: CoreBoolKey; label: I18nKey }> = [
   { key: 'skipFileEditPermission', label: 'settings.skipFileEdit' },
@@ -379,6 +383,12 @@ function SystemSettings() {
         </div>
       </section>
       <section>
+        <h2 className="text-base font-semibold mb-3">{t('settings.integrations')}</h2>
+        <div className="rounded-lg border border-border bg-white divide-y divide-border">
+          <BrowserControlRow />
+        </div>
+      </section>
+      <section>
         <h2 className="text-base font-semibold mb-3">{t('settings.rolePrompt')}</h2>
         <input value={rolePrompt} onChange={e => setRolePrompt(e.target.value)} placeholder={DEFAULT_SYSTEM_PROMPT} className="w-full h-9 px-3 rounded-md bg-white border border-border text-sm font-mono" />
         <div className="flex justify-end gap-2 mt-2">
@@ -410,6 +420,53 @@ function SystemSettings() {
           {PERMISSION_KEYS.map(({ key, label }) => <ToggleRow key={key} k={key} label={label} />)}
         </div>
       </section>
+    </div>
+  );
+}
+
+/**
+ * 浏览器控制开关（对齐 IDE 插件 SystemConfig 的同名区块）：不走 saveSettings，而是 POST /api/browser-control 执行装/删动作，
+ * 配置键由服务端在动作成功后写入；执行中禁用开关等结果，失败 toast 并回到原值。win32 禁用，linux 标实验性。
+ */
+function BrowserControlRow() {
+  const platform = useApp(s => s.platform);
+  const toast = useApp(s => s.toast);
+  const openExternal = useApp(s => s.openExternal);
+  const [state, setState] = useState<BrowserControlState | null>(null);
+  const [busy, setBusy] = useState<false | 'enabling' | 'disabling'>(false);
+  useEffect(() => { api<BrowserControlState>('GET', '/api/browser-control').then(setState).catch(() => undefined); }, []);
+
+  const supported = state ? state.supported : platform !== 'win32';
+  const enabled = !!state?.enabled && supported;
+  const change = async (v: boolean) => {
+    if (busy || !supported) return;
+    setBusy(v ? 'enabling' : 'disabling');
+    try { setState(await api<BrowserControlState>('POST', '/api/browser-control', { enabled: v })); }
+    catch (e: any) { toast(t('settings.browserControlFailed', { error: e.message }), 'error'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="px-4 py-2.5 text-sm">
+      <div className="flex items-center justify-between" title={t('settings.browserControlTip')}>
+        <span className={cn(!supported && 'text-muted')}>
+          {t('settings.browserControl')}
+          {!supported && t('settings.browserControlUnsupportedSuffix')}
+          {supported && platform === 'linux' && t('settings.browserControlExperimentalSuffix')}
+          <span className="ml-2 text-xs text-muted font-mono">enableBrowserControl</span>
+        </span>
+        <div className="flex items-center gap-2">
+          {busy && <Spinner />}
+          <Toggle checked={enabled} disabled={!supported || !!busy} onChange={change} />
+        </div>
+      </div>
+      {busy && <div className="mt-1 text-xs text-muted">{busy === 'enabling' ? t('settings.browserControlEnabling') : t('settings.browserControlDisabling')}</div>}
+      {!busy && enabled && (
+        <div className="mt-1 text-xs text-muted">
+          {t('settings.browserControlInstallPrefix')}
+          <a href={CHROME_EXTENSION_STORE_URL} className="text-accent hover:underline" onClick={e => { e.preventDefault(); openExternal(CHROME_EXTENSION_STORE_URL).catch(() => undefined); }}>{t('settings.browserControlInstallLink')}</a>
+        </div>
+      )}
     </div>
   );
 }

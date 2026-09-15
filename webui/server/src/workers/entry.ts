@@ -92,6 +92,11 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'core.disableMCPServer': return core.disableMCPServer(p.name);
     // 生态市场装/卸 skill 后清缓存重扫（SkillsManager 有进程内缓存，否则常驻 worker 感知不到）
     case 'core.refreshSkills': await core.getSkillsInfo(true, true); return true;
+    // 浏览器控制开关（http/browserControl）：与 IDE 插件 BrowserControlManager 调用同一组 core 方法，均走配置 worker
+    case 'core.getSkillsInfo': return core.getSkillsInfo(true, !!p.refresh);
+    case 'core.removeSkillConf': return core.removeSkillConf(p.name);
+    case 'core.addMCPServer': return core.addMCPServer(p.config);
+    case 'core.removeMCPServer': return core.removeMCPServer(p.name);
     case 'core.getModelAdapter': return core.getModelAdapter(p.provider, p.modelName, p.baseURL) ?? null;
     case 'core.updateCoreConfig': core.updateCoreConfig(p.config); return true;
     case 'core.deleteProjectHistory': core.deleteProjectHistory(p.projectPath); return true;

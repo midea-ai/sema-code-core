@@ -8,6 +8,7 @@ Electron 壳：主进程在进程内运行 webui 的服务端（随机端口、�
 Electron 主进程 (src/main.ts)
     ├─ dist/server.js（esbuild 直接从 webui/server/src 打出）.startServer()   同进程起 HTTP + WS
     │     └─ fork dist/worker-entry.js ×N                                    core 子进程，依赖 desktop/node_modules 里的 sema-core
+    │     └─ dist/resources（拷自 webui/resources）生态市场资源；dist/resources/chrome（拷自 chrome/.sema）浏览器控制 skill 与 MCP
     └─ BrowserWindow → http://127.0.0.1:<随机端口>/?token=…                  页面来自 dist/public（拷自 webui/client/dist）
         ↕ preload 暴露 window.sema.desktop
 ```

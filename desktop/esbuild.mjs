@@ -35,3 +35,11 @@ await build({ ...common, entryPoints: [path.join(SERVER_SRC, 'workers', 'entry.t
 fs.rmSync(path.join(here, 'dist', 'public'), { recursive: true, force: true });
 fs.cpSync(CLIENT_DIST, path.join(here, 'dist', 'public'), { recursive: true });
 console.log('  dist/public  ← webui/client/dist');
+
+// server 会在 __dirname/resources 找生态市场内置资源，在 __dirname/resources/chrome 找浏览器控制的 skill 与 .mcp.json
+const RESOURCES_DIST = path.join(here, 'dist', 'resources');
+fs.rmSync(RESOURCES_DIST, { recursive: true, force: true });
+fs.cpSync(path.join(here, '..', 'webui', 'resources'), RESOURCES_DIST, { recursive: true });
+fs.cpSync(path.join(here, '..', 'chrome', '.sema'), path.join(RESOURCES_DIST, 'chrome'), { recursive: true });
+console.log('  dist/resources        ← webui/resources');
+console.log('  dist/resources/chrome ← chrome/.sema');

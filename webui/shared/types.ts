@@ -74,7 +74,12 @@ export interface WebUISettings {
   defaultPermissionLevel: PermissionLevel;
   /** core worker 进程硬上限（配置 worker 不计入）；缺省 8，服务端 clamp 到 [2,16] */
   maxWorkers?: number;
+  /** 浏览器控制开关（与 IDE 插件同名键）：只由 /api/browser-control 在装/删 skill 与 MCP 全部成功后写入，PUT /api/settings 忽略该键 */
+  enableBrowserControl?: boolean;
 }
+
+/** GET/POST /api/browser-control：supported = 非 Windows；experimental = Linux；enabled 即 settings.enableBrowserControl */
+export interface BrowserControlState { supported: boolean; experimental: boolean; enabled: boolean }
 
 // ==================== 输入框辅助 ====================
 

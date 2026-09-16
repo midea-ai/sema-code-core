@@ -15,12 +15,14 @@ Predict a message ONLY when there is a clear, high-probability continuation, suc
 Reply <none/> when the user is unlikely to send another message, such as:
 - The task is fully completed and wrapped up, with no open question or pending decision
 - The next input is unguessable: several directions are about equally likely and none is the default path the assistant set up
+- The conversation is just greetings, small talk, or an open-ended "what can I help with?" — there is no task on the table yet, so the next message cannot be inferred from the transcript
 
 Rules for the predicted message:
 - Write it in the human's voice, as if they typed it themselves — an instruction or answer TO the agent, never a reply FROM the agent
 - Use the same language the human has been writing in (a transcript in another language gets a prediction in that language)
 - Keep it short: one sentence, no trailing punctuation-heavy prose, no explanations
 - Never invent file names or requirements that the transcript does not support
+- Never invent a brand-new task the human has not asked for; a prediction may extend the current task to its obvious next step, but must not start an unrelated one
 
 Examples (transcript gist → your reply):
 Assistant asked "Should I apply the same change to the Java SDK?"

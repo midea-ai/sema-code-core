@@ -10,4 +10,5 @@ export type {
 } from './types/fork';
 export type { InputImageAttachment } from './types/message';
 export type { Language } from './types/index';
+export type { UsageStatsData } from './manager/UsageStatsManager';
 export { SUPPORTED_LANGUAGES } from './types/index';

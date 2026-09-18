@@ -51,6 +51,8 @@ export interface SemaCoreConfig {
                                      // 支持 mcp__{server}__* 通配整台 server、mcp__{server}__{prefix}* 前缀通配；
                                      // 通配须具体到 server 且 server 后带 __（*、mcp__*、mcp__{server}* 不合法，warn 后忽略）
   maxSessions?: number;              // 同时存在的会话上限，不传则不限制
+  usageProduct?: string;             // 使用统计的产品标识（如 sema-code-vscode、sema-code-jb、sema-webui），
+                                     // 不传或空串则不采集（不建目录、不注册监听、不起定时器）；仅构造时生效
 }
 
 // 支持动态更新的核心配置字段（从默认配置派生）
@@ -224,6 +226,17 @@ export type {
   CronTask,
   CronTaskFile,
 } from './cron';
+
+// 导出使用统计相关类型
+export type {
+  UsageStatsData,
+  UsageDayData,
+  UsageTotals,
+  UsageTokens,
+  UsageModelStat,
+  UsageToolStat,
+  UsageSkillStat,
+} from '../manager/UsageStatsManager';
 
 // 导出工具名常量
 export {

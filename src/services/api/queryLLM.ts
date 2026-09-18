@@ -3,6 +3,8 @@ import { UserMsg, AiMessage } from '../../types/message'
 import { ModelPointerType } from '../../types/model'
 import { getModelManager } from '../../manager/ModelManager'
 import { getConfManager } from '../../manager/ConfManager'
+import { getUsageStatsManager } from '../../manager/UsageStatsManager'
+import { countTokens } from '../../util/tokens'
 import { logDebug, logError } from '../../util/log'
 import { logLLMRequest, logLLMResponse } from '../../util/logLLM'
 import { getEventBus } from '../../events/EventSystem'
@@ -101,6 +103,18 @@ export async function queryLLM(
     }
 
     logLLMResponse(result, sessionId)
+
+    // 使用统计：只记计数，usageProduct 未配置时 recordLlm 直接返回
+    const tokenCount = countTokens([result])
+    if (tokenCount.index >= 0) {
+      getUsageStatsManager().recordLlm({
+        model: modelProfile.name,
+        inputTokens: tokenCount.inputTokens,
+        outputTokens: tokenCount.outputTokens,
+        cacheReadTokens: tokenCount.cacheReadTokens,
+        sessionId,
+      })
+    }
 
     // 检测空响应：既没有文本内容，也没有工具调用（统一在这里处理）
     if (!signal.aborted && result.message.content.length === 0) {

@@ -35,3 +35,7 @@ export const TRACKS_FILES_RETAIN_COUNT = 30  // 轨迹归档文件保留数量
 export const EVENT_DIR_PATH = 'event'
 export const EVENT_LOG_FILES_RETAIN_COUNT = 10  // 事件日志文件保留数量
 export const EVENT_LOG_CLEANUP_INTERVAL = 60 * 60 * 1000;  // 清理事件日志文件的时间间隔（毫秒）
+
+// 使用统计
+export const STATS_DIR_PATH = 'stats'
+export const USAGE_STATS_FLUSH_INTERVAL = 10 * 1000  // 增量账本落盘延迟（毫秒）

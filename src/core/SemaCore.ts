@@ -23,6 +23,7 @@ import { DesignSkillInfo, DesignSystemInfo } from '../types/design';
 import { getTaskManager } from '../manager/TaskManager';
 import { getCronManager } from '../manager/CronManager';
 import { CronTask } from '../types/cron';
+import { getUsageStatsManager, UsageStatsData } from '../manager/UsageStatsManager';
 import { CreateSessionOptions, CreateSessionResult } from '../types/session';
 import { getSessionPool } from './SessionPool';
 import { getConfManager } from '../manager/ConfManager';
@@ -52,6 +53,8 @@ export class SemaCore {
       getMemoryManager();
       getRuleManager();
       getHooksManager();
+      // 使用统计：usageProduct 未配置时 init 直接返回，不做任何采集
+      getUsageStatsManager().init(config?.usageProduct);
     });
     logInfo(`初始化SemaCore: ${JSON.stringify(config, null, 2)}`)
   }
@@ -191,6 +194,10 @@ export class SemaCore {
   enableCronTask = (id: string): boolean => getCronManager().enableTask(id);
   disableCronTask = (id: string): boolean => getCronManager().disableTask(id);
 
+  // ==================== 使用统计（全局） ====================
+  getUsageStats = (opts?: { product?: string }): Promise<UsageStatsData> => getUsageStatsManager().getUsageStats(opts);
+  clearUsageStats = (product: string): Promise<void> => getUsageStatsManager().clearUsageStats(product);
+
   // ==================== 资源管理（进程级） ====================
   dispose = async () => {
     // 摘除进程级事件监听器
@@ -199,6 +206,9 @@ export class SemaCore {
 
     // 关闭所有会话
     getSessionPool().disposeAll();
+
+    // 使用统计：同步落盘并摘除监听（放在会话关闭之后，收尾期间的工具事件也能计入）
+    getUsageStatsManager().dispose();
 
     // 释放全局单例
     getCronManager().dispose();

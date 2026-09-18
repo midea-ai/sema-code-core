@@ -1,6 +1,8 @@
 appId: com.midea.semawork
 productName: SemaWork
 copyright: AIRC Sema Team
+# 各平台安装包统一命名：SemaWork-<版本>-<mac|win|linux>-<架构>.<扩展名>
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 directories:
   buildResources: assets
@@ -10,6 +12,8 @@ directories:
 asar: false
 # node-pty 1.1.0 是 N-API 预编译，不需要按 Electron ABI 重编
 npmRebuild: false
+# 只留界面支持的五种语言的 Chromium 语言包（mac 为 zh_CN.lproj，win/linux 为 zh-CN.pak，两种写法都要列），安装包约省 7MB
+electronLanguages: [en-US, zh-CN, zh_CN, de, fr, it]
 
 files:
   - dist/**
@@ -30,6 +34,10 @@ mac:
     NSDocumentsFolderUsageDescription: SemaWork 需要读写「文稿」中的项目目录
     NSDesktopFolderUsageDescription: SemaWork 需要读写「桌面」中的项目目录
     NSDownloadsFolderUsageDescription: SemaWork 需要读写「下载」中的项目目录
+
+dmg:
+  # bzip2 压缩，比默认的 UDZO（zlib）小约 10%
+  format: UDBZ
 
 win:
   icon: assets/icon.png

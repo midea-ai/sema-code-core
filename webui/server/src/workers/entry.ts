@@ -17,7 +17,7 @@ const send = (msg: any) => { if (process.send) process.send(msg); };
 const workingDir = process.env.SEMA_WEBUI_WORKING_DIR || '';
 const coreConfig = JSON.parse(process.env.SEMA_WEBUI_CORE_CONFIG || '{}');
 /** 使用统计的产品标识：所有 worker（含配置 worker）同一标识，桌面版与网页版共用；「使用情况」页按此过滤 */
-const USAGE_PRODUCT = 'sema-code-vscode';
+const USAGE_PRODUCT = 'sema-work-webui';
 
 // 先校验工作目录：core 在模块加载时就会调用 process.cwd()，cwd 不可用（目录被删/移入废纸篓/无权限）会直接崩溃
 if (!workingDir || !fs.existsSync(workingDir)) {

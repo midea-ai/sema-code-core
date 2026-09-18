@@ -1,6 +1,6 @@
 {
   "name": "semawork-server",
-  "version": "0.1.0",
+  "version": "2.1.1",
   "private": true,
   "type": "commonjs",
   "main": "dist/index.js",

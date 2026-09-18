@@ -22,7 +22,7 @@ Electron 主进程 (src/main.ts)
 ```bash
 cd webui && npm run build && cd ..
 cd desktop
-export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/   # 下载慢时用；@vscode/ripgrep 的 postinstall 还会从 GitHub 下二进制
+export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/   # 下载慢时用
 npm install
 npm run dev
 ```
@@ -40,12 +40,16 @@ SEMA_DESKTOP_DEV_URL=http://localhost:5173 npm run dev
 ```bash
 npm run pack            # 最快：只出 release/mac-arm64/SemaWork.app，不压 dmg，自测用
 npm run dist:mac:arm64  # 只打 Apple Silicon 的 dmg
-npm run dist:mac        # release/SemaWork-<版本>-arm64.dmg 与 SemaWork-<版本>.dmg（x64），只能在 macOS 上打
-npm run dist:win        # release/SemaWork Setup <版本>.exe，macOS 上也能打
-npm run dist:linux      # release/SemaWork-<版本>.AppImage
+npm run dist:mac        # release/SemaWork-<版本>-mac-arm64.dmg 与 SemaWork-<版本>-mac-x64.dmg，只能在 macOS 上打
+npm run dist:win        # release/SemaWork-<版本>-win-x64.exe，macOS 上也能打
+npm run dist:linux      # release/SemaWork-<版本>-linux-x86_64.AppImage
 ```
 
+安装包统一命名为 `SemaWork-<版本>-<平台>-<架构>.<扩展名>`，由 `electron-builder.yml` 顶层的 `artifactName` 控制。
+
 首次打包要下载对应架构的 Electron 二进制并缓存到 `~/Library/Caches/electron`，之后不再下载；压 dmg 每个架构约一两分钟。
+
+ripgrep 随包分发：`scripts/afterPack.js` 按目标平台与架构取 `@vscode/ripgrep-<平台>-<架构>` 子包（打包机已装的直接用，其余经 `npm pack` 从 npm registry 拉取，缓存在 `node_modules/.cache/semawork-ripgrep`），把二进制放到产物的 `node_modules/@vscode/ripgrep/bin/rg(.exe)`，即 sema-core 查找内置 rg 的位置。用户机器 PATH 里有 rg 时优先用系统的。
 
 未签名，体验者首次打开：
 

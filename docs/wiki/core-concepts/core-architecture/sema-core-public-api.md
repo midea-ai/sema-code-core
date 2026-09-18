@@ -264,6 +264,34 @@ disableCronTask(id: string): boolean
 
 > 定时任务由 `CronManager` 统一管理，支持一次性任务和循环任务。`persist=true` 的任务存储在项目目录 `.sema/scheduled_tasks.json` 中；禁用状态存储在 `.sema/settings.json` 的 `disabledCronTasks` 中。
 
+## 使用统计
+
+```javascript
+// 读取本机使用统计：累计 + 近 366 天逐日；product 缺省汇总本机全部产品
+getUsageStats(opts?: { product?: string }): Promise<UsageStatsData>
+
+// 清空该产品的使用统计目录（不可恢复），product 必填
+clearUsageStats(product: string): Promise<void>
+
+interface UsageStatsData {
+  since: string | null                 // 最早记录日期 'YYYY-MM-DD'，无数据为 null
+  updatedAt: number
+  totals: { requests: number; tokens: UsageTokens; sessions: number; days: number }
+  days: Record<string, UsageDayData>   // 'YYYY-MM-DD' -> 当日聚合，只含有记录的日期
+}
+
+interface UsageDayData {
+  requests: number
+  tokens: UsageTokens                  // { hit, miss, output }：缓存命中输入 / 未命中输入 / 输出
+  models: Record<string, { requests: number; hitKnown: boolean; tokens: UsageTokens }>
+  tools: Record<string, { calls: number; errors: number }>
+  skills: Record<string, { calls: number; lastAt: number }>
+  sessions: string[]                   // 当天去重后的会话 id
+}
+```
+
+> 采集由构造配置 `usageProduct` 开关：不传则本进程不采集（不建目录、不注册监听、不起定时器），但 `getUsageStats` 仍能读到其他产品落盘的数据。只记计数与名称（模型名 / 工具名 / skill 名 / sessionId），不存对话内容、路径、入参。每次 LLM 响应与每次工具完成 / 出错在内存累加，10 秒后追加一行到 `~/.sema/stats/<product>/YYYY-MM-DD.jsonl`，`dispose()` 时同步落盘；`hitKnown=false` 表示服务商未返回缓存命中数，此时 `hit` 恒为 0、`miss` 即总输入。每个产品一个子目录，`usageProduct` 须为字母数字 `._-` 组成的简单名字（不能以 `.` 开头），否则本进程不采集。
+
 ## 清理
 
 ```javascript

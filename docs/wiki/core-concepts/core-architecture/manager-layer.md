@@ -10,6 +10,7 @@
 | PermissionManager | 函数式 API | `~/.sema/projects.conf` 中的 `allowedTools` | 工具执行权限检查与会话级权限请求 |
 | TaskManager | `getTaskManager()` | 任务记录不持久化；输出落盘到 `os.tmpdir()/sema-tasks/<taskId>.output` | RunShell / SubAgent 后台任务，按会话限流、过滤、通知 |
 | CronManager | `getCronManager()` | 项目 `.sema/scheduled_tasks.json`（仅 `persist=true`）；禁用状态在 `.sema/settings.json` | 定时任务创建、执行、持久化，触发时投递到目标会话 |
+| UsageStatsManager | `getUsageStatsManager()` | `~/.sema/stats/<product>/YYYY-MM-DD.jsonl` | 按产品采集 LLM token、工具 / skill 调用计数，延迟落盘、读取聚合、按产品清空 |
 
 ## StateManager
 
@@ -265,3 +266,31 @@ cronManager.dispose()
 ```
 
 `cron:update` 是进程级事件，通过 `SemaCore.on('cron:update', ...)` 订阅。
+
+## UsageStatsManager
+
+**职责**：使用统计的采集、落盘、聚合读取与清空。通过 `getUsageStatsManager()` 获取全局单例；`SemaCore` 构造时用配置 `usageProduct` 调 `init()`，未配置则完全不工作（不建目录、不注册监听、不起定时器）。
+
+**持久化路径**：`~/.sema/stats/<product>/YYYY-MM-DD.jsonl`，每个产品一个子目录（`product` 须为字母数字 `._-` 组成的简单名字），每行一次增量
+
+### 采集点
+
+- `queryLLM` 每次拿到响应后调 `recordLlm({ model, inputTokens, outputTokens, cacheReadTokens?, sessionId })`：模型名、token 三分量（缓存命中输入 / 未命中输入 / 输出）、会话 id
+- 监听进程级 `tool:execution:complete` / `tool:execution:error`：按工具名累加调用与失败次数；工具为 `skill` 时另按 skill 名（事件 `title`）计次并记最近时间
+
+只记计数与名称，不存对话内容、路径、入参。热路径只做内存加法。
+
+### 落盘与压缩
+
+- 内存账本从空变非空后 `USAGE_STATS_FLUSH_INTERVAL`（10 秒）到点异步追加一行；`dispose()` 同步落盘
+- `init()` 时把各产品目录下早于今天且多于一行的文件合并成一行；多进程同时压缩产出相同内容，无需加锁
+
+### 关键方法
+
+```javascript
+usageStatsManager.init(product)
+usageStatsManager.recordLlm(params)
+usageStatsManager.getUsageStats({ product })   // 先落盘本进程增量，再读产品目录聚合（缺省全部产品）：累计 + 近 366 天逐日
+usageStatsManager.clearUsageStats(product)     // 删该产品目录（必填）；是本进程产品时同时清内存账本
+usageStatsManager.dispose()
+```

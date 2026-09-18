@@ -25,6 +25,8 @@ Sema Core 的所有持久化数据存储在用户主目录的 `~/.sema/` 下，�
 │   └── 2024-01-15.log
 ├── event/                        # 事件日志
 │   └── 2024-01-15_[sessionId].log
+├── stats/                        # 使用统计（按天一文件，多产品共用）
+│   └── 2024-01-15.jsonl
 ├── cache/                        # 缓存
 │   └── llm-cache.json
 ├── skills/
@@ -268,6 +270,20 @@ LLM 日志归档文件，从原始日志中提取 **messages 最长的一次请�
 ```
 
 **自动清理**：最多保留最近 **10 个**日志文件（`EVENT_LOG_FILES_RETAIN_COUNT`）。
+
+### 使用统计 `~/.sema/stats/<product>/[YYYY-MM-DD].jsonl`
+
+由构造配置 `usageProduct` 开启采集（不传则不写）。每个产品一个子目录，`product` 须为字母数字 `._-` 组成的简单名字（不能以 `.` 开头），否则本进程不采集。每行一个 JSON 对象，只有计数与名称，不含对话内容：
+
+```
+{"t":1705300000000,"requests":12,"tokens":{"hit":80000,"miss":20000,"output":6000},"models":{"deepseek-v4-pro[deepseek]":{"requests":12,"hitKnown":true,"tokens":{...}}},"tools":{"view_file":{"calls":9,"errors":0}},"skills":{"commit":{"calls":1,"lastAt":1705300000000}},"sessions":["<sessionId>"]}
+```
+
+- `t`：落盘时间；产品由所在目录决定，行内不存
+- 采集在内存累加，账本非空后 **10 秒**（`USAGE_STATS_FLUSH_INTERVAL`）追加一行；`dispose()` 时同步落盘
+- 多进程可并发追加同一文件；启动时把早于今天且多于一行的文件合并成一行
+
+通过 `SemaCore.getUsageStats({ product })` 读取（累计 + 近 366 天逐日，缺省汇总全部产品目录），`clearUsageStats(product)` 删除该产品目录（`product` 必填）。
 
 ### LLM 响应缓存 `~/.sema/cache/llm-cache.json`
 

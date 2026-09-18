@@ -167,6 +167,13 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `enableCronTask` | `enable_cron_task` | `enableCronTask` | `EnableCronTask` | `id: string`(必填) | — |
 | `disableCronTask` | `disable_cron_task` | `disableCronTask` | `DisableCronTask` | `id: string`(必填) | — |
 
+### 使用统计
+
+| sema-core | Python | Java | C# | 参数 | 差异点备注 |
+| --- | --- | --- | --- | --- | --- |
+| `await getUsageStats` | `get_usage_stats` | `getUsageStats` | `GetUsageStats` | `opts: { product?: string }` | 返回 `UsageStatsData`(累计 + 近 366 天逐日);SDK 直接收 `product` 形参而非 `opts` 对象,缺省汇总本机全部产品;采集由构造配置 `usageProduct` 开关,未配则本进程不采集但仍可读其他产品落盘的数据 |
+| `await clearUsageStats` | `clear_usage_stats` | `clearUsageStats` | `ClearUsageStats` | `product: string`(必填) | 删除该产品的统计目录,不可恢复;Java 阻塞到删除完成 |
+
 ### Design 设计资源
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
@@ -329,6 +336,8 @@ MemoryConfig, RuleConfig, RuleScope                          // Memory / Rule(�
 DesignSkillInfo, DesignSystemInfo, DesignSystemColor         // Design:技能 / 系统 / 色板项
 PluginScopeKind, MarketplacePluginsInfo                      // 插件市场:作用域 / 汇总信息
 CronTask, CronTaskFile                                       // Cron:任务 / 持久化文件
+UsageStatsData, UsageDayData, UsageTotals, UsageTokens       // 使用统计:总览 / 单日 / 累计 / token 三分量
+UsageModelStat, UsageToolStat, UsageSkillStat                // 使用统计:按模型 / 工具 / skill 的聚合项
 TaskListItem                                                 // 后台任务列表项
 TodoItem, TodoTask, TodoTaskStatus                           // 待办:精简项 / 完整任务 / 状态
 CreateSessionOptions, CreateSessionResult                    // 会话创建:选项 / 结果

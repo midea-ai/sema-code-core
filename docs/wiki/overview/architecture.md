@@ -36,6 +36,7 @@ graph TB
         PM["PermissionManager\n会话级权限检查"]
         TM["TaskManager\n会话级后台任务调度"]
         CRM["CronManager\n定时任务管理"]
+        USM["UsageStatsManager\n使用统计采集"]
         EB["EventBus\n按 sessionId 路由"]
     end
 
@@ -213,6 +214,7 @@ processQuery.finally()
 | PermissionManager | 工具执行权限检查；文件编辑 allow 权限按会话生效 | 项目配置中的 `allowedTools` |
 | TaskManager | RunShell/SubAgent 后台任务；按会话过滤、限流、通知 | 临时目录 `os.tmpdir()/sema-tasks/` |
 | CronManager | 定时任务创建、执行、持久化；触发时优先投递来源会话，兜底投递活跃会话 | 项目级 `.sema/scheduled_tasks.json` |
+| UsageStatsManager | 按产品采集 LLM token 与工具 / skill 调用计数，延迟落盘；`getUsageStats` 聚合读取、`clearUsageStats` 按产品清空 | `~/.sema/stats/<product>/YYYY-MM-DD.jsonl` |
 
 ### Event System — 事件系统
 

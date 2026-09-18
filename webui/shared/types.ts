@@ -330,6 +330,39 @@ export interface CronGroup {
   tasks: CronTask[];
 }
 
+// ==================== 使用统计（与 core UsageStatsData 字段一致） ====================
+
+export interface UsageTokens {
+  hit: number;     // 缓存命中的输入 token
+  miss: number;    // 未命中缓存的输入 token
+  output: number;  // 输出 token
+}
+
+export interface UsageModelStat {
+  requests: number;
+  hitKnown: boolean;   // 服务商是否返回过缓存命中数；false 时 hit 恒为 0，输入不能拆分
+  tokens: UsageTokens;
+}
+
+export interface UsageToolStat { calls: number; errors: number }
+export interface UsageSkillStat { calls: number; lastAt: number }
+
+export interface UsageDayData {
+  requests: number;
+  tokens: UsageTokens;
+  models: Record<string, UsageModelStat>;
+  tools: Record<string, UsageToolStat>;
+  skills: Record<string, UsageSkillStat>;
+  sessions: string[];   // 当天去重后的会话 id
+}
+
+export interface UsageStatsData {
+  since: string | null;   // 最早记录日期 YYYY-MM-DD；无记录为 null
+  updatedAt: number;
+  totals: { requests: number; tokens: UsageTokens; sessions: number; days: number };
+  days: Record<string, UsageDayData>;   // 近 366 天中有记录的日期
+}
+
 /** 定时任务详情（与 core CronTask 字段一致） */
 export interface CronTask {
   id: string;

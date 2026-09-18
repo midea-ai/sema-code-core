@@ -90,6 +90,66 @@ textarea, input, select { outline: none; }
 
 @keyframes blink { 50% { opacity: .2; } }
 .cursor-blink::after { content: "▍"; animation: blink 1s infinite; color: var(--color-accent); }
+/* 使用情况页：柱状图 / 热力图 / 条形行 / 悬浮详情（结构与文字用 Tailwind，图表类样式集中在这里） */
+.usage-page { position: relative; --usage-cell: 11px; --usage-bar: var(--color-accent); --usage-hit: var(--color-accent); --usage-miss: color-mix(in srgb, var(--color-accent) 45%, transparent); --usage-output: #f59e0b; --usage-line: color-mix(in srgb, var(--color-fg) 12%, transparent); }
+.usage-info { position: relative; display: inline-flex; align-items: center; color: var(--color-muted); cursor: help; outline: none; }
+.usage-info-bubble { display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: max-content; max-width: 360px; padding: 8px 10px; font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--color-fg); background: #fff; border: 1px solid var(--color-border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.08); white-space: normal; }
+.usage-info:hover .usage-info-bubble, .usage-info:focus-visible .usage-info-bubble { display: block; }
+/* 柱状图（7 / 30 天） */
+.usage-bars { display: flex; gap: 8px; height: 140px; }
+.usage-bars-axis { display: flex; flex-direction: column; justify-content: space-between; width: 44px; padding-bottom: 18px; text-align: right; font-size: 11px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.usage-bars-axis span { line-height: 1; transform: translateY(50%); }
+.usage-bars-axis span:first-child { transform: translateY(0); }
+.usage-bars-axis span:last-child { transform: translateY(100%); }
+.usage-bars-plot { position: relative; flex: 1; min-width: 0; padding-bottom: 18px; }
+.usage-bars-grid { position: absolute; inset: 0 0 18px 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+.usage-bars-gridline { border-top: 1px solid var(--usage-line); }
+.usage-bars-cols { position: absolute; inset: 0 0 18px 0; display: flex; align-items: flex-end; gap: 2px; }
+.usage-bar-col { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; cursor: default; }
+.usage-bar-col:hover { background: color-mix(in srgb, var(--color-fg) 6%, transparent); }
+.usage-bar { width: 70%; min-height: 1px; background: var(--usage-bar); border-radius: 2px 2px 0 0; }
+.usage-bar.zero { background: var(--color-muted); opacity: .4; }
+.usage-bars-labels { position: absolute; left: 0; right: 0; bottom: 0; height: 18px; display: flex; gap: 2px; }
+.usage-bar-label { flex: 1; min-width: 0; position: relative; font-size: 11px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.usage-bar-label span { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); white-space: nowrap; }
+/* 热力图（近一年）：宽度不够时横向滚动，容器用 rtl 让初始滚动位置锚定在右侧（最近日期），内容再切回 ltr */
+.usage-heat-wrap { display: flex; flex-direction: column; gap: 8px; overflow-x: auto; padding-bottom: 4px; direction: rtl; }
+.usage-heat { direction: ltr; display: grid; grid-auto-rows: var(--usage-cell); gap: 2px; width: max-content; margin-left: auto; font-size: 11px; color: var(--color-muted); }
+.usage-heat-month { grid-row: 1; white-space: nowrap; overflow: visible; line-height: var(--usage-cell); }
+.usage-cell { display: inline-block; width: var(--usage-cell); height: var(--usage-cell); border-radius: 2px; background: var(--usage-bar); cursor: default; }
+.usage-cell.outside { visibility: hidden; }
+.usage-cell.unrecorded { background: transparent; background-image: radial-gradient(color-mix(in srgb, var(--color-fg) 25%, transparent) 1px, transparent 1px); background-size: 4px 4px; background-position: center; }
+.usage-cell.l1 { background: color-mix(in srgb, var(--usage-bar) 10%, transparent); }
+.usage-cell.l2 { background: color-mix(in srgb, var(--usage-bar) 35%, transparent); }
+.usage-cell.l3 { background: color-mix(in srgb, var(--usage-bar) 70%, transparent); }
+.usage-cell.l4 { background: var(--usage-bar); }
+.usage-cell:not(.outside):hover { outline: 1px solid var(--color-fg); outline-offset: -1px; }
+/* 条形行（工具调用 / 模型堆叠长条） */
+.usage-row { display: flex; align-items: center; gap: 12px; min-height: 22px; }
+.usage-row-name { flex: 0 0 200px; max-width: 45%; display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage-row-name > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.usage-row-bar { flex: 1; min-width: 40px; height: 8px; border-radius: 4px; background: var(--usage-line); overflow: hidden; }
+.usage-row-fill { height: 100%; min-width: 2px; background: var(--usage-bar); border-radius: 4px; }
+.usage-model-bar { display: flex; height: 12px; min-width: 2px; border-radius: 3px; overflow: hidden; cursor: default; }
+.usage-seg { display: block; height: 100%; }
+.usage-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.usage-seg.hit, .usage-swatch.hit { background: var(--usage-hit); }
+.usage-seg.miss, .usage-swatch.miss { background: var(--usage-miss); }
+.usage-seg.output, .usage-swatch.output { background: var(--usage-output); }
+@media (max-width: 560px) { .usage-model-row { flex-direction: column; align-items: stretch; gap: 4px; } .usage-model-row .usage-row-name { flex-basis: auto; max-width: none; } }
+/* 表格：只有名称列吃剩余宽度并截断，数值列按内容宽度 */
+.usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.usage-table th { font-weight: 500; font-size: 12px; color: var(--color-muted); text-align: left; padding: 4px 0; border-bottom: 1px solid var(--color-border); }
+.usage-table td { padding: 5px 0; white-space: nowrap; }
+.usage-table td:first-child { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.usage-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 16px; }
+/* 悬浮详情（柱、热力格、模型长条共用，坐标相对 .usage-page） */
+.usage-tip { position: absolute; z-index: 30; min-width: 180px; max-width: 320px; padding: 8px 10px; font-size: 12px; line-height: 1.6; color: var(--color-fg); background: #fff; border: 1px solid var(--color-border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.08); pointer-events: none; }
+.usage-tip-title { font-weight: 600; margin-bottom: 4px; word-break: break-all; }
+.usage-tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
+.usage-tip-row > span:first-child { color: var(--color-muted); }
+.usage-tip-sep { border-top: 1px solid var(--color-border); margin: 4px 0; }
+
 /* 运行状态行：文字扫光 */
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .shimmer-text {

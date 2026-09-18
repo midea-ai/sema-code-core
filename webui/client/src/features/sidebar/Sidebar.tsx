@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Settings, CalendarClock, Blocks, ChevronDown, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
+import { Plus, Settings, CalendarClock, Blocks, ChartColumn, ChevronDown, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { pendingBlocks } from '../../../../shared/transcript';
@@ -84,6 +84,7 @@ export function Sidebar({ width }: { width: number }) {
         <NavItem icon={<Settings size={15} />} label={t('sidebar.settings')} active={view.type === 'settings'} onClick={() => setView({ type: 'settings', tab: 'models' })} />
         <NavItem icon={<CalendarClock size={15} />} label={t('sidebar.schedule')} active={view.type === 'schedule'} onClick={() => setView({ type: 'schedule' })} />
         <NavItem icon={<Blocks size={15} />} label={t('sidebar.eco')} active={view.type === 'eco'} onClick={() => setView({ type: 'eco' })} />
+        <NavItem icon={<ChartColumn size={15} />} label={t('sidebar.usage')} active={view.type === 'usage'} onClick={() => setView({ type: 'usage' })} />
 
         {/* 项目 */}
         <SectionHeader label={t('sidebar.projects')} className="mt-2" open={projectsOpen} onToggle={() => setProjectsOpen(v => !v)} action={

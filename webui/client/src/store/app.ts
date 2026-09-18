@@ -17,7 +17,9 @@ export type View =
   /** 日程：全局定时任务视图 */
   | { type: 'schedule' }
   /** 生态市场：内置技能 / MCP 资源，一键安装到用户级 */
-  | { type: 'eco' };
+  | { type: 'eco' }
+  /** 使用情况：本机 token / 模型 / 工具 / 技能使用统计 */
+  | { type: 'usage' };
 
 export interface ModelData { modelName: string; modelList: string[]; taskConfig: { main: string; quick: string } }
 
@@ -122,7 +124,7 @@ function loadPanels(): Record<string, PanelState> {
 function loadView(): View {
   try {
     const v = JSON.parse(localStorage.getItem(VIEW_KEY) || '');
-    return v && (v.type === 'chat' || v.type === 'draft' || v.type === 'schedule' || v.type === 'eco') ? v : { type: 'draft' };
+    return v && (v.type === 'chat' || v.type === 'draft' || v.type === 'schedule' || v.type === 'eco' || v.type === 'usage') ? v : { type: 'draft' };
   } catch { return { type: 'draft' }; }
 }
 

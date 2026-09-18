@@ -383,6 +383,9 @@ export class Router {
       if (!body?.workingDir || !body?.id) throw new Error('缺少 workingDir / id');
       return sm.cronAction(String(body.workingDir), p.action, String(body.id));
     });
+    // 使用情况：本机使用统计（经配置 worker 读 ~/.sema/stats，读与清空都只针对本产品目录）
+    this.add('GET', '/api/usage', () => sm.dispatch('core.getUsageStats', undefined, {}));
+    this.add('POST', '/api/usage/clear', () => sm.dispatch('core.clearUsageStats', undefined, {}));
     // 生态市场：内置资源目录 / 安装（复制到用户级）/ 卸载
     this.add('GET', '/api/eco/catalog', () => listCatalog());
     // skill 装/卸/删后广播全部 worker 清缓存重扫；mcp 写操作后广播刷新连接（仅重连有变动的 server）。均不阻塞响应

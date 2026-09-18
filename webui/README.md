@@ -41,7 +41,7 @@ webui/
     └── src/
         ├── app/          # 三栏布局
         ├── features/     # sidebar（项目/会话树）、chat（消息流/卡片/输入框）、panel（右侧面板八种标签）、
-        │                 # settings（模型/系统配置）、eco（插件生态市场）、schedule（日程/定时任务）
+        │                 # settings（模型/系统配置）、eco（插件生态市场）、schedule（日程/定时任务）、usage（使用情况）
         ├── store/        # zustand：应用状态、会话快照（复用 shared reducer）
         ├── api/          # REST / WebSocket 客户端（断线退避重连）
         ├── common/       # UI 原语（按钮、弹层、对话框、文件图标等）
@@ -84,6 +84,7 @@ npm run build && npm start                # 重新构建并启动（改了根目
 | 项目目录 | `~/Documents/Sema/<项目名>/`（导入目录只记录路径） |
 | 独立会话目录 | `~/Documents/Sema/<YYYY-MM-DD>/<sessionId>/` |
 | 模型列表 / API Key、技能、MCP、定时任务文件，以及给模型看的对话历史 | `~/.sema/`（由 core 管理，WebUI 仅经 core 接口读写） |
+| 使用统计（token / 模型 / 工具 / 技能计数，产品标识 `sema-webui`，桌面版同） | `~/.sema/stats/`（由 core 管理，「使用情况」页读取与清除） |
 
 ## 上限与退场
 

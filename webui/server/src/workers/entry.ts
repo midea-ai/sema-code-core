@@ -16,6 +16,8 @@ const send = (msg: any) => { if (process.send) process.send(msg); };
 
 const workingDir = process.env.SEMA_WEBUI_WORKING_DIR || '';
 const coreConfig = JSON.parse(process.env.SEMA_WEBUI_CORE_CONFIG || '{}');
+/** 使用统计的产品标识：所有 worker（含配置 worker）同一标识，桌面版与网页版共用；「使用情况」页按此过滤 */
+const USAGE_PRODUCT = 'sema-code-vscode';
 
 // 先校验工作目录：core 在模块加载时就会调用 process.cwd()，cwd 不可用（目录被删/移入废纸篓/无权限）会直接崩溃
 if (!workingDir || !fs.existsSync(workingDir)) {
@@ -33,7 +35,7 @@ try { process.chdir(workingDir); process.cwd(); } catch (e: any) {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { SemaCore } = require('sema-core') as { SemaCore: typeof SemaCoreType };
 
-const core = new SemaCore({ workingDir, ...coreConfig, logLevel: coreConfig.logLevel || 'warn' });
+const core = new SemaCore({ workingDir, ...coreConfig, logLevel: coreConfig.logLevel || 'warn', usageProduct: USAGE_PRODUCT });
 const sessions = new Map<string, SemaSession>();
 
 for (const ev of PROCESS_EVENTS) {
@@ -101,6 +103,9 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'core.updateCoreConfig': core.updateCoreConfig(p.config); return true;
     case 'core.deleteProjectHistory': core.deleteProjectHistory(p.projectPath); return true;
     case 'core.deleteSessionHistory': core.deleteSessionHistory(p.sessionId, p.projectPath); return true;
+    // 使用统计：读时先落盘本 worker 的内存增量再聚合全部文件；其他 worker 最近 10 秒内的增量要等其自行落盘
+    case 'core.getUsageStats': return core.getUsageStats({ product: USAGE_PRODUCT });
+    case 'core.clearUsageStats': await core.clearUsageStats(USAGE_PRODUCT); return true;
     case 'core.getCommandsInfo':
     case 'session.getCommandsInfo':
       // 命令/技能/子代理清单是项目作用域（cwd/.sema + ~/.sema）：session.* 变体由该会话目录的 worker 回答；core.* 变体走配置 worker（草稿页占位）

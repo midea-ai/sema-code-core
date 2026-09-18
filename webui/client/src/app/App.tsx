@@ -8,6 +8,7 @@ import { RightPanel } from '../features/panel/RightPanel';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { SchedulePage } from '../features/schedule/SchedulePage';
 import { EcoPage } from '../features/eco/EcoPage';
+import { UsagePage } from '../features/usage/UsagePage';
 import { DraftView } from '../features/chat/DraftView';
 import { DialogProvider, cn, Spinner } from '../common/ui';
 import { macTitleBar } from '../common/desktop';
@@ -77,6 +78,7 @@ export function App() {
           {view.type === 'settings' && <SettingsPage tab={view.tab} />}
           {view.type === 'schedule' && <SchedulePage />}
           {view.type === 'eco' && <EcoPage />}
+          {view.type === 'usage' && <UsagePage />}
           {view.type === 'chat' && (
             <div className="flex-1 min-h-0 flex">
               <div className="flex-1 min-w-0 flex flex-col"><ChatView key={view.sessionId} sessionId={view.sessionId} /></div>

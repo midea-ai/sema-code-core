@@ -298,6 +298,16 @@ public sealed class SemaCore : IAsyncDisposable
     public Task<bool> DisableCronTask(string id)
         => BoolAck("disableCronTask", Json.Obj(("id", id)));
 
+    // ── 使用统计 ─────────────────────────────────────────────────────────
+
+    /// <summary>读取本机使用统计（累计 + 近 366 天逐日）；product 为 null 时汇总本机全部产品。</summary>
+    public Task<UsageStatsData?> GetUsageStats(string? product = null)
+        => Call<UsageStatsData>("getUsageStats", Json.Obj(("product", product)));
+
+    /// <summary>清空该产品的使用统计（不可恢复）；product 必填；删除完成后 ack。</summary>
+    public Task ClearUsageStats(string product)
+        => VoidCall("clearUsageStats", Json.Obj(("product", product)));
+
     // ── Memory / Rules / Design ──────────────────────────────────────────
 
     public Task<MemoryConfig?> GetMemoryInfo(bool? refresh = null)

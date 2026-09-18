@@ -490,6 +490,68 @@ public record SemaCoreConfig
     [JsonPropertyName("enableToolSearch")] public bool? EnableToolSearch { get; init; }
     [JsonPropertyName("toolSearchDefaultTools")] public List<string>? ToolSearchDefaultTools { get; init; }
     [JsonPropertyName("maxSessions")] public long? MaxSessions { get; init; }
+    /// <summary>使用统计的产品标识（如 sema-code-vscode）；null 或空串则本进程不采集。仅构造时生效。</summary>
+    [JsonPropertyName("usageProduct")] public string? UsageProduct { get; init; }
+}
+
+// ==================== 使用统计（GetUsageStats）====================
+
+/// <summary>hit=缓存命中的输入 token，miss=未命中缓存的输入 token，output=输出 token。</summary>
+public record UsageTokens
+{
+    [JsonPropertyName("hit")] public long Hit { get; init; }
+    [JsonPropertyName("miss")] public long Miss { get; init; }
+    [JsonPropertyName("output")] public long Output { get; init; }
+}
+
+public record UsageModelStat
+{
+    [JsonPropertyName("requests")] public long Requests { get; init; }
+    /// <summary>服务商是否返回过缓存命中数；false 时 Tokens.Hit 恒为 0，Miss 即总输入。</summary>
+    [JsonPropertyName("hitKnown")] public bool HitKnown { get; init; }
+    [JsonPropertyName("tokens")] public UsageTokens? Tokens { get; init; }
+}
+
+public record UsageToolStat
+{
+    [JsonPropertyName("calls")] public long Calls { get; init; }
+    [JsonPropertyName("errors")] public long Errors { get; init; }
+}
+
+public record UsageSkillStat
+{
+    [JsonPropertyName("calls")] public long Calls { get; init; }
+    /// <summary>最近一次调用时间戳（毫秒）。</summary>
+    [JsonPropertyName("lastAt")] public long LastAt { get; init; }
+}
+
+/// <summary>单日聚合：Models/Tools/Skills 按名称聚合，Sessions 为当天去重后的会话 id。</summary>
+public record UsageDayData
+{
+    [JsonPropertyName("requests")] public long Requests { get; init; }
+    [JsonPropertyName("tokens")] public UsageTokens? Tokens { get; init; }
+    [JsonPropertyName("models")] public Dictionary<string, UsageModelStat>? Models { get; init; }
+    [JsonPropertyName("tools")] public Dictionary<string, UsageToolStat>? Tools { get; init; }
+    [JsonPropertyName("skills")] public Dictionary<string, UsageSkillStat>? Skills { get; init; }
+    [JsonPropertyName("sessions")] public List<string>? Sessions { get; init; }
+}
+
+/// <summary>累计：Sessions 为全部记录 sessionId 去重数，Days 为有记录的日期数。</summary>
+public record UsageTotals
+{
+    [JsonPropertyName("requests")] public long Requests { get; init; }
+    [JsonPropertyName("tokens")] public UsageTokens? Tokens { get; init; }
+    [JsonPropertyName("sessions")] public long Sessions { get; init; }
+    [JsonPropertyName("days")] public long Days { get; init; }
+}
+
+/// <summary>GetUsageStats 返回：Since=最早记录日期 'YYYY-MM-DD'（无数据为 null），Days 只含近 366 天且有记录的日期。</summary>
+public record UsageStatsData
+{
+    [JsonPropertyName("since")] public string? Since { get; init; }
+    [JsonPropertyName("updatedAt")] public long UpdatedAt { get; init; }
+    [JsonPropertyName("totals")] public UsageTotals? Totals { get; init; }
+    [JsonPropertyName("days")] public Dictionary<string, UsageDayData>? Days { get; init; }
 }
 
 public record SkillConfig

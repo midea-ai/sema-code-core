@@ -57,6 +57,8 @@
     "deleteCronTask": { "level": "core", "payload": ["id"], "ack": "value" },
     "enableCronTask": { "level": "core", "payload": ["id"], "ack": "value" },
     "disableCronTask": { "level": "core", "payload": ["id"], "ack": "value" },
+    "getUsageStats": { "level": "core", "payload": ["product"], "ack": "value", "note": "ack 为 UsageStatsData；product 缺省汇总本机全部产品；init 未配 usageProduct 时本进程不采集，但仍能读到其他产品落盘的数据" },
+    "clearUsageStats": { "level": "core", "payload": ["product"], "ack": "delivery", "note": "product 必填；删除该产品的使用统计目录，不可恢复" },
     "getMemoryInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
     "getRuleInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
     "getHooksInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },

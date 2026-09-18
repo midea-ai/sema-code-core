@@ -410,6 +410,22 @@ public final class SemaCore implements AutoCloseable {
         return boolAck("disableCronTask", Json.obj("id", id));
     }
 
+    // ── 使用统计 ─────────────────────────────────────────────────────────
+
+    /** 读取本机使用统计（累计 + 近 366 天逐日）；product 为 null 时汇总本机全部产品。 */
+    public UsageStatsData getUsageStats(String product) {
+        return call("getUsageStats", Json.obj("product", product), UsageStatsData.class);
+    }
+
+    public UsageStatsData getUsageStats() {
+        return getUsageStats(null);
+    }
+
+    /** 清空该产品的使用统计（不可恢复）；product 必填；阻塞到删除完成。 */
+    public void clearUsageStats(String product) {
+        req("clearUsageStats", Json.obj("product", product));
+    }
+
     // ── Memory / Rules / Design ──────────────────────────────────────────
 
     public MemoryConfig getMemoryInfo() {

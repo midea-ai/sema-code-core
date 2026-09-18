@@ -84,6 +84,7 @@ class SemaCoreConfig(TypedDict, total=False):
     enableToolSearch: bool
     toolSearchDefaultTools: Optional[List[str]]
     maxSessions: int
+    usageProduct: str  # 使用统计的产品标识（如 sema-code-vscode）；不传或空串则本进程不采集，仅构造时生效
 
 
 class UpdatableCoreConfig(TypedDict, total=False):
@@ -415,6 +416,55 @@ class CronTaskFileEntry(TypedDict):
 class CronTaskFile(TypedDict):
     """cron 持久化文件格式（仅核心字段，运行时字段加载时生成）。"""
     tasks: List[CronTaskFileEntry]
+
+
+# ==================== 使用统计（get_usage_stats）====================
+
+class UsageTokens(TypedDict):
+    hit: int     # 缓存命中的输入 token
+    miss: int    # 未命中缓存的输入 token
+    output: int  # 输出 token
+
+
+class UsageModelStat(TypedDict):
+    requests: int
+    hitKnown: bool  # 服务商是否返回过缓存命中数；False 时 tokens.hit 恒为 0，miss 即总输入
+    tokens: UsageTokens
+
+
+class UsageToolStat(TypedDict):
+    calls: int
+    errors: int
+
+
+class UsageSkillStat(TypedDict):
+    calls: int
+    lastAt: int  # 最近一次调用时间戳（毫秒）
+
+
+class UsageDayData(TypedDict):
+    """单日聚合：models/tools/skills 按名称聚合，sessions 为当天去重后的会话 id。"""
+    requests: int
+    tokens: UsageTokens
+    models: Dict[str, UsageModelStat]
+    tools: Dict[str, UsageToolStat]
+    skills: Dict[str, UsageSkillStat]
+    sessions: List[str]
+
+
+class UsageTotals(TypedDict):
+    requests: int
+    tokens: UsageTokens
+    sessions: int  # 全部记录 sessionId 去重数
+    days: int      # 有记录的日期数
+
+
+class UsageStatsData(TypedDict):
+    """get_usage_stats 返回：since=最早记录日期 'YYYY-MM-DD'（无数据为 None），days 只含近 366 天且有记录的日期。"""
+    since: Optional[str]
+    updatedAt: int
+    totals: UsageTotals
+    days: Dict[str, UsageDayData]
 
 
 # ==================== 待办（会话 ready / todos 事件共用）====================

@@ -291,6 +291,10 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         case 'enableCronTask':   ack(id, manager.instance.enableCronTask(payload.id)); return;
         case 'disableCronTask':  ack(id, manager.instance.disableCronTask(payload.id)); return;
 
+        // 使用统计（get 的 product 缺省汇总全部产品；clear 的 product 必填，无返回值，等删除完成后 ack）
+        case 'getUsageStats':    ack(id, await manager.instance.getUsageStats(payload?.product ? { product: payload.product } : undefined)); return;
+        case 'clearUsageStats':  await manager.instance.clearUsageStats(payload.product); break;
+
         // Memory / Rule / Hooks / Design（只读）
         case 'getMemoryInfo':        ack(id, await manager.instance.getMemoryInfo(payload?.refresh)); return;
         case 'getRuleInfo':          ack(id, await manager.instance.getRuleInfo(payload?.refresh)); return;

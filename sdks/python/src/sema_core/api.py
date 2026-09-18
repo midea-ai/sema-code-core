@@ -31,7 +31,7 @@ if TYPE_CHECKING:
         FetchModelsParams, FetchModelsResult, ForkOptions, ForkPreview, ForkResult,
         HooksInfo, InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
         MCPServerInfo, MemoryConfig, ModelConfig, ModelProfile, ModelUpdateData, PermissionLevel,
-        RuleConfig, SemaCoreConfig, SkillConfig, TaskConfig, TaskListItem, ToolInfo,
+        RuleConfig, SemaCoreConfig, SkillConfig, TaskConfig, TaskListItem, ToolInfo, UsageStatsData,
     )
     from .event import PickOptionResponseData, PlanExitResponseData, ToolPermissionResponse
 
@@ -294,6 +294,16 @@ class SemaCore:
 
     async def disable_cron_task(self, id: str) -> bool:
         return await self._json("disableCronTask", {"id": id})
+
+    # ── 使用统计 ─────────────────────────────────────────────────────────
+
+    async def get_usage_stats(self, product: Optional[str] = None) -> "UsageStatsData":
+        """读取本机使用统计（累计 + 近 366 天逐日）；product 缺省汇总本机全部产品。"""
+        return await self._json("getUsageStats", _obj(product=product))
+
+    async def clear_usage_stats(self, product: str) -> None:
+        """清空该产品的使用统计（不可恢复）；删除完成后返回。"""
+        await self._client.call("clearUsageStats", {"product": product})
 
     # ── 只读信息 ─────────────────────────────────────────────────────────
 

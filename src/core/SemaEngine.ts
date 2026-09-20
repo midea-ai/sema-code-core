@@ -26,6 +26,9 @@ import { getStateManager, MAIN_AGENT_ID, PendingUserInput, SessionRuntime } from
 import { getCheckpointManager } from '../manager/CheckpointManager';
 import { handleCommand } from '../services/commands/runCommand';
 import { getPluginsManager } from '../services/plugins/pluginsManager';
+import { getRuleManager } from '../services/rules/rulesManager';
+import { getMemoryManager } from '../services/memory/memManager';
+import { getHooksManager } from '../services/hooks/hooksManager';
 import { getTaskManager } from '../manager/TaskManager';
 import { getCronManager } from '../manager/CronManager';
 import { handlequickchat } from '../util/quickchat';
@@ -100,6 +103,16 @@ export class SemaEngine {
     // 使运行期间新装/手改的插件与配置无需重启 core 即可在新会话生效
     await getPluginsManager().refreshMarketplacePluginsInfo().catch(err => {
       logWarn(`新会话刷新插件信息失败: ${err instanceof Error ? err.message : String(err)}`);
+    });
+
+    // 新会话重读 rules / memory / hooks（三者不在插件级联内）：rules 与 memory 仅在首条消息注入一次，
+    // SessionStart hook 在本方法末尾触发，都必须在此之前就绪，故同步等待（仅读几个本地小文件）
+    await Promise.all([
+      getRuleManager().getRuleInfo(true),
+      getMemoryManager().getMemoryInfo(true),
+      getHooksManager().getHooksInfo(true),
+    ]).catch(err => {
+      logWarn(`新会话刷新 Rules/Memory/Hooks 失败: ${err instanceof Error ? err.message : String(err)}`);
     });
 
     // 会话级配置：Agent 模式

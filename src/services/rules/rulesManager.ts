@@ -93,10 +93,10 @@ class RuleManager {
 
   /**
    * 重新加载并缓存 Rule 信息
+   * 先读后替换：重载期间不清缓存，同步读取方（getRuleDescription）始终拿到旧值而非空串
    */
   private async loadAndCacheRule(): Promise<RuleConfig | null> {
     logDebug('刷新 Rule 信息...')
-    this.invalidateCache()
 
     const rule = await this.loadRule()
     this.ruleInfoCache = rule
@@ -106,7 +106,7 @@ class RuleManager {
 
   /**
    * 获取 Rule 信息
-   * @param refresh 是否强制刷新（清缓存后重新加载）
+   * @param refresh 是否强制刷新（重新加载后替换缓存）
    */
   async getRuleInfo(refresh?: boolean): Promise<RuleConfig | null> {
     if (refresh) return this.loadAndCacheRule()

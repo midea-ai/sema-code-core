@@ -9,12 +9,12 @@ import { getConfManager } from './ConfManager'
 import { getEventBus } from '../events/EventSystem'
 import { ToolPermissionRequestData, ToolPermissionResponse, ToolPermissionAutoData } from '../events/types'
 import { checkAbortSignal } from '../types/errors'
-import { getFilePath } from '../util/file'
+import { getFilePath, canonicalizeFilePath } from '../util/file'
 import { addUserWait } from '../util/agentStats'
 import { isAbsolute, resolve, relative, dirname, join } from 'path'
 import { getSemaRootDir } from '../util/savePath'
-import { tmpdir } from 'os'
 import { normalizeCmpPath } from '../util/platform'
+import { classifyReadPath, TEMP_BASE_PATHS } from '../util/readPathClass'
 import { getStateManager, MAIN_AGENT_ID } from './StateManager'
 import { queryLLM } from '../services/api/queryLLM'
 import { AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT } from '../prompt/permission'
@@ -22,6 +22,7 @@ import { isReadonlySafeCommand, isUnsafeForPrefixAuth, classifyDangerousCommand,
 import { extractAutoRunContext, summarizeActionLine } from '../util/autoRunContext'
 import { isBlockedFetchHost } from '../util/fetchSafety'
 import { firePermissionRequest } from '../services/hooks/hookTriggers'
+import { getSkillsManager } from '../services/skills/skillsManager'
 import { t } from '../util/i18n'
 
 // ==================== 辅助函数 ====================
@@ -31,21 +32,6 @@ function isPathInsideRoot(filePath: string, root: string): boolean {
   const rel = relative(normalizeCmpPath(root), normalizeCmpPath(abs))
   if (!rel || rel === '') return true
   return !rel.startsWith('..') && !isAbsolute(rel)
-}
-
-// 系统临时目录：这些目录树下的文件视为临时文件，AutoEdit/AutoRun 下即便在项目外也自动放行
-// tmpdir() 已涵盖 $TMPDIR/$TEMP/$TMP；/var/folders 覆盖 macOS 临时/缓存区
-const TEMP_BASE_PATHS = [tmpdir(), '/tmp', '/var/tmp', '/var/folders']
-
-// SEMA_ROOT 下的受信内容子目录：全局 skill/命令/agent/插件/hooks 均为用户自行安装的内容，读取静默放行。
-// 仅限这几个内容型目录；SEMA_ROOT 根下的 model.conf、history/ 等敏感文件仍需权限申请。
-// 注意：豁免仅覆盖读取（view_file），hooks 脚本会被执行，写入仍走文件编辑权限转人工。
-const TRUSTED_SEMA_SUBDIRS = ['skills', 'commands', 'agents', 'plugins', 'hooks']
-
-function isTrustedSemaFile(filePath: string): boolean {
-  const abs = isAbsolute(filePath) ? filePath : resolve(readInitialCwd(), filePath)
-  const semaRoot = getSemaRootDir()
-  return TRUSTED_SEMA_SUBDIRS.some(sub => isPathInsideRoot(abs, join(semaRoot, sub)))
 }
 
 /**
@@ -69,6 +55,8 @@ function isDeletableShellTarget(target: string, kind: DeleteTargetKind): boolean
   return true
 }
 
+// 系统临时目录（清单见 util/readPathClass 的 TEMP_BASE_PATHS）下的文件视为临时文件，
+// AutoEdit/AutoRun 下即便在项目外也自动放行编辑
 function isTempFile(filePath: string): boolean {
   // 相对路径按项目根解析（解析后必落在项目内，由 isPathInsideRoot 处理）；临时文件均为绝对路径
   const abs = isAbsolute(filePath) ? filePath : resolve(readInitialCwd(), filePath)
@@ -187,28 +175,39 @@ export const checkToolPermission = async (
     return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId)
   }
 
-  // 文件读取工具权限检查：仅项目外文件需要权限
+  // view_file 权限检查：读取位置的全部裁决都在这里完成，工具执行阶段不再因位置报错
   if (tool.name === TOOL_NAME_VIEW_FILE) {
     if (coreConfig?.skipExternalFileReadPermission) {
-      logDebug(`[Permission]${tool.name} 跳过项目外读取检查`)
+      logDebug(`[Permission]${tool.name} 跳过读取位置检查`)
       return { result: true }
     }
 
     const filePath = getFilePath(input)
+    if (!filePath) return { result: true }
+
+    const pathClass = classifyReadPath(filePath)
+
     // 项目内、临时文件或 SEMA_ROOT 受信内容目录：直接放行，保持静默
-    if (!filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath) || isTrustedSemaFile(filePath)) {
+    if (pathClass === 'trusted') {
       return { result: true }
     }
 
-    // 项目外文件：auto 模式（非 Ask）自动放行
+    // 敏感凭据、其他用户目录、系统目录等：各档位均确定性转人工，不交快速模型（skipAutoRun），
+    // 也不提供按目录授权（prefix 为 null），只许单次同意
+    if (pathClass === 'restricted') {
+      logDebug(`[Permission]${filePath} 受限位置读取，请求权限`)
+      return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId, true, true)
+    }
+
+    // 项目外的用户文件：auto 模式（非 Ask）自动放行
     const runtime = getStateManager().session(sessionId)
     if (runtime.hasGlobalEditPermission()) {
       logDebug(`[Permission]${filePath} 项目外读取，auto 模式自动放行`)
       return { result: true }
     }
 
-    // 命中本会话已授权的父目录则放行
-    const absPath = isAbsolute(filePath) ? filePath : resolve(readInitialCwd(), filePath)
+    // 命中本会话已授权的父目录则放行（敏感/受限位置已在上面先行拦下，不会被目录授权带过）
+    const absPath = canonicalizeFilePath(filePath)
     if (runtime.getAllowedExternalReadDirs().some(dir => isPathInsideRoot(absPath, dir))) {
       logDebug(`[Permission]${filePath} 项目外读取，命中会话级已授权目录`)
       return { result: true }
@@ -236,6 +235,13 @@ export const checkToolPermission = async (
 
     const allowedTools = projectConfig?.allowedTools || []
     const skillName = (input as any).skill || ''
+
+    // 内置 skill 的正文随 core 提供、非第三方内容，加载说明本身无副作用，直接放行；
+    // 其指导下的写文件/执行命令仍各自过权限闸门。按 locate 判断：用户同名 skill 覆盖内置后仍需询问
+    if (skillName && getSkillsManager().getSkillConfig(skillName)?.locate === 'builtin') {
+      return { result: true }
+    }
+
     const permissionKey = skillName ? `${tool.name}(${skillName})` : tool.name
 
     if (allowedTools.includes(permissionKey)) {
@@ -871,7 +877,7 @@ function buildPermissionOptions(
     }
   }
 
-  // 文件读取工具：按父目录会话级授权；无父目录则不提供「允许」
+  // 文件读取工具：按父目录会话级授权；无父目录（受限位置）则不提供「允许」
   if (tool.name === TOOL_NAME_VIEW_FILE) {
     if (!prefix) {
       return { agree, refuse }

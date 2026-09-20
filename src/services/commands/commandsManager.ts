@@ -33,6 +33,8 @@ class CommandsManager {
   private commandInfoCache: CommandConfig[] | null = null
   // 后台加载 Promise
   private loadingPromise: Promise<CommandConfig[]> | null = null
+  // 重载串行链：多次重载依次执行，后发起的一定晚于先发起的开始读盘（写文件后立即重载能读到自己的写入）
+  private refreshChain: Promise<unknown> = Promise.resolve()
 
   constructor() {
     const semaRootDir = getSemaRootDir()
@@ -61,29 +63,30 @@ class CommandsManager {
    * 加载 Commands 配置（内部方法）
    * 按优先级加载：插件 -> 用户级 -> 项目级
    * 后加载的覆盖先加载的
+   * 写入新建的 Map 并返回，不动 this.commandConfigs，由调用方加载完成后一次性替换
    */
-  private async loadCommands(): Promise<void> {
-    // 清空现有配置
-    this.commandConfigs.clear()
+  private async loadCommands(): Promise<Map<string, CommandConfig>> {
+    const target = new Map<string, CommandConfig>()
 
     // 1. 插件 commands - 最低优先级
-    await this.loadCommandsFromPlugins()
+    await this.loadCommandsFromPlugins(target)
 
     // 2. 用户级
-    await this.loadCommandsFromDir(this.semaUserCommandsDir, 'user')
+    await this.loadCommandsFromDir(target, this.semaUserCommandsDir, 'user')
 
     // 3. 项目级 - 最高优先级
-    await this.loadCommandsFromDir(this.semaProjectCommandsDir, 'project')
+    await this.loadCommandsFromDir(target, this.semaProjectCommandsDir, 'project')
 
-    const commandNames = Array.from(this.commandConfigs.keys()).join(', ')
+    const commandNames = Array.from(target.keys()).join(', ')
     logInfo(`加载 Commands 配置: ${commandNames}`)
+    return target
   }
 
   /**
    * 从指定目录递归加载 command 配置
    * 每个 command 为 .md 文件，命令名由相对路径生成
    */
-  private async loadCommandsFromDir(dirPath: string, scope: 'user' | 'project'): Promise<void> {
+  private async loadCommandsFromDir(target: Map<string, CommandConfig>, dirPath: string, scope: 'user' | 'project'): Promise<void> {
     try {
       if (!fs.existsSync(dirPath)) {
         logDebug(`Commands 目录不存在: ${dirPath}`)
@@ -101,10 +104,10 @@ class CommandsManager {
       let loadedCount = 0
       for (const commandConfig of commandConfigs) {
         if (commandConfig) {
-          if (this.commandConfigs.has(commandConfig.name)) {
+          if (target.has(commandConfig.name)) {
             logDebug(`Command [${commandConfig.name}] 被 ${scope} 级配置覆盖`)
           }
-          this.commandConfigs.set(commandConfig.name, { ...commandConfig, locate: scope })
+          target.set(commandConfig.name, { ...commandConfig, locate: scope })
           loadedCount++
         }
       }
@@ -121,7 +124,7 @@ class CommandsManager {
    * 从已安装且启用的插件中加载 commands
    * command 名格式：插件名:command名，locate 为 'plugin'
    */
-  private async loadCommandsFromPlugins(): Promise<void> {
+  private async loadCommandsFromPlugins(target: Map<string, CommandConfig>): Promise<void> {
     try {
       const pluginsInfo = await getPluginsManager().getMarketplacePluginsInfo()
       const enabledPlugins = pluginsInfo.plugins.filter(p => p.status)
@@ -135,10 +138,10 @@ class CommandsManager {
           const commandConfig = await this.parseCommandFile(commandEntry.filePath, path.dirname(commandEntry.filePath))
           if (commandConfig) {
             const pluginCommandName = `${plugin.name}:${commandEntry.name}`
-            if (this.commandConfigs.has(pluginCommandName)) {
+            if (target.has(pluginCommandName)) {
               logDebug(`Command [${pluginCommandName}] 被插件配置覆盖`)
             }
-            this.commandConfigs.set(pluginCommandName, {
+            target.set(pluginCommandName, {
               ...commandConfig,
               name: pluginCommandName,
               locate: 'plugin'
@@ -226,22 +229,22 @@ class CommandsManager {
   }
 
   /**
-   * 获取所有 Command 配置
+   * 重新加载并缓存 Commands 信息（串行排队，见 refreshChain）
    */
-  private getCommandsConfs(): CommandConfig[] {
-    return Array.from(this.commandConfigs.values())
+  private loadAndCacheCommands(): Promise<CommandConfig[]> {
+    const run = this.refreshChain.then(() => this.doLoadAndCacheCommands())
+    // 链上只记完成与否，失败不阻断后续重载；错误由调用方的 run 拿到
+    this.refreshChain = run.catch(() => undefined)
+    return run
   }
 
-  /**
-   * 重新加载并缓存 Commands 信息
-   */
-  private async loadAndCacheCommands(): Promise<CommandConfig[]> {
+  private async doLoadAndCacheCommands(): Promise<CommandConfig[]> {
     logDebug('刷新 Commands 信息...')
-    this.invalidateCache()
 
-    await this.loadCommands()
+    // 先加载到新 Map，此时 commandConfigs 与缓存仍是旧的
+    const next = await this.loadCommands()
 
-    const commandInfos = this.getCommandsConfs().map(config => ({
+    const commandInfos = Array.from(next.values()).map(config => ({
       name: config.name,
       description: config.description,
       argumentHint: config.argumentHint,
@@ -250,6 +253,8 @@ class CommandsManager {
       filePath: config.filePath
     }))
 
+    // 同步一次性发布：重载期间 getCommandConfig / getCommandsInfo 始终读到完整的旧值，不会读到空表或半截
+    this.commandConfigs = next
     this.commandInfoCache = commandInfos
     logInfo(`Commands 信息刷新完成: ${commandInfos.length} 个 Command`)
     return commandInfos
@@ -258,7 +263,7 @@ class CommandsManager {
   /**
    * 获取所有 Command 信息
    * @param concise 简洁模式，返回的 prompt 字段为空字符串（UI 层一般用不上）
-   * @param refresh 是否强制刷新（清缓存后重新加载）
+   * @param refresh 是否强制刷新（重新加载后替换缓存）
    */
   async getCommandsInfo(concise?: boolean, refresh?: boolean): Promise<CommandConfig[]> {
     let infos: CommandConfig[]

@@ -1,69 +1,12 @@
 import { existsSync, statSync } from 'node:fs'
-import { relative, isAbsolute } from 'node:path'
-import { homedir, tmpdir } from 'node:os'
 import { canonicalizeFilePath } from './file'
-import { readInitialCwd } from './cwd'
-import { logDebug } from './log'
 
-const STATIC_BASE_PATHS = [homedir(), '/tmp', '/var/tmp', tmpdir()]
+const MAX_PATH_LENGTH = 4096
 
-const SUSPICIOUS_PATTERNS = [
-  /\.\./,
-  /~/,
-  /\$\{/,
-  /`/,
-  /\|/,
-  /;/,
-  /&/,
-  />/,
-  /</,
-]
-
-function validateFilePath(filePath: string): { isValid: boolean; normalizedPath: string; error?: string } {
-  try {
-    const normalizedPath = canonicalizeFilePath(filePath)
-
-    if (normalizedPath.length > 4096) {
-      return { isValid: false, normalizedPath, error: 'Path too long (max 4096 characters)' }
-    }
-
-    for (const pattern of SUSPICIOUS_PATTERNS) {
-      if (pattern.test(normalizedPath)) {
-        return { isValid: false, normalizedPath, error: `Path contains suspicious pattern: ${pattern}` }
-      }
-    }
-
-    const allowedPaths = [readInitialCwd(), ...STATIC_BASE_PATHS]
-
-    const isInAllowedPath = allowedPaths.some(basePath => {
-      const base = canonicalizeFilePath(basePath)
-      const rel = relative(base, normalizedPath)
-      if (!rel || rel === '') return true
-      if (rel.startsWith('..')) {
-        logDebug('[SecureFileService] path escapes base, denied')
-        return false
-      }
-      if (isAbsolute(rel)) {
-        logDebug('[SecureFileService] absolute relative path, denied')
-        return false
-      }
-      return true
-    })
-
-    if (!isInAllowedPath) {
-      return { isValid: false, normalizedPath, error: 'Path is outside allowed directories' }
-    }
-
-    return { isValid: true, normalizedPath }
-  } catch (error) {
-    return {
-      isValid: false,
-      normalizedPath: filePath,
-      error: `Path validation failed: ${error instanceof Error ? error.message : String(error)}`
-    }
-  }
-}
-
+/**
+ * 获取文件信息，仅做与权限无关的基础校验（路径长度、存在性）。
+ * 读取位置是否允许由 PermissionManager 按 classifyReadPath 裁决，这里不做位置判断。
+ */
 export function safeGetFileInfo(filePath: string): {
   success: boolean
   stats?: {
@@ -77,13 +20,12 @@ export function safeGetFileInfo(filePath: string): {
   }
   error?: string
 } {
-  const validation = validateFilePath(filePath)
-  if (!validation.isValid) {
-    return { success: false, error: validation.error }
-  }
-
   try {
-    const normalizedPath = validation.normalizedPath
+    const normalizedPath = canonicalizeFilePath(filePath)
+
+    if (normalizedPath.length > MAX_PATH_LENGTH) {
+      return { success: false, error: `Path too long (max ${MAX_PATH_LENGTH} characters)` }
+    }
 
     if (!existsSync(normalizedPath)) {
       return { success: false, error: `File '${normalizedPath}' does not exist` }

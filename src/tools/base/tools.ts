@@ -234,7 +234,7 @@ function extractRequiredFields(schema: any): string[] {
   return []
 }
 
-// 简易字符串哈希（FNV-1a），用于 buildTools 缓存 key 中的 load_tools 描述指纹
+// 简易字符串哈希（FNV-1a），用于 buildTools 缓存 key 中的 load_tools / sub_agent 描述指纹
 function hashStr(s: string): string {
   let h = 0x811c9dc5
   for (let i = 0; i < s.length; i++) {
@@ -284,6 +284,12 @@ export const buildTools = memoize(
     const loadTool = tools.find(tool => tool.name === TOOL_NAME_LOAD_TOOLS)
     if (loadTool) {
       key += `:ts-${hashStr(getToolDescription(loadTool))}`
+    }
+    // sub_agent 的描述含可用 agent 清单，随 agents 配置增删变化（新会话级联刷新、addAgentConf 等），
+    // 同样用内容哈希作指纹，否则工具名不变时一直命中首次构建的陈旧清单
+    const subAgentTool = tools.find(tool => tool.name === TOOL_NAME_SUB_AGENT)
+    if (subAgentTool) {
+      key += `:ag-${hashStr(getToolDescription(subAgentTool))}`
     }
     return key
   }

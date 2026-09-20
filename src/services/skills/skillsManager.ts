@@ -14,6 +14,7 @@ import { readInitialCwd } from '../../util/cwd'
 import { parseFile } from '../../util/formatter'
 import { getPluginsManager } from '../plugins/pluginsManager'
 import { SkillConfig } from '../../types/skill'
+import { buildBuiltInSkillConfs } from '../../prompt/skills'
 import { readSettings, writeSettings } from '../settings/settingsLoader'
 import { SettingsScope } from '../../types/settings'
 
@@ -32,6 +33,8 @@ class SkillsManager {
   private skillInfoCache: SkillConfig[] | null = null
   // 后台加载 Promise
   private loadingPromise: Promise<SkillConfig[]> | null = null
+  // 重载串行链：多次重载依次执行，后发起的一定晚于先发起的开始读盘（写文件后立即重载能读到自己的写入）
+  private refreshChain: Promise<unknown> = Promise.resolve()
 
   constructor() {
     const semaRootDir = getSemaRootDir()
@@ -58,31 +61,49 @@ class SkillsManager {
 
   /**
    * 加载 Skills 配置（内部方法）
-   * 按优先级加载：插件 -> 用户级 -> 项目级
+   * 按优先级加载：内置 -> 插件 -> 用户级 -> 项目级
    * 后加载的覆盖先加载的
+   * 写入新建的 Map 并返回，不动 this.skillConfigs，由调用方加载完成后一次性替换
    */
-  private async loadSkills(): Promise<void> {
-    // 清空现有配置
-    this.skillConfigs.clear()
+  private async loadSkills(): Promise<Map<string, SkillConfig>> {
+    const target = new Map<string, SkillConfig>()
 
-    // 1. 插件 skills - 最低优先级
-    await this.loadSkillsFromPlugins()
+    // 1. 内置 skills - 最低优先级
+    this.loadBuiltInSkills(target)
 
-    // 2. 用户级
-    await this.loadSkillsFromDir(this.semaUserSkillsDir, 'user')
+    // 2. 插件 skills
+    await this.loadSkillsFromPlugins(target)
 
-    // 3. 项目级 - 最高优先级
-    await this.loadSkillsFromDir(this.semaProjectSkillsDir, 'project')
+    // 3. 用户级
+    await this.loadSkillsFromDir(target, this.semaUserSkillsDir, 'user')
 
-    const skillNames = Array.from(this.skillConfigs.keys()).join(', ')
+    // 4. 项目级 - 最高优先级
+    await this.loadSkillsFromDir(target, this.semaProjectSkillsDir, 'project')
+
+    const skillNames = Array.from(target.keys()).join(', ')
     logInfo(`加载 Skills 配置: ${skillNames}`)
+    return target
+  }
+
+  /**
+   * 加载内置 skills（正文中的安装位置用本机真实路径生成）
+   */
+  private loadBuiltInSkills(target: Map<string, SkillConfig>): void {
+    const confs = buildBuiltInSkillConfs({
+      userRoot: path.dirname(this.semaUserSkillsDir),
+      projectRoot: path.dirname(this.semaProjectSkillsDir),
+    })
+    for (const conf of confs) {
+      target.set(conf.name, { ...conf, locate: 'builtin' })
+    }
+    logDebug(`加载内置 Skills: ${confs.length} 个`)
   }
 
   /**
    * 从已安装且启用的插件中加载 skills
    * skill 名格式：插件名:skill名，locate 为 'plugin'
    */
-  private async loadSkillsFromPlugins(): Promise<void> {
+  private async loadSkillsFromPlugins(target: Map<string, SkillConfig>): Promise<void> {
     try {
       const pluginsInfo = await getPluginsManager().getMarketplacePluginsInfo()
       const enabledPlugins = pluginsInfo.plugins.filter(p => p.status)
@@ -96,10 +117,10 @@ class SkillsManager {
           const skillConfig = await this.parseSkillFile(skillEntry.filePath)
           if (skillConfig) {
             const pluginSkillName = `${plugin.name}:${skillConfig.name}`
-            if (this.skillConfigs.has(pluginSkillName)) {
+            if (target.has(pluginSkillName)) {
               logDebug(`Skill [${pluginSkillName}] 被插件配置覆盖`)
             }
-            this.skillConfigs.set(pluginSkillName, {
+            target.set(pluginSkillName, {
               ...skillConfig,
               name: pluginSkillName,
               locate: 'plugin'
@@ -121,7 +142,7 @@ class SkillsManager {
    * 从指定目录加载 skill 配置
    * 每个 skill 存放于子目录中，子目录下有 SKILL.md 文件
    */
-  private async loadSkillsFromDir(dirPath: string, scope: 'user' | 'project'): Promise<void> {
+  private async loadSkillsFromDir(target: Map<string, SkillConfig>, dirPath: string, scope: 'user' | 'project'): Promise<void> {
     try {
       if (!fs.existsSync(dirPath)) {
         logDebug(`Skills 目录不存在: ${dirPath}`)
@@ -141,10 +162,10 @@ class SkillsManager {
       let loadedCount = 0
       for (const skillConfig of skillConfigs) {
         if (skillConfig) {
-          if (this.skillConfigs.has(skillConfig.name)) {
+          if (target.has(skillConfig.name)) {
             logDebug(`Skill [${skillConfig.name}] 被 ${scope} 级配置覆盖`)
           }
-          this.skillConfigs.set(skillConfig.name, { ...skillConfig, locate: scope })
+          target.set(skillConfig.name, { ...skillConfig, locate: scope })
           loadedCount++
         }
       }
@@ -189,13 +210,6 @@ class SkillsManager {
   }
 
   /**
-   * 获取所有 Skill 配置
-   */
-  private getSkillsConfs(): SkillConfig[] {
-    return Array.from(this.skillConfigs.values())
-  }
-
-  /**
    * 读取禁用的 Skill 集合（用户级 + 项目级并集）
    * 每次实时读 settings，外部（如 WebUI）直接改文件后无需重启即可生效
    */
@@ -207,8 +221,10 @@ class SkillsManager {
 
   /**
    * Skill 是否被禁用
+   * 内置 Skill 不支持开关，始终启用（即便名字被手写进 settings 的 disabledSkills 也忽略）
    */
   isSkillDisabled(name: string): boolean {
+    if (this.skillConfigs.get(name)?.locate === 'builtin') return false
     return this.readDisabledSkills().has(name)
   }
 
@@ -216,11 +232,16 @@ class SkillsManager {
    * 启用/禁用 Skill：写入 settings 的 disabledSkills
    * 未显式指定 scope 时跟随技能所在层：项目级技能写项目级，用户级/插件技能写用户级（全局生效）
    * enable 只从目标层移除；若另一层仍禁用，最终状态仍为禁用（返回值如实反映并集）
+   * 内置 Skill 不支持开关
    */
   async setSkillEnabled(name: string, enabled: boolean): Promise<SkillConfig[]> {
     const conf = this.skillConfigs.get(name)
     if (!conf) {
       logWarn(`${enabled ? '启用' : '禁用'} Skill 失败: 未找到 [${name}]`)
+      return this.getSkillsInfo()
+    }
+    if (conf.locate === 'builtin') {
+      logWarn(`${enabled ? '启用' : '禁用'} Skill 失败: 内置 Skill 不支持开关 [${name}]`)
       return this.getSkillsInfo()
     }
     // 写入层跟随技能所在层：项目级技能写项目级 settings，用户级/插件技能写用户级（全局生效）
@@ -234,15 +255,22 @@ class SkillsManager {
   }
 
   /**
-   * 重新加载并缓存 Skills 信息
+   * 重新加载并缓存 Skills 信息（串行排队，见 refreshChain）
    */
-  private async loadAndCacheSkills(): Promise<SkillConfig[]> {
+  private loadAndCacheSkills(): Promise<SkillConfig[]> {
+    const run = this.refreshChain.then(() => this.doLoadAndCacheSkills())
+    // 链上只记完成与否，失败不阻断后续重载；错误由调用方的 run 拿到
+    this.refreshChain = run.catch(() => undefined)
+    return run
+  }
+
+  private async doLoadAndCacheSkills(): Promise<SkillConfig[]> {
     logDebug('刷新 Skills 信息...')
-    this.invalidateCache()
 
-    await this.loadSkills()
+    // 先加载到新 Map，此时 skillConfigs 与缓存仍是旧的
+    const next = await this.loadSkills()
 
-    const skillInfos = this.getSkillsConfs().map(config => ({
+    const skillInfos = Array.from(next.values()).map(config => ({
       name: config.name,
       description: config.description,
       prompt: config.prompt,
@@ -250,6 +278,8 @@ class SkillsManager {
       filePath: config.filePath
     }))
 
+    // 同步一次性发布：重载期间 getSkillConfig / getSkillsInfo 始终读到完整的旧值，不会读到空表或半截
+    this.skillConfigs = next
     this.skillInfoCache = skillInfos
     logInfo(`Skills 信息刷新完成: ${skillInfos.length} 个 Skill`)
     return skillInfos
@@ -258,7 +288,7 @@ class SkillsManager {
   /**
    * 获取所有 Skill 信息
    * @param concise 简洁模式，返回的 prompt 字段为空字符串（UI 层一般用不上）
-   * @param refresh 是否强制刷新（清缓存后重新加载）
+   * @param refresh 是否强制刷新（重新加载后替换缓存）
    */
   async getSkillsInfo(concise?: boolean, refresh?: boolean): Promise<SkillConfig[]> {
     let infos: SkillConfig[]
@@ -272,8 +302,13 @@ class SkillsManager {
       infos = await this.loadAndCacheSkills()
     }
     // status 实时按 settings 标注（不进缓存），返回全量含禁用项供管理页展示；执行侧自行过滤
+    // 内置 Skill 不支持开关，status 恒为 true
     const disabled = this.readDisabledSkills()
-    return infos.map(info => ({ ...info, status: !disabled.has(info.name), ...(concise ? { prompt: '' } : {}) }))
+    return infos.map(info => ({
+      ...info,
+      status: info.locate === 'builtin' || !disabled.has(info.name),
+      ...(concise ? { prompt: '' } : {}),
+    }))
   }
 
   /**
@@ -299,12 +334,17 @@ class SkillsManager {
 
   /**
    * 移除 Skill 配置
-   * 插件 Skill 不可移除
+   * 内置 Skill 与插件 Skill 不可移除
    */
   async removeSkillConf(name: string): Promise<SkillConfig[]> {
     const skillConf = this.skillConfigs.get(name)
     if (!skillConf) {
       logWarn(`移除 Skill 失败: 未找到 [${name}]`)
+      return this.getSkillsInfo()
+    }
+
+    if (skillConf.locate === 'builtin') {
+      logWarn(`移除 Skill 失败: 内置 Skill 不可移除 [${name}]`)
       return this.getSkillsInfo()
     }
 

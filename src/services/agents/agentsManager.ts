@@ -30,6 +30,8 @@ class AgentsManager {
   private agentInfoCache: AgentConfig[] | null = null
   // 后台加载 Promise
   private loadingPromise: Promise<AgentConfig[]> | null = null
+  // 重载串行链：多次重载依次执行，后发起的一定晚于先发起的开始读盘（写文件后立即重载能读到自己的写入）
+  private refreshChain: Promise<unknown> = Promise.resolve()
 
   constructor() {
     this.semaUserAgentsDir = path.join(getSemaRootDir(), 'agents')
@@ -57,38 +59,39 @@ class AgentsManager {
    * 加载 Agents 配置（内部方法）
    * 按优先级加载：内置 -> 插件 -> 用户级 -> 项目级
    * 后加载的覆盖先加载的
+   * 写入新建的 Map 并返回，不动 this.agentConfigs，由调用方加载完成后一次性替换
    */
-  private async loadAgents(): Promise<void> {
-    // 清空现有配置
-    this.agentConfigs.clear()
+  private async loadAgents(): Promise<Map<string, AgentConfig>> {
+    const target = new Map<string, AgentConfig>()
 
     // 1. 内置 agents - 最低优先级
-    this.loadBuiltInAgents()
+    this.loadBuiltInAgents(target)
 
     // 2. 插件 agents
-    await this.loadAgentsFromPlugins()
+    await this.loadAgentsFromPlugins(target)
 
     // 3. 用户级
-    await this.loadAgentsFromDir(this.semaUserAgentsDir, 'user')
+    await this.loadAgentsFromDir(target, this.semaUserAgentsDir, 'user')
 
     // 4. 项目级 - 最高优先级
-    await this.loadAgentsFromDir(this.semaProjectAgentsDir, 'project')
+    await this.loadAgentsFromDir(target, this.semaProjectAgentsDir, 'project')
 
-    const agentNames = Array.from(this.agentConfigs.keys()).join(', ')
+    const agentNames = Array.from(target.keys()).join(', ')
     logInfo(`加载 Agents 配置: ${agentNames}`)
+    return target
   }
 
   /**
    * 加载内置 agents
    */
-  private loadBuiltInAgents(): void {
+  private loadBuiltInAgents(target: Map<string, AgentConfig>): void {
     for (const config of DEFAULT_BUILT_IN_AGENTS_CONFS) {
       // 为内置配置补充默认字段，确保类型完整
       const fullConfig: AgentConfig = {
         ...config,
         locate: "builtin"
       }
-      this.agentConfigs.set(config.name, fullConfig)
+      target.set(config.name, fullConfig)
     }
     logDebug(`加载内置 Agents: ${DEFAULT_BUILT_IN_AGENTS_CONFS.length} 个`)
   }
@@ -97,7 +100,7 @@ class AgentsManager {
    * 从已安装且启用的插件中加载 agents
    * agent 名格式：插件名:agent名，scope 为 'plugin'
    */
-  private async loadAgentsFromPlugins(): Promise<void> {
+  private async loadAgentsFromPlugins(target: Map<string, AgentConfig>): Promise<void> {
     try {
       const pluginsInfo = await getPluginsManager().getMarketplacePluginsInfo()
       const enabledPlugins = pluginsInfo.plugins.filter(p => p.status)
@@ -108,10 +111,10 @@ class AgentsManager {
           const agentConfig = await this.parseAgentFile(agentEntry.filePath)
           if (agentConfig) {
             const pluginAgentName = `${plugin.name}:${agentConfig.name}`
-            if (this.agentConfigs.has(pluginAgentName)) {
+            if (target.has(pluginAgentName)) {
               logDebug(`Agent [${pluginAgentName}] 被插件配置覆盖`)
             }
-            this.agentConfigs.set(pluginAgentName, {
+            target.set(pluginAgentName, {
               ...agentConfig,
               name: pluginAgentName,
               locate: 'plugin'
@@ -132,7 +135,7 @@ class AgentsManager {
   /**
    * 从指定目录加载 agent 配置
    */
-  private async loadAgentsFromDir(dirPath: string, scope: 'user' | 'project'): Promise<void> {
+  private async loadAgentsFromDir(target: Map<string, AgentConfig>, dirPath: string, scope: 'user' | 'project'): Promise<void> {
     try {
       if (!fs.existsSync(dirPath)) {
         logDebug(`Agents 目录不存在: ${dirPath}`)
@@ -154,10 +157,10 @@ class AgentsManager {
       for (const agentConfig of agentConfigs) {
         if (agentConfig) {
           // 如果已存在同名 agent，记录覆盖日志
-          if (this.agentConfigs.has(agentConfig.name)) {
+          if (target.has(agentConfig.name)) {
             logDebug(`Agent [${agentConfig.name}] 被 ${scope} 级配置覆盖`)
           }
-          this.agentConfigs.set(agentConfig.name, { ...agentConfig, locate: locateValue })
+          target.set(agentConfig.name, { ...agentConfig, locate: locateValue })
           loadedCount++
         }
       }
@@ -252,15 +255,22 @@ class AgentsManager {
   }
 
   /**
-   * 重新加载并缓存 Agents 信息
+   * 重新加载并缓存 Agents 信息（串行排队，见 refreshChain）
    */
-  private async loadAndCacheAgents(): Promise<AgentConfig[]> {
+  private loadAndCacheAgents(): Promise<AgentConfig[]> {
+    const run = this.refreshChain.then(() => this.doLoadAndCacheAgents())
+    // 链上只记完成与否，失败不阻断后续重载；错误由调用方的 run 拿到
+    this.refreshChain = run.catch(() => undefined)
+    return run
+  }
+
+  private async doLoadAndCacheAgents(): Promise<AgentConfig[]> {
     logDebug('刷新 Agents 信息...')
-    this.invalidateCache()
 
-    await this.loadAgents()
+    // 先加载到新 Map，此时 agentConfigs 与缓存仍是旧的
+    const next = await this.loadAgents()
 
-    const agentInfos = this.getAgentsConfs().map(config => ({
+    const agentInfos = Array.from(next.values()).map(config => ({
       name: config.name,
       description: config.description,
       tools: config.tools,
@@ -270,6 +280,9 @@ class AgentsManager {
       filePath: config.filePath
     }))
 
+    // 同步一次性发布：重载期间 getAgentConfig / getAgentTypesDescription 始终读到完整的旧值，
+    // 不会读到"只有内置 agent"的半截状态（该状态进 sub_agent 工具描述会让 tools 前缀抖动）
+    this.agentConfigs = next
     this.agentInfoCache = agentInfos
     logInfo(`Agents 信息刷新完成: ${agentInfos.length} 个 Agent`)
     return agentInfos
@@ -278,7 +291,7 @@ class AgentsManager {
   /**
    * 获取所有 Agent 信息
    * @param concise 简洁模式，返回的 prompt 字段为空字符串（UI 层一般用不上）
-   * @param refresh 是否强制刷新（清缓存后重新加载）
+   * @param refresh 是否强制刷新（重新加载后替换缓存）
    */
   async getAgentsInfo(concise?: boolean, refresh?: boolean): Promise<AgentConfig[]> {
     let infos: AgentConfig[]

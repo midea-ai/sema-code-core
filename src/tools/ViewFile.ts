@@ -1,6 +1,5 @@
 import { extname } from 'node:path'
 import * as fs from 'node:fs'
-import { homedir } from 'node:os'
 import { z } from 'zod'
 import { Tool } from './base/Tool'
 import {
@@ -12,14 +11,13 @@ import {
   inferLineEndings,
   execFileSafely,
 } from '../util/file'
-import { readInitialCwd } from '../util/cwd'
 import { TOOL_NAME_VIEW_FILE } from '../prompt/tool'
 import { TOOL_DESCRIPTION, VIEW_FILE_MAX_LINES, VIEW_FILE_MAX_LINE_LENGTH } from '../prompt/tools/viewFile'
 import { safeGetFileInfo } from '../util/secureFile'
 import { getStateManager } from '../manager/StateManager'
 import { loadNotebook, formatNotebookCells } from '../util/notebook'
 import { NotebookCellData } from '../types/notebook'
-import { logDebug, logWarn } from '../util/log'
+import { logWarn } from '../util/log'
 import { compressImage } from '../util/imageCompress'
 import {
   extractPdfText,
@@ -201,22 +199,9 @@ export const ViewFile = {
     if (!fileCheck.success) {
       let message = fileCheck.error || 'Unable to access the file.'
 
-      if (message.includes('outside allowed directories')) {
-        const allowedPaths = [
-          `Current working directory: ${readInitialCwd()}`,
-          `User home directory: ${homedir()}`,
-          `Temporary directories: /tmp, /var/tmp`,
-        ]
-        logWarn('ViewFileTool: File access denied')
-        logDebug(`Requested path: ${fullFilePath}`)
-        logDebug('Currently allowed base paths:')
-        allowedPaths.forEach(p => logDebug(`  - ${p}`))
-        message += '\n\nCurrently allowed base paths:\n' + allowedPaths.map(p => `  - ${p}`).join('\n')
-      } else {
-        const similarFilename = findFileWithDifferentExt(fullFilePath)
-        if (similarFilename) {
-          message += ` Perhaps you meant ${similarFilename}?`
-        }
+      const similarFilename = findFileWithDifferentExt(fullFilePath)
+      if (similarFilename) {
+        message += ` Perhaps you meant ${similarFilename}?`
       }
 
       return { result: false, message }

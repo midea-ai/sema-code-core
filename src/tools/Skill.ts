@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import * as path from 'path'
 import { Tool } from './base/Tool'
 import { TOOL_DESCRIPTION } from '../prompt/tools/skill'
 import { getSkillsManager } from '../services/skills/skillsManager'
@@ -108,8 +109,12 @@ export const Skill = {
       }
     }
 
+    // 注入目录而非 SKILL.md 文件路径，并声明正文已完整，避免模型再读一遍 SKILL.md
     const text = skillConfig.filePath
-      ? `Skill’s base path: ${skillConfig.filePath}\n\n${textContent}`
+      ? `Skill’s base path: ${path.dirname(skillConfig.filePath)}\n` +
+        'The full body of SKILL.md is reproduced below — do not read SKILL.md, you already have it. ' +
+        'Resolve every relative path in these instructions against the base path above.' +
+        `\n\n${textContent}`
       : textContent
 
     const output: ToolRes = {
@@ -127,6 +132,6 @@ export const Skill = {
     }
   },
   genResultForAssistant(output: ToolRes): string {
-    return `Activating skill: ${output.name}`
+    return `Skill "${output.name}" activated; its full instructions are provided below.`
   },
 } satisfies Tool<typeof toolParams, ToolRes>

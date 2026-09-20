@@ -272,5 +272,6 @@ export type { ModelProfile, ThinkingHistoryPolicy } from './model';
 export type {
   HooksInfo,
   HookEntryInfo,
+  HookSource,
 } from './hook';
 

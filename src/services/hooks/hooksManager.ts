@@ -2,8 +2,8 @@
  * Hooks 管理器
  *
  * 负责 hooks.json 的加载、合并、校验、缓存与 matcher 匹配。
- * 加载顺序：用户级(~/.sema/hooks/hooks.json) → 项目级(<workingDir>/.sema/hooks/hooks.json)，
- * 同一事件的条目按加载顺序追加（不覆盖）。
+ * 加载顺序：已启用插件(<插件目录>/hooks/hooks.json) → 用户级(~/.sema/hooks/hooks.json)
+ * → 项目级(<workingDir>/.sema/hooks/hooks.json)，同一事件的条目按加载顺序追加（不覆盖）。
  */
 
 import * as fs from 'fs'
@@ -13,10 +13,13 @@ import { findJsonKeyValueLineRange } from '../../util/file'
 import { logDebug, logError, logInfo, logWarn } from '../../util/log'
 import { getSemaRootDir } from '../../util/savePath'
 import { readInitialCwd } from '../../util/cwd'
+import { getPluginsManager } from '../plugins/pluginsManager'
+import { expandPluginRoot } from '../../prompt/toolAliases'
 import {
   HOOK_EVENTS,
   TOOL_HOOK_EVENTS,
   HookEntryInfo,
+  HookSource,
   HooksInfo,
   LoadedHookEntry,
   RawHooksFile,
@@ -32,6 +35,14 @@ const MAX_TIMEOUT_PERMISSION_REQUEST_S = 120
 const HOOK_EVENT_SET: ReadonlySet<string> = new Set(HOOK_EVENTS)
 
 type MatcherPredicate = (genericName?: string, semaName?: string) => boolean
+
+// 一个待加载的 hooks 配置文件及其来源
+interface HookFileSource {
+  source: HookSource
+  filePath: string
+  pluginName?: string // 仅插件来源
+  pluginRoot?: string // 仅插件来源：插件安装目录，用于展开命令中的插件根目录变量
+}
 
 class HooksManager {
   private userConfigPath: string
@@ -121,9 +132,9 @@ class HooksManager {
    */
   private async loadAndCache(): Promise<void> {
     logDebug('刷新 Hooks 配置...')
-    const parseErrors: Array<{ source: 'user' | 'project'; message: string }> = []
+    const parseErrors: HooksInfo['parseErrors'] = []
     const allEntries: LoadedHookEntry[] = []
-    const rawBySource: Partial<Record<'user' | 'project', string>> = {}
+    const rawByFile = new Map<string, string>()
     let userExists = false
     let projectExists = false
 
@@ -131,21 +142,26 @@ class HooksManager {
       userExists = fs.existsSync(this.userConfigPath)
       projectExists = fs.existsSync(this.projectConfigPath)
 
-      // 用户级 → 项目级，条目追加不覆盖
-      for (const [source, filePath, exists] of [
-        ['user', this.userConfigPath, userExists],
-        ['project', this.projectConfigPath, projectExists],
-      ] as Array<['user' | 'project', string, boolean]>) {
-        if (!exists) continue
+      // 插件 → 用户级 → 项目级，条目追加不覆盖（顺序即同一事件下的执行先后）
+      const files: HookFileSource[] = [...await this.listPluginHookFiles()]
+      if (userExists) files.push({ source: 'user', filePath: this.userConfigPath })
+      if (projectExists) files.push({ source: 'project', filePath: this.projectConfigPath })
+
+      for (const file of files) {
         try {
-          const raw = await fsPromises.readFile(filePath, 'utf-8')
+          const raw = await fsPromises.readFile(file.filePath, 'utf-8')
           const parsed = JSON.parse(raw) as RawHooksFile
-          rawBySource[source] = raw
-          allEntries.push(...this.parseHooksFile(parsed, source))
+          rawByFile.set(file.filePath, raw)
+          allEntries.push(...this.parseHooksFile(parsed, file))
         } catch (error) {
+          // 单个文件解析失败只记 parseErrors，不影响其他来源
           const message = error instanceof Error ? error.message : String(error)
-          logWarn(`Hooks 配置解析失败 [${filePath}]: ${message}`)
-          parseErrors.push({ source, message })
+          logWarn(`Hooks 配置解析失败 [${file.filePath}]: ${message}`)
+          parseErrors.push({
+            source: file.source,
+            ...(file.pluginName ? { pluginName: file.pluginName } : {}),
+            message,
+          })
         }
       }
     } catch (error) {
@@ -153,16 +169,15 @@ class HooksManager {
       allEntries.length = 0
     }
 
-    // 事件块行范围定位（供 IDE 跳转），按 source+event 缓存，定位失败退化为纯配置文件路径
+    // 事件块行范围定位（供 IDE 跳转），按 配置文件+event 缓存，定位失败退化为纯配置文件路径
     const locationCache = new Map<string, string>()
-    const locateEvent = (source: 'user' | 'project', event: string): string => {
-      const cacheKey = `${source}:${event}`
+    const locateEvent = (configPath: string, event: string): string => {
+      const cacheKey = `${configPath}:${event}`
       const cached = locationCache.get(cacheKey)
       if (cached) return cached
-      const filePath = source === 'user' ? this.userConfigPath : this.projectConfigPath
-      const raw = rawBySource[source]
+      const raw = rawByFile.get(configPath)
       const range = raw ? findJsonKeyValueLineRange(raw, `"${event}"`) : undefined
-      const location = range ? `${filePath}:${range[0]}-${range[1]}` : filePath
+      const location = range ? `${configPath}:${range[0]}-${range[1]}` : configPath
       locationCache.set(cacheKey, location)
       return location
     }
@@ -178,12 +193,13 @@ class HooksManager {
       eventsView[entry.event].push({
         event: entry.event,
         source: entry.source,
+        ...(entry.pluginName ? { pluginName: entry.pluginName } : {}),
         matcher: entry.matcher,
         command: entry.command,
         timeout: entry.timeoutRaw,
         status: entry.status,
         statusReason: entry.statusReason,
-        filePath: locateEvent(entry.source, entry.event),
+        filePath: locateEvent(entry.configPath, entry.event),
       })
     }
 
@@ -205,9 +221,39 @@ class HooksManager {
   }
 
   /**
+   * 列出已启用插件自带的 hooks 配置文件（<插件目录>/hooks/hooks.json）。
+   * 只取已启用插件：禁用/卸载插件后其 hooks 随下一次刷新消失（pluginsManager 刷新后会级联触发本管理器刷新）。
+   * 插件信息获取失败时按无插件 hooks 处理，不影响用户级/项目级。
+   */
+  private async listPluginHookFiles(): Promise<HookFileSource[]> {
+    try {
+      const pluginsInfo = await getPluginsManager().getMarketplacePluginsInfo()
+      const files: HookFileSource[] = []
+      for (const plugin of pluginsInfo.plugins) {
+        if (!plugin.status) continue
+        for (const entry of plugin.components.hooks ?? []) {
+          files.push({
+            source: 'plugin',
+            filePath: entry.filePath,
+            pluginName: plugin.name,
+            // hooks.json 位于 <插件目录>/hooks/ 下，插件根目录为其上上级
+            pluginRoot: path.dirname(path.dirname(entry.filePath)),
+          })
+        }
+      }
+      return files
+    } catch (error) {
+      logError(`加载插件 Hooks 失败: ${error}`)
+      return []
+    }
+  }
+
+  /**
    * 解析单个 hooks.json 内容为条目列表（校验只标 status，不抛错）
    */
-  private parseHooksFile(parsed: RawHooksFile, source: 'user' | 'project'): LoadedHookEntry[] {
+  private parseHooksFile(parsed: RawHooksFile, file: HookFileSource): LoadedHookEntry[] {
+    const { source } = file
+    const label = file.pluginName ? `plugin:${file.pluginName}` : source // 日志用来源标签
     const entries: LoadedHookEntry[] = []
     const hooks = parsed?.hooks
     if (!hooks || typeof hooks !== 'object') return entries
@@ -220,7 +266,9 @@ class HooksManager {
 
         for (const cmd of group.hooks) {
           if (!cmd || typeof cmd !== 'object') continue
-          const command = typeof cmd.command === 'string' ? cmd.command.trim() : ''
+          const rawCommand = typeof cmd.command === 'string' ? cmd.command.trim() : ''
+          // 插件条目展开插件根目录变量，使命令能定位插件自带脚本；用户级/项目级不展开（其余 ${VAR} 均留给 shell）
+          const command = file.pluginRoot ? expandPluginRoot(rawCommand, file.pluginRoot) : rawCommand
           const timeoutRaw = typeof cmd.timeout === 'number' && Number.isFinite(cmd.timeout)
             ? cmd.timeout
             : undefined
@@ -228,6 +276,8 @@ class HooksManager {
           const entry: LoadedHookEntry = {
             event,
             source,
+            ...(file.pluginName ? { pluginName: file.pluginName } : {}),
+            configPath: file.filePath,
             matcher,
             command,
             timeoutMs: this.clampTimeoutMs(event, timeoutRaw),
@@ -240,22 +290,22 @@ class HooksManager {
           if (cmd.type !== undefined && cmd.type !== 'command') {
             entry.status = 'skipped'
             entry.statusReason = `unsupported type: ${cmd.type}`
-            logWarn(`[Hook] 跳过不支持的 hook 类型 [${source}] ${event}: ${cmd.type}`)
+            logWarn(`[Hook] 跳过不支持的 hook 类型 [${label}] ${event}: ${cmd.type}`)
           } else if ('if' in cmd) {
             // 忽略 if 会把条件触发放大成无条件触发，比不执行更糟，整条跳过
             entry.status = 'skipped'
             entry.statusReason = `contains 'if' condition`
-            logWarn(`[Hook] 跳过含 'if' 条件的 hook 条目 [${source}] ${event}`)
+            logWarn(`[Hook] 跳过含 'if' 条件的 hook 条目 [${label}] ${event}`)
           } else if (!command) {
             entry.status = 'invalid'
             entry.statusReason = 'missing command'
           } else if (!HOOK_EVENT_SET.has(event)) {
             entry.status = 'invalid'
             entry.statusReason = 'unknown event'
-            logWarn(`[Hook] 未支持的 hook 事件 [${source}]: ${event}`)
+            logWarn(`[Hook] 未支持的 hook 事件 [${label}]: ${event}`)
           } else if (matcher !== undefined && !TOOL_HOOK_EVENTS.has(event)) {
             entry.statusReason = 'matcher ignored for non-tool event'
-            logWarn(`[Hook] ${event} 不支持 matcher，将总是触发 [${source}]`)
+            logWarn(`[Hook] ${event} 不支持 matcher，将总是触发 [${label}]`)
           }
 
           entries.push(entry)

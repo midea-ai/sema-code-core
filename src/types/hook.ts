@@ -49,13 +49,18 @@ export interface RawHooksFile {
   [k: string]: unknown
 }
 
+// hook 条目来源：用户级 / 项目级配置文件，或已启用插件自带的 hooks/hooks.json
+export type HookSource = 'user' | 'project' | 'plugin'
+
 // ==================== 合并后的可执行条目（内部） ====================
 
 export interface LoadedHookEntry {
   event: string // 原样保留（未知事件名标 invalid 但保留在视图中）
-  source: 'user' | 'project'
+  source: HookSource
+  pluginName?: string // 仅 source === 'plugin'
+  configPath: string // 所属配置文件绝对路径
   matcher?: string
-  command: string
+  command: string // 插件条目已展开 ${SEMA_PLUGIN_ROOT}
   timeoutMs: number // 已应用默认值 60s 与 clamp
   timeoutRaw?: number // 配置原值（秒），未配则 undefined
   failClosed: boolean
@@ -67,7 +72,8 @@ export interface LoadedHookEntry {
 
 export interface HookEntryInfo {
   event: string
-  source: 'user' | 'project'
+  source: HookSource
+  pluginName?: string // 仅 source === 'plugin'：所属插件名
   matcher?: string
   command: string
   timeout?: number // 配置原值（秒），未配则 undefined（运行时默认 60s）
@@ -81,8 +87,8 @@ export interface HooksInfo {
   projectConfigPath: string // <workingDir>/.sema/hooks/hooks.json
   userConfigExists: boolean
   projectConfigExists: boolean
-  parseErrors: Array<{ source: 'user' | 'project'; message: string }>
-  events: Record<string, HookEntryInfo[]> // 按事件分组，用户级在前、项目级追加
+  parseErrors: Array<{ source: HookSource; pluginName?: string; message: string }>
+  events: Record<string, HookEntryInfo[]> // 按事件分组，插件在前、用户级其次、项目级追加
 }
 
 // ==================== 执行结果（内部） ====================

@@ -1,6 +1,7 @@
 import type { TodoItem } from '../types/todoTask';
 import type { PermissionLevel } from '../types';
 import type { InputImageAttachment, InputSource } from '../types/message';
+import type { HookSource } from '../types/hook';
 
 export type { InputSource } from '../types/message';
 
@@ -568,7 +569,8 @@ export interface HookNoticeData {
   hookEvent?: string;         // 关联的 hook 事件名（SessionStart / PreToolUse / …）
   message: string;            // 展示文本
   command?: string;           // 关联的 hook 命令（warning / systemMessage 时提供）
-  source?: 'user' | 'project';
+  source?: HookSource;
+  pluginName?: string;        // 仅 source === 'plugin'：所属插件名
 }
 
 // ==================== 进程级事件白名单 ====================

@@ -133,10 +133,10 @@ class PluginsManager {
   }
 
   /**
-   * 读取插件目录下的 commands、agents、skills 列表
+   * 读取插件目录下的 commands、agents、skills、mcp、hooks 列表
    */
   private async readPluginComponents(pluginSourcePath: string): Promise<PluginComponents> {
-    const components: PluginComponents = { commands: [], agents: [], skills: [], mcp: [] }
+    const components: PluginComponents = { commands: [], agents: [], skills: [], mcp: [], hooks: [] }
     if (!fs.existsSync(pluginSourcePath)) return components
     try {
       const commandsDir = path.join(pluginSourcePath, 'commands')
@@ -168,6 +168,11 @@ class PluginsManager {
       const mcpFile = path.join(pluginSourcePath, '.mcp.json')
       if (fs.existsSync(mcpFile)) {
         components.mcp = [{ name: '.mcp.json', filePath: mcpFile }]
+      }
+
+      const hooksFile = path.join(pluginSourcePath, 'hooks', 'hooks.json')
+      if (fs.existsSync(hooksFile)) {
+        components.hooks = [{ name: 'hooks.json', filePath: hooksFile }]
       }
     } catch (error) {
       logError(`读取插件组件失败 [${pluginSourcePath}]: ${error}`)
@@ -715,8 +720,8 @@ class PluginsManager {
    */
   async refreshMarketplacePluginsInfo(): Promise<MarketplacePluginsInfo> {
     logDebug('刷新市场插件信息...')
-    this.invalidateCache()
-
+    // 先读后替换：重载期间不清缓存。下游（agents/skills/commands/MCP/hooks）重载时都会读本缓存，
+    // 若此处先清空，窗口期内的读取会各自再触发一轮刷新与级联
     const [known, installed, enabledPluginsMap] = await Promise.all([
       this.readKnownMarketplaces(),
       this.readInstalledPlugins(),
@@ -733,8 +738,12 @@ class PluginsManager {
     this.marketplacePluginsInfoCache = info
     logInfo(`市场插件信息刷新完成: ${info.marketplaces.length} 个市场, ${info.plugins.length} 个插件`)
 
-    // 插件变更后后台触发 agents/skills/commands 刷新，不阻塞当前流程（动态 import 避免循环依赖）
+    // 插件变更后后台触发 agents/skills/commands/MCP/hooks 刷新，不阻塞当前流程（动态 import 避免循环依赖）
+    // hooks 必须在此级联：禁用/卸载插件后其 hooks 要立即停止触发，不能等到下一个新会话
     setImmediate(() => {
+      import('../hooks/hooksManager').then(({ getHooksManager }) => {
+        getHooksManager().getHooksInfo(true).catch((err: unknown) => logError(`插件变更后刷新 Hooks 失败: ${err}`))
+      }).catch(() => {})
       import('../agents/agentsManager').then(({ getAgentsManager }) => {
         getAgentsManager().getAgentsInfo(undefined, true).catch((err: unknown) => logError(`插件变更后刷新 Agents 失败: ${err}`))
       }).catch(() => {})

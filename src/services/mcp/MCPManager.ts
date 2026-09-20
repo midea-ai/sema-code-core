@@ -9,7 +9,8 @@
  * - 可用工具列表：settings.json -> enabledMcpServerUseTools（用户级打底、项目级同名覆盖）
  *
  * 变量展开：.mcp.json 条目的 command / args / env / url / headers 支持
- * - ${SEMA_PLUGIN_ROOT}：该 .mcp.json 所属根目录（插件目录；<project>/.sema/.mcp.json 为 <project>）
+ * - ${SEMA_PLUGIN_ROOT}：该 .mcp.json 所属根目录（插件目录；<project>/.sema/.mcp.json 为 <project>）；
+ *   其他产品插件规范的同义变量名等价处理，见 prompt/toolAliases.ts
  * - ${VAR}、${VAR:-默认值}：进程环境变量，未定义且无默认值时原样保留
  */
 
@@ -27,6 +28,7 @@ import { findJsonObjectLineRange } from '../../util/file'
 import { existsSync, readFileSync } from 'fs'
 import { readSettings, writeSettings } from '../settings/settingsLoader'
 import { SemaSettings, SettingsScope } from '../../types/settings'
+import { isPluginRootVar } from '../../prompt/toolAliases'
 
 // ==================== .mcp.json 变量展开 ====================
 
@@ -44,7 +46,7 @@ function mcpConfigRoot(filePath: string): string {
 function expandMcpValue(value: unknown, root: string): unknown {
   if (typeof value === 'string') {
     return value.replace(MCP_VAR_PATTERN, (whole, name: string, fallback: string | undefined) => {
-      if (name === 'SEMA_PLUGIN_ROOT') return root
+      if (isPluginRootVar(name)) return root
       const env = process.env[name]
       if (env !== undefined) return env
       return fallback !== undefined ? fallback : whole

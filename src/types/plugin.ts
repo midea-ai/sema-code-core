@@ -90,6 +90,8 @@ export interface PluginComponents {
   agents: PluginComponentEntry[]
   skills: PluginComponentEntry[]
   mcp: PluginComponentEntry[]
+  /** 插件自带的 hooks 配置（<插件目录>/hooks/hooks.json），启用插件即随之生效 */
+  hooks: PluginComponentEntry[]
 }
 
 /** 返回结果中的市场信息 */

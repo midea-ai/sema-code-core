@@ -80,7 +80,7 @@ async function runEventHooks(
     // 审计日志（PreToolUse / PermissionRequest 的 allow 等于把权限决策交给 hook 脚本，日志不可省）
     logInfo(
       `[Hook][audit] event=${event} agent=${String(payload.agent_id ?? MAIN_AGENT)} ` +
-      `source=${entry.source} command="${entry.command}" timeoutMs=${entry.timeoutMs} ` +
+      `source=${entry.pluginName ? `plugin:${entry.pluginName}` : entry.source} command="${entry.command}" timeoutMs=${entry.timeoutMs} ` +
       `exit=${exec.exitCode} timedOut=${exec.timedOut} kind=${outcome.kind} ` +
       `decision=${outcome.decision ?? '-'} duration=${exec.durationMs}ms`
     )
@@ -92,6 +92,7 @@ async function runEventHooks(
         message: t('hook.timeout', { seconds: entry.timeoutMs / 1000, command: entry.command }),
         command: entry.command,
         source: entry.source,
+        pluginName: entry.pluginName,
       })
     }
 
@@ -104,6 +105,7 @@ async function runEventHooks(
         message: t('hook.blockIgnored', { event, command: entry.command }),
         command: entry.command,
         source: entry.source,
+        pluginName: entry.pluginName,
       })
     }
 
@@ -114,6 +116,7 @@ async function runEventHooks(
         message: outcome.systemMessage,
         command: entry.command,
         source: entry.source,
+        pluginName: entry.pluginName,
       })
     }
 

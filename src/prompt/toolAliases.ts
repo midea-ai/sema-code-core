@@ -1,9 +1,11 @@
 /**
- * 工具名别名映射
+ * 外部产品兼容别名映射（工具名、插件根目录变量）
  *
  * 用于兼容其他代码助手（如 Claude Code、Codex、Cursor、OpenHands、Cline、Windsurf、Trae）的工具名，加载自定义 agent 时把
  * 别名规范化为内置工具名。仅覆盖语义对齐度高的搜索、文件读写 和 终端
  * 等参数差异较大的工具不做映射，避免出现"名字对得上、参数对不上"的隐患。
+ *
+ * 插件根目录变量别名见文件末尾：使按其他产品插件规范编写的 hooks / .mcp.json 无需改动即可定位自带脚本。
  */
 
 import {
@@ -73,4 +75,32 @@ const GENERIC_NAME_MAP: Record<string, string> = {
  */
 export function toGenericToolName(name: string): string {
   return GENERIC_NAME_MAP[name] ?? name
+}
+
+// ==================== 插件根目录变量别名 ====================
+
+// 规范变量名：插件的 hooks/hooks.json 与 .mcp.json 里用 ${SEMA_PLUGIN_ROOT} 引用插件安装目录
+export const PLUGIN_ROOT_VAR = 'SEMA_PLUGIN_ROOT'
+
+// 其他代码助手的插件规范里表示"插件安装目录"的变量名，展开时与规范名等价
+const PLUGIN_ROOT_VAR_ALIASES = ['CLAUDE_PLUGIN_ROOT']
+
+const PLUGIN_ROOT_VARS: ReadonlySet<string> = new Set([PLUGIN_ROOT_VAR, ...PLUGIN_ROOT_VAR_ALIASES])
+
+/**
+ * 是否为插件根目录变量（规范名或别名）
+ */
+export function isPluginRootVar(name: string): boolean {
+  return PLUGIN_ROOT_VARS.has(name)
+}
+
+/**
+ * 把文本中的 ${插件根目录变量} 字面量替换为实际目录；其余 ${VAR} 不动（hook 命令交给 shell 展开）。
+ */
+export function expandPluginRoot(text: string, root: string): string {
+  let out = text
+  for (const name of PLUGIN_ROOT_VARS) {
+    out = out.split('${' + name + '}').join(root)
+  }
+  return out
 }

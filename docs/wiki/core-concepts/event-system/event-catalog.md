@@ -494,7 +494,8 @@ hook 的提示通道：`systemMessage` 展示、超时/配置告警、输入被 
   hookEvent?: string          // 关联的 hook 事件名（SessionStart / PreToolUse / …）
   message: string             // 展示文本
   command?: string            // 关联的 hook 命令
-  source?: 'user' | 'project'
+  source?: 'user' | 'project' | 'plugin'
+  pluginName?: string         // 仅 source 为 'plugin'：所属插件名
 }
 ```
 

@@ -259,6 +259,26 @@ sema.on('mcp:server:status', (info) => {
 }
 ```
 
+### 变量展开
+
+`.mcp.json` 条目的 `command`、`args`、`env`、`url`、`headers` 支持两类变量，加载时展开：
+
+- `${VAR}` / `${VAR:-默认值}`：进程环境变量，未定义且无默认值时原样保留。
+- `${SEMA_PLUGIN_ROOT}`：该 `.mcp.json` 所属根目录。插件自带的配置展开为插件安装目录，`<project>/.sema/.mcp.json` 展开为项目根。按通用插件格式编写的现成插件，其根目录变量同样会被识别，无需改动。
+
+```json
+{
+  "mcpServers": {
+    "my-plugin-server": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["${SEMA_PLUGIN_ROOT}/server/index.js"],
+      "env": { "API_KEY": "${MY_API_KEY:-}" }
+    }
+  }
+}
+```
+
 ### 项目级设置（<project>/.sema/settings.json）
 
 ```json

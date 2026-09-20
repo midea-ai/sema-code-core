@@ -8,10 +8,10 @@
 |------|---------|---------|-----------|
 | 文件编辑 | `skipFileEditPermission` | 需要确认 | 会话级授权（不写入 allowedTools） |
 | 终端执行 `run_shell` | `skipShellExecPermission` | 需要确认 | `'run_shell(前缀:*)'` 或 `'run_shell(完整命令)'` |
-| Skill 调用 | `skipSkillPermission` | 需要确认 | `'Skill(name)'` |
+| Skill 调用 | `skipSkillPermission` | 需要确认；内置 Skill 静默放行 | `'Skill(name)'` |
 | MCP 工具 | `skipMCPToolPermission` | 需要确认 | `'mcp__server_tool'`（工具名本身） |
 | Fetch Url | `skipFetchUrlPermission` | 需要确认 | `'fetch_url(domain)'` |
-| 项目外文件读取 `view_file` | `skipExternalFileReadPermission` | 项目内/临时文件/SEMA_ROOT 受信内容目录（skills、commands、agents、plugins）静默放行，其余项目外需要确认 | 会话级授权（按父目录，不写入 allowedTools） |
+| 项目外文件读取 `view_file` | `skipExternalFileReadPermission` | 项目内/临时文件/SEMA_ROOT 受信内容目录（skills、commands、agents、plugins、hooks）静默放行；用户目录内的项目外文件需要确认；敏感凭据、其他用户目录、系统目录等受限位置各档位均需确认 | 会话级授权（按父目录，不写入 allowedTools）；受限位置只许单次同意 |
 
 > 对应跳过开关为 `true` 时，该类工具直接放行，不再进入任何检查。其余工具（非以上类型）默认放行。各工具的具体判定流程见[工具权限检查](wiki/core-concepts/permission-system/shell-check)。
 

@@ -4,14 +4,38 @@ Hook 是挂在 agent 循环关键节点上的外部命令：在会话开始、�
 
 ## 配置文件
 
-支持用户级和项目级两份配置，按用户级 → 项目级顺序加载，同一事件的条目依次执行：
+支持插件、用户级、项目级三种来源，按插件 → 用户级 → 项目级顺序加载，同一事件的条目依次执行（追加不覆盖）：
 
 | 来源 | 路径 |
 |------|------|
+| 插件 | `<插件目录>/hooks/hooks.json`（仅已启用的插件） |
 | 用户级 | `~/.sema/hooks/hooks.json` |
 | 项目级 | `<workingDir>/.sema/hooks/hooks.json` |
 
-hook 脚本建议与配置同目录存放（如 `.sema/hooks/check.js`），配置中以相对项目根的路径引用。配置在 Core 初始化时后台加载；调用 `getHooksInfo(true)` 可重新加载，下一次 hook 触发即生效。
+hook 脚本建议与配置同目录存放（如 `.sema/hooks/check.js`），配置中以相对项目根的路径引用。配置在 Core 初始化时后台加载，之后每次新建会话都会重新读取，手改配置文件后新开会话即生效、无需重启；调用 `getHooksInfo(true)` 可立即重新加载，下一次 hook 触发即生效。
+
+### 插件自带的 hooks
+
+插件可以在自身目录下放一份 `hooks/hooks.json`，格式与用户级完全相同。启用插件即同意其 hooks 在对应事件上自动执行；禁用或卸载插件后，其 hooks 立即停止触发。
+
+hook 的工作目录是项目根而非插件目录，插件引用自带脚本时须使用 `${SEMA_PLUGIN_ROOT}`，加载时会被替换为该插件的实际安装目录：
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          { "type": "command", "command": "\"${SEMA_PLUGIN_ROOT}/scripts/format.sh\"" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+该变量只在插件的 hooks 中展开；用户级与项目级配置里的 `${VAR}` 一律交给 shell 处理。按通用插件格式编写的现成插件，其根目录变量同样会被识别，无需改动即可使用。
 
 ## 配置格式
 
@@ -290,7 +314,7 @@ require('fs').appendFileSync('/tmp/sema_session_end.log', new Date().toISOString
 
 ## 查询与事件
 
-- `getHooksInfo(refresh?)`：返回合并后的配置视图（两份配置的路径/存在性、解析错误、按事件分组的条目及其状态与文件定位）；`refresh=true` 重新加载。
+- `getHooksInfo(refresh?)`：返回合并后的配置视图（用户级/项目级配置的路径与存在性、解析错误、按事件分组的条目及其状态与文件定位）；条目与解析错误的 `source` 取 `user` / `project` / `plugin`，来自插件时附带 `pluginName`；`refresh=true` 重新加载。
 - `hook:notice` 会话事件：hook 的 `systemMessage` 展示与告警通道（超时、配置问题、输入被拦截），见[事件类型](wiki/core-concepts/event-system/event-catalog)。
 
 ## 注意事项

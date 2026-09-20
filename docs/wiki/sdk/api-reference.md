@@ -114,10 +114,10 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getSkillsInfo` | `get_skills_info` | `getSkillsInfo` | `GetSkillsInfo` | `concise: boolean`, `refresh: boolean` | 返回含禁用项,`status: false` 表示已禁用 |
-| `await removeSkillConf` | `remove_skill_conf` | `removeSkillConf` | `RemoveSkillConf` | `name`(必填) | — |
-| `await enableSkill` | `enable_skill` | `enableSkill` | `EnableSkill` | `name`(必填) | 写入层跟随技能所在层(用户级技能全局生效) |
-| `await disableSkill` | `disable_skill` | `disableSkill` | `DisableSkill` | `name`(必填) | 写入 settings 的 `disabledSkills`(用户级+项目级并集生效) |
+| `await getSkillsInfo` | `get_skills_info` | `getSkillsInfo` | `GetSkillsInfo` | `concise: boolean`, `refresh: boolean` | 返回含禁用项,`status: false` 表示已禁用;内置 Skill(`locate` 为 `builtin`)`status` 恒为 `true` |
+| `await removeSkillConf` | `remove_skill_conf` | `removeSkillConf` | `RemoveSkillConf` | `name`(必填) | 内置与插件 Skill 不可移除,调用只记日志并原样返回列表 |
+| `await enableSkill` | `enable_skill` | `enableSkill` | `EnableSkill` | `name`(必填) | 写入层跟随技能所在层(用户级技能全局生效);内置 Skill 不支持开关 |
+| `await disableSkill` | `disable_skill` | `disableSkill` | `DisableSkill` | `name`(必填) | 写入 settings 的 `disabledSkills`(用户级+项目级并集生效);内置 Skill 不支持开关 |
 
 ### Commands 管理
 
@@ -156,7 +156,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getHooksInfo` | `get_hooks_info` | `getHooksInfo` | `GetHooksInfo` | `refresh: boolean` | 返回合并后的 hooks 配置视图 `HooksInfo`;`refresh=true` 重新加载配置 |
+| `await getHooksInfo` | `get_hooks_info` | `getHooksInfo` | `GetHooksInfo` | `refresh: boolean` | 返回合并后的 hooks 配置视图 `HooksInfo`;条目与解析错误的 `source` 取 `user` / `project` / `plugin`,来自插件时附带 `pluginName`;`refresh=true` 重新加载配置 |
 
 ### Cron 定时任务管理
 

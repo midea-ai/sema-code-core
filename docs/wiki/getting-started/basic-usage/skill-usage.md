@@ -42,9 +42,19 @@ Skill 文件必须放在以 skill 名命名的**子目录**中，子目录下必
 
 | 优先级 | 来源 | 路径 |
 |-------|------|------|
-| 3（最低） | 插件级 | 已安装且启用的插件提供的 skills |
+| 4（最低） | 内置 | 随 Sema Core 提供，无磁盘文件 |
+| 3 | 插件级 | 已安装且启用的插件提供的 skills |
 | 2 | 用户级 | `~/.sema/skills/` |
 | 1（最高） | 项目级 | `<project>/.sema/skills/` |
+
+### 内置 Skill
+
+Sema Core 自带 `sema-extend`：用户在对话里要求安装、配置或移除扩展（skill、MCP server、agent、command、hook、plugin）时，模型据此把内容装到本机正确的位置，并按各类型的格式校验。例如直接说"帮我安装这个 skill：<GitHub 链接>"。
+
+- 默认装到用户级，用户明确说"给这个项目"时才装项目级。
+- 安装后新开会话即生效，无需重启。
+- 插件与插件市场不会被手动拷贝，模型会引导到宿主的插件页面添加。
+- 内置 Skill 始终启用，不可删除、不支持启用/禁用开关（`status` 恒为 `true`）；调用时不弹权限询问（其指导下的写文件、执行命令仍各自询问）。放一个同名的用户级或项目级 Skill 即可覆盖它。
 
 示例目录结构：
 
@@ -75,7 +85,7 @@ description: 创建符合 Conventional Commits 规范的 Git 提交
 EOF
 ```
 
-无需重启 Sema Core，下次调用 `getSkillsInfo()` 后即生效（或传 `refresh=true` 强制刷新）。
+无需重启 Sema Core：新建会话时会自动重新加载，也可调用 `getSkillsInfo(undefined, true)` 立即刷新。
 
 
 ## 查看与刷新 Skill
@@ -91,7 +101,7 @@ skills.forEach(skill => {
 // 强制从磁盘重新加载
 await sema.getSkillsInfo(undefined, true)
 
-// 删除某个 Skill（仅 Sema 来源可删，插件来源只读）
+// 删除某个 Skill（仅用户级/项目级可删，内置与插件来源只读）
 // 会删除对应的 SKILL.md 及其所在目录
 await sema.removeSkillConf('commit')
 ```
@@ -99,7 +109,7 @@ await sema.removeSkillConf('commit')
 `SkillConfig` 接口：
 
 ```typescript
-// SkillScope = 'user' | 'project' | 'plugin'
+// SkillScope = 'user' | 'project' | 'plugin' | 'builtin'
 
 interface SkillConfig {
   name: string

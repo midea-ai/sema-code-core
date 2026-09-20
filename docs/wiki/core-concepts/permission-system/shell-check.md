@@ -182,24 +182,33 @@ AutoRun 档交快速模型按请求内容判断：对环回地址的只读 GET �
 ### 文件编辑（`patch_file` / `write_file` / `edit_notebook`）
 
 1. `skipFileEditPermission` → 放行。
-2. `hasGlobalEditPermission()`（档位 `AutoEdit` / `AutoRun`）为真时：目标在**项目目录内**或**系统临时目录**（`tmpdir()`、`/tmp`、`/var/tmp`、`/var/folders`）→ 放行；其余项目外文件 → 请求权限。
+2. `hasGlobalEditPermission()`（档位 `AutoEdit` / `AutoRun`）为真时：目标在**项目目录内**或**系统临时目录**（`tmpdir()`；非 Windows 另含 `/tmp`、`/var/tmp`；macOS 另含 `/var/folders`）→ 放行；其余项目外文件 → 请求权限。
 3. 否则请求权限。用户选 `'allow'` → `grantGlobalEditPermission()`（`Ask` 会提升到 `AutoEdit`），本会话内项目目录下的编辑不再询问；项目外仍会再次请求。**不写入 `allowedTools`**，关闭/新建会话不继承。
 
 ### 文件读取（`view_file`）
 
-仅**项目外**文件需要权限：
+读取位置的裁决全部在权限检查阶段完成，工具执行阶段不再因位置报错。`skipExternalFileReadPermission` 为真时直接放行；否则由 `classifyReadPath`（`src/util/readPathClass.ts`）按**真实路径**（解析符号链接后）把目标分为三类：
 
-1. `skipExternalFileReadPermission` → 放行。
-2. 项目内 / 临时文件 / SEMA_ROOT 受信内容目录（`skills`、`commands`、`agents`、`plugins`）→ 静默放行。
-3. 项目外：`AutoEdit` / `AutoRun` 档位自动放行；否则命中本会话已授权的父目录（`getAllowedExternalReadDirs`）则放行；都不满足则请求权限（`prefix` 传父目录）。选 `'allow'` → `grantExternalReadDir(父目录)`，**按父目录会话级生效，不持久化**。
+| 分类 | 范围 | `Ask` | `AutoEdit` / `AutoRun` |
+|------|------|-------|------------------------|
+| `trusted` | 项目内、系统临时目录、SEMA_ROOT 受信内容目录（`skills`、`commands`、`agents`、`plugins`、`hooks`） | 静默放行 | 静默放行 |
+| `home` | 用户目录内、项目之外的普通文件；Windows 下还包括系统目录之外的本地盘路径（如 `D:\work`、`C:\work`） | 请求权限，可按父目录授权 | 自动放行 |
+| `restricted` | 敏感凭据文件、其他用户目录、系统目录及其余外部位置 | 请求权限，只许单次同意 | 同 `Ask`，确定性转人工，不交快速模型判断 |
+
+- 敏感凭据清单：`~/.ssh`、`~/.aws`、`~/.npmrc`、`~/.netrc`（Windows 为 `_netrc`）、`~/.git-credentials`，以及 SEMA_ROOT 下的 `model.conf`、`.mcp.json`。敏感判定先于其他分类，且字面路径与真实路径任一命中即生效。
+- Windows 的 `restricted` 为清单式：`%SystemRoot%`、`%ProgramFiles%`、`%ProgramFiles(x86)%`、`%ProgramData%`、其他用户目录、网络路径（`\\server\share`）。macOS / Linux 下用户目录之外一律为 `restricted`。
+- 系统临时目录：`tmpdir()`；非 Windows 另含 `/tmp`、`/var/tmp`；macOS 另含 `/var/folders`。
+- `home` 类在 `Ask` 档位命中本会话已授权的父目录（`getAllowedExternalReadDirs`）则放行，否则请求权限（`prefix` 传父目录）。选 `'allow'` → `grantExternalReadDir(父目录)`，**按父目录会话级生效，不持久化**。`restricted` 类不受目录授权影响。
 
 ### Skill / MCP / fetch_url
 
 | 工具 | 放行条件 | 否则 |
 |------|---------|------|
-| Skill | `skipSkillPermission`，或 `allowedTools` 含 `Skill(name)` | 请求权限 |
+| Skill | `skipSkillPermission`，或该 Skill 为内置（`locate` 为 `builtin`），或 `allowedTools` 含 `Skill(name)` | 请求权限 |
 | MCP（`mcp__*`） | `skipMCPToolPermission`，或 `allowedTools` 含该工具名 | 请求权限 |
 | fetch_url | `skipFetchUrlPermission`，或（未命中 SSRF 兜底且）`allowedTools` 含 `fetch_url(domain)` | 请求权限 |
+
+> 内置 Skill 的正文随 Core 提供、不是第三方内容，加载说明本身没有副作用，因此直接放行；其指导下的写文件、执行命令仍各自过权限闸门。判定按 `locate`，所以放一个同名的用户级或项目级 Skill 覆盖它之后，调用仍会询问。
 
 > fetch_url 命中 SSRF 兜底（`isBlockedFetchHost`：内网 / 链路本地 / 元数据 / `localhost` 等）时，即便已保存域名授权也不放行，且转人工时不提供「永久允许该域名」选项，避免给内网地址开永久通行证。
 

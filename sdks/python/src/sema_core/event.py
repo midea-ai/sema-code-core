@@ -356,6 +356,7 @@ class HookNoticeData(TypedDict):
     message: str
     command: NotRequired[str]
     source: NotRequired[HookScope]
+    pluginName: NotRequired[str]  # 仅 source == "plugin"：所属插件名
 
 
 class CronUpdateData(TypedDict):

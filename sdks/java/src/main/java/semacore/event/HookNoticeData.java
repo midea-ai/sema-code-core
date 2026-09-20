@@ -5,5 +5,5 @@ package semacore.event;
 import java.util.List;
 import java.util.Map;
 
-public record HookNoticeData(String kind, String hookEvent, String message, String command, semacore.type.HookScope source) {
+public record HookNoticeData(String kind, String hookEvent, String message, String command, semacore.type.HookScope source, String pluginName) {
 }

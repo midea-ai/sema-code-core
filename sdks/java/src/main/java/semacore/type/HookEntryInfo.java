@@ -2,5 +2,5 @@
 
 package semacore.type;
 
-public record HookEntryInfo(String event, HookScope source, String matcher, String command, Integer timeout, HookEntryStatus status, String statusReason, String filePath) {
+public record HookEntryInfo(String event, HookScope source, String pluginName, String matcher, String command, Integer timeout, HookEntryStatus status, String statusReason, String filePath) {
 }

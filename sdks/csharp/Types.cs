@@ -33,7 +33,7 @@ public enum ForkFileEffect { modify, recreate, delete }
 public enum HookEntryStatus { ok, skipped, invalid }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum HookScope { user, project }
+public enum HookScope { user, project, plugin }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum MCPScopeType { local, project, user, plugin }
@@ -54,7 +54,7 @@ public enum PluginScopeKind { local, project, user }
 public enum RuleScope { user, project }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum SkillScope { user, project, plugin }
+public enum SkillScope { user, project, plugin, builtin }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SystemPromptMode { append, replace, replaceAll }
@@ -274,6 +274,7 @@ public record HookEntryInfo
 {
     [JsonPropertyName("event")] public string? Event { get; init; }
     [JsonPropertyName("source")] public HookScope? Source { get; init; }
+    [JsonPropertyName("pluginName")] public string? PluginName { get; init; }
     [JsonPropertyName("matcher")] public string? Matcher { get; init; }
     [JsonPropertyName("command")] public string? Command { get; init; }
     [JsonPropertyName("timeout")] public long? Timeout { get; init; }
@@ -285,6 +286,7 @@ public record HookEntryInfo
 public record HookParseError
 {
     [JsonPropertyName("source")] public HookScope? Source { get; init; }
+    [JsonPropertyName("pluginName")] public string? PluginName { get; init; }
     [JsonPropertyName("message")] public string? Message { get; init; }
 }
 
@@ -442,6 +444,7 @@ public record PluginComponents
     [JsonPropertyName("agents")] public List<PluginComponentEntry>? Agents { get; init; }
     [JsonPropertyName("skills")] public List<PluginComponentEntry>? Skills { get; init; }
     [JsonPropertyName("mcp")] public List<PluginComponentEntry>? Mcp { get; init; }
+    [JsonPropertyName("hooks")] public List<PluginComponentEntry>? Hooks { get; init; }
 }
 
 public record PluginInfoResult

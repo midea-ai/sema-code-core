@@ -2,5 +2,5 @@
 
 package semacore.type;
 
-public record HookParseError(HookScope source, String message) {
+public record HookParseError(HookScope source, String pluginName, String message) {
 }

@@ -5,5 +5,5 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record PluginComponents(List<PluginComponentEntry> commands, List<PluginComponentEntry> agents, List<PluginComponentEntry> skills, List<PluginComponentEntry> mcp) {
+public record PluginComponents(List<PluginComponentEntry> commands, List<PluginComponentEntry> agents, List<PluginComponentEntry> skills, List<PluginComponentEntry> mcp, List<PluginComponentEntry> hooks) {
 }

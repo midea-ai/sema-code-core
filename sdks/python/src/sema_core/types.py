@@ -36,10 +36,10 @@ MCPScopeType = Literal["local", "project", "user", "plugin"]
 MCPServerStatus = Literal["disconnected", "connecting", "connected", "error"]
 PluginScopeKind = Literal["local", "project", "user"]
 AgentScope = Literal["user", "project", "builtin", "plugin"]
-SkillScope = Literal["user", "project", "plugin"]
+SkillScope = Literal["user", "project", "plugin", "builtin"]
 CommandScope = Literal["user", "project", "plugin"]
 RuleScope = Literal["user", "project"]
-HookScope = Literal["user", "project"]
+HookScope = Literal["user", "project", "plugin"]
 HookEntryStatus = Literal["ok", "skipped", "invalid"]
 ToolStatus = Literal["enable", "disable"]
 CronTaskStatus = Literal["running", "completed", "failed", "killed"]  # 后台任务状态（core: task.ts / events）
@@ -289,12 +289,14 @@ RuleConfig = TypedDict("RuleConfig", {
 
 class HookParseError(TypedDict):
     source: HookScope
+    pluginName: NotRequired[str]  # 仅 source == "plugin"：所属插件名
     message: str
 
 
 class HookEntryInfo(TypedDict):
     event: str
     source: HookScope
+    pluginName: NotRequired[str]  # 仅 source == "plugin"：所属插件名
     matcher: NotRequired[str]
     command: str
     timeout: NotRequired[int]  # 配置原值（秒），未配则缺省（运行时默认 60s）
@@ -309,7 +311,7 @@ class HooksInfo(TypedDict):
     userConfigExists: bool
     projectConfigExists: bool
     parseErrors: List[HookParseError]
-    events: Dict[str, List[HookEntryInfo]]  # 按事件分组，用户级在前、项目级追加
+    events: Dict[str, List[HookEntryInfo]]  # 按事件分组，插件在前、用户级其次、项目级追加
 
 
 class DesignSystemColor(TypedDict):
@@ -345,6 +347,7 @@ class PluginComponents(TypedDict):
     agents: List[PluginComponentEntry]
     skills: List[PluginComponentEntry]
     mcp: List[PluginComponentEntry]
+    hooks: List[PluginComponentEntry]
 
 
 class MarketplaceSource(TypedDict):

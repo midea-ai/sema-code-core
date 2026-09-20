@@ -69,6 +69,7 @@ public record HookNoticeData
     [JsonPropertyName("message")] public string? Message { get; init; }
     [JsonPropertyName("command")] public string? Command { get; init; }
     [JsonPropertyName("source")] public HookScope? Source { get; init; }
+    [JsonPropertyName("pluginName")] public string? PluginName { get; init; }
 }
 
 public record InputProcessingData

@@ -149,7 +149,7 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [adapt, setAdapt] = useState<AdapterType>(PROVIDERS[DEFAULT_PROVIDER].defaultAdapt || 'openai');
-  const [thinkingHistoryPolicy, setThinkingHistoryPolicy] = useState<ThinkingHistoryPolicy>('preserve');
+  const [thinkingHistoryPolicy, setThinkingHistoryPolicy] = useState<ThinkingHistoryPolicy>(PROVIDERS[DEFAULT_PROVIDER].defaultThinkingHistoryPolicy || 'preserve');
   const [manual, setManual] = useState(false);
   const [modelName, setModelName] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
@@ -172,7 +172,7 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
     const d = PROVIDERS[k];
     setProvider(k); setCustomProviderName(k === 'custom' ? 'custom' : ''); setBaseURL(d.baseURL); setApiKey(''); setModelName(''); setSelectedModel(''); setModels([]); setFetchFailed(false); setManual(false);
     setMaxTokens(String(d.defaultMaxTokens ?? DEFAULT_MAX_TOKENS)); setModelMaxTokens(null); setContextLength(String(d.defaultContextLength ?? DEFAULT_CONTEXT_LENGTH));
-    setAdapt(d.defaultAdapt || 'openai'); setStatus(null); invalidate();
+    setAdapt(d.defaultAdapt || 'openai'); setThinkingHistoryPolicy(d.defaultThinkingHistoryPolicy || 'preserve'); setStatus(null); invalidate();
   };
   useEffect(() => { if (open) onProvider(DEFAULT_PROVIDER); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -291,7 +291,7 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
               { value: 'current_turn', label: t('settings.thinkingHistoryPolicy.currentTurn') },
               { value: 'omit', label: t('settings.thinkingHistoryPolicy.omit') },
             ]} />
-          {thinkingHistoryPolicy !== 'preserve' && (
+          {thinkingHistoryPolicy !== 'preserve' && thinkingHistoryPolicy !== p.defaultThinkingHistoryPolicy && (
             <div className="text-xs text-warn">{t('settings.thinkingHistoryPolicy.warn')}</div>
           )}
         </Field>
@@ -365,7 +365,7 @@ function SystemSettings() {
   const defaultRules = defaultCustomRules(settings.coreConfig.lang);
   const ToggleRow = ({ k, label }: { k: CoreBoolKey; label: I18nKey }) => (
     <div className="flex items-center justify-between px-4 py-2.5 text-sm">
-      <span>{t(label)}<span className="ml-2 text-xs text-muted font-mono">{k}</span></span>
+      <span>{t(label)}</span>
       <Toggle checked={!!settings.coreConfig[k]} onChange={v => patch({ coreConfig: { ...settings.coreConfig, [k]: v } })} />
     </div>
   );
@@ -376,7 +376,7 @@ function SystemSettings() {
         <h2 className="text-base font-semibold mb-3">{t('settings.basic')}</h2>
         <div className="rounded-lg border border-border bg-white divide-y divide-border">
           <div className="flex items-center justify-between px-4 py-2.5 text-sm">
-            <span>{languageLabel()}<span className="ml-2 text-xs text-muted font-mono">lang</span></span>
+            <span>{languageLabel()}</span>
             <div className="w-40"><LanguageSelect /></div>
           </div>
           {BASIC_KEYS.map(({ key, label }) => <ToggleRow key={key} k={key} label={label} />)}
@@ -453,7 +453,6 @@ function BrowserControlRow() {
           {t('settings.browserControl')}
           {!supported && t('settings.browserControlUnsupportedSuffix')}
           {supported && platform === 'linux' && t('settings.browserControlExperimentalSuffix')}
-          <span className="ml-2 text-xs text-muted font-mono">enableBrowserControl</span>
         </span>
         <div className="flex items-center gap-2">
           {busy && <Spinner />}

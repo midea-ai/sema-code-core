@@ -7,6 +7,7 @@ export interface ProviderDefaults {
   name: string; baseURL: string; baseURLPlaceholder?: string; defaultModel?: string;
   modelsUrl?: string; apikeyUrl?: string; requiresApiKeyForModelList?: boolean; defaultAdapt?: AdapterType;
   defaultMaxTokens?: number; defaultContextLength?: number; maxTokensOptions?: number[]; contextLengthOptions?: number[];
+  defaultThinkingHistoryPolicy?: ThinkingHistoryPolicy;  // 缺省 preserve
 }
 
 /** 1000000 -> 1M，128000 -> 128k */
@@ -24,13 +25,13 @@ export const PROVIDER_ORDER = ['custom', 'deepseek', 'minimax', 'glm', 'mimo', '
 export const PROVIDERS: Record<string, ProviderDefaults> = {
   anthropic: { name: 'Anthropic', baseURL: 'https://api.anthropic.com', defaultAdapt: 'anthropic' },
   openai: { name: 'OpenAI', baseURL: 'https://api.openai.com/v1', defaultAdapt: 'openai' },
-  kimi: { name: 'Kimi (Moonshot)', baseURL: 'https://api.moonshot.cn/v1', defaultModel: 'kimi-k3', apikeyUrl: 'https://platform.moonshot.cn/console/api-keys', defaultAdapt: 'openai' },
-  minimax: { name: 'MiniMax', baseURL: 'https://api.minimaxi.com/anthropic', defaultModel: 'MiniMax-M3', apikeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key', defaultAdapt: 'anthropic' },
-  deepseek: { name: 'DeepSeek', baseURL: 'https://api.deepseek.com/anthropic', modelsUrl: 'https://api.deepseek.com/v1/models', defaultModel: 'deepseek-v4-pro', apikeyUrl: 'https://platform.deepseek.com/api_keys', defaultAdapt: 'anthropic' },
-  glm: { name: 'GLM', baseURL: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.2', apikeyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys', defaultAdapt: 'openai' },
+  kimi: { name: 'Kimi (Moonshot)', baseURL: 'https://api.moonshot.cn/v1', defaultModel: 'kimi-k3', apikeyUrl: 'https://platform.moonshot.cn/console/api-keys', defaultAdapt: 'openai', defaultThinkingHistoryPolicy: 'current_turn' },
+  minimax: { name: 'MiniMax', baseURL: 'https://api.minimaxi.com/anthropic', defaultModel: 'MiniMax-M3', apikeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key', defaultAdapt: 'anthropic', defaultThinkingHistoryPolicy: 'current_turn' },
+  deepseek: { name: 'DeepSeek', baseURL: 'https://api.deepseek.com/anthropic', modelsUrl: 'https://api.deepseek.com/v1/models', defaultModel: 'deepseek-v4-pro', apikeyUrl: 'https://platform.deepseek.com/api_keys', defaultAdapt: 'anthropic', defaultThinkingHistoryPolicy: 'current_turn' },
+  glm: { name: 'GLM', baseURL: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.2', apikeyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys', defaultAdapt: 'openai', defaultThinkingHistoryPolicy: 'current_turn' },
   openrouter: { name: 'OpenRouter', baseURL: 'https://openrouter.ai/api', modelsUrl: 'https://openrouter.ai/api/v1/models', defaultModel: 'anthropic/claude-opus-4.6', apikeyUrl: 'https://openrouter.ai/settings/keys', defaultAdapt: 'anthropic' },
-  qwen: { name: 'Qwen (Alibaba)', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen3.7-max', apikeyUrl: 'https://bailian.console.aliyun.com/cn-beijing?api-key', defaultAdapt: 'openai' },
-  mimo: { name: 'MiMo (Xiaomi)', baseURL: 'https://api.xiaomimimo.com/anthropic', modelsUrl: 'https://api.xiaomimimo.com/v1/models', defaultModel: 'mimo-v2.5-pro', apikeyUrl: 'https://platform.xiaomimimo.com/console/api-keys', defaultAdapt: 'anthropic' },
+  qwen: { name: 'Qwen (Alibaba)', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen3.7-max', apikeyUrl: 'https://bailian.console.aliyun.com/cn-beijing?api-key', defaultAdapt: 'openai', defaultThinkingHistoryPolicy: 'current_turn' },
+  mimo: { name: 'MiMo (Xiaomi)', baseURL: 'https://api.xiaomimimo.com/anthropic', modelsUrl: 'https://api.xiaomimimo.com/v1/models', defaultModel: 'mimo-v2.5-pro', apikeyUrl: 'https://platform.xiaomimimo.com/console/api-keys', defaultAdapt: 'anthropic', defaultThinkingHistoryPolicy: 'current_turn' },
   custom: { name: 'custom', baseURL: '', baseURLPlaceholder: 'https://your-api.com/v1', defaultAdapt: 'openai' },
 };
 

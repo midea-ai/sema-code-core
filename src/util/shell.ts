@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import { existsSync } from 'fs'
 import shellquote from 'shell-quote'
 import { spawn, execSync, type ChildProcess } from 'child_process'
-import { isAbsolute, resolve, join } from 'path'
+import { isAbsolute, resolve, join, posix } from 'path'
 import * as os from 'os'
 import * as crypto from 'crypto'
 import * as iconv from 'iconv-lite'
@@ -126,6 +126,15 @@ export type DetectedShell = {
 // 为Bash转义字符串
 function quoteForBash(str: string): string {
   return `'${str.replace(/'/g, "'\\''")}'`
+}
+
+// 解析符号链接，失败（路径不存在等）时返回原路径
+function realpathOrSelf(p: string): string {
+  try {
+    return fs.realpathSync(p)
+  } catch {
+    return p
+  }
 }
 
 // 测试 bash 是否可用（结果自动缓存）
@@ -986,6 +995,36 @@ export class PersistentShell {
 
     const bashPath = nativeToShellPath(resolved, this.shellType)
     await this.exec(`cd ${quoteForBash(bashPath)}`)
+  }
+
+  // cwd 离开 root（含其子目录）时切回 root，返回是否发生了复位。
+  // 按命令执行后的真实 cwd 判断，不解析命令文本：cd ~ / pushd / cd $VAR 等写法一并覆盖。
+  async resetCwdIfOutside(root: string): Promise<boolean> {
+    // cmd / powershell 每条命令独立 spawn，cd 不会持久化
+    if (this.shellType === 'cmd' || this.shellType === 'powershell') {
+      return false
+    }
+
+    // 统一在 shell 路径形式下比较（msys: /c/foo，wsl: /mnt/c/foo）
+    let current = this.pwd()
+    let rootPath = nativeToShellPath(root, this.shellType)
+    if (this.shellType === 'posix') {
+      // 消除符号链接差异（如 macOS 的 /tmp → /private/tmp）
+      current = realpathOrSelf(current)
+      rootPath = realpathOrSelf(rootPath)
+    } else if (IS_WIN) {
+      current = current.toLowerCase()
+      rootPath = rootPath.toLowerCase()
+    }
+
+    const rel = posix.relative(rootPath, current)
+    const outside = rel === '..' || rel.startsWith('../') || posix.isAbsolute(rel)
+    if (!outside) {
+      return false
+    }
+
+    await this.setCwd(root)
+    return true
   }
 
   // 关闭Shell

@@ -1,9 +1,7 @@
 import { EOL } from 'os'
-import { isAbsolute, relative, resolve } from 'path'
 import { z } from 'zod'
 import { Tool, ValidationResult } from './base/Tool'
 import { splitCommand } from '../util/commands'
-import { isInDirectory } from '../util/file'
 import { PersistentShell, humanizeDuration, type TimeoutTransferContext } from '../util/shell'
 import { getTaskManager } from '../manager/TaskManager'
 import { readInitialCwd } from '../util/cwd'
@@ -90,25 +88,9 @@ export const RunShell = {
           message: `Command '${baseCmd}' is not allowed for security reasons`,
         }
       }
-
-      if (baseCmd === 'cd' && parts[1]) {
-        const targetDir = parts[1]!.replace(/^['"]|['"]$/g, '') 
-        const fullTargetDir = isAbsolute(targetDir)
-          ? targetDir
-          : resolve(readInitialCwd(), targetDir)
-        if (
-          !isInDirectory(
-            relative(readInitialCwd(), fullTargetDir),
-            relative(readInitialCwd(), readInitialCwd()),
-          )
-        ) {
-          return {
-            result: false,
-            message: `ERROR: cd to '${fullTargetDir}' was blocked. For security, agent may only change directories to child directories of the original working directory (${readInitialCwd()}) for this session.`,
-          }
-        }
-      }
     }
+    // cd 不在此按命令文本拦截：文本匹配拦不住 cd ~ / pushd / cd $VAR，又会误伤子 shell。
+    // 持久 cwd 不离开项目目录由 call 在命令执行后按真实 cwd 复位保证。
 
     return { result: true }
   },
@@ -294,6 +276,15 @@ export const RunShell = {
         stderr += `Exit code ${result.code}` + EOL
       }
       stderr += (result.stderr || '').trim() + EOL
+
+      // 持久 cwd 离开项目目录则切回项目根，并告知模型下一条命令的起点
+      try {
+        if (await PersistentShell.getInstance().resetCwdIfOutside(readInitialCwd())) {
+          stderr += `Shell cwd was reset to ${readInitialCwd()}` + EOL
+        }
+      } catch (error) {
+        stderr += `Failed to reset shell cwd to ${readInitialCwd()}: ${error instanceof Error ? error.message : String(error)}` + EOL
+      }
 
       const stdoutTrimmed = stdout.trim()
       const stderrTrimmed = stderr.trim()

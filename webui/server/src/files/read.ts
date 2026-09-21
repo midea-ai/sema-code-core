@@ -14,6 +14,14 @@ export const IMAGE_MIME: Record<string, string> = {
   '.svg': 'image/svg+xml', '.bmp': 'image/bmp', '.ico': 'image/x-icon', '.avif': 'image/avif',
 };
 
+/** Office 预览取字节用的 mime（不并入 IMAGE_MIME：后者同时驱动 image 标志） */
+const OFFICE_MIME: Record<string, string> = {
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.csv': 'text/csv', '.tsv': 'text/tab-separated-values', '.pdf': 'application/pdf',
+};
+
 export function isAbsolutePath(p: string): boolean {
   return path.isAbsolute(p) || /^[a-zA-Z]:[\\/]/.test(p);
 }
@@ -51,25 +59,27 @@ export function readFileInDir(workingDir: string, rel: string) {
 
 /** 批量 stat：对话里识别出的候选路径，确认哪些真实存在（不存在不抛错）；abs 供前端复制绝对路径等场景 */
 export function statPaths(workingDir: string, paths: string[]) {
-  const out: Record<string, { exists: boolean; isDir: boolean; inside: boolean; image: boolean; abs?: string }> = {};
+  const out: Record<string, { exists: boolean; isDir: boolean; inside: boolean; image: boolean; abs?: string; mtime?: number }> = {};
   for (const p of paths.slice(0, 100)) {
     try {
       const { abs, inside } = resolvePath(workingDir, p);
-      const isDir = fs.statSync(abs).isDirectory();
-      out[p] = { exists: true, isDir, inside, image: !isDir && !!IMAGE_MIME[path.extname(abs).toLowerCase()], abs };
+      const st = fs.statSync(abs);
+      const isDir = st.isDirectory();
+      // mtime：文件标签据此发现文件被改写后重新加载
+      out[p] = { exists: true, isDir, inside, image: !isDir && !!IMAGE_MIME[path.extname(abs).toLowerCase()], abs, mtime: st.mtimeMs };
     } catch { out[p] = { exists: false, isDir: false, inside: false, image: false }; }
   }
   return out;
 }
 
-/** 原始字节（图片预览用）：返回绝对路径与 mime，由路由层流式写回 */
+/** 原始字节（图片 / Office 预览、二进制另存为用）：返回绝对路径与 mime，由路由层流式写回 */
 export function rawFileInDir(workingDir: string, rel: string) {
   const { abs } = resolvePath(workingDir, rel);
   const st = fs.statSync(abs);
   if (st.isDirectory()) throw new Error('是目录');
   if (st.size > MAX_RAW) throw new Error('文件过大');
   const ext = path.extname(abs).toLowerCase();
-  return { abs, size: st.size, mime: IMAGE_MIME[ext] || 'application/octet-stream' };
+  return { abs, size: st.size, mime: IMAGE_MIME[ext] || OFFICE_MIME[ext] || 'application/octet-stream' };
 }
 
 const SKIP = new Set(['node_modules', '.DS_Store']);

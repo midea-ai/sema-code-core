@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronDown, FolderTree, ExternalLink, Search, X, Files } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, FolderTree, ExternalLink, Search, X, Files, Download } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import { api, getToken } from '../../api/http';
 import { useApp, PanelTab } from '../../store/app';
-import { cn, Popover, MenuItem, MenuSep, Spinner, useCopy, Dropdown } from '../../common/ui';
+import { cn, Popover, MenuItem, MenuSep, Spinner, useCopy } from '../../common/ui';
 import { OpenWithItems, appIconUrl, useOpenWithApps } from '../../common/openWith';
+import { OfficeKind, officeKindOf, isOfficeBinary, baseNameNoExt } from './office/kind';
+import { Zoom, ZoomDropdown } from './office/ZoomDropdown';
+import { OfficePreview } from './office/OfficePreview';
+import type { PdfPageInfo } from './office/pdf/PdfView';
+import { downloadRaw, viewState } from './office/bytes';
 
-type Zoom = 'fit' | '25' | '50' | '100' | '150' | '200';
-const ZOOM_OPTIONS = (['25', '50', '100', '150', '200'] as Zoom[]).map(v => ({ value: v, label: `${v}%` }));
+const IMAGE_ZOOMS = [25, 50, 100, 150, 200];
+const OFFICE_ZOOMS = [50, 75, 100, 125, 150, 200];
 import { useSessions } from '../../store/sessions';
 import { useFileSearch, formatFileRef } from '../chat/InputPickers';
 import { FileIcon } from '../../common/fileicon/FileIcon';
@@ -19,8 +24,8 @@ import { Markdown } from '../chat/Markdown';
 interface FileData { path: string; abs?: string; inside?: boolean; image?: boolean; size: number; mtime: number; truncated: boolean; binary: boolean; content: string }
 
 function isAbsPath(p: string) { return p.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('~'); }
-/** 可预览类型：仅 markdown（html 在文件标签里只看源码，预览走右栏浏览器） */
-function previewKind(p: string): 'md' | null { return /\.(md|markdown)$/i.test(p) ? 'md' : null; }
+/** 可预览类型：markdown 与 Office（html 在文件标签里只看源码，预览走右栏浏览器） */
+function previewKind(p: string): 'md' | OfficeKind | null { return /\.(md|markdown)$/i.test(p) ? 'md' : officeKindOf(p); }
 interface DirItem { name: string; isDirectory: boolean }
 
 const MAX_HL = 200 * 1024; // 超过 200KB 不做高亮
@@ -40,6 +45,12 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
   const [tree, setTree] = useState(!tab.path);
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [zoom, setZoom] = useState<Zoom>('fit');
+  // Office 预览的缩放：标签切走会卸载本组件，按标签记住，切回来还原
+  const [ozoom, setOzoomState] = useState<Zoom>(() => viewState.get(tab.id)?.zoom || 'fit');
+  const setOzoom = (z: Zoom) => { viewState.set(tab.id, { ...viewState.get(tab.id), zoom: z }); setOzoomState(z); };
+  // pdf 翻页控件在头部，页码状态由预览上报、跳页函数由预览注册
+  const [pdfPage, setPdfPage] = useState<PdfPageInfo | null>(null);
+  const pdfPager = useRef<((page: number) => void) | null>(null);
   const [treeW, setTreeW] = usePanelWidth('fileTree', 256, 160, 520);
   const relPath = tab.path || '';
   // 「打开方式」候选应用：文件切换时预取，「打开」按钮用第一个（默认应用）的图标
@@ -71,6 +82,33 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
     return () => { alive = false; };
   }, [sessionId, relPath]);
 
+  // 文件在外部变了（agent 改写、别的程序保存）就重新加载。不轮询，只在两个时机查一次修改时间：
+  // 窗口重新可见 / 获得焦点；本轮对话结束（盯着右栏看 agent 改文件时窗口焦点一直没丢，靠前者覆盖不到）。
+  // 右栏只挂载激活的标签，每次至多一个 stat 请求；没变就什么都不做，变了才重新取内容，且旧内容保留到新内容到达，不闪。
+  const sessionState = useSessions(s => s.snapshots[sessionId]?.state);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  useEffect(() => {
+    if (!relPath) return;
+    let alive = true, busy = false;
+    const check = async () => {
+      const cur = dataRef.current;
+      // cur.path !== relPath：刚切换文件、新内容还没到，此时手里是上一个文件的数据，不拿它比
+      if (busy || !cur || cur.path !== relPath || document.hidden) return;
+      busy = true;
+      try {
+        const st = (await api<Record<string, { exists: boolean; mtime?: number }>>('POST', `/api/sessions/${sessionId}/files/stat`, { paths: [relPath] }))[relPath];
+        if (!alive || !st?.exists || st.mtime == null || st.mtime === cur.mtime) return;
+        const d = await api<FileData>('POST', `/api/sessions/${sessionId}/file`, { path: relPath });
+        if (alive) setData(d);
+      } catch { /* 查不到就维持现状 */ } finally { busy = false; }
+    };
+    if (sessionState === 'idle') check();
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => { alive = false; window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check); };
+  }, [sessionId, relPath, sessionState]);
+
   const lines = useMemo(() => {
     if (!data || data.binary) return [];
     const src = data.content;
@@ -84,8 +122,13 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
   // 行定位：tab.line/lineSeq 变化且内容已加载时滚动到目标行并高亮范围
   const bodyRef = useRef<HTMLDivElement>(null);
   const hl = tab.line ? { from: tab.line, to: Math.max(tab.line, tab.endLine || tab.line) } : null;
+  // 同一次定位只滚一次：文件被外部改写后重新加载时不再把视图拽回目标行
+  const scrolledKey = useRef('');
   useEffect(() => {
-    if (!hl || !data || data.binary) return;
+    if (!hl || !data || data.binary || data.path !== relPath) return;
+    const key = `${relPath}\n${tab.lineSeq}`;
+    if (scrolledKey.current === key) return;
+    scrolledKey.current = key;
     const row = bodyRef.current?.querySelector<HTMLElement>(`[data-line="${hl.from}"]`);
     row?.scrollIntoView({ block: 'center' });
   }, [data, tab.lineSeq]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -94,8 +137,11 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
   const kind = previewKind(relPath);
   const [sourceOverride, setSourceOverride] = useState<boolean | null>(null);
   useEffect(() => { setSourceOverride(null); }, [relPath, tab.lineSeq]);
-  const showSource = !kind || (sourceOverride ?? !!tab.line);
+  // docx / xlsx / pptx 是二进制，没有源码可看，强制预览
+  const showSource = !kind || (!isOfficeBinary(kind) && (sourceOverride ?? !!tab.line));
   const toggleSource = () => setSourceOverride(!showSource);
+  // 当前正以 Office 预览展示的类型（头部据此换成文件名 + 缩放 / 下载）
+  const office = kind && kind !== 'md' && !showSource && data && !data.image ? kind : null;
 
   const outside = isAbsPath(relPath);
   // 面包屑显示：home 目录缩写为 ~（与聊天工具行一致），悬停提示与接口请求仍用真实路径
@@ -120,7 +166,8 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
         <div ref={crumbRef} className="flex items-center gap-1 min-w-0 overflow-x-auto scrollbar-none whitespace-nowrap" title={relPath ? (outside ? `${t('file.outside')}: ${relPath}` : relPath) : undefined}>
           {/* 未选文件时显示项目名占位；目录内不重复项目名（会话顶部已可见），目录外直接从首段（如 Users）开始 */}
           {!relPath && <span className="text-muted shrink-0">{rootName}</span>}
-          {crumbs.map((c, i) => (
+          {/* Office 预览只显示文件名（不带扩展名），完整路径在悬停提示里 */}
+          {office ? <span className="text-sm font-medium text-fg shrink-0">{baseNameNoExt(relPath)}</span> : crumbs.map((c, i) => (
             <span key={i} className="inline-flex items-center gap-1 shrink-0">
               {i > 0 && <ChevronRight size={11} className="text-muted" />}
               <span className={cn(i === crumbs.length - 1 ? 'text-fg' : 'text-muted')}>{c}</span>
@@ -131,16 +178,21 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
         {kind && data && !data.binary && (
           <button onClick={toggleSource} className="px-1.5 h-7 shrink-0 whitespace-nowrap rounded text-muted hover:text-fg hover:bg-black/[0.05]">{t(showSource ? 'file.viewPreview' : 'file.viewSource')}</button>
         )}
-        {data?.image && (
-          <Dropdown value={zoom} options={ZOOM_OPTIONS} onChange={setZoom} minWidth={140}
-            renderValue={v => <span>{v === 'fit' ? (fitPct !== null ? `${fitPct}%` : t('file.zoomFit')) : `${v}%`}</span>}
-            footer={close => (
-              <button onClick={() => { setZoom('fit'); close(); }} className="w-full flex items-center gap-2.5 text-left px-3 py-1.5 rounded hover:bg-black/[0.05] text-sm">
-                <span className="flex-1">{t('file.zoomFit')}</span>
-                {zoom === 'fit' && <svg width="14" height="14" viewBox="0 0 24 24" className="text-ok shrink-0"><path d="M5 12l5 5L20 7" stroke="currentColor" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-              </button>
-            )} />
+        {data?.image && <ZoomDropdown value={zoom} levels={IMAGE_ZOOMS} onChange={setZoom} fitLabel={t('file.zoomFit')} fitPct={fitPct} />}
+        {office === 'pdf' && pdfPage && (
+          <span className="shrink-0 inline-flex items-center gap-0.5 text-muted">
+            <button onClick={() => pdfPager.current?.(pdfPage.cur - 1)} disabled={pdfPage.cur <= 0} className="p-1 rounded hover:text-fg hover:bg-black/[0.05] disabled:opacity-40 disabled:pointer-events-none" title={t('file.prevPage')}><ChevronLeft size={14} /></button>
+            <span className="min-w-10 text-center text-fg tabular-nums">{pdfPage.cur + 1}/{pdfPage.total}</span>
+            <button onClick={() => pdfPager.current?.(pdfPage.cur + 1)} disabled={pdfPage.cur >= pdfPage.total - 1} className="p-1 rounded hover:text-fg hover:bg-black/[0.05] disabled:opacity-40 disabled:pointer-events-none" title={t('file.nextPage')}><ChevronRight size={14} /></button>
+          </span>
         )}
+        {office && <>
+          {/* 表格没有「适应宽度」，记住的 fit 按 100% 处理 */}
+          {office === 'xlsx' || office === 'csv'
+            ? <ZoomDropdown value={ozoom === 'fit' ? '100' : ozoom} levels={OFFICE_ZOOMS} onChange={setOzoom} />
+            : <ZoomDropdown value={ozoom} levels={OFFICE_ZOOMS} onChange={setOzoom} fitLabel={t(office === 'pptx' ? 'file.zoomFit' : 'file.zoomFitWidth')} fitPct={fitPct} />}
+          <button onClick={() => downloadRaw(sessionId, relPath).catch(e => toast(e.message, 'error'))} className="p-1.5 shrink-0 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('file.download')}><Download size={14} /></button>
+        </>}
         <button onClick={() => setTree(v => !v)} className={cn('p-1.5 shrink-0 rounded hover:bg-black/[0.05]', tree ? 'text-fg bg-black/[0.06]' : 'text-muted hover:text-fg')} title={t('file.tree')}><FolderTree size={14} /></button>
         {/* 分体按钮：左半「打开」直接用默认程序打开；右半下拉展开更多操作 */}
         {relPath && (
@@ -171,11 +223,13 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
             : !data ? <div className="p-4 text-sm text-muted flex items-center gap-2"><Spinner />{t('common.loading')}</div>
             : data.image ? (
               <div className={cn('min-h-full min-w-full bg-panel font-sans flex', zoom === 'fit' ? 'h-full items-center justify-center p-4' : 'items-start justify-start p-4 w-max')}>
-                <img ref={imgRef} src={`/api/sessions/${sessionId}/raw?path=${encodeURIComponent(relPath)}&token=${encodeURIComponent(getToken())}`} alt={relPath}
+                {/* v=mtime：图片被改写后地址随之变化，避免浏览器拿缓存里的旧图 */}
+                <img ref={imgRef} src={`/api/sessions/${sessionId}/raw?path=${encodeURIComponent(relPath)}&token=${encodeURIComponent(getToken())}&v=${data.mtime}`} alt={relPath}
                   className={cn(zoom === 'fit' && 'max-w-full max-h-full object-contain')}
                   style={zoom === 'fit' ? undefined : { zoom: Number(zoom) / 100 }} />
               </div>
             )
+            : office ? <OfficePreview sessionId={sessionId} tabId={tab.id} path={relPath} kind={office} size={data.size} mtime={data.mtime} zoom={ozoom} onFitPct={setFitPct} onPage={setPdfPage} pagerRef={pdfPager} />
             : data.binary ? <div className="p-4 text-sm text-muted">{t('file.binary')}</div>
             : !showSource && kind === 'md' ? <MdPreview content={data.content} sessionId={sessionId} />
             : (
@@ -325,10 +379,10 @@ function DirNode({ sessionId, path, depth, current, onPick, onMenu }: {
 /** 浏览器是否支持系统「另存为」对话框（File System Access API，Chromium + secure context） */
 const canSaveAs = typeof (window as any).showSaveFilePicker === 'function';
 
-/** 另存为：走已有的读文件接口取内容再交给系统对话框；二进制不支持，超大文件按接口上限截断 */
+/** 另存为：走已有的读文件接口取内容再交给系统对话框，超大文件按接口上限截断；二进制改走原始字节流 */
 async function saveFileAs(sessionId: string, path: string) {
   const d = await api<FileData>('POST', `/api/sessions/${sessionId}/file`, { path });
-  if (d.binary) { useApp.getState().toast(t('file.saveBinary'), 'error'); return; }
+  if (d.binary) return downloadRaw(sessionId, path);
   let handle: any;
   try { handle = await (window as any).showSaveFilePicker({ suggestedName: path.split(/[\\/]/).pop() || path }); }
   catch (e: any) { if (e?.name === 'AbortError') return; throw e; }

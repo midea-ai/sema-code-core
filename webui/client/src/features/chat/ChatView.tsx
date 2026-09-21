@@ -5,6 +5,7 @@ import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { BlockRenderer, renderBlockList, htmlFilesOf, HtmlSiteCard, memoryFilesOf, MemoryCard, type BlockCtx } from './Blocks';
+import { ArtifactGroup, OfficeCards } from './OfficeCard';
 import { Composer } from './Composer';
 import { Button, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { usePausableElapsed } from '../../common/useElapsed';
@@ -345,7 +346,9 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
       )}
       {running ? renderBlockList(ordered, ctx, true) : (expanded && collapsible) ? renderBlockList(ordered, ctx) : renderBlockList(collapsedView, ctx)}
       {/* 本轮新建/修改的 html 文件：结论之后给「网站卡片」，默认右栏浏览器预览（本轮结束后显示，避免半成品页面） */}
-      {!running && htmlFilesOf(rest).map(p => <HtmlSiteCard key={`site:${p}`} sessionId={ctx.sessionId} path={p} />)}
+      {!running && <ArtifactGroup>{htmlFilesOf(rest).map(p => <HtmlSiteCard key={`site:${p}`} sessionId={ctx.sessionId} path={p} />)}</ArtifactGroup>}
+      {/* 结论里提到的 Office 文件（与行内文件高亮同源）：给卡片，点击右栏预览 */}
+      {!running && lastText && <OfficeCards sessionId={ctx.sessionId} text={lastText.text} />}
       {/* 本轮新建/修改的 .sema/memory/ 记忆文件：结论之后给「记忆卡片」，点击右栏打开记忆窗口 */}
       {!running && memoryFilesOf(rest).length > 0 && <MemoryCard sessionId={ctx.sessionId} files={memoryFilesOf(rest)} />}
       {showThinking && <StatusLine text={t('chat.thinking')} />}

@@ -175,6 +175,35 @@ textarea, input, select { outline: none; }
 .diff-word-add { background: #abf2bc; }
 .diff-word-del { background: #ffb3ad; }
 
+/* pdf 预览的文本层：透明文字叠在 canvas 上供选中复制。只摘 pdf.js 自带 pdf_viewer.css 里文本层要用的部分（整份几千行、带全局选择器，不整份引入），
+   变量名与取值公式须与 pdf.js 的 TextLayer 保持一致：它往每个 span 上写 --font-height / --scale-x / --rotate，容器尺寸用 --total-scale-factor（页框上设） */
+.pdf-page { --scale-round-x: 1px; --scale-round-y: 1px; }
+.pdf-page .textLayer {
+  position: absolute; inset: 0; overflow: clip; opacity: 1; line-height: 1; text-align: initial; letter-spacing: normal; word-spacing: normal;
+  -webkit-text-size-adjust: none; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; z-index: 0; color-scheme: only light;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.pdf-page .textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; -webkit-user-select: text; user-select: text; }
+.pdf-page .textLayer > :not(.markedContent), .pdf-page .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0; --scale-x: 1; --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.pdf-page .textLayer .markedContent { display: contents; }
+.pdf-page .textLayer span[role="img"] { -webkit-user-select: none; user-select: none; cursor: default; }
+.pdf-page .textLayer ::selection { background: rgb(0 0 255 / 0.25); color: transparent; }
+.pdf-page .textLayer br::selection { background: transparent; }
+/* 拖选时铺满整页的占位块：鼠标划过文字之间的空白时选区不乱跳 */
+.pdf-page .textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; -webkit-user-select: none; user-select: none; }
+.pdf-page .textLayer.selecting .endOfContent { top: 0; }
+/* 页面自带旋转（/Rotate）时文本层跟着转 */
+.pdf-page .textLayer[data-main-rotation="90"] { transform: rotate(90deg) translateY(-100%); }
+.pdf-page .textLayer[data-main-rotation="180"] { transform: rotate(180deg) translate(-100%, -100%); }
+.pdf-page .textLayer[data-main-rotation="270"] { transform: rotate(270deg) translateX(-100%); }
+
 .scrollbar-none { scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
 

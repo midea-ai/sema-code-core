@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, getToken } from '../../api/http';
 
 export interface PathRef { path: string; line?: number; endLine?: number }
-export interface PathStat { exists: boolean; isDir: boolean; inside: boolean; image: boolean }
+export interface PathStat { exists: boolean; isDir: boolean; inside: boolean; image: boolean; abs?: string; mtime?: number }
 
 const MAX_CANDIDATES = 60;
 // 路径形态：可选盘符/~/./../ 前缀 + 若干段，段内允许任意语言字母数字（\p{L}\p{N}，含中文）及 _ - . @ +；可带 :12 / :12-20 行号

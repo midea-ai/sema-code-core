@@ -190,6 +190,8 @@ export const iconMap: { [key: string]: string } = {
     'docx': 'word',
     'xls': 'xls',
     'xlsx': 'xls',
+    'ppt': 'ppt',
+    'pptx': 'ppt',
     'csv': 'csv',
     'tsv': 'csv',
 

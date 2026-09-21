@@ -8,8 +8,8 @@ import { PickCard } from './PickCard';
 import { AgentCard } from './AgentCard';
 import { PlanExitCard, PlanImplementCard } from './PlanCards';
 import { ImageThumb } from './ImagePreview';
-import { Button, cn, Spinner, useCopy, Popover, MenuSep } from '../../common/ui';
-import { OpenWithItems, useOpenWithApps } from '../../common/openWith';
+import { ArtifactRow } from './OfficeCard';
+import { Button, cn, Spinner, useCopy } from '../../common/ui';
 import { api, getToken } from '../../api/http';
 import { contentToString, toolDisplayName, stripAnsi, fmtTime, displayPath } from '../../common/text';
 import { normalizeUrl } from '../../common/url';
@@ -169,45 +169,24 @@ export function htmlFilesOf(blocks: Block[]): string[] {
 }
 
 /**
- * 网站卡片：标题取页面 <title>（没有则文件名），默认在右栏浏览器打开（SemaWork），下拉可选系统应用（与文件标签「打开方式」同源）。
+ * 网站卡片（一行，外框由调用方的 ArtifactGroup 提供，多个网站收在同一组）：
+ * 标题取页面 <title>（没有则文件名），默认在右栏浏览器打开（SemaWork），下拉可选系统应用（与文件标签「打开方式」同源）。
  */
 export function HtmlSiteCard({ sessionId, path }: { sessionId: string; path: string }) {
   const workingDir = useApp(s => s.registry.sessions.find(x => x.id === sessionId)?.workingDir || '');
   const abs = absPathOf(path, workingDir);
   const fileUrl = normalizeUrl(abs);
   const [meta, setMeta] = useState<{ title: string } | null>(null);
-  const [menu, setMenu] = useState<DOMRect | null>(null);
-  const apps = useOpenWithApps(sessionId, path);
   useEffect(() => {
     let alive = true;
     api<{ title: string }>('POST', '/api/page-meta', { url: fileUrl }).then(r => { if (alive) setMeta(r); }).catch(() => { if (alive) setMeta({ title: '' }); });
     return () => { alive = false; };
   }, [fileUrl]);
   const name = path.split(/[\\/]/).pop() || path;
-  const openInSema = () => { setMenu(null); useApp.getState().openBrowserTab(sessionId, fileUrl); };
   return (
-    <div className="my-3 rounded-xl border border-border bg-white text-sm">
-      <div className="flex items-center gap-3 px-3 py-2.5">
-        <span className="h-9 w-9 rounded-lg bg-panel flex items-center justify-center shrink-0"><Globe size={16} className="text-fg" /></span>
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={openInSema} title={abs}>
-          <div className="font-medium truncate">{meta?.title || name}</div>
-          <div className="text-xs text-muted truncate">{meta?.title ? name : t('card.site')}</div>
-        </div>
-        {/* 分体按钮：左半「打开方式」= 默认项（右栏浏览器），右半箭头才展开下拉（与文件标签顶栏一致） */}
-        <div className="h-7 inline-flex items-stretch rounded-md border border-border text-fg overflow-hidden text-xs">
-          <button onClick={openInSema} className="px-2 inline-flex items-center hover:bg-black/[0.05]" title="SemaWork">{t('card.openWith')}</button>
-          <button onClick={e => setMenu(e.currentTarget.getBoundingClientRect())} className="px-1 inline-flex items-center text-muted hover:text-fg hover:bg-black/[0.05]"><ChevronDown size={11} /></button>
-        </div>
-        <Popover anchor={menu} onClose={() => setMenu(null)} align="right">
-          <button onClick={openInSema} className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded hover:bg-black/[0.06] text-sm text-fg">
-            <img src="/icon.svg" alt="" className="w-5 h-5 shrink-0" />
-            <span className="truncate">SemaWork</span>
-          </button>
-          <MenuSep />
-          <OpenWithItems sessionId={sessionId} path={path} apps={apps} onDone={() => setMenu(null)} />
-        </Popover>
-      </div>
-    </div>
+    <ArtifactRow sessionId={sessionId} path={path} tip={abs} icon={<Globe size={16} className="text-fg" />}
+      title={meta?.title || name} subtitle={meta?.title ? name : t('card.site')}
+      onOpen={() => useApp.getState().openBrowserTab(sessionId, fileUrl)} />
   );
 }
 

@@ -27,13 +27,23 @@ npm install
 npm run dev
 ```
 
-改了 `webui/` 代码：在 `webui/` 重新 `npm run build`，再在 `desktop/` 执行 `npm run dev`。
-
-前端热更新：另开终端在 `webui/` 执行 `npm run dev:client`，然后
+改了 `webui/` 代码：
 
 ```bash
-SEMA_DESKTOP_DEV_URL=http://localhost:5173 npm run dev
+cd webui && npm run build && cd ..  
+cd desktop && npm run dev
 ```
+
+改了 core 代码：
+
+```bash
+npm run build && npm pack 
+cd desktop
+npm install ../sema-core-<版本>.tgz --no-save   # 不改 package.json 与 lock
+npm run dev
+```
+
+测完在 `desktop/` 执行 `rm -rf node_modules/sema-core && npm install` 还原为发布版。
 
 ## 打包
 

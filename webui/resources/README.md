@@ -2,9 +2,13 @@
 
 生态市场的内置资源清单。加新资源只需往 `skills/` 丢目录（含 `SKILL.md`，可选 `card.json`）或远程配置 `<id>.json`（card + source），往 `mcp/` 丢 json（card + server）。页面按分类分组展示，组内按 `card.order` 升序（缺省排最后）。
 
+`card.defaultInstall: true` 的技能在服务端启动时自动装到用户级；处理过的 id 记在 `~/.sema/webui/settings.json` 的 `defaultSkillsInstalled`，用户卸载后不再重装，下载失败的下次启动重试。
+
 ## Skills（按页面顺序）
 
 ### Office 办公（doc）
+
+本组 4 个为默认安装。
 
 | 名称 | id | 来源 |
 |---|---|---|

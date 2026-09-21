@@ -76,6 +76,8 @@ export interface WebUISettings {
   maxWorkers?: number;
   /** 浏览器控制开关（与 IDE 插件同名键）：只由 /api/browser-control 在装/删 skill 与 MCP 全部成功后写入，PUT /api/settings 忽略该键 */
   enableBrowserControl?: boolean;
+  /** 已处理过的默认安装技能 id（清单 card.defaultInstall）：只由服务端启动时的默认安装追加，PUT /api/settings 忽略该键；记过的 id 用户卸载后不再重装 */
+  defaultSkillsInstalled?: string[];
 }
 
 /** GET/POST /api/browser-control：supported = 非 Windows；experimental = Linux；enabled 即 settings.enableBrowserControl */

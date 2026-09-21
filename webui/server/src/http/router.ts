@@ -11,7 +11,7 @@ import { searchFiles } from '../files/search';
 import { readFileInDir, listDir, resolvePath, statPaths, rawFileInDir } from '../files/read';
 import { listOpenWithApps, appIconPath } from '../files/apps';
 import { gitDiffList, gitDiffFile, gitRepoCheck } from '../files/gitDiff';
-import { listCatalog, installResource, uninstallResource, listInstalled, toggleInstalled, removeInstalled, updateMcpConfig, updateMcpUseTools, userSkillsRoot, readUserMcp } from './ecosystem';
+import { listCatalog, installResource, installDefaultSkills, uninstallResource, listInstalled, toggleInstalled, removeInstalled, updateMcpConfig, updateMcpUseTools, userSkillsRoot, readUserMcp } from './ecosystem';
 import { listMcpTools } from './mcpTools';
 import { BrowserControl, browserControlState } from './browserControl';
 
@@ -391,6 +391,12 @@ export class Router {
     // skill 装/卸/删后广播全部 worker 清缓存重扫；mcp 写操作后广播刷新连接（仅重连有变动的 server）。均不阻塞响应
     const refreshSkills = () => { void sm.dispatch('core.refreshSkills', undefined, {}).catch(() => null); };
     const refreshMcp = () => { void sm.dispatch('core.refreshMCPServerInfo', undefined, {}).catch(() => null); };
+    // 默认安装：清单标了 defaultInstall 的技能首次启动后台装到用户级，处理过的 id 记入 settings，用户卸载后不再重装
+    void installDefaultSkills(reg.getSettings().defaultSkillsInstalled || []).then(ids => {
+      if (!ids.length) return;
+      reg.addDefaultSkillsInstalled(ids);
+      refreshSkills();
+    }).catch(() => null);
     this.add('POST', '/api/eco/install', async (_r, _s, _p, body) => {
       const id = String(body?.id || '');
       const r = await installResource(id, !!body?.overwrite);

@@ -29,7 +29,8 @@ const userSkillDir = (id: string) => path.join(semaRoot(), 'skills', id);
 const userMcpFile = () => path.join(semaRoot(), '.mcp.json');
 const userSettingsFile = () => path.join(semaRoot(), 'settings.json');
 
-interface Card { name?: string; description?: string; category?: string; order?: number }
+/** defaultInstall = 服务端启动时自动装到用户级（见 installDefaultSkills），仅对 skill 生效 */
+interface Card { name?: string; description?: string; category?: string; order?: number; defaultInstall?: boolean }
 /**
  * 远程技能来源：GitHub 仓库 + ref + 仓库内子目录。
  * ref 选填：不填时用 HEAD（默认分支最新，适合自己可控的仓库）；
@@ -293,6 +294,25 @@ export async function installResource(id: string, overwrite: boolean): Promise<t
   Object.assign(servers, r.server);
   writeUserMcp({ ...conf, mcpServers: servers });
   return true;
+}
+
+/**
+ * 默认安装：清单 card.defaultInstall 的技能里挑出未处理过的，装到用户级。
+ * 用户级已有同名目录视为已处理（不覆盖）；下载失败的不计入，下次启动重试。
+ * 返回本轮处理完的 id，由调用方记入 settings.defaultSkillsInstalled（用户之后卸载也不再重装）。
+ */
+export async function installDefaultSkills(handled: string[]): Promise<string[]> {
+  const pending = scanResources().filter((r): r is SkillRes => r.kind === 'skill' && !!r.card.defaultInstall && !handled.includes(r.id));
+  const done = await Promise.all(pending.map(async r => {
+    try {
+      if (!fs.existsSync(userSkillDir(r.id))) await installResource(r.id, false);
+      return r.id;
+    } catch (e: any) {
+      console.error(`[eco] 默认技能 ${r.id} 安装失败:`, e?.message || e);
+      return null;
+    }
+  }));
+  return done.filter((x): x is string => !!x);
 }
 
 export function uninstallResource(id: string): true {

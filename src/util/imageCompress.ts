@@ -1,9 +1,62 @@
-import { logDebug, logWarn } from './log'
+import { logDebug, logInfo, logWarn } from './log'
 import Jimp from 'jimp'
+import type { InputImageAttachment } from '../types/message'
 
 const MIN_QUALITY = 20
 const MIN_DIMENSION = 100
 const MAX_DIMENSION_HARD_LIMIT = 4096
+
+// 粘贴图片单张体积上限，超出则压缩（与 ViewFile 的 MAX_OUTPUT_BYTES 保持一致）
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024
+// 支持的图片 media_type 白名单
+const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
+
+/**
+ * 规范化用户输入的图片附件：过滤非法 media_type，单张超限则压缩
+ * 返回干净可直接转 image content block 的附件数组；
+ * 正常轮次（SemaEngine.processQuery）与轮内注入（Conversation 注入路径）共用同一套规则
+ */
+export async function normalizeImageAttachments(attachments?: InputImageAttachment[]): Promise<InputImageAttachment[]> {
+  if (!attachments || attachments.length === 0) return []
+
+  const result: InputImageAttachment[] = []
+  for (const att of attachments) {
+    if (!SUPPORTED_IMAGE_MEDIA_TYPES.includes(att.media_type as typeof SUPPORTED_IMAGE_MEDIA_TYPES[number])) {
+      logWarn(`忽略不支持的图片类型: ${att.media_type}`)
+      continue
+    }
+    try {
+      const buffer = Buffer.from(att.data, 'base64')
+      if (buffer.length > MAX_IMAGE_BYTES) {
+        if (att.media_type === 'image/gif') {
+          logWarn(`忽略超出上限且不支持压缩的 GIF 附件: ${Math.round(buffer.length / 1024)}KB`)
+          continue
+        }
+        logInfo(`图片附件 ${Math.round(buffer.length / 1024)}KB 超过上限 ${Math.round(MAX_IMAGE_BYTES / 1024)}KB，压缩中...`)
+        const compressed = await compressImage(buffer, att.media_type, MAX_IMAGE_BYTES)
+        const compressedBytes = Math.ceil(compressed.data.length * 3 / 4)
+        if (compressedBytes > MAX_IMAGE_BYTES) {
+          logWarn(`忽略压缩后仍超出上限的图片附件: ${Math.round(compressedBytes / 1024)}KB`)
+          continue
+        }
+        result.push({ type: 'image', data: compressed.data, media_type: compressed.media_type })
+      } else {
+        result.push(att)
+      }
+    } catch (e) {
+      logWarn(`处理图片附件失败，已忽略: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  return result
+}
+
+/** 图片附件转 API image content block（正常轮次与注入路径共用） */
+export function toImageContentBlocks(attachments?: InputImageAttachment[]): Array<{ type: 'image'; source: { type: 'base64'; media_type: InputImageAttachment['media_type']; data: string } }> {
+  return (attachments ?? []).map(a => ({
+    type: 'image' as const,
+    source: { type: 'base64' as const, media_type: a.media_type, data: a.data },
+  }))
+}
 
 /**
  * 压缩图片至目标大小以内，尽可能保留质量

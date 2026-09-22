@@ -1,7 +1,7 @@
 import { Tool } from '../tools/base/Tool'
 import { RunShell, toolParams } from '../tools/RunShell'
 import { TOOL_NAME_PATCH_FILE as PATCH_FILE_TOOL_NAME, TOOL_NAME_WRITE_FILE as WRITE_FILE_TOOL_NAME, TOOL_NAME_EDIT_NOTEBOOK as EDIT_NOTEBOOK_TOOL_NAME, TOOL_NAME_SKILL, TOOL_NAME_FETCH_URL, TOOL_NAME_VIEW_FILE } from '../prompt/tool'
-import { splitCommand, hasCommandInjection, getCommandPrefix, stripHeredocBody } from '../util/commands'
+import { splitCommand, getCommandPrefix } from '../util/commands'
 import { readInitialCwd } from '../util/cwd'
 import { logDebug, logError, logInfo } from '../util/log'
 import { REJECT_MSG, CANCEL_MSG, getCustomFeedbackMessage, API_ERR_PREFIX, buildUserMsg } from '../util/message'
@@ -11,62 +11,19 @@ import { ToolPermissionRequestData, ToolPermissionResponse, ToolPermissionAutoDa
 import { checkAbortSignal } from '../types/errors'
 import { getFilePath, canonicalizeFilePath } from '../util/file'
 import { addUserWait } from '../util/agentStats'
-import { isAbsolute, resolve, relative, dirname, join } from 'path'
+import { dirname, join } from 'path'
 import { getSemaRootDir } from '../util/savePath'
-import { normalizeCmpPath } from '../util/platform'
-import { classifyReadPath, TEMP_BASE_PATHS } from '../util/readPathClass'
+import { classifyReadPath, isAttachmentPath } from '../util/readPathClass'
 import { getStateManager, MAIN_AGENT_ID } from './StateManager'
 import { queryLLM } from '../services/api/queryLLM'
 import { AUTO_RUN_SAFETY_CONTEXT_SYSTEM_PROMPT } from '../prompt/permission'
-import { isReadonlySafeCommand, isUnsafeForPrefixAuth, classifyDangerousCommand, classifyCommandSubstitutions, hasNetworkCommand, isLoopbackReadonlyRequest, DeleteTargetKind } from '../util/shellSafety'
+import { isUnsafeForPrefixAuth, hasNetworkCommand, isLoopbackReadonlyRequest } from '../util/shellSafety'
+import { classifyRunShellGate, isRunShellCommandPermitted, isPathInsideRoot, isTempFile } from './runShellGate'
 import { extractAutoRunContext, summarizeActionLine } from '../util/autoRunContext'
-import { isBlockedFetchHost } from '../util/fetchSafety'
+import { classifyFetchHost } from '../util/fetchSafety'
 import { firePermissionRequest } from '../services/hooks/hookTriggers'
 import { getSkillsManager } from '../services/skills/skillsManager'
 import { t } from '../util/i18n'
-
-// ==================== 辅助函数 ====================
-
-function isPathInsideRoot(filePath: string, root: string): boolean {
-  const abs = isAbsolute(filePath) ? filePath : resolve(root, filePath)
-  const rel = relative(normalizeCmpPath(root), normalizeCmpPath(abs))
-  if (!rel || rel === '') return true
-  return !rel.startsWith('..') && !isAbsolute(rel)
-}
-
-/**
- * 删除类命令（rm/rmdir/mv/find -delete）单个目标路径的允许范围裁决，
- * 供 classifyDangerousCommand 回调。目标满足其一才允许交模型判断：
- *  - 落在系统临时目录树内（含临时目录自身）
- *  - 落在项目根内，且：literal 目标不得是项目根自身（rm -rf . 级联全删仍转人工），
- *    globdir 目标（rm dist/*、find . -delete 的所在目录）允许是项目根；
- *    两种形态都排除 .git（删掉版本库即失去「项目内可恢复」的兜底）
- * 其余（项目外、~、无法解析）一律不允许 → 确定性转人工。
- */
-function isDeletableShellTarget(target: string, kind: DeleteTargetKind): boolean {
-  const root = readInitialCwd()
-  const abs = isAbsolute(target) ? target : resolve(root, target)
-  if (isTempFile(abs)) return true
-  const rel = relative(normalizeCmpPath(root), normalizeCmpPath(abs))
-  if (rel.startsWith('..') || isAbsolute(rel)) return false
-  if (!rel || rel === '') return kind === 'globdir'
-  const first = rel.split(/[\\/]/)[0]
-  if (first === '.git') return false
-  return true
-}
-
-// 系统临时目录（清单见 util/readPathClass 的 TEMP_BASE_PATHS）下的文件视为临时文件，
-// AutoEdit/AutoRun 下即便在项目外也自动放行编辑
-function isTempFile(filePath: string): boolean {
-  // 相对路径按项目根解析（解析后必落在项目内，由 isPathInsideRoot 处理）；临时文件均为绝对路径
-  const abs = isAbsolute(filePath) ? filePath : resolve(readInitialCwd(), filePath)
-  const absNorm = normalizeCmpPath(abs)
-  return TEMP_BASE_PATHS.some(base => {
-    const rel = relative(normalizeCmpPath(base), absNorm)
-    if (!rel || rel === '') return true
-    return !rel.startsWith('..') && !isAbsolute(rel)
-  })
-}
 
 // ==================== 常量定义 ====================
 
@@ -159,9 +116,9 @@ export const checkToolPermission = async (
     const runtime = getStateManager().session(sessionId)
     if (runtime.hasGlobalEditPermission()) {
       logDebug(`[Permission]${tool.name} hasGlobalEditPermission: True`)
-      // 项目内或临时文件直接放行，其余项目外文件需要请求权限
+      // 项目内、临时文件、SEMA_ROOT/attachments 直接放行，其余项目外文件需要请求权限
       const filePath = getFilePath(input)
-      if (!filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath)) {
+      if (!filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath) || isAttachmentPath(filePath)) {
         logDebug(`[Permission]${filePath} 会话级允许`)
         return { result: true }
       }
@@ -195,11 +152,11 @@ export const checkToolPermission = async (
     // 敏感凭据、其他用户目录、系统目录等：各档位均确定性转人工，不交快速模型（skipAutoRun），
     // 也不提供按目录授权（prefix 为 null），只许单次同意
     if (pathClass === 'restricted') {
-      logDebug(`[Permission]${filePath} 受限位置读取，请求权限`)
+      logHumanFallback(tool.name, 'hard-rule', `受限位置读取 ${filePath}`)
       return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId, true, true)
     }
 
-    // 项目外的用户文件：auto 模式（非 Ask）自动放行
+    // 项目外的用户文件 / 公共系统目录：auto 模式（非 Ask）自动放行
     const runtime = getStateManager().session(sessionId)
     if (runtime.hasGlobalEditPermission()) {
       logDebug(`[Permission]${filePath} 项目外读取，auto 模式自动放行`)
@@ -273,19 +230,20 @@ export const checkToolPermission = async (
 
     const allowedTools = projectConfig?.allowedTools || []
     const url = (input as any).url
+    const hostClass = url ? classifyFetchHost(url) : 'public'
 
-    // 内网/链路本地/元数据等 SSRF 兜底命中的主机：即便已保存域名授权也不放行（纵深防御，
-    // 治存量配置），且转人工时不提供「永久允许该域名」选项，避免一键给内网地址开永久通行证。
-    const blocked = url ? isBlockedFetchHost(url) : false
-
-    if (url && !blocked) {
+    // blocked（链路本地/元数据/未指定）：即便已保存域名授权也不放行（纵深防御，治存量配置），
+    // 转人工时不提供「永久允许该域名」。loopback：不提供永久授权（「记住 localhost」范围过宽），
+    // AutoRun 交模型。private / public：可命中已保存域名授权，转人工时可永久允许。
+    if (url && hostClass !== 'blocked' && hostClass !== 'loopback') {
       const domain = extractDomain(url)
       if (domain && allowedTools.includes(`${FETCH_URL_TOOL_NAME}(${domain})`)) {
         return { result: true }
       }
     }
 
-    return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId, !blocked)
+    const showAllow = hostClass === 'public' || hostClass === 'private'
+    return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId, showAllow)
   }
 
   logDebug(`[Permission]${tool.name} 非编辑、run_shell、skill、mcp或webfetch工具默认允许`)
@@ -296,45 +254,9 @@ export const checkToolPermission = async (
 
 // ==================== run_shell 工具权限检查 ====================
 
-function runShellToolHasExactMatch(tool: Tool, command: string, allowedTools: string[]): boolean {
-  // 只读安全命令快速通道：基于 splitCommand 分词逐子命令判定，
-  // 杜绝「整串 split(' ')[0]」导致的重定向 / 不带空格管道 / find 危险 flag 绕过
-  if (isReadonlySafeCommand(command)) return true
-
-  const key = getPermissionKey(tool, { command }, null)
-  if (allowedTools.includes(key)) return true
-
-  const keyWithPrefix = getPermissionKey(tool, { command }, command)
-  return allowedTools.includes(keyWithPrefix)
-}
-
-// 已保存的前缀授权 run_shell(P:*) 用字符串前缀匹配判定覆盖，无需模型提取前缀
-function matchesSavedPrefix(command: string, allowedTools: string[]): boolean {
-  // 前缀匹配只看首词，无法识别参数/重定向带来的危险。危险命令（含重定向、rm/sudo/mv
-  // 等危险首词、find 危险 flag）即便首词被前缀授权也不放行，避免 `rm:*`/`echo:*` 退化为
-  // 任意删除/写文件原语。
-  if (isUnsafeForPrefixAuth(command)) return false
-  const open = `${RunShell.name}(`
-  for (const entry of allowedTools) {
-    if (!entry.startsWith(open) || !entry.endsWith(':*)')) continue
-    const prefix = entry.slice(open.length, -':*)'.length)
-    if (prefix && (command === prefix || command.startsWith(`${prefix} `))) return true
-  }
-  return false
-}
-
-function isRunShellCommandPermitted(
-  tool: Tool,
-  command: string,
-  allowedTools: string[]
-): boolean {
-  return runShellToolHasExactMatch(tool, command, allowedTools) ||
-         matchesSavedPrefix(command, allowedTools)
-}
-
 async function checkRunShellPermission(
   tool: Tool,
-  command: string,
+  rawCommand: string,
   abortController: AbortController,
   allowedTools: string[],
   agentId: string,
@@ -342,113 +264,38 @@ async function checkRunShellPermission(
   toolId: string,
   description?: string
 ): Promise<PermissionCheckResult> {
-  // 归一化首尾空白：命令常带尾随换行（如 heredoc 结束符后的 \n）。不 trim 会让 stripHeredocBody
-  // 剥离正文后骨架残留一个空行 → 误判「结束符后藏了第二条命令」→ 合法 heredoc 脚本被当成注入。
-  // trim 只去首尾空白，不影响 ; / $() / 第二条命令等真注入向量的检出。
-  command = command.trim()
-  // 移除当前工作目录前缀
-  command = command.replace(`cd ${readInitialCwd()} && `, '')
+  // 确定性裁决（注入形态 / 白名单 / 危险分级 / 覆盖）全部在 classifyRunShellGate（纯函数，与
+  // tests/manager/runShellGate.* 同源）；这里只负责接模型判断、事件与人工申请。
+  const gate = classifyRunShellGate(rawCommand, allowedTools)
+  const command = gate.command
 
-  // 先拆分子命令并做注入检测——必须先于白名单/AutoRun 放行，否则白名单主命令词（echo/cat/grep 等）
-  // 夹带 $()、`` 命令替换或换行即可绕过检测（如 echo $(id)）。检出注入 → 转人工且不提供"永久允许"
-  const subCommands = splitCommand(command)
-  // heredoc 正文是喂给程序的数据而非 shell 命令，但底层 shell-quote 不理解 heredoc，会把正文打散、
-  // 换行有时残留，导致合法的多行内联脚本（python3 << 'EOF' ...）被误判注入、跳过 AutoRun 模型判断。
-  // 注入检测改在「剥离 heredoc 正文后的骨架」上进行：成功剥离后骨架若仍残留换行，只能是结束符之后
-  // 藏了第二条命令 → 判注入；否则按子命令逐段检测。无法安全剥离（多 heredoc 同行/缺结束符/不带引号
-  // 且正文含命令替换）时 stripHeredocBody 原样返回，退回逐段检测，绝不因剥离而放过真注入。
-  const injectionSkeleton = stripHeredocBody(command)
-  const injectionDetected = injectionSkeleton !== command
-    ? injectionSkeleton.includes('\n') || splitCommand(injectionSkeleton).some(hasCommandInjection)
-    : subCommands.some(hasCommandInjection)
-  if (injectionDetected) {
-    // $() 命令替换细分（heredoc 骨架检出的注入维持确定性转人工，不参与放宽）：
-    //  dangerous（内层危险首词/解释器、反引号、解析失败）→ 确定性转人工，不给模型机会；
-    //  readonly/gray（唯一注入特征是可解析的 $() 替换）→ AutoRun 档位交模型判断。
-    // 刻意不走白名单/前缀/覆盖等确定性放行——那些检查不理解替换语义（echo:* 前缀
-    // 会把 echo $(任意命令) 一并放行），放行只能由模型或人工裁决。
-    const substClass = injectionSkeleton !== command ? 'dangerous' : classifyCommandSubstitutions(command)
-    if (substClass !== 'dangerous' && getStateManager().session(sessionId).isAutoRun()) {
-      let safe = false
-      try {
-        safe = (await classifyActionSafety(tool, { command }, abortController.signal, sessionId, agentId)) === 'safe'
-      } catch (error) {
-        logDebug(`[Permission][AutoRun] 安全判断失败，转人工: ${error}`)
-      }
-      checkAbortSignal(abortController)
-      if (safe) {
-        logDebug(`[Permission][AutoRun]${tool.name} 含 ${substClass} $() 替换，模型判定 safe，自动放行`)
-        emitAutoApproved(tool, agentId, sessionId, toolId)
-        return { result: true }
-      }
-      logDebug(`[Permission][AutoRun]${tool.name} 含 $() 替换，模型判定有风险，转人工申请`)
-    }
-    return requestPermissionViaEvent(tool, { command, description }, null, abortController, agentId, sessionId, toolId, false, true)
-  }
-
-  // 命中白名单或项目配置已允许
-  if (runShellToolHasExactMatch(tool, command, allowedTools)) {
+  if (gate.verdict === 'allow') {
     return { result: true }
   }
 
-  // 危险命令分级：
-  //  hard（sudo/dd/chmod/kill 等硬危险、删除目标出项目/无法静态解析）→ 确定性转人工，
-  //    不调模型——语义本身危险，不该给模型机会判 safe 放行；
-  //  deletable（rm/rmdir/mv/find -delete 且所有目标确定性落在项目内或临时目录）→ AutoRun
-  //    档位交快速模型结合上下文判断（用户明确要求删除/清理、agent 自建文件、可再生中间
-  //    产物 → safe 一次性放行），判 risky 或非 AutoRun 仍转人工。
-  // 两类都不提供前缀/精确授权（showAllow=false），模型放行绝不持久化；
-  // skipAutoRun=true 跳过 requestPermissionViaEvent 内的 AutoRun 自动放行，避免重复调模型。
-  const dangerClass = classifyDangerousCommand(command, isDeletableShellTarget)
-  if (dangerClass !== 'none') {
-    if (dangerClass === 'deletable' && getStateManager().session(sessionId).isAutoRun()) {
-      let safe = false
-      try {
-        safe = (await classifyActionSafety(tool, { command }, abortController.signal, sessionId, agentId)) === 'safe'
-      } catch (error) {
-        logDebug(`[Permission][AutoRun] 安全判断失败，转人工: ${error}`)
-      }
-      checkAbortSignal(abortController)
-      if (safe) {
-        logDebug(`[Permission][AutoRun]${tool.name} 项目内删除类命令，模型判定 safe，自动放行`)
-        emitAutoApproved(tool, agentId, sessionId, toolId)
-        return { result: true }
-      }
-      logDebug(`[Permission][AutoRun]${tool.name} 删除类命令，模型判定有风险，转人工申请`)
-    }
+  // 确定性转人工：不调模型、不提供前缀/精确授权（showAllow=false）；
+  // skipAutoRun=true 跳过 requestPermissionViaEvent 内的 AutoRun 自动放行，避免重复调模型
+  if (gate.verdict === 'human') {
+    logHumanFallback(tool.name, 'hard-rule', gate.detail)
     return requestPermissionViaEvent(tool, { command, description }, null, abortController, agentId, sessionId, toolId, false, true)
   }
 
-  // 每个子命令都被 SAFE_COMMANDS / 精确授权 / 已保存前缀覆盖 → 放行（注入已在函数开头排除）。
-  // 必须先于下面的 AutoRun 模型判断：已被「确定性覆盖」的命令无需再调用快速模型——既省一次模型
-  // 调用，也更准确（确定性放行不应触发「模型自动放行」事件 tool:permission:auto）。
-  if (subCommands.length > 0 && subCommands.every(subCmd => isRunShellCommandPermitted(tool, subCmd, allowedTools))) {
+  // 交模型：AutoRun 档位判定 safe 直接放行；判 risky / 失败 / 非 AutoRun 则转人工。
+  // 模型放行绝不持久化。
+  if (await autoRunModelAllows(tool, { command }, abortController, sessionId, agentId, toolId, gate.detail)) {
     return { result: true }
   }
 
-  // AutoRun 档位：子命令未被确定性覆盖时，对整条命令做一次安全判断，判定 safe 直接放行；
-  // 判定有风险（或非 AutoRun）则继续转人工申请。
-  const runtime = getStateManager().session(sessionId)
-  if (runtime.isAutoRun()) {
-    let safe = false
-    try {
-      safe = (await classifyActionSafety(tool, { command }, abortController.signal, sessionId, agentId)) === 'safe'
-    } catch (error) {
-      logDebug(`[Permission][AutoRun] 安全判断失败，转人工: ${error}`)
-    }
-    checkAbortSignal(abortController)
-    if (safe) {
-      logDebug(`[Permission][AutoRun]${tool.name} 自动放行`)
-      emitAutoApproved(tool, agentId, sessionId, toolId)
-      return { result: true }
-    }
-    logDebug(`[Permission][AutoRun]${tool.name} 判定有风险，转人工申请`)
+  // 注入形态 / 灰区危险命令转人工时不提供前缀/精确授权，只许单次确认
+  if (gate.stage !== 'uncovered') {
+    return requestPermissionViaEvent(tool, { command, description }, null, abortController, agentId, sessionId, toolId, false, true)
   }
 
   // 未完全覆盖 → 转人工。对「首个未被覆盖的子命令」调一次快速模型提取前缀，给出"按前缀授权"选项。
   // 必须用子命令而非整条命令——整条复合命令含 && / || / ; 会被前缀提取提示词判为注入，提取不到前缀。
   // 首个未覆盖子命令过长（如内联脚本 python -c "...大段..."）时跳过前缀提取：提取无意义
-  const firstUncovered = subCommands.find(subCmd => !isRunShellCommandPermitted(tool, subCmd, allowedTools)) ?? command
+  const subCommands = splitCommand(command)
+  const firstUncovered = subCommands.find(subCmd => !isRunShellCommandPermitted(subCmd, allowedTools)) ?? command
   let prefix: string | null = null
   let allowExact = false
   // 危险命令（含重定向、rm/sudo/mv 等危险首词、find 危险 flag、curl/wget 等网络命令）不提供
@@ -543,9 +390,51 @@ function getPermissionKey(tool: Tool, input: ToolInvocationArgs, prefix: string 
 
 // ==================== AutoRun 自动判断 ====================
 
+// 转人工的三类原因，打进日志便于统计哪类弹窗最多：
+//  hard-rule    → 确定性规则拦截，未调模型
+//  model-risky  → 快速模型判定 risky
+//  model-failed → 快速模型调用失败/超时/输出无法解析（重试一次后仍失败）
+type HumanFallbackReason = 'hard-rule' | 'model-risky' | 'model-failed'
+
+function logHumanFallback(toolName: string, reason: HumanFallbackReason, detail: string): void {
+  logInfo(`[Permission][AutoRun]${toolName} 转人工 reason=${reason} (${detail})`)
+}
+
+/**
+ * AutoRun 档位下对单个动作做一次快速模型安全判断：判 safe → 发「模型自动放行」事件并返回 true；
+ * 判 risky / 调用失败 / 非 AutoRun → 返回 false，由调用方转人工。
+ * run_shell 的三处灰区（$() 替换、灰区危险命令、未覆盖命令）共用，避免重复展开。
+ */
+async function autoRunModelAllows(
+  tool: Tool,
+  input: ToolInvocationArgs,
+  abortController: AbortController,
+  sessionId: string,
+  agentId: string,
+  toolId: string,
+  detail: string,
+): Promise<boolean> {
+  if (!getStateManager().session(sessionId).isAutoRun()) return false
+  let verdict: 'safe' | 'risky' | null = null
+  try {
+    verdict = await classifyActionSafety(tool, input, abortController.signal, sessionId, agentId)
+  } catch (error) {
+    logDebug(`[Permission][AutoRun] 安全判断失败: ${error}`)
+  }
+  checkAbortSignal(abortController)
+  if (verdict === 'safe') {
+    logDebug(`[Permission][AutoRun]${tool.name} ${detail}，模型判定 safe，自动放行`)
+    emitAutoApproved(tool, agentId, sessionId, toolId)
+    return true
+  }
+  logHumanFallback(tool.name, verdict === 'risky' ? 'model-risky' : 'model-failed', detail)
+  return false
+}
+
 /**
  * 调用快速模型判断动作是否安全。
- * API 错误或返回为空时抛出异常，交由调用方做失败关闭处理。
+ * API 错误、返回为空或输出无法解析时重试一次；仍失败抛出异常，交由调用方做失败关闭处理
+ * （记为 model-failed，与模型判 risky 区分——「默认 safe」是模型的决策倾向，不是接口失败就放行）。
  */
 async function classifyActionSafety(
   tool: Tool,
@@ -554,6 +443,28 @@ async function classifyActionSafety(
   sessionId?: string,
   agentId: string = MAIN_AGENT_ID,
 ): Promise<'safe' | 'risky'> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const verdict = await queryActionSafety(tool, input, signal, sessionId, agentId)
+      if (verdict) return verdict
+      lastError = new Error('AutoRun safety verdict unparseable')
+    } catch (error) {
+      if (signal.aborted) throw error
+      lastError = error
+    }
+    logDebug(`[Permission][AutoRun] 安全判断第 ${attempt + 1} 次失败: ${lastError}`)
+  }
+  throw lastError
+}
+
+async function queryActionSafety(
+  tool: Tool,
+  input: ToolInvocationArgs,
+  signal: AbortSignal,
+  sessionId: string | undefined,
+  agentId: string,
+): Promise<'safe' | 'risky' | null> {
   // 旁路：只读「当前执行代理」自身历史作为上下文（子代理用自己的上下文，而非主代理），
   // 叠加安全判断指令，绝不写回会话
   const history = sessionId
@@ -600,7 +511,10 @@ async function classifyActionSafety(
     throw new Error('AutoRun safety classification failed')
   }
 
-  return parseSafetyVerdict(raw)
+  const verdict = parseSafetyVerdict(raw)
+  // 动作行与模型原始输出一起进日志：判错时能对照「模型看到了什么、答了什么」，不用盲调提示词
+  logInfo(`[Permission][AutoRun] verdict=${verdict ?? 'unparseable'} action=${summarizeActionLine(tool.name, input).slice(0, 200)} raw=${raw.slice(0, 200).replace(/\s+/g, ' ')}`)
+  return verdict
 }
 
 /**
@@ -610,9 +524,9 @@ async function classifyActionSafety(
  *  1) 优先取【第一个】<verdict> 标签为准——结论放最前，即便后面又啰嗦也不影响；
  *  2) 没有标签时兜底：快速模型偶发不带标签、夹带思考，取【最后出现】的 safe/risky
  *     关键词（推理结论通常落末尾），并排除 "not safe" 这类紧邻否定；
- *  3) 都匹配不到 → fail-closed 判 risky。
+ *  3) 都匹配不到 → null（输出无法解析，由调用方重试/记为 model-failed）。
  */
-function parseSafetyVerdict(raw: string): 'safe' | 'risky' {
+function parseSafetyVerdict(raw: string): 'safe' | 'risky' | null {
   const text = raw.toLowerCase()
 
   // 1) 首个 <verdict> 标签
@@ -621,7 +535,7 @@ function parseSafetyVerdict(raw: string): 'safe' | 'risky' {
 
   // 2) 兜底：最后一个 safe/risky 关键词
   const matches = [...text.matchAll(/\b(safe|risky)\b/g)]
-  if (matches.length === 0) return 'risky'
+  if (matches.length === 0) return null
 
   const last = matches[matches.length - 1]!
   if (last[1] === 'risky') return 'risky'
@@ -639,7 +553,7 @@ type AutoApproveOutcome = { approved: boolean; byModel: boolean }
 /**
  * AutoRun 档位下尝试自动放行：
  * 1) 确定性：文件编辑只看路径（项目内放行/项目外转人工）；Skill 放行；MCP 只看 destructiveHint 注解——均不走 LLM
- * 2) fetch_url：先做确定性 SSRF 兜底（命中内网/元数据等直接转人工），未命中再交给快速模型判断
+ * 2) fetch_url：先做确定性主机分级（链路本地/元数据 blocked、内网 private 直接转人工），环回/公网再交快速模型判断
  * 3) 其余动作交给快速模型做安全判断；失败/超时/异常一律失败关闭（转人工）
  */
 async function autoApproveInAutoRun(
@@ -650,10 +564,11 @@ async function autoApproveInAutoRun(
   agentId?: string,
 ): Promise<AutoApproveOutcome> {
   // 文件编辑：确定性判断，不走 LLM
-  // 项目内或临时文件放行；其余项目外文件一律转人工，避免模型误判为 safe
+  // 项目内、临时文件、SEMA_ROOT/attachments 放行；其余项目外文件一律转人工，避免模型误判为 safe
   if (isFileEditTool(tool)) {
     const filePath = getFilePath(input)
-    const approved = !filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath)
+    const approved = !filePath || isPathInsideRoot(filePath, readInitialCwd()) || isTempFile(filePath) || isAttachmentPath(filePath)
+    if (!approved) logHumanFallback(tool.name, 'hard-rule', '项目外文件编辑')
     return { approved, byModel: false }
   }
 
@@ -666,25 +581,29 @@ async function autoApproveInAutoRun(
   // 未标注/只读一律放行。注解是 server 自报的提示而非安全边界，工具语义对模型不透明，故不交给快速模型判断
   if (isMCPTool(tool)) {
     const destructive = tool.isDestructive?.() === true
-    if (destructive) logDebug(`[Permission][AutoRun]${tool.name} 标注 destructiveHint，转人工申请`)
+    if (destructive) logHumanFallback(tool.name, 'hard-rule', '标注 destructiveHint')
     return { approved: !destructive, byModel: false }
   }
 
-  // fetch_url：先做确定性 SSRF 兜底，命中内网/链路本地/元数据等直接转人工，不交给模型
+  // fetch_url：先做确定性主机分级。blocked（链路本地/元数据/未指定）与 private（内网）直接转人工，
+  // 不交模型——前者是 SSRF 边界，后者语义对模型不透明但用户可永久允许域名；环回与公网交模型
   if (isFetchUrlTool(tool)) {
     const url = ((input as any).url || '').toString()
-    if (isBlockedFetchHost(url)) {
-      logDebug(`[Permission][AutoRun] fetch_url 命中内网/元数据 denylist，转人工: ${url}`)
+    const hostClass = classifyFetchHost(url)
+    if (hostClass === 'blocked' || hostClass === 'private') {
+      logHumanFallback(tool.name, 'hard-rule', `${hostClass} 主机 ${url}`)
       return { approved: false, byModel: false }
     }
   }
 
-  // 其余（fetch_url 通过兜底后等）：交给快速模型判断（run_shell 已在 checkRunShellPermission 中提前判断）
+  // 其余（fetch_url 通过分级后等）：交给快速模型判断（run_shell 已在 checkRunShellPermission 中提前判断）
   try {
-    const safe = (await classifyActionSafety(tool, input, signal, sessionId, agentId)) === 'safe'
-    return { approved: safe, byModel: safe }
+    const verdict = await classifyActionSafety(tool, input, signal, sessionId, agentId)
+    if (verdict === 'risky') logHumanFallback(tool.name, 'model-risky', '')
+    return { approved: verdict === 'safe', byModel: verdict === 'safe' }
   } catch (error) {
-    logDebug(`[Permission][AutoRun] 安全判断失败，转人工: ${error}`)
+    logDebug(`[Permission][AutoRun] 安全判断失败: ${error}`)
+    logHumanFallback(tool.name, 'model-failed', '')
     return { approved: false, byModel: false }
   }
 }
@@ -912,7 +831,7 @@ function buildPermissionOptions(
 
   // fetch_url 工具
   if (isFetchUrlTool(tool)) {
-    // SSRF 兜底命中（内网/元数据等）时 showAllow=false：不提供「永久允许域名」，只许单次确认
+    // blocked（链路本地/元数据）/ loopback 主机 showAllow=false：不提供「永久允许域名」，只许单次确认
     if (!showAllow) {
       return { agree, refuse }
     }

@@ -124,6 +124,7 @@ export interface InputReceivedData {
   queued: boolean;            // 是否入队等待（true 表示当前正在处理中，输入已入队）
   queueLength: number;        // 当前队列长度（入队后的长度）
   source?: InputSource;       // 输入来源，缺省 'user'；非 user 来源（如 'cron'）由系统自动发送，UI 按用户输入渲染并加来源标签
+  attachments?: InputImageAttachment[]; // 仅 queued 时携带：原始图片附件（未规范化），供排队气泡回显缩略图；立即处理的输入由 input:processing 回吐
 }
 
 /**

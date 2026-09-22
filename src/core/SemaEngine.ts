@@ -16,7 +16,7 @@ import { getModelManager } from '../manager/ModelManager';
 import { SessionEventBus } from '../events/EventSystem';
 import { isInterruptedException } from '../types/errors';
 import type { Message, UserMsg, InputImageAttachment, InputSource } from '../types/message';
-import { compressImage } from '../util/imageCompress';
+import { normalizeImageAttachments, toImageContentBlocks } from '../util/imageCompress';
 import type { UUID } from '../types/uuid';
 import type { ForkOptions, ForkResult, BranchResult } from '../types/fork';
 import { generateSessionId } from '../util/session';
@@ -39,11 +39,6 @@ import type { AgentMode, PermissionLevel } from '../types';
 import type { FileReferenceInfo } from '../types/index';
 import type { CreateSessionOptions } from '../types/session';
 import { t } from '../util/i18n';
-
-// 粘贴图片单张体积上限，超出则压缩（与 ViewFile 的 MAX_OUTPUT_BYTES 保持一致）
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024
-// 支持的图片 media_type 白名单
-const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
 
 /**
  * Sema 引擎 - 单个会话的核心业务逻辑
@@ -194,7 +189,7 @@ export class SemaEngine {
     // quickchat 旁路：不影响状态和队列，异步处理后直接返回
     if (trimmedInput === '/quickchat' || trimmedInput.startsWith('/quickchat ')) {
       const question = trimmedInput.startsWith('/quickchat ') ? trimmedInput.slice('/quickchat '.length).trim() : ''
-      getConfManager().saveUserInputToHistory(originalInput || trimmedInput)
+      getConfManager().saveUserInputToHistory(originalInput ?? trimmedInput)
       if (question) {
         handlequickchat(question, this.sessionId).catch(err => logWarn(`[quickchat] 未捕获异常: ${err instanceof Error ? err.message : String(err)}`))
       } else {
@@ -208,6 +203,7 @@ export class SemaEngine {
       this.runtime.addPendingUserInput({ inputId, input: trimmedInput, originalInput, silent, type, attachments, source })
       logInfo(`输入已入队(${type})，队列长度: ${this.runtime.getPendingUserInputsLength()}`)
       if (!silent) {
+        // 入队输入带上原始附件：真正处理前 UI 只能靠此事件回显排队气泡的缩略图
         this.emit('input:received', {
           inputId,
           input: trimmedInput,
@@ -216,6 +212,7 @@ export class SemaEngine {
           queued: true,
           inject: type === 'inject',
           queueLength: this.runtime.getPendingUserInputsLength(),
+          attachments: attachments && attachments.length > 0 ? attachments : undefined,
         })
       }
       return
@@ -289,7 +286,7 @@ export class SemaEngine {
     // 以便 input:processing 事件直接回吐与该消息绑定的最终附件，气泡回显无需 UI 暂存或队列对齐
     const normalizedAttachments = new Map<string, InputImageAttachment[]>();
     for (const item of inputs) {
-      normalizedAttachments.set(item.inputId, await this.normalizeAttachments(item.attachments));
+      normalizedAttachments.set(item.inputId, await normalizeImageAttachments(item.attachments));
     }
 
     // 为每条输入发送独立的 input:processing 事件（静默输入跳过）
@@ -314,7 +311,8 @@ export class SemaEngine {
       // 将每条用户输入保存到项目配置的 history（静默输入/自动来源输入跳过，避免污染上翻输入历史）
       for (const item of inputs) {
         if (!item.silent && (item.source ?? 'user') === 'user') {
-          getConfManager().saveUserInputToHistory(item.originalInput || item.input);
+          // originalInput 存在就用它（可为空串：粘贴附件无正文时不进历史），缺省才退回完整输入
+          getConfManager().saveUserInputToHistory(item.originalInput ?? item.input);
         }
       }
 
@@ -460,10 +458,7 @@ export class SemaEngine {
       // API 调用时由 prepareMessagesForApi 自动合并连续 user 消息
       const userMessages: UserMsg[] = perInput.map((p, idx) => {
         // 图片附件转 image content block
-        const imageBlocks: Anthropic.ContentBlockParam[] = (p.attachments ?? []).map(a => ({
-          type: 'image' as const,
-          source: { type: 'base64' as const, media_type: a.media_type, data: a.data },
-        }))
+        const imageBlocks: Anthropic.ContentBlockParam[] = toImageContentBlocks(p.attachments)
         // 存在图片时过滤空文本块（纯截图场景 input 为空，空 text block 会导致 API 报错）
         const textBlocks = imageBlocks.length > 0
           ? p.blocks.filter(b => !(b.type === 'text' && !b.text.trim()))
@@ -559,44 +554,6 @@ export class SemaEngine {
         mainAgentState.updateState('idle');
       }
     }
-  }
-
-  /**
-   * 规范化图片附件：过滤非法 media_type，单张超限则压缩
-   * 返回干净可直接转 image content block 的附件数组
-   */
-  private async normalizeAttachments(attachments?: InputImageAttachment[]): Promise<InputImageAttachment[]> {
-    if (!attachments || attachments.length === 0) return [];
-
-    const result: InputImageAttachment[] = [];
-    for (const att of attachments) {
-      if (!SUPPORTED_IMAGE_MEDIA_TYPES.includes(att.media_type as typeof SUPPORTED_IMAGE_MEDIA_TYPES[number])) {
-        logWarn(`忽略不支持的图片类型: ${att.media_type}`);
-        continue;
-      }
-      try {
-        const buffer = Buffer.from(att.data, 'base64');
-        if (buffer.length > MAX_IMAGE_BYTES) {
-          if (att.media_type === 'image/gif') {
-            logWarn(`忽略超出上限且不支持压缩的 GIF 附件: ${Math.round(buffer.length / 1024)}KB`);
-            continue;
-          }
-          logInfo(`图片附件 ${Math.round(buffer.length / 1024)}KB 超过上限 ${Math.round(MAX_IMAGE_BYTES / 1024)}KB，压缩中...`);
-          const compressed = await compressImage(buffer, att.media_type, MAX_IMAGE_BYTES);
-          const compressedBytes = Math.ceil(compressed.data.length * 3 / 4);
-          if (compressedBytes > MAX_IMAGE_BYTES) {
-            logWarn(`忽略压缩后仍超出上限的图片附件: ${Math.round(compressedBytes / 1024)}KB`);
-            continue;
-          }
-          result.push({ type: 'image', data: compressed.data, media_type: compressed.media_type });
-        } else {
-          result.push(att);
-        }
-      } catch (e) {
-        logWarn(`处理图片附件失败，已忽略: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-    return result;
   }
 
   /**

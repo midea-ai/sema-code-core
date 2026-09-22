@@ -234,6 +234,8 @@ export class ConfigManager {
    * 保存用户输入到项目历史记录
    */
   saveUserInputToHistory(input: string): void {
+    // 空串（如只有粘贴附件、没有正文的输入）不进历史
+    if (!input) return;
     if (!this.projectConfig) {
       logWarn('项目配置未初始化，无法保存用户输入到历史记录');
       return;

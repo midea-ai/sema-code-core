@@ -19,6 +19,7 @@ import { getConfManager } from '../manager/ConfManager'
 import { generateRulesReminders, generateSkillsReminder } from '../services/agents/genSystemReminder'
 import { runToolsConcurrently, runToolsSerially } from './RunTools'
 import { processFileReferences } from '../util/fileReference'
+import { normalizeImageAttachments, toImageContentBlocks } from '../util/imageCompress'
 import { TOOL_NAME_SKILL } from '../prompt/tool'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
 import { t } from '../util/i18n'
@@ -370,6 +371,8 @@ async function injectPendingInputsIntoToolResult(
   const lastResult = orderedToolResults[orderedToolResults.length - 1]
 
   for (const item of injectItems) {
+    // 图片附件与正常轮次同一套规范化（过滤非法类型、超限压缩），事件回吐与注入模型的是同一份
+    const attachments = await normalizeImageAttachments(item.attachments)
     // 非静默：发送 input:processing 事件；仅真实用户输入保存到项目输入历史（自动来源如 cron 不入历史）
     if (!item.silent) {
       getEventBus().emit('input:processing', {
@@ -377,9 +380,10 @@ async function injectPendingInputsIntoToolResult(
         input: item.input,
         originalInput: item.originalInput,
         source: item.source ?? 'user',
+        attachments: attachments.length > 0 ? attachments : undefined,
       }, agentContext.sessionId)
       if ((item.source ?? 'user') === 'user') {
-        getConfManager().saveUserInputToHistory(item.originalInput || item.input)
+        getConfManager().saveUserInputToHistory(item.originalInput ?? item.input)
       }
     }
 
@@ -398,12 +402,14 @@ async function injectPendingInputsIntoToolResult(
       .join('\n')
     const injectText = reminderTexts ? `${item.input}\n${reminderTexts}` : item.input
 
-    // 追加 reminder-sys 到最后一条工具结果
+    // 追加 reminder-sys 到最后一条工具结果；图片附件紧随其后作为 image block 一并注入，模型才能看到图
     if (Array.isArray(lastResult.message.content)) {
+      const imageNote = attachments.length > 0 ? `\n(${attachments.length} image(s) attached below)` : ''
       lastResult.message.content.push({
         type: 'text',
-        text: `${REMINDER_SYS_OPEN}\nNew user message arrived during your task:\n${injectText}\n\nReminder: Once current task finishes, immediately respond to the user's latest message. Do not skip it.\n${REMINDER_SYS_CLOSE}`,
+        text: `${REMINDER_SYS_OPEN}\nNew user message arrived during your task:\n${injectText}${imageNote}\n\nReminder: Once current task finishes, immediately respond to the user's latest message. Do not skip it.\n${REMINDER_SYS_CLOSE}`,
       })
+      lastResult.message.content.push(...toImageContentBlocks(attachments))
     }
   }
 

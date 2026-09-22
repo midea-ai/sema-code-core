@@ -96,18 +96,20 @@
   queued: boolean          // 是否入队等待（true 表示当前正在处理中，输入已入队）
   queueLength: number      // 当前队列长度（入队后的长度）
   source?: 'user' | 'cron' // 输入来源，缺省 'user'；'cron' 为定时任务自动发送，UI 按用户输入渲染并加来源标签
+  attachments?: InputImageAttachment[] // 仅 queued 时携带：原始图片附件，供排队气泡回显缩略图
 }
 ```
 
 ### `input:processing`
 
-`processQuery` 真正开始处理用户输入时触发。
+真正开始处理用户输入时触发：新一轮由 `processQuery` 发出，运行中的轮内注入由注入路径发出。
 
 ```typescript
 {
   inputId: string          // 输入唯一标识，与 input:received 中的 inputId 对应
   input: string            // 正在处理的输入内容
   originalInput?: string   // 原始输入内容
+  attachments?: InputImageAttachment[] // 规范化后的图片附件（已过滤非法类型、已压缩），两条路径都回吐
   source?: 'user' | 'cron' // 输入来源，含义同 input:received
 }
 ```

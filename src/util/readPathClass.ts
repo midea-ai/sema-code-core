@@ -9,8 +9,8 @@ import { IS_MAC, IS_WIN, normalizeCmpPath } from './platform'
 /**
  * 文件读取位置分类，供 PermissionManager 裁决：
  *  - trusted：项目内、系统临时目录、SEMA_ROOT 受信内容目录 → 静默放行
- *  - home：当前用户可自由支配的位置（用户目录内；Windows 下还含系统目录之外的本地盘路径）
- *          → Ask 询问并可按父目录授权，AutoEdit / AutoRun 自动放行
+ *  - home：当前用户可自由支配或只读无风险的位置（用户目录内；POSIX 下的 /usr /opt 等公共系统目录；
+ *          Windows 下还含系统目录之外的本地盘路径）→ Ask 询问并可按父目录授权，AutoEdit / AutoRun 自动放行
  *  - restricted：敏感凭据文件、其他用户目录、系统目录等其余位置 → 各档位均转人工，只许单次同意
  */
 export type ReadPathClass = 'trusted' | 'home' | 'restricted'
@@ -25,12 +25,32 @@ export const TEMP_BASE_PATHS = [
 ]
 
 // SEMA_ROOT 下的受信内容子目录：全局 skill/命令/agent/插件/hooks 均为用户自行安装的内容，读取静默放行。
-// 注意：豁免仅覆盖读取，hooks 脚本会被执行，写入仍走文件编辑权限转人工。
-const TRUSTED_SEMA_SUBDIRS = ['skills', 'commands', 'agents', 'plugins', 'hooks']
+// 注意：豁免仅覆盖读取，hooks 脚本会被执行，写入仍走文件编辑权限转人工（attachments 例外，见 isAttachmentPath）。
+const TRUSTED_SEMA_SUBDIRS = ['skills', 'commands', 'agents', 'plugins', 'hooks', 'attachments']
+
+/**
+ * SEMA_ROOT/attachments：宿主（webui）转存的粘贴文本与模型生成的可视化 html 等附件，目录由宿主退场清理。
+ * 读取归 trusted（已在 TRUSTED_SEMA_SUBDIRS），编辑也放行——PermissionManager 的文件编辑硬规则与 isTempFile 并列使用。
+ */
+export function isAttachmentPath(filePath: string): boolean {
+  const abs = canonicalizeFilePath(filePath)
+  const dir = join(getSemaRootDir(), 'attachments')
+  return isInside(abs, dir) || isInsideAnyReal(resolveRealPath(abs), [dir])
+}
 
 // 敏感凭据（相对用户目录，三平台同名）：只收「内容即明文凭据」的条目，刻意保持精简。
 // _netrc 为 .netrc 的 Windows 写法。
 const SENSITIVE_HOME_ENTRIES = ['.ssh', '.aws', '.npmrc', '.netrc', '_netrc', '.git-credentials']
+
+// POSIX 下只读无风险的公共系统目录：系统头文件、全局安装的包/工具源码、应用包。读这些位置是
+// 查依赖实现的高频动作，不含用户凭据，归入 home 档（Ask 按目录授权、Auto 档静默放行）。
+// 刻意不收 /etc /var /root /home /Users（配置、日志、其他用户）——仍归 restricted。
+const PUBLIC_SYSTEM_READ_DIRS = IS_WIN ? [] : [
+  '/usr', '/opt', '/bin', '/sbin', '/lib', '/lib64', '/nix', '/snap',
+  ...(IS_MAC ? ['/System', '/Applications', '/Library'] : []),
+]
+// 公共目录里的例外：钥匙串虽是加密二进制，仍属凭据存放位置
+const PUBLIC_SYSTEM_READ_EXCLUDES = IS_MAC ? ['/Library/Keychains'] : []
 
 function isInside(child: string, root: string): boolean {
   const rel = relative(normalizeCmpPath(root), normalizeCmpPath(child))
@@ -105,5 +125,6 @@ export function classifyReadPath(filePath: string): ReadPathClass {
   if (isInsideAnyReal(real, [homedir()])) return 'home'
 
   if (IS_WIN) return isWindowsRestricted(real) ? 'restricted' : 'home'
+  if (isInsideAnyReal(real, PUBLIC_SYSTEM_READ_DIRS) && !isInsideAnyReal(real, PUBLIC_SYSTEM_READ_EXCLUDES)) return 'home'
   return 'restricted'
 }

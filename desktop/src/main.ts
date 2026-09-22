@@ -6,7 +6,7 @@
  * 环境变量 SEMA_DESKTOP_DEV_URL=http://localhost:5173：窗口改加载 vite dev 页面（热更新），
  * 此时 server 固定 3210 端口以匹配 vite 代理缺省值。
  */
-import { app, BrowserWindow, dialog, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { execFile } from 'child_process';
@@ -30,6 +30,11 @@ process.on('unhandledRejection', (reason) => { console.error('[desktop] unhandle
 app.setName('SemaWork');
 // 开发态跑的是 Electron 原始二进制，Dock 图标是它自带的；打包后由 electron-builder 写进 .app，这里只管开发态
 if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(path.join(__dirname, '..', 'assets', 'icon.png'));
+
+// 页面侧「已完成未看」会话数 → Dock / 任务栏角标（preload 的 setBadgeCount）
+ipcMain.on('sema:badge', (_e, n: unknown) => {
+  if (typeof n === 'number' && Number.isInteger(n) && n >= 0) app.setBadgeCount(n);
+});
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -97,7 +102,14 @@ function isOwnOrigin(url: string): boolean {
 }
 
 function showWindow() {
-  if (win) { win.show(); win.focus(); return; }
+  if (win) {
+    const wasHidden = !win.isVisible() || win.isMinimized();
+    win.show();
+    win.focus();
+    // 从隐藏/最小化被 Dock 唤起：通知页面跳到最近完成未看的会话（页面侧 onActivate）
+    if (wasHidden) win.webContents.send('sema:activate');
+    return;
+  }
   if (handle) createWindow();
 }
 

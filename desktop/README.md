@@ -10,7 +10,7 @@ Electron 主进程 (src/main.ts)
     │     └─ fork dist/worker-entry.js ×N                                    core 子进程，依赖 desktop/node_modules 里的 sema-core
     │     └─ dist/resources（拷自 webui/resources）生态市场资源；dist/resources/chrome（拷自 chrome/.sema）浏览器控制 skill 与 MCP
     └─ BrowserWindow → http://127.0.0.1:<随机端口>/?token=…                  页面来自 dist/public（拷自 webui/client/dist）
-        ↕ preload 暴露 window.sema.desktop
+        ↕ preload 暴露 window.sema.desktop（platform / electron 标记，setBadgeCount 未看会话数 → Dock 角标）
 ```
 
 运行时依赖（sema-core、node-pty、ws 等）全部在 `desktop/package.json` 声明，sema-core 用 npm 已发布版本，不依赖仓库根目录的构建。

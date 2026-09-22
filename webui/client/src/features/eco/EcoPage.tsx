@@ -30,7 +30,7 @@ export function EcoPage() {
   const [manage, setManage] = useState<{ kind: 'skill' | 'mcp'; id: string } | null>(null);
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
+      <div className={cn('app-drag h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
         <TabBtn active={tab === 'market'} onClick={() => { setManage(null); setTab('market'); }}>{t('eco.tabMarket')}</TabBtn>
         <TabBtn active={tab === 'installed'} onClick={() => { setManage(null); setTab('installed'); }}>{t('eco.tabInstalled')}</TabBtn>
       </div>

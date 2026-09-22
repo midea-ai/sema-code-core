@@ -1,0 +1,7 @@
+{
+  "name": "可视化",
+  "description": "把数据和概念画成图表、地图、交互演示和界面原型，直接嵌在对话里查看。",
+  "category": "doc",
+  "order": 50,
+  "defaultInstall": true
+}

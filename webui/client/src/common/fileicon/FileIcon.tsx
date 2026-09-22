@@ -159,10 +159,11 @@ const iconColors: { [key: string]: string } = {
 /**
  * 文件类型图标：根据文件名渲染对应的 Seti SVG。
  * fileName 可以传完整相对路径（内部取 basename 匹配）；
- * Seti 文件图形在 viewBox 里留白大，非 folder 统一放大补偿（folder 图形本身占满，反而略缩）
+ * Seti 文件图形在 viewBox 里留白大，非 folder 统一放大补偿（folder 图形本身占满，反而略缩）。
+ * color 可覆盖类型色（如传 currentColor 跟随文字色）
  */
-export const FileIcon = memo(function FileIcon({ fileName, isDirectory = false, size = 14, className }: {
-    fileName: string; isDirectory?: boolean; size?: number; className?: string;
+export const FileIcon = memo(function FileIcon({ fileName, isDirectory = false, size = 14, className, color }: {
+    fileName: string; isDirectory?: boolean; size?: number; className?: string; color?: string;
 }) {
     const baseName = fileName.split(/[\\/]/).pop() || fileName;
     const iconName = getFileIconName(baseName, isDirectory);
@@ -171,7 +172,7 @@ export const FileIcon = memo(function FileIcon({ fileName, isDirectory = false, 
     return (
         <span
             className={cn('inline-flex items-center justify-center shrink-0', className)}
-            style={{ width: size, height: size, padding: isFolder ? 1 : 0, transform: isFolder ? undefined : 'scale(1.35)', color: iconColors[iconName] || colors.white }}
+            style={{ width: size, height: size, padding: isFolder ? 1 : 0, transform: isFolder ? undefined : 'scale(1.35)', color: color || iconColors[iconName] || colors.white }}
             dangerouslySetInnerHTML={{ __html: svgContent }}
         />
     );

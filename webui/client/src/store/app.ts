@@ -65,12 +65,13 @@ interface AppState {
   cronUpdates: Record<string, number>;
   /** MCP 连接状态变更计数（任一 worker 的 mcp:server:status 自增），生态页据此重拉实时状态，替代轮询 */
   mcpStatusUpdate: number;
-  /** 后台完成未读：会话在非当前查看时从处理中转为空闲（侧栏绿灯），点开会话即清除 */
-  doneUnread: Record<string, true>;
+  /** 后台完成未读：会话在非当前查看（或窗口不可见）时从处理中转为空闲（侧栏绿灯、favicon、桌面版 Dock 角标），点开会话即清除 */
+  doneUnread: Record<string, number>; // 值为完成时刻，用于挑最近完成的一条
 
   bootstrap(): Promise<void>;
   setView(v: View): void;
   markDoneUnread(sessionId: string): void;
+  clearDoneUnread(sessionId: string): void;
   refreshModelData(): Promise<void>;
   toast(text: string, level?: Toast['level']): void;
   dismissToast(id: number): void;
@@ -186,13 +187,14 @@ export const useApp = create<AppState>((set, get) => ({
     if (v.type !== 'settings') localStorage.setItem(VIEW_KEY, JSON.stringify(v));
     set({ view: v });
     // 打开会话即视为已阅，清除「后台完成」绿灯
-    if (v.type === 'chat' && get().doneUnread[v.sessionId]) {
-      const sid = v.sessionId;
-      set(s => { const { [sid]: _, ...rest } = s.doneUnread; return { doneUnread: rest }; });
-    }
+    if (v.type === 'chat') get().clearDoneUnread(v.sessionId);
   },
   markDoneUnread(sessionId) {
-    set(s => (s.doneUnread[sessionId] ? s : { doneUnread: { ...s.doneUnread, [sessionId]: true } }));
+    set(s => (s.doneUnread[sessionId] ? s : { doneUnread: { ...s.doneUnread, [sessionId]: Date.now() } }));
+  },
+  clearDoneUnread(sessionId) {
+    if (!get().doneUnread[sessionId]) return;
+    set(s => { const { [sessionId]: _, ...rest } = s.doneUnread; return { doneUnread: rest }; });
   },
 
   async refreshModelData() {

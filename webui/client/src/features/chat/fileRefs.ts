@@ -75,20 +75,28 @@ function sessionCache(sessionId: string) {
  * 返回查询函数：未确认返回 undefined。
  */
 export function useFileStats(sessionId: string | undefined, text: string, enabled: boolean): (path: string) => PathStat | undefined {
-  const [, bump] = useState(0);
   const candidates = useMemo(() => (sessionId ? extractCandidates(text) : []), [sessionId, text]);
-  const key = candidates.join('\n');
+  return usePathStats(sessionId, candidates, enabled);
+}
+
+/**
+ * 批量确认给定路径是否存在（scopeId 为会话或项目 id，服务端 resolveScope 两者都认）。
+ * 与 useFileStats 共用缓存；paths 按内容比较，调用方不必 memo
+ */
+export function usePathStats(scopeId: string | undefined, paths: string[], enabled: boolean): (path: string) => PathStat | undefined {
+  const [, bump] = useState(0);
+  const key = paths.join('\n');
 
   useEffect(() => {
-    if (!sessionId || !enabled || candidates.length === 0) return;
-    const sc = sessionCache(sessionId);
-    const missing = candidates.filter(p => !sc.has(p));
+    if (!scopeId || !enabled || paths.length === 0) return;
+    const sc = sessionCache(scopeId);
+    const missing = paths.filter(p => !sc.has(p));
     if (missing.length === 0) return;
     let alive = true;
-    const pk = `${sessionId}\n${missing.join('\n')}`;
+    const pk = `${scopeId}\n${missing.join('\n')}`;
     let p = pending.get(pk);
     if (!p) {
-      p = api<Record<string, PathStat>>('POST', `/api/sessions/${sessionId}/files/stat`, { paths: missing })
+      p = api<Record<string, PathStat>>('POST', `/api/sessions/${scopeId}/files/stat`, { paths: missing })
         .then(r => { for (const [k, v] of Object.entries(r)) sc.set(k, v); })
         .catch(() => { for (const k of missing) sc.set(k, { exists: false, isDir: false, inside: false, image: false }); })
         .finally(() => pending.delete(pk));
@@ -96,7 +104,10 @@ export function useFileStats(sessionId: string | undefined, text: string, enable
     }
     p.then(() => { if (alive) bump(n => n + 1); });
     return () => { alive = false; };
-  }, [sessionId, key, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scopeId, key, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return (path: string) => (sessionId ? sessionCache(sessionId).get(path) : undefined);
+  return (path: string) => (scopeId ? sessionCache(scopeId).get(path) : undefined);
 }
+
+/** 已知结果直接写入缓存（如 @ 选择器选中的文件必然存在），免得先显示为文本、stat 回来后再变芯片 */
+export function primeStat(scopeId: string, path: string, stat: PathStat) { sessionCache(scopeId).set(path, stat); }

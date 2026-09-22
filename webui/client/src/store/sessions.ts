@@ -8,7 +8,9 @@ import { SERVER_EVENTS } from '../../../shared/protocol';
 import { useApp } from './app';
 import { t } from '../i18n';
 
-interface Draft { text: string; images: { dataUrl: string; media_type: string; data: string }[] }
+/** 草稿里的超长粘贴：path/preview 发送时拼进 input 模板；text 留一份供「在文本框中显示」展开回输入框（不落快照） */
+export interface DraftPaste { path: string; preview: string; text: string }
+export interface Draft { text: string; images: { dataUrl: string; media_type: string; data: string }[]; pastes: DraftPaste[] }
 
 interface SessionsState {
   snapshots: Record<string, SessionSnapshot>;
@@ -28,7 +30,8 @@ interface SessionsState {
   setDraft(sessionId: string, fn: (d: Draft) => Draft): void;
   setDraftAgentMode(mode: AgentMode): void;
 
-  send(sessionId: string, text: string, images?: Draft['images']): Promise<void>;
+  /** originalInput：有粘贴附件时传用户实际打的正文（可为空串），供气泡 / 历史 / 标题使用；无粘贴不传 */
+  send(sessionId: string, text: string, images?: Draft['images'], originalInput?: string): Promise<void>;
   /** 快问面板提问：与主输入框输入「/quickchat 问题」同一条发送链路，仅代拼前缀、不动聊天草稿 */
   sendQuickchat(sessionId: string, question: string): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
@@ -42,7 +45,7 @@ interface SessionsState {
   branchToNewChat(sessionId: string, beforeMessageUuid?: string): Promise<SessionRecord>;
 }
 
-const emptyDraft = (): Draft => ({ text: '', images: [] });
+export const emptyDraft = (): Draft => ({ text: '', images: [], pastes: [] });
 let wired = false;
 
 export const useSessions = create<SessionsState>((set, get) => ({
@@ -107,10 +110,11 @@ export const useSessions = create<SessionsState>((set, get) => ({
     }
     const next = applyEvent({ ...cur }, frame.event, frame.data, frame.seq);
     set(s => ({ snapshots: { ...s.snapshots, [frame.sessionId]: next } }));
-    // 处理中 → 空闲且该会话不在当前页面：标记「后台完成」绿灯，打开会话时清除
+    // 处理中 → 空闲且用户没在看（不是当前页面，或窗口/标签页不可见）：标记「后台完成」绿灯，打开会话或窗口重新可见时清除
     if (cur.state === 'processing' && next.state !== 'processing') {
       const app = useApp.getState();
-      if (!(app.view.type === 'chat' && app.view.sessionId === frame.sessionId)) app.markDoneUnread(frame.sessionId);
+      const viewing = app.view.type === 'chat' && app.view.sessionId === frame.sessionId && !document.hidden;
+      if (!viewing) app.markDoneUnread(frame.sessionId);
     }
     // quickchat 回答到达：自动展开右侧「快问」标签
     if (frame.event === 'quickchat:response' && frame.data?.question) {
@@ -133,9 +137,9 @@ export const useSessions = create<SessionsState>((set, get) => ({
 
   setDraftAgentMode(mode) { set({ draftAgentMode: mode }); },
 
-  async send(sessionId, text, images = []) {
+  async send(sessionId, text, images = [], originalInput) {
     const attachments = images.map(i => ({ type: 'image', data: i.data, media_type: i.media_type }));
-    await wsClient.request('session.processUserInput', sessionId, { input: text, attachments: attachments.length ? attachments : undefined });
+    await wsClient.request('session.processUserInput', sessionId, { input: text, originalInput, attachments: attachments.length ? attachments : undefined });
     get().setDraft(sessionId, () => emptyDraft());
   },
   async sendQuickchat(sessionId, question) {

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitCompare, ChevronDown, ChevronRight, Copy, Check, FolderOpen, ChevronsDownUp, ChevronsUpDown, SquareArrowOutUpRight, RotateCw } from 'lucide-react';
 import type { FileChange, FileChangesBlock, UserBlock } from '../../../../shared/types';
 import { countPatch } from '../../../../shared/transcript';
+import { isAttachmentPath } from '../../../../shared/viz';
 import { useApp, PanelTab } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { api, getToken } from '../../api/http';
@@ -30,9 +31,12 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
     for (const b of blocks || []) {
       if (b.kind === 'user' && b.inputId) users.set(b.inputId, b);
       if (b.kind === 'file-changes') {
+        // attachments/<uuid>/ 下的文件（可视化产物等）不进审阅；该轮只改了这类文件则整轮不列
+        const files = b.files.filter(f => !isAttachmentPath(f.path));
+        if (!files.length) continue;
         const u = b.inputId ? users.get(b.inputId) : undefined;
         const summary = (u?.text || '').split('\n')[0].trim();
-        out.push({ block: b, index: out.length + 1, summary });
+        out.push({ block: { ...b, files }, index: out.length + 1, summary });
       }
     }
     return out;

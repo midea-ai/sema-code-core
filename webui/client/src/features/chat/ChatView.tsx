@@ -6,6 +6,8 @@ import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { BlockRenderer, renderBlockList, htmlFilesOf, HtmlSiteCard, memoryFilesOf, MemoryCard, type BlockCtx } from './Blocks';
 import { ArtifactGroup, OfficeCards } from './OfficeCard';
+import { VizEmbed } from './VizEmbed';
+import { isVizPath } from '../../../../shared/viz';
 import { Composer } from './Composer';
 import { Button, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { usePausableElapsed } from '../../common/useElapsed';
@@ -157,7 +159,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {/* 头部 */}
-      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
+      <div className={cn('app-drag h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
         <button onClick={renameTitle} className="group inline-flex items-center gap-2 min-w-0 max-w-[60%]" title={record.workingDir}>
           <span className="truncate font-medium">{record.title || t('chat.untitled')}</span>
           <Pencil size={12} className="text-muted opacity-0 group-hover:opacity-100 shrink-0" />
@@ -345,8 +347,10 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
         <TurnDivider start={opener.ts} end={opener.doneTs ?? (running ? undefined : (rest[rest.length - 1]?.ts ?? opener.ts))} active={running} pausedAt={running ? awaitingTs : undefined} pausedMs={waitedMsIn(rest)} collapsible={collapsible} expanded={expanded} onToggle={() => setExpanded(v => !v)} />
       )}
       {running ? renderBlockList(ordered, ctx, true) : (expanded && collapsible) ? renderBlockList(ordered, ctx) : renderBlockList(collapsedView, ctx)}
-      {/* 本轮新建/修改的 html 文件：结论之后给「网站卡片」，默认右栏浏览器预览（本轮结束后显示，避免半成品页面） */}
-      {!running && <ArtifactGroup>{htmlFilesOf(rest).map(p => <HtmlSiteCard key={`site:${p}`} sessionId={ctx.sessionId} path={p} />)}</ArtifactGroup>}
+      {/* 本轮新建/修改的 html 文件（本轮结束后显示，避免半成品页面）：
+          可视化产物（attachments/<uuid>/*.html）直接内联嵌入；其余给「网站卡片」，默认右栏浏览器预览 */}
+      {!running && htmlFilesOf(rest).filter(isVizPath).map(p => <VizEmbed key={`viz:${p}`} sessionId={ctx.sessionId} path={p} />)}
+      {!running && <ArtifactGroup>{htmlFilesOf(rest).filter(p => !isVizPath(p)).map(p => <HtmlSiteCard key={`site:${p}`} sessionId={ctx.sessionId} path={p} />)}</ArtifactGroup>}
       {/* 结论里提到的 Office 文件（与行内文件高亮同源）：给卡片，点击右栏预览 */}
       {!running && lastText && <OfficeCards sessionId={ctx.sessionId} text={lastText.text} />}
       {/* 本轮新建/修改的 .sema/memory/ 记忆文件：结论之后给「记忆卡片」，点击右栏打开记忆窗口 */}

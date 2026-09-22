@@ -16,6 +16,7 @@ import { t, useLang } from '../i18n';
 import { PanelLeft, Plus } from 'lucide-react';
 import { ResizeHandle, usePanelWidth } from '../common/Resizer';
 import { useStatusFavicon } from '../common/favicon';
+import { useActivateJump, useDockBadge, useVisibilityRead } from '../common/unread';
 
 export function App() {
   // 订阅界面语言：切换时整棵树重渲染（memo 组件内各自 useLang）
@@ -29,6 +30,9 @@ export function App() {
   const setView = useApp(s => s.setView);
   const [sidebarW, setSidebarW] = usePanelWidth('sidebar', 256, 180, 480);
   useStatusFavicon();
+  useVisibilityRead();
+  useDockBadge();
+  useActivateJump();
   const [panelW, setPanelW] = usePanelWidth('panel', 520, 320, 1200);
   // 右面板作用域：聊天页 = 会话 id；项目草稿页 = 项目 id（首次发送创建会话时面板随之迁移）
   const panelScopeId = view.type === 'chat' ? view.sessionId : view.type === 'draft' ? view.projectId : undefined;
@@ -69,7 +73,7 @@ export function App() {
             <>
               {macTitleBar && <div className="absolute left-0 top-0 w-[72px] h-11 z-10 app-drag" />}
               {/* 展开按钮与侧栏里的收起按钮同尺寸；后面跟一个新会话按钮，行为与侧栏「新会话」一致（切到草稿页） */}
-              <div className={cn('absolute top-2.5 z-10 flex items-center gap-1', macTitleBar ? 'left-[76px]' : 'left-2')}>
+              <div className={cn('app-no-drag absolute top-2.5 z-10 flex items-center gap-1', macTitleBar ? 'left-[76px]' : 'left-2')}>
                 <button onClick={() => setSidebarCollapsed(false)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.showSidebar')}><PanelLeft size={15} /></button>
                 <button onClick={() => setView({ type: 'draft' })} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newSession')}><Plus size={15} /></button>
               </div>

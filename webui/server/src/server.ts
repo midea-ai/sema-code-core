@@ -15,6 +15,7 @@ import { Router, json, sendFile } from './http/router';
 import { attachWs } from './ws/handler';
 import { TerminalManager } from './terminal/manager';
 import { attachTermWs } from './ws/terminal';
+import { isVizPath } from '../../shared/viz';
 
 export interface StartServerOptions {
   /** 监听端口；0 = 随机空闲端口 */
@@ -42,6 +43,9 @@ const MIME: Record<string, string> = {
   // pdf.js 的 worker 产物是 .mjs（module worker 严格校验 JS mime），解码器是 .wasm
   '.mjs': 'application/javascript; charset=utf-8', '.wasm': 'application/wasm',
 };
+/** 可视化 html 注入 runtime 的体积上限（技能约定文件 < 1MB，留余量） */
+const VIZ_INJECT_MAX_BYTES = 4 * 1024 * 1024;
+
 const LOCAL_MIME: Record<string, string> = {
   ...MIME, '.htm': 'text/html; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.pdf': 'application/pdf',
@@ -84,6 +88,18 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
     const abs = path.resolve('/', decodeURIComponent(slash >= 0 ? rest.slice(slash + 1) : ''));
     if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) { json(res, 404, { ok: false, error: '文件不存在' }); return; }
     const st = fs.statSync(abs);
+    // 可视化产物（attachments/<uuid>/*.html）：注入宿主 runtime（高度上报 / 截图），文件本身保持干净，
+    // 用系统浏览器打开时脚本 404 不影响页面。超大文件不注入，走普通流式发送。
+    // 必须是 classic 脚本：iframe 是不透明源，module 脚本按 CORS 取会被拒
+    if (isVizPath(abs) && st.size <= VIZ_INJECT_MAX_BYTES) {
+      let html = fs.readFileSync(abs, 'utf8');
+      const tag = '<script src="/viz-runtime.js"></script>';
+      html = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, `${tag}</head>`) : tag + html;
+      const buf = Buffer.from(html, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': buf.length, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
+      res.end(buf);
+      return;
+    }
     sendFile(res, abs, {
       'Content-Type': LOCAL_MIME[path.extname(abs).toLowerCase()] || 'application/octet-stream',
       'Content-Length': st.size, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff',
@@ -95,7 +111,9 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
     let file = path.join(CLIENT_DIST, pathname === '/' ? 'index.html' : pathname);
     if (!file.startsWith(CLIENT_DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(CLIENT_DIST, 'index.html');
     const ext = path.extname(file);
-    sendFile(res, file, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': ext === '.html' ? 'no-store' : 'public, max-age=31536000, immutable' });
+    // viz-runtime.js 是固定文件名（不带 hash），不能长缓存
+    const noStore = ext === '.html' || pathname === '/viz-runtime.js';
+    sendFile(res, file, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': noStore ? 'no-store' : 'public, max-age=31536000, immutable' });
   }
 
   const server = http.createServer(async (req, res) => {

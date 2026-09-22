@@ -186,6 +186,11 @@ export interface ImageAttachmentMeta {
   dataUrl?: string;
 }
 
+export interface PasteAttachment {
+  path: string;
+  preview: string;
+}
+
 interface BlockBase {
   id: string;
   ts: number;
@@ -196,6 +201,8 @@ export interface UserBlock extends BlockBase {
   inputId?: string;
   text: string;
   attachments?: ImageAttachmentMeta[];
+  /** 超长粘贴转存的附件文件：path 为绝对路径，preview 为首行起的单行预览（从 input 的粘贴模板解析） */
+  pastes?: PasteAttachment[];
   queued?: boolean;
   /** 输入来源，缺省 user；cron=定时任务自动发送（气泡加标签） */
   source?: 'user' | 'cron';

@@ -8,7 +8,7 @@
 
 ### Office 办公（doc）
 
-本组 4 个为默认安装。
+本组 5 个为默认安装。
 
 | 名称 | id | 来源 |
 |---|---|---|
@@ -16,6 +16,7 @@
 | Excel 表格 | minimax-xlsx | MiniMax-AI/skills |
 | PPT 演示文稿 | pptx-generator | MiniMax-AI/skills |
 | PDF 文档 | minimax-pdf | MiniMax-AI/skills |
+| 可视化 | visualize | 本地目录（产出 html 写到 `~/.sema/attachments/<uuid>/`，聊天内联渲染，见 client `features/chat/VizEmbed.tsx`） |
 
 ### 职场效率（office）
 

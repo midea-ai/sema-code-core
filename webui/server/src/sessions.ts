@@ -225,7 +225,8 @@ export class SessionManager extends EventEmitter {
       const rec = this.registry.getSession(sid);
       // 自动来源输入（cron 等）不作为会话标题
       if (rec && !rec.title && (!data?.source || data.source === 'user')) {
-        const t = String(data?.originalInput || data?.input || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+        // originalInput 存在就用它（空串 = 只有粘贴附件，不设标题，等下一条有正文的输入）
+        const t = String(data?.originalInput ?? data?.input ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
         if (t) this.registry.updateSession(sid, { title: t });
       }
       this.registry.touchSession(sid);

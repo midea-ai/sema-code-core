@@ -5,9 +5,10 @@
  * 约定：所有更新返回新的对象/数组（不原地改旧引用），便于前端按引用做渲染优化。
  */
 import type {
-  AgentBlock, Block, FileChange, NoticeBlock, PermissionBlock, SessionSnapshot, ToolBlock,
+  AgentBlock, Block, FileChange, ImageAttachmentMeta, NoticeBlock, PermissionBlock, SessionSnapshot, ToolBlock,
 } from './types';
 import { CRON_TOOLS, FILE_EDIT_TOOLS, MAIN_AGENT_ID } from './protocol';
+import { parsePasteInput } from './paste';
 
 export function createSnapshot(init: Pick<SessionSnapshot, 'sessionId' | 'workingDir' | 'agentMode' | 'permissionLevel'>): SessionSnapshot {
   return {
@@ -170,6 +171,12 @@ function voidPending(snap: SessionSnapshot) {
   snap.blocks = mark(snap.blocks);
 }
 
+/** 事件里的图片附件 → 气泡回显元数据（input:received 排队回显与 input:processing 共用） */
+function toAttachmentMetas(raw: unknown): ImageAttachmentMeta[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  return raw.map((a: any) => ({ media_type: a.media_type, dataUrl: a.data ? `data:${a.media_type};base64,${a.data}` : undefined }));
+}
+
 // ==================== 事件应用 ====================
 
 /**
@@ -250,10 +257,17 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
 
     case 'input:received': {
       snap.predictedInput = undefined;
-      const text = data?.originalInput || data?.input || '';
+      // originalInput 存在就用它（空串 = 只有粘贴附件没打字，气泡无文字、不进历史），缺省才退回完整 input
+      const text = data?.originalInput ?? data?.input ?? '';
+      // 排队输入的附件随此事件带来（原始未规范化），先回显缩略图；真正处理时 input:processing 用规范化后的覆盖
+      const attachments = toAttachmentMetas(data?.attachments);
+      // 超长粘贴转存的附件：从完整 input 的模板解析出路径与预览，气泡显示为粘贴芯片
+      const pastes = parsePasteInput(String(data?.input ?? ''));
       pushBlock(snap, {
         kind: 'user', id: `user:${data?.inputId || seq}`, ts: now,
         inputId: data?.inputId, text, queued: !!data?.queued,
+        ...(attachments ? { attachments } : {}),
+        ...(pastes ? { pastes } : {}),
         ...(data?.source && data.source !== 'user' ? { source: data.source } : {}),
       });
       // 同步进历史输入（倒序前插，与最新一条相同则不重复），供输入框 ↑↓ 切换
@@ -266,9 +280,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
     case 'input:processing': {
       snap.predictedInput = undefined;
       const inputId = data?.inputId;
-      const attachments = Array.isArray(data?.attachments)
-        ? data.attachments.map((a: any) => ({ media_type: a.media_type, dataUrl: a.data ? `data:${a.media_type};base64,${a.data}` : undefined }))
-        : undefined;
+      const attachments = toAttachmentMetas(data?.attachments);
       const src = data?.source && data.source !== 'user' ? { source: data.source } : {};
       const idx = snap.blocks.findIndex(b => b.kind === 'user' && b.inputId === inputId);
       const cur = idx >= 0 ? snap.blocks[idx] as Extract<Block, { kind: 'user' }> : undefined;
@@ -284,7 +296,8 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       } else {
         const hit = updateBlock(snap, b => b.kind === 'user' && b.inputId === inputId, b => ({ ...b, queued: false, ...src, ...(attachments?.length ? { attachments } : {}) } as Block));
         if (!hit) {
-          pushBlock(snap, { kind: 'user', id: `user:${inputId || seq}`, ts: now, inputId, text: data?.originalInput || data?.input || '', attachments, ...src });
+          const pastes = parsePasteInput(String(data?.input ?? ''));
+          pushBlock(snap, { kind: 'user', id: `user:${inputId || seq}`, ts: now, inputId, text: data?.originalInput ?? data?.input ?? '', attachments, ...(pastes ? { pastes } : {}), ...src });
         }
         // 新一轮：上一轮若未收尾（异常路径）先落文件卡片
         if (snap.turn && Object.keys(snap.turn.files).length) finishTurn(snap, seq);

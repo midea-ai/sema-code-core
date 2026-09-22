@@ -9,6 +9,7 @@ import { wsClient } from '../../api/ws';
 import { cn } from '../../common/ui';
 import { t } from '../../i18n';
 import type { CommandsInfo, FileSearchItem, SlashItem } from '../../../../shared/types';
+import { SkillLabel, skillDisplayOf, skillDisplayOrder } from './skillDisplay';
 
 // ==================== 触发判定 ====================
 
@@ -105,7 +106,9 @@ export function useCommands(scope: PickerScope, active: boolean): { items: Slash
         : wsClient.request<CommandsInfo>('core.getCommandsInfo', undefined, {});
     req.then(info => {
       const custom = (info.commands || []).filter(c => !BUILTIN_COMMANDS.some(b => b.name === c.name));
-      const all = [...BUILTIN_COMMANDS, ...custom, ...(info.skills || []), ...(info.agents || [])];
+      // 扁平顺序须与面板分组顺序（CATEGORY_ORDER）一致，键盘 ↑↓ 才与视觉一致；有显示映射的技能按 SKILL_DISPLAY 顺序排在技能组最前
+      const skills = [...(info.skills || [])].sort((a, b) => skillDisplayOrder(a.name) - skillDisplayOrder(b.name));
+      const all = [...skills, ...(info.agents || []), ...BUILTIN_COMMANDS, ...custom];
       commandsCache.set(key, all);
       if (alive) setItems(all);
     }).catch(() => undefined).finally(() => { if (alive) setLoading(false); });
@@ -115,14 +118,19 @@ export function useCommands(scope: PickerScope, active: boolean): { items: Slash
   return { items, loading };
 }
 
-/** 过滤排序（对齐插件）：名前缀 > 描述前缀 > 名包含 > 描述包含；同档：完全匹配 > 名更短 > 原顺序 */
+/** 有显示映射的 skill：面板上用「图标 + 名字 + 短描述」代替斜杠名与 frontmatter 描述 */
+const displayOf = (item: SlashItem) => item.category === 'skill' ? skillDisplayOf(item.name) : undefined;
+
+/** 过滤排序（对齐插件）：名前缀 > 描述前缀 > 名包含 > 描述包含；同档：完全匹配 > 名更短 > 原顺序。有显示映射的技能，显示名/短描述也参与匹配 */
 export function filterSlash(items: SlashItem[], query: string): SlashItem[] {
   if (!query) return items;
   const q = query.toLowerCase();
   const ranked: { item: SlashItem; idx: number; rank: number }[] = [];
   items.forEach((item, idx) => {
-    const name = item.name.toLowerCase(), desc = (item.description || '').toLowerCase();
-    const rank = name.startsWith(q) ? 0 : desc.startsWith(q) ? 1 : name.includes(q) ? 2 : desc.includes(q) ? 3 : -1;
+    const names = [item.name.toLowerCase()], descs = [(item.description || '').toLowerCase()];
+    const d = displayOf(item);
+    if (d) { names.push(d.name.toLowerCase()); descs.push(d.desc.toLowerCase()); }
+    const rank = names.some(n => n.startsWith(q)) ? 0 : descs.some(s => s.startsWith(q)) ? 1 : names.some(n => n.includes(q)) ? 2 : descs.some(s => s.includes(q)) ? 3 : -1;
     if (rank >= 0) ranked.push({ item, idx, rank });
   });
   return ranked.sort((a, b) => {
@@ -179,7 +187,7 @@ export function FilePicker({ items, loading, selected, noScope, onSelect, onHove
   );
 }
 
-const CATEGORY_ORDER: SlashItem['category'][] = ['command', 'skill', 'agent'];
+const CATEGORY_ORDER: SlashItem['category'][] = ['skill', 'agent', 'command'];
 
 export function CommandPanel({ items, loading, selected, onSelect, onHover }: {
   items: SlashItem[]; loading: boolean; selected: number;
@@ -200,16 +208,22 @@ export function CommandPanel({ items, loading, selected, onSelect, onHover }: {
           <div key={g.cat}>
             {gi > 0 && <div className="my-1 border-t border-border" />}
             <div className="px-3 pt-1 pb-0.5 text-[11px] text-muted/80 uppercase tracking-wide">{t(`chat.commands.${g.cat}` as any)}</div>
-            {g.entries.map(({ item, i }) => (
-              <div key={`${item.category}:${item.name}`} data-selected={i === selected}
-                onMouseDown={e => { e.preventDefault(); onSelect(item); }} onMouseEnter={() => onHover(i)}
-                className={cn('flex items-baseline gap-2 px-3 py-1.5 cursor-pointer', i === selected ? 'bg-black/[0.06]' : 'hover:bg-black/[0.04]')}>
-                <span className="text-muted">/</span>
-                <span className="shrink-0 font-medium">{item.name}</span>
-                {item.argumentHint && <span className="text-xs text-muted/70 shrink-0">{item.argumentHint}</span>}
-                <span className="ml-auto pl-3 text-xs text-muted truncate">{item.description}</span>
-              </div>
-            ))}
+            {g.entries.map(({ item, i }) => {
+              const d = displayOf(item);
+              return (
+                <div key={`${item.category}:${item.name}`} data-selected={i === selected}
+                  onMouseDown={e => { e.preventDefault(); onSelect(item); }} onMouseEnter={() => onHover(i)}
+                  className={cn('flex items-center gap-2 px-3 py-1.5 cursor-pointer text-[13px]', i === selected ? 'bg-black/[0.06]' : 'hover:bg-black/[0.04]')}>
+                  {d ? <SkillLabel display={d} size={14} className="shrink-0" /> : <>
+                    <span className="text-muted">/</span>
+                    <span className="shrink-0 font-medium">{item.name}</span>
+                  </>}
+                  {item.argumentHint && <span className="text-xs text-muted/70 shrink-0">{item.argumentHint}</span>}
+                  {/* 描述紧跟名字，淡色；放不下时截断 */}
+                  <span className="text-muted/70 truncate">{d ? d.desc : item.description}</span>
+                </div>
+              );
+            })}
           </div>
         ))}
       </div>

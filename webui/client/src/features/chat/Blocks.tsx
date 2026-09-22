@@ -2,6 +2,7 @@ import React, { memo, useState, useMemo, useRef, useLayoutEffect, useEffect } fr
 import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Brain, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch, Images } from 'lucide-react';
 import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, TodosBlock, CronBlock, BranchOriginBlock } from '../../../../shared/types';
 import { CRON_TOOLS } from '../../../../shared/protocol';
+import { isAttachmentPath } from '../../../../shared/viz';
 import { Markdown } from './Markdown';
 import { DiffView, CodeView, Collapsible } from './DiffView';
 import { PickCard } from './PickCard';
@@ -9,6 +10,10 @@ import { AgentCard } from './AgentCard';
 import { PlanExitCard, PlanImplementCard } from './PlanCards';
 import { ImageThumb } from './ImagePreview';
 import { ArtifactRow } from './OfficeCard';
+import { SkillLabel, matchSkillPrefix } from './skillDisplay';
+import { FileRefChip, refPaths, refStatPath, splitFileRefs } from './fileRefDisplay';
+import { usePathStats } from './fileRefs';
+import { PastePill } from './pasteAttachment';
 import { Button, cn, Spinner, useCopy } from '../../common/ui';
 import { api, getToken } from '../../api/http';
 import { contentToString, toolDisplayName, stripAnsi, fmtTime, displayPath } from '../../common/text';
@@ -89,6 +94,16 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
     return () => ro.disconnect();
   }, [block.text]);
   const collapsed = overflowing && !expanded;
+  const skill = matchSkillPrefix(block.text || '');
+  const openFileRef = useApp(s => s.openFileRef);
+  // @ 文件引用经服务端 stat 确认存在后显示为「文件图标 + 文件名」芯片（与输入框一致），点击在右栏打开；不存在的保持原文；复制/回退仍用 block.text 原文
+  const refKeys = useMemo(() => refPaths(block.text || ''), [block.text]);
+  const stat = usePathStats(ctx.sessionId, refKeys, true);
+  const body = splitFileRefs(skill ? skill.rest : block.text || '').map((s, i) => {
+    if (s.type === 'text') return s.text;
+    const st = stat(refStatPath(s.path));
+    return st?.exists ? <FileRefChip key={i} seg={{ ...s, isDirectory: st.isDir }} onOpen={sg => openFileRef(ctx.sessionId, sg.path, sg.line, sg.endLine)} /> : s.raw;
+  });
   // 展开后的长消息不吸顶：吸顶块比视口还高会把整段回复盖住（回复只能从底下滚过）
   const sticky = !(overflowing && expanded);
   return (
@@ -106,17 +121,23 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
               : <div key={i} className="h-10 px-2 rounded-md border border-border text-xs text-muted flex items-center">{t('common.image')}</div>)}
           </div>
         )}
-        <div className={cn('rounded-2xl px-4 py-2 bg-panel', block.queued && 'opacity-60')}>
-          <div ref={textRef} className={cn('whitespace-pre-wrap break-words', collapsed && 'overflow-hidden [mask-image:linear-gradient(to_bottom,#000_70%,transparent)]')} style={collapsed ? { maxHeight: USER_COLLAPSED_MAX } : undefined}>
-            {block.text}
-            {block.queued && <span className="ml-2 text-xs text-muted">{t('chat.queued')}</span>}
+        {/* 粘贴块各占一行胶囊，点击在右栏打开转存文件（预览留在消息文本里，文件被退场清理后由右栏报文件不存在） */}
+        {block.pastes?.map(p => <PastePill key={p.path} preview={p.preview} onOpen={() => openFileRef(ctx.sessionId, p.path)} />)}
+        {/* 纯图片 / 纯粘贴附件输入（无文字、非排队）不渲染文字气泡，避免出现空块；排队时只显示「排队中」标签 */}
+        {(block.text || block.queued) && (
+          <div className={cn('rounded-2xl px-4 py-2 bg-panel', block.queued && 'opacity-60')}>
+            <div ref={textRef} className={cn('whitespace-pre-wrap break-words', collapsed && 'overflow-hidden [mask-image:linear-gradient(to_bottom,#000_70%,transparent)]')} style={collapsed ? { maxHeight: USER_COLLAPSED_MAX } : undefined}>
+              {/* 以映射技能开头的消息：`/<技能名>` 显示为图标 + 名字（排队中的气泡同样处理），复制仍是原文 */}
+              {skill && <SkillLabel display={skill.display} className="mr-1.5" />}{body}
+              {block.queued && <span className="ml-2 text-xs text-muted">{t('chat.queued')}</span>}
+            </div>
+            {overflowing && (
+              <button onClick={() => setExpanded(v => !v)} className="mt-1 text-xs text-muted hover:text-fg">
+                {expanded ? t('chat.collapse') : t('chat.expand')}
+              </button>
+            )}
           </div>
-          {overflowing && (
-            <button onClick={() => setExpanded(v => !v)} className="mt-1 text-xs text-muted hover:text-fg">
-              {expanded ? t('chat.collapse') : t('chat.expand')}
-            </button>
-          )}
-        </div>
+        )}
         <UserBubbleBar block={block} ctx={ctx} />
       </div>
     </div>
@@ -640,7 +661,9 @@ function CronCard({ block, ctx }: { block: CronBlock; ctx: BlockCtx }) {
 function FileChangesCard({ block, ctx }: { block: FileChangesBlock; ctx: BlockCtx }) {
   const PREVIEW = 3;
   const [showAll, setShowAll] = useState(false);
-  const files = block.files;
+  // attachments/<uuid>/ 下的文件（可视化产物等）是宿主自己的落盘目录，不算「编辑了项目文件」，卡片里不列；全是这类则整卡不出
+  const files = block.files.filter(f => !isAttachmentPath(f.path));
+  if (!files.length) return null;
   const total = files.reduce((acc, f) => ({ a: acc.a + f.additions, r: acc.r + f.removals }), { a: 0, r: 0 });
   const shown = showAll ? files : files.slice(0, PREVIEW);
   const rest = files.length - PREVIEW;

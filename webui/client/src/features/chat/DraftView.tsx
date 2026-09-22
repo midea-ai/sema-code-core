@@ -20,7 +20,7 @@ export function DraftView({ projectId }: { projectId?: string }) {
   const isDesign = useSessions(s => s.draftAgentMode) === 'Design';
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className={cn('h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
+      <div className={cn('app-drag h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
         <span className="font-medium">{t('sidebar.newSession')}</span>
         {project && <span className="text-xs text-muted truncate hidden md:inline" title={project.workingDir}>{project.workingDir}</span>}
       </div>

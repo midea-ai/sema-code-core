@@ -84,8 +84,8 @@ export function RightPanel({ sessionId, width }: { sessionId: string; width: num
 
   return (
     <div style={{ width, maxWidth: '70%' }} className="shrink-0 border-l border-border flex flex-col bg-white">
-      {/* 标签栏：可拖动换位、关闭；过多时横向滚动；高度与中间聊天头部（h-11）一致 */}
-      <div className="h-11 shrink-0 flex items-center gap-1 px-1.5">
+      {/* 标签栏：可拖动换位、关闭；过多时横向滚动；高度与中间聊天头部（h-11）一致；空白处是桌面版窗口拖动区 */}
+      <div className="app-drag h-11 shrink-0 flex items-center gap-1 px-1.5">
         <div ref={stripRef} onWheel={e => { if (e.deltaY && stripRef.current) stripRef.current.scrollLeft += e.deltaY; }}
           className="flex-1 min-w-0 h-full flex items-center gap-0.5 overflow-x-auto scrollbar-none"
           onDragOver={e => { if (dragId) { e.preventDefault(); setDropIdx(panel.tabs.length); } }}

@@ -2,9 +2,11 @@
 @import "highlight.js/styles/github.css";
 @import "katex/dist/katex.min.css";
 
-/* 桌面版隐藏标题栏后的窗口拖动区；按钮等可点元素要标 no-drag，否则点击被拖动吞掉 */
+/* 桌面版隐藏标题栏后的窗口拖动区；按钮等可点元素要标 no-drag，否则点击被拖动吞掉。
+   拖动区内的可点元素自动 no-drag；[draggable] 是让右栏标签页的 HTML5 拖动换位不被窗口拖动抢走 */
 .app-drag { -webkit-app-region: drag; }
-.app-no-drag { -webkit-app-region: no-drag; }
+.app-no-drag,
+.app-drag :is(button, a, input, select, textarea, [draggable], [role="button"]) { -webkit-app-region: no-drag; }
 
 @theme {
   --color-bg: #ffffff;
@@ -16,8 +18,9 @@
   --color-muted: #737373;
   --color-dim: #a3a3a3;
   --color-primary: #171717;
-  --color-accent: #0a7cff;
-  --color-accent-2: #0a7cff;
+  /* 统一高亮蓝：链接、文件引用芯片、选中态、焦点环都用这一个 */
+  --color-accent: #2e83d2;
+  --color-accent-2: #2e83d2;
   --color-danger: #d1242f;
   --color-warn: #9a6700;
   --color-ok: #1a7f37;
@@ -55,15 +58,17 @@ textarea, input, select { outline: none; }
 .md pre { background: var(--color-code); border: 1px solid var(--color-border); border-radius: 8px; padding: .75em 1em; overflow-x: auto; margin: .6em 0; }
 .md pre code { background: transparent; padding: 0; font-size: .85em; }
 .md pre code.hljs { background: transparent; padding: 0; }
-.md .md-link { display: inline-flex; align-items: center; gap: .25em; vertical-align: baseline; text-decoration: none; }
+/* 带图标的行内链接/文件引用：链接保持普通行内元素让文字落在基线上，只把图标下沉一点与文字视觉居中
+   （之前用 inline-flex 时容器基线取自没有文字的图标底边，整块会偏高） */
+.md .md-link { text-decoration: none; }
 .md .md-link:hover { text-decoration: underline; text-underline-offset: 2px; }
-.md .md-link-icon { width: 13px; height: 13px; flex: none; border-radius: 2px; }
-.md .md-file { display: inline-flex; align-items: center; gap: .3em; cursor: pointer; color: var(--color-accent); text-decoration: none; vertical-align: baseline; }
+.md .md-link-icon { display: inline-block; width: 13px; height: 13px; vertical-align: -0.15em; margin-right: .25em; border-radius: 2px; }
+.md .md-file { cursor: pointer; color: var(--color-accent); text-decoration: none; }
 .md .md-file:hover { text-decoration: underline; text-underline-offset: 2px; }
 .md .md-file-code { color: var(--color-fg); background: #0000000d; }
 .md .md-file-code:hover { color: var(--color-accent); text-decoration: none; }
 .md .md-url-code { background: #0000000d; }
-.md .md-file-icon { flex: none; }
+.md .md-file-icon { vertical-align: -0.15em; margin-right: .3em; }
 .md .md-local-img { max-height: 360px; border: 1px solid var(--color-border); }
 .md .md-code { position: relative; }
 .md .md-code pre { margin: .6em 0; }
@@ -209,6 +214,11 @@ textarea, input, select { outline: none; }
 
 /* 用户气泡在本轮内吸顶（TurnGroup 外层 div 为包含块），被下一轮用户输入顶替 */
 /* 负外边距 + 等量内边距：背景延伸到消息流容器的 px-4 内边距里，否则两位数以上的列表序号（"10."）会向左溢出内容区、从吸顶背景旁边露出来 */
+/* 输入框编辑器（contentEditable）：pre-wrap 保留换行与连续空格；空文本时用 ::before 画占位符（容器里常驻一个 <br>，:empty 不可用） */
+.ref-editor { white-space: pre-wrap; overflow-wrap: anywhere; caret-color: var(--color-fg); }
+.ref-editor[data-empty]::before { content: attr(data-placeholder); position: absolute; pointer-events: none; color: var(--color-muted); opacity: .6; }
+.ref-editor[aria-disabled='true'] { cursor: default; }
+
 .user-sticky { position: sticky; top: 0; z-index: 10; background: var(--color-bg); margin-left: -1rem; margin-right: -1rem; padding-left: 1rem; padding-right: 1rem; }
 /* 吸顶底部渐变淡出：内容滚到下方时柔和过渡，而非被硬边切断 */
 .user-sticky::after { content: ''; position: absolute; left: 0; right: 0; bottom: -10px; height: 10px; background: linear-gradient(to bottom, var(--color-bg), transparent); pointer-events: none; }

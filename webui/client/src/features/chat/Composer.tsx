@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
 import { useApp } from '../../store/app';
-import { useSessions } from '../../store/sessions';
+import { useSessions, emptyDraft, type DraftPaste } from '../../store/sessions';
 import { pendingBlocks } from '../../../../shared/transcript';
+import { buildPasteInput } from '../../../../shared/paste';
 import { wsClient } from '../../api/ws';
 import { api } from '../../api/http';
 import { Dropdown, cn } from '../../common/ui';
@@ -12,6 +13,11 @@ import { PERMISSION_LEVELS, normalizeLevel } from '../../../../shared/types';
 import type { AgentMode, PermissionLevel, FileSearchItem, SlashItem } from '../../../../shared/types';
 import { CommandPanel, FilePicker, filterSlash, findAtTrigger, findSlashTrigger, formatFileRef, useCommands, useFileSearch, type PickerTrigger } from './InputPickers';
 import { ImageThumb } from './ImagePreview';
+import { SkillLabel, matchSkillPrefix } from './skillDisplay';
+import { RefEditor, type EditorSegment, type RefEditorHandle } from './RefEditor';
+import { FileRefChip, refPaths, refStatPath, splitFileRefs, type RefSegment } from './fileRefDisplay';
+import { primeStat, usePathStats } from './fileRefs';
+import { PasteChip, PASTE_CHIP_HEIGHT, PASTE_SAVE_FAILED, isLongPaste, makePastePreview } from './pasteAttachment';
 
 const MODES: AgentMode[] = ['Agent', 'Plan', 'Design'];
 const LEVELS = PERMISSION_LEVELS;
@@ -36,7 +42,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const isDraft = !sessionId;
   const draftKey = sessionId || DRAFT_KEY;
   const snap = useSessions(s => sessionId ? s.snapshots[sessionId] : undefined);
-  const draft = useSessions(s => s.drafts[draftKey]) || { text: '', images: [] };
+  const draft = useSessions(s => s.drafts[draftKey]) || emptyDraft();
   const setDraft = useSessions(s => s.setDraft);
   const send = useSessions(s => s.send);
   const interrupt = useSessions(s => s.interrupt);
@@ -46,7 +52,8 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const setView = useApp(s => s.setView);
   const toast = useApp(s => s.toast);
   const wsStatus = useApp(s => s.wsStatus);
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  const openFileRef = useApp(s => s.openFileRef);
+  const taRef = useRef<RefEditorHandle>(null);
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   // 草稿模式下模式/档位先记着，创建会话后再下发；模式提在 store 里，DraftView 据此切换 Design 版新会话样式
@@ -80,6 +87,26 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
     if (!isDraft || !projectId || wsStatus !== 'open') return;
     wsClient.request('project.warm', undefined, { projectId }).catch(() => undefined);
   }, [isDraft, projectId, wsStatus]);
+  // 编辑器分段：开头的 `/<映射技能> ` 显示为「图标 + 名字」标签，`@路径 ` 经服务端 stat 确认存在后显示为「文件图标 + 文件名」芯片，
+  // 不存在的引用保持原文；draft.text 与发送内容始终是完整文本，所有光标/触发判定都按完整文本算，编辑器内部负责标签与全文坐标的换算。
+  // 芯片点击在右栏打开文件；草稿页没有右栏，芯片只显示不响应
+  const scopeId = sessionId || projectId;
+  const refKeys = useMemo(() => refPaths(draft.text, false), [draft.text]);
+  const stat = usePathStats(scopeId, refKeys, true);
+  const openRef = useCallback((seg: RefSegment) => { if (sessionId) openFileRef(sessionId, seg.path, seg.line, seg.endLine); }, [sessionId, openFileRef]);
+  const parse = useCallback((text: string): EditorSegment[] => {
+    const segs: EditorSegment[] = [];
+    let body = text;
+    const sk = matchSkillPrefix(text, true);
+    if (sk) { segs.push({ type: 'token', raw: `/${sk.name}`, node: <SkillLabel display={sk.display} /> }); body = text.slice(sk.name.length + 1); }
+    for (const s of splitFileRefs(body, false)) {
+      if (s.type === 'text') { segs.push(s); continue; }
+      const st = stat(refStatPath(s.path));
+      if (!st?.exists) { segs.push({ type: 'text', text: s.raw }); continue; }
+      segs.push({ type: 'token', raw: s.raw, node: <FileRefChip seg={{ ...s, isDirectory: st.isDir }} onOpen={sessionId ? openRef : undefined} /> });
+    }
+    return segs;
+  }, [sessionId, openRef, stat]);
   const scope = { sessionId, projectId };
   const fileSearch = useFileSearch(scope, trigger?.kind === 'file' && (sessionId || projectId) ? trigger.query : null);
   const cmds = useCommands(scope, trigger?.kind === 'cmd');
@@ -88,7 +115,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const processing = snap?.state === 'processing';
   const pending = snap ? pendingBlocks(snap).length : 0;
   // 输入预测 ghost：仅空输入且会话空闲时展示，用户开始输入即自然消失（input:predict 事件写入快照）
-  const ghost = (!processing && draft.text === '' && draft.images.length === 0 && snap?.predictedInput) || undefined;
+  const ghost = (!processing && draft.text === '' && draft.images.length === 0 && draft.pastes.length === 0 && snap?.predictedInput) || undefined;
   const hasModel = !!modelData?.modelList?.length;
   const disabled = (isDraft ? false : !snap || pending > 0) || wsStatus !== 'open';
   const agentMode = isDraft ? draftMode : (snap?.agentMode || 'Agent');
@@ -107,20 +134,13 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   };
   const changeLevel = (l: PermissionLevel) => { if (isDraft) setDraftLevel(l); else setPermissionLevel(sessionId!, l).catch(e => toast(e.message, 'error')); };
 
-  // 自动高度
-  useEffect(() => {
-    const el = taRef.current; if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 240) + 'px';
-  }, [draft.text]);
-
   useEffect(() => { taRef.current?.focus(); histIdx.current = null; }, [draftKey]);
 
-  // 补全后把光标放到指定位置（文本更新在下一次渲染才落到 DOM）
+  // 补全后把光标放到指定位置（文本更新在下一次渲染才落到 DOM；编辑器的重建在 layout effect 里，先于这里执行）
   useEffect(() => {
     if (pendingCaret.current === null) return;
-    const el = taRef.current; const pos = pendingCaret.current; pendingCaret.current = null;
-    if (el) { el.focus(); el.setSelectionRange(pos, pos); }
+    const pos = Math.max(0, pendingCaret.current); pendingCaret.current = null;
+    taRef.current?.setCaret(pos);
   }, [draft.text]);
 
   /** 按当前文本与光标重新判定弹层（onChange / 光标移动 / 点击时调用） */
@@ -131,7 +151,13 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const triggerKey = trigger ? `${trigger.kind}:${trigger.kind === 'file' ? trigger.start : ''}:${trigger.query}` : '';
   useEffect(() => { setSelIdx(0); }, [triggerKey]);
   const closePicker = () => setTrigger(null);
-  const syncCaret = () => { const el = taRef.current; if (el) updateTrigger(el.value, el.selectionStart ?? el.value.length); };
+  const syncCaret = () => { const el = taRef.current; if (el) updateTrigger(draft.text, el.getCaret()); };
+  /** 编辑器上报的就是完整文本与完整坐标 */
+  const onChange = (text: string, caret: number) => {
+    histIdx.current = null;
+    setDraft(draftKey, d => ({ ...d, text }));
+    updateTrigger(text, caret);
+  };
 
   const replaceRange = (start: number, end: number, insert: string) => {
     const text = draft.text.slice(0, start) + insert + draft.text.slice(end);
@@ -143,6 +169,8 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
     if (trigger?.kind !== 'file') return;
     const after = draft.text.slice(trigger.end);
     const needSpace = !after || !/^[\s]/.test(after);
+    // 选择器给出的路径必然存在：预写 stat 缓存，补全后立即显示为芯片
+    if (scopeId) primeStat(scopeId, refStatPath(f.path), { exists: true, isDir: f.isDirectory, inside: true, image: false });
     replaceRange(trigger.start, trigger.end, formatFileRef(f.path) + (needSpace ? ' ' : ''));
   };
   const pickCommand = (c: SlashItem) => {
@@ -165,15 +193,42 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
     }
   }, [draftKey, setDraft, toast]);
 
+  /** 在光标处插入文本（无光标信息时追加到末尾） */
+  const insertAtCaret = (insert: string) => {
+    const caret = taRef.current?.getCaret() ?? draft.text.length;
+    replaceRange(caret, caret, insert);
+  };
+
   const onPaste = (e: React.ClipboardEvent) => {
     const files = Array.from(e.clipboardData.files || []);
-    if (files.length) { e.preventDefault(); addFiles(files); }
+    if (files.length) { e.preventDefault(); addFiles(files); return; }
+    // 超长文本粘贴那一刻就落盘为附件文件（与会话无关，草稿页也可用），输入框显示为粘贴芯片；转存失败退回原样粘贴
+    const text = e.clipboardData.getData('text/plain');
+    if (!text || !isLongPaste(text)) return;
+    e.preventDefault();
+    api<{ path: string }>('POST', '/api/attachments/paste', { text })
+      .then(r => setDraft(draftKey, d => ({ ...d, pastes: [...d.pastes, { path: r.path, preview: makePastePreview(text), text }] })))
+      .catch(() => { toast(PASTE_SAVE_FAILED, 'warn'); insertAtCaret(text); });
+  };
+  /** 删芯片：删掉服务端的 uuid 目录并从草稿移除（删除失败不阻塞 UI） */
+  const removePaste = (p: DraftPaste) => {
+    setDraft(draftKey, d => ({ ...d, pastes: d.pastes.filter(x => x.path !== p.path) }));
+    api('POST', '/api/attachments/remove', { path: p.path }).catch(() => undefined);
+  };
+  /** 「在文本框中显示」：把粘贴内容展开回光标处，再删掉文件与芯片 */
+  const showPasteInInput = (p: DraftPaste) => {
+    insertAtCaret(p.text);
+    removePaste(p);
   };
 
   const doSend = async (override?: string) => {
-    const text = (override ?? draft.text).trim();
+    const body = (override ?? draft.text).trim();
     const images = override ? [] : draft.images; // 面板直发的内置命令（/clear /compact）不带图片
-    if ((!text && images.length === 0) || disabled || sending) return;
+    const pastes = override ? [] : draft.pastes;
+    if ((!body && images.length === 0 && pastes.length === 0) || disabled || sending) return;
+    // 有粘贴附件：模型收到的 input 按模板把粘贴文件以 @路径 引用；originalInput 传用户实际打的正文（没打字就是空串，不是不传）
+    const text = pastes.length ? buildPasteInput(pastes, body) : body;
+    const originalInput = pastes.length ? body : undefined;
     setTrigger(null);
     histIdx.current = null;
     if (!hasModel) { toast(t('chat.noModel'), 'warn'); setView({ type: 'settings', tab: 'models' }); return; }
@@ -185,12 +240,12 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
         const sessions = useSessions.getState();
         if (draftMode !== 'Agent') await sessions.setAgentMode(rec.id, draftMode);
         if (draftLevel !== defaultLevel) await sessions.setPermissionLevel(rec.id, draftLevel);
-        await sessions.send(rec.id, text, images);
-        sessions.setDraft(DRAFT_KEY, () => ({ text: '', images: [] }));
+        await sessions.send(rec.id, text, images, originalInput);
+        sessions.setDraft(DRAFT_KEY, () => emptyDraft());
         sessions.setDraftAgentMode('Agent');
         setView({ type: 'chat', sessionId: rec.id });
       } else {
-        await send(sessionId!, text, images);
+        await send(sessionId!, text, images, originalInput);
       }
     } catch (e: any) { toast(e.message, 'error'); } finally { setSending(false); }
     taRef.current?.focus();
@@ -201,7 +256,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const historyNav = (key: string): boolean => {
     const list = snap ? snap.inputHistory : draftHistory;
     if (!list?.length) return false;
-    const caret = taRef.current?.selectionStart ?? draft.text.length;
+    const caret = taRef.current?.getCaret() ?? draft.text.length;
     const apply = (text: string) => { pendingCaret.current = text.length; setDraft(draftKey, d => ({ ...d, text })); };
     if (key === 'ArrowUp') {
       if (draft.text.slice(0, caret).includes('\n')) return false;
@@ -249,7 +304,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
       }
     }
     if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && historyNav(e.key)) { e.preventDefault(); histConsumed.current = true; return; }
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } // Shift+Enter 由编辑器插入换行
     if (e.key === 'Escape' && processing && sessionId) interrupt(sessionId).catch(() => undefined);
   };
   // 方向键/Home/End 等移动光标后重新判定（keydown 时光标还没动）
@@ -280,11 +335,15 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
           onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
           onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
           className={cn('relative rounded-xl border bg-white transition-[border-color,box-shadow] focus-within:border-accent/60 focus-within:ring-1 focus-within:ring-accent/25', dragOver ? 'border-accent' : 'border-border')}>
-          {draft.images.length > 0 && (
-            <div className="flex gap-2 px-3.5 pt-3 flex-wrap">
+          {(draft.images.length > 0 || draft.pastes.length > 0) && (
+            <div className="flex gap-2 px-3.5 pt-3 flex-wrap items-start">
+              {/* 只有图片时保持原大小；同排有粘贴芯片时缩到与芯片等高 */}
               {draft.images.map((img, i) => (
-                <ImageThumb key={i} src={img.dataUrl} className="h-20 w-20"
+                <ImageThumb key={i} src={img.dataUrl} className={draft.pastes.length ? cn(PASTE_CHIP_HEIGHT, 'w-16') : 'h-20 w-20'}
                   onDelete={() => setDraft(draftKey, d => ({ ...d, images: d.images.filter((_, j) => j !== i) }))} />
+              ))}
+              {draft.pastes.map(p => (
+                <PasteChip key={p.path} preview={p.preview} onDelete={() => removePaste(p)} onShowInInput={() => showPasteInInput(p)} />
               ))}
             </div>
           )}
@@ -301,10 +360,10 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
               <span className="ml-2 text-[10px] leading-none px-1 py-0.5 rounded bg-black/[0.06] text-muted/70 align-middle whitespace-nowrap">{t('chat.predictAccept')}</span>
             </div>
           )}
-          <textarea ref={taRef} rows={1} value={draft.text} disabled={disabled}
-            onChange={e => { histIdx.current = null; setDraft(draftKey, d => ({ ...d, text: e.target.value })); updateTrigger(e.target.value, e.target.selectionStart ?? e.target.value.length); }}
+          <RefEditor ref={taRef} value={draft.text} parse={parse} disabled={disabled}
+            onChange={onChange}
             onKeyDown={onKeyDown} onKeyUp={onKeyUp} onClick={syncCaret} onBlur={closePicker} onPaste={onPaste} placeholder={ghost ? '' : t('chat.placeholder')}
-            className="w-full bg-transparent resize-none px-3.5 pt-3.5 pb-1.5 text-sm leading-[22px] min-h-[52px] placeholder:text-muted/60 max-h-60" />
+            className="w-full px-3.5 pt-3.5 pb-1.5 text-sm leading-[22px] min-h-[52px] max-h-60 overflow-auto" />
           {/* 底栏：左侧裸按钮 28px 等高，右侧用量 + 32px 发送键，全部垂直居中 */}
           <div className="h-11 flex items-center gap-0.5 pl-2 pr-2">
             <Dropdown value={agentMode} title={t('chat.mode')} options={MODES.map(m => ({
@@ -336,7 +395,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
               <button onClick={() => interrupt(sessionId!).catch(e => toast(e.message, 'error'))} title={t('chat.stop')}
                 className="h-8 w-8 rounded-full bg-primary hover:bg-black text-white flex items-center justify-center"><Square size={12} fill="currentColor" /></button>
             ) : (
-              <button onClick={() => doSend()} disabled={disabled || sending || (!draft.text.trim() && !draft.images.length)} title={t('chat.send')}
+              <button onClick={() => doSend()} disabled={disabled || sending || (!draft.text.trim() && !draft.images.length && !draft.pastes.length)} title={t('chat.send')}
                 className="h-8 w-8 rounded-full flex items-center justify-center transition-colors bg-primary hover:bg-black text-white disabled:bg-black/[0.08] disabled:text-muted/60 disabled:cursor-default"><ArrowUp size={16} strokeWidth={2.25} /></button>
             )}
           </div>

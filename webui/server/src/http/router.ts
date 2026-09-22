@@ -9,6 +9,7 @@ import { SessionManager } from '../sessions';
 import { SEMA_DOCS_ROOT, WEBUI_HOME, removeEmptyDateParent } from '../registry/registry';
 import { searchFiles } from '../files/search';
 import { readFileInDir, listDir, resolvePath, statPaths, rawFileInDir } from '../files/read';
+import { savePastedText, removePastedText } from '../files/attachments';
 import { listOpenWithApps, appIconPath } from '../files/apps';
 import { gitDiffList, gitDiffFile, gitRepoCheck } from '../files/gitDiff';
 import { listCatalog, installResource, installDefaultSkills, uninstallResource, listInstalled, toggleInstalled, removeInstalled, updateMcpConfig, updateMcpUseTools, userSkillsRoot, readUserMcp } from './ecosystem';
@@ -275,6 +276,10 @@ export class Router {
       if (!rel) throw new Error('缺少 path');
       await revealInFileManager(resolvePath(rec.workingDir, rel).abs); return true;
     });
+
+    // ---- 超长粘贴转附件：落盘（含退场）/ 删除；与会话无关，草稿页也可用 ----
+    this.add('POST', '/api/attachments/paste', async (_r, _s, _p, body) => savePastedText(String(body?.text ?? '')));
+    this.add('POST', '/api/attachments/remove', async (_r, _s, _p, body) => { removePastedText(String(body?.path || '')); return true; });
 
     // ---- 文件查看：读取文件（相对路径限定会话目录内，绝对路径只读放行）/ 列目录 / 批量 stat / 原始字节 ----
     this.add('POST', '/api/sessions/:id/file', async (_r, _s, p, body) => {

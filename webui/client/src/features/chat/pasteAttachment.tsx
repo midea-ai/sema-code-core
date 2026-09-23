@@ -12,6 +12,8 @@ const PASTE_MIN_LINES = 100;
 const PREVIEW_LEN = 80;
 /** 转存接口失败时的提示（极少触发，不进 i18n） */
 export const PASTE_SAVE_FAILED = 'Failed to save pasted text as a file, pasted as-is';
+/** 回退时粘贴转存文件已不存在（被退场清理或删除），无法放回输入框（极少触发，不进 i18n） */
+export const PASTE_RESTORE_MISSING = 'Some pasted files no longer exist and were not restored to the input';
 
 export function isLongPaste(text: string): boolean {
   return text.length >= PASTE_MIN_CHARS || text.split(/\r?\n/).length >= PASTE_MIN_LINES;

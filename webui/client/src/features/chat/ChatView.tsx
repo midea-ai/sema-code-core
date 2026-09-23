@@ -3,7 +3,9 @@ import { FolderOpen, Pencil, ArrowDown, ChevronDown, ChevronRight, Copy, Check, 
 import type { Block } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
 import { useApp } from '../../store/app';
-import { useSessions } from '../../store/sessions';
+import { useSessions, type Draft, type DraftPaste } from '../../store/sessions';
+import { api } from '../../api/http';
+import { PASTE_RESTORE_MISSING } from './pasteAttachment';
 import { BlockRenderer, renderBlockList, htmlFilesOf, HtmlSiteCard, memoryFilesOf, MemoryCard, type BlockCtx } from './Blocks';
 import { ArtifactGroup, OfficeCards } from './OfficeCard';
 import { VizEmbed } from './VizEmbed';
@@ -100,15 +102,30 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const doRewind = async () => {
     if (!rewind) return;
     setRewind({ ...rewind, busy: true });
-    // 截断前先取出被回退的那条用户消息文字，回退成功后放回输入框供修改重发
+    // 截断前先取出被回退的那条用户消息（文字 + 图片 + 长文粘贴），回退成功后整体放回输入框供修改重发
     const src = useSessions.getState().snapshots[sessionId]?.blocks
       .find(b => b.kind === 'user' && b.inputId === rewind.inputId);
     const srcText = src?.kind === 'user' ? src.text : '';
+    // 图片：气泡里的 dataUrl 就是完整 base64，拆回草稿形状；没有 dataUrl 的历史图片无法还原，跳过
+    const srcImages: Draft['images'] = src?.kind === 'user'
+      ? (src.attachments || []).filter(a => a.dataUrl).map(a => ({ dataUrl: a.dataUrl!, media_type: a.media_type, data: a.dataUrl!.split(',')[1] || '' }))
+      : [];
+    // 长文粘贴：转存文件仍在磁盘上，按绝对路径读回正文复用原路径；文件已被退场清理或删除的跳过并提示
+    let pasteMissing = 0;
+    const srcPastes = (await Promise.all((src?.kind === 'user' ? src.pastes || [] : []).map(async (p): Promise<DraftPaste | null> => {
+      try {
+        const r = await api<{ content: string }>('POST', `/api/sessions/${sessionId}/file`, { path: p.path });
+        return { path: p.path, preview: p.preview, text: r.content };
+      } catch { pasteMissing++; return null; }
+    }))).filter((p): p is DraftPaste => !!p);
     try {
       const r = await useSessions.getState().fork(sessionId, rewind.inputId, rewind.restore && !!rewind.preview?.canRestoreFiles);
       if (r && r.ok === false) throw new Error(r.error);
       setRewind(null);
-      if (srcText) useSessions.getState().setDraft(sessionId, d => ({ ...d, text: srcText }));
+      if (srcText || srcImages.length || srcPastes.length) {
+        useSessions.getState().setDraft(sessionId, d => ({ text: srcText || d.text, images: [...d.images, ...srcImages], pastes: [...d.pastes, ...srcPastes] }));
+      }
+      if (pasteMissing) toast(PASTE_RESTORE_MISSING, 'warn');
       await useSessions.getState().loadSnapshot(sessionId);
     } catch (e: any) { toast(e.message, 'error'); setRewind(r => r ? { ...r, busy: false } : r); }
   };

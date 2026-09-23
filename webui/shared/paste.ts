@@ -8,16 +8,16 @@ import type { PasteAttachment } from './types';
 export const PASTE_HEADER = '# Files pasted by the user:';
 export const PASTE_REQUEST = '## My request:';
 
-/** 一行一段粘贴：`## "<预览>": @<绝对路径>`；路径不含空格与标点，裸写不加引号 */
+/** 一行一段粘贴：`## "<预览>": @"<绝对路径>"`；路径一律加引号，用户目录含空格（尤其 Windows）时 core 才能整段识别 */
 export function buildPasteInput(pastes: PasteAttachment[], text: string): string {
   const lines = [PASTE_HEADER, ''];
-  for (const p of pastes) lines.push(`## "${p.preview}": @${p.path}`, '');
+  for (const p of pastes) lines.push(`## "${p.preview}": @"${p.path}"`, '');
   lines.push(PASTE_REQUEST, text);
   return lines.join('\n');
 }
 
-/** 只认 attachments/<uuid>/pasted-text.txt 形状的路径（兼容 Windows 反斜杠），其余行忽略 */
-const PASTE_LINE_RE = /^## "(.*)": @(\S+[\\/]attachments[\\/][^\\/\s]+[\\/]pasted-text\.txt)$/;
+/** 只认 attachments/<uuid>/pasted-text.txt 形状的路径（兼容 Windows 反斜杠）；带引号为现行格式，裸路径兼容旧记录 */
+const PASTE_LINE_RE = /^## "(.*)": @(?:"([^"]*[\\/]attachments[\\/][^\\/"]+[\\/]pasted-text\.txt)"|(\S+[\\/]attachments[\\/][^\\/\s]+[\\/]pasted-text\.txt))$/;
 
 /** 从 input 解析粘贴列表：不是模板格式（无头行或无 `## My request:`）返回 undefined */
 export function parsePasteInput(input: string): PasteAttachment[] | undefined {
@@ -28,7 +28,7 @@ export function parsePasteInput(input: string): PasteAttachment[] | undefined {
   const out: PasteAttachment[] = [];
   for (const line of lines.slice(1, end)) {
     const m = line.match(PASTE_LINE_RE);
-    if (m) out.push({ preview: m[1], path: m[2] });
+    if (m) out.push({ preview: m[1], path: (m[2] ?? m[3])! });
   }
   return out.length ? out : undefined;
 }

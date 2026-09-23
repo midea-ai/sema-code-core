@@ -292,7 +292,9 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
         updateBlock(snap,
           b => (b.kind === 'user' && !b.queued && !b.doneTs) || (b.kind === 'notice' && b.noticeType === 'plan-implement' && !b.doneTs),
           b => ({ ...b, doneTs: now } as Block));
-        pushBlock(snap, { ...cur, ts: now, queued: false, ...src, ...(attachments?.length ? { attachments } : {}) } as Block);
+        // 排队回显的是原始附件，此处以规范化后的为准：全被过滤掉时也要清掉缩略图，气泡只显示模型真正收到的图
+        const { attachments: _raw, ...rest } = cur;
+        pushBlock(snap, { ...rest, ts: now, queued: false, ...src, ...(attachments?.length ? { attachments } : {}) } as Block);
       } else {
         const hit = updateBlock(snap, b => b.kind === 'user' && b.inputId === inputId, b => ({ ...b, queued: false, ...src, ...(attachments?.length ? { attachments } : {}) } as Block));
         if (!hit) {

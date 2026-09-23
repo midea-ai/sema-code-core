@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, RefreshCw, Check, X, Eye, EyeOff } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw, Check, X, Eye, EyeOff } from 'lucide-react';
 import { IconSelect } from '../../common/IconSelect';
 import { useApp } from '../../store/app';
 import { wsClient } from '../../api/ws';
@@ -9,7 +9,7 @@ import ProviderLogo, { parseProviderKey, stripProviderSuffix } from '../../commo
 import { LanguageSelect } from '../../common/LanguageSelect';
 import { t, languageLabel, type I18nKey } from '../../i18n';
 import { collapsedHeaderPad } from '../../common/desktop';
-import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, providerLabel, apiKeyPlaceholder, AdapterType, ThinkingHistoryPolicy } from './providers';
+import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, providerLabel, apiKeyPlaceholder, parseProfileName, AdapterType, ThinkingHistoryPolicy } from './providers';
 import { PERMISSION_LEVELS, DEFAULT_SYSTEM_PROMPT } from '../../../../shared/types';
 import { defaultCustomRules } from '../../../../shared/lang';
 import type { WebUISettings, BrowserControlState } from '../../../../shared/types';
@@ -23,8 +23,8 @@ export function SettingsPage({ tab }: { tab: 'models' | 'system' }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className={cn('app-drag h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
-        <TabBtn active={tab === 'models'} onClick={() => setView({ type: 'settings', tab: 'models' })}>{t('settings.models')}</TabBtn>
         <TabBtn active={tab === 'system'} onClick={() => setView({ type: 'settings', tab: 'system' })}>{t('settings.system')}</TabBtn>
+        <TabBtn active={tab === 'models'} onClick={() => setView({ type: 'settings', tab: 'models' })}>{t('settings.models')}</TabBtn>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-6">
@@ -41,12 +41,26 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 
 // ==================== 模型配置 ====================
 
+/** core 落盘的单个模型完整配置（与 sema-core ModelProfile 同形），编辑时由 core.getModelProfile 回填表单 */
+interface ModelProfile {
+  name: string;
+  provider: string;
+  modelName: string;
+  baseURL?: string;
+  apiKey: string;
+  maxTokens: number;
+  contextLength: number;
+  adapt: AdapterType;
+  thinkingHistoryPolicy?: ThinkingHistoryPolicy;
+}
+
 function ModelsSettings() {
   const modelData = useApp(s => s.modelData);
   const refresh = useApp(s => s.refreshModelData);
   const toast = useApp(s => s.toast);
   const dialog = useDialog();
-  const [adding, setAdding] = useState(false);
+  // 弹窗状态：关闭 / 新增 / 编辑某条 profile
+  const [dialogState, setDialogState] = useState<{ open: false } | { open: true; edit: ModelProfile | null }>({ open: false });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => { refresh().catch(() => undefined); }, [refresh]);
@@ -61,13 +75,24 @@ function ModelsSettings() {
   const taskOf = (name: string) => name === main ? 'main' : name === quick ? 'quick' : '';
   const sorted = [...list].sort((a, b) => ({ main: 0, quick: 1, '': 2 }[taskOf(a)] - { main: 0, quick: 1, '': 2 }[taskOf(b)]));
   const applyTask = (cfg: { main: string; quick: string }) => run(() => wsClient.request('core.applyTaskModel', undefined, { config: cfg }));
+  // 编辑：按 provider（保留原始大小写，parseProviderKey 会转小写）+ modelName 读完整落盘配置后打开弹窗回填
+  const edit = async (fullName: string) => {
+    const { provider, modelName } = parseProfileName(fullName);
+    setBusy(true);
+    try {
+      const profile = await wsClient.request<ModelProfile | null>('core.getModelProfile', undefined, { provider, modelName });
+      if (!profile) throw new Error(t('settings.fetchModelsFailed'));
+      setDialogState({ open: true, edit: profile });
+    } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  const closeDialog = () => setDialogState({ open: false });
 
   return (
     <div className="flex flex-col gap-6">
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-semibold">{t('settings.modelList')}</h2>
-          <Button variant="primary" size="sm" onClick={() => setAdding(true)}><Plus size={14} />{t('settings.addModel')}</Button>
+          <Button variant="primary" size="sm" onClick={() => setDialogState({ open: true, edit: null })}><Plus size={14} />{t('settings.addModel')}</Button>
         </div>
         {!modelData && <div className="text-muted text-sm flex items-center gap-2"><Spinner />{t('common.loading')}</div>}
         {modelData && list.length === 0 && (
@@ -81,7 +106,7 @@ function ModelsSettings() {
                   <th className="text-left font-medium px-4 py-2 w-[32%]">{t('settings.provider.col')}</th>
                   <th className="text-left font-medium px-4 py-2">{t('settings.model.col')}</th>
                   <th className="text-left font-medium px-4 py-2 w-24">{t('settings.task.col')}</th>
-                  <th className="text-right font-medium px-4 py-2 w-16">{t('settings.delete')}</th>
+                  <th className="text-right font-medium px-4 py-2 w-20">{t('settings.actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -97,9 +122,12 @@ function ModelsSettings() {
                         {task === 'quick' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-ok/10 text-ok">{t('settings.quickModel')}</span>}
                       </td>
                       <td className="px-4 py-2.5 text-right">
-                        <button disabled={busy} title={t('settings.delete')} className="p-1 rounded text-muted hover:text-danger hover:bg-danger/10" onClick={async () => {
-                          if (await dialog.confirm({ title: t('settings.delete'), message: t('settings.confirmDeleteModel', { name }), danger: true })) run(() => wsClient.request('core.delModel', undefined, { modelName: name }));
-                        }}><Trash2 size={14} /></button>
+                        <div className="inline-flex items-center gap-1">
+                          <button disabled={busy} title={t('settings.edit')} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.06]" onClick={() => edit(name)}><Pencil size={14} /></button>
+                          <button disabled={busy} title={t('settings.delete')} className="p-1 rounded text-muted hover:text-danger hover:bg-danger/10" onClick={async () => {
+                            if (await dialog.confirm({ title: t('settings.delete'), message: t('settings.confirmDeleteModel', { name }), danger: true })) run(() => wsClient.request('core.delModel', undefined, { modelName: name }));
+                          }}><Trash2 size={14} /></button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -119,7 +147,7 @@ function ModelsSettings() {
           </div>
         </section>
       )}
-      <AddModelDialog open={adding} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); refresh().catch(() => undefined); }} />
+      <AddModelDialog open={dialogState.open} editModel={dialogState.open ? dialogState.edit : null} onClose={closeDialog} onSaved={() => { closeDialog(); refresh().catch(() => undefined); }} />
     </div>
   );
 }
@@ -141,8 +169,10 @@ function TaskRow({ label, desc, value, list, disabled, onChange }: { label: stri
 
 interface FetchedModel { id: string; name?: string; ownedBy?: string; key_doc_url?: string; recommended_max_tokens?: number; max_tokens?: number }
 
-function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+/** 新增 / 编辑模型弹窗：editModel 非空为编辑态，锁定 provider 与模型名（改名等于新增一条），保存走 core.addModel 同名覆盖 */
+function AddModelDialog({ open, editModel, onClose, onSaved }: { open: boolean; editModel: ModelProfile | null; onClose: () => void; onSaved: () => void }) {
   const toast = useApp(s => s.toast);
+  const isEditing = !!editModel;
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
   const [customProviderName, setCustomProviderName] = useState('');  // 打开弹窗时由 onProvider 重置
   const [baseURL, setBaseURL] = useState(PROVIDERS[DEFAULT_PROVIDER].baseURL);
@@ -174,7 +204,21 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setMaxTokens(String(d.defaultMaxTokens ?? DEFAULT_MAX_TOKENS)); setModelMaxTokens(null); setContextLength(String(d.defaultContextLength ?? DEFAULT_CONTEXT_LENGTH));
     setAdapt(d.defaultAdapt || 'openai'); setThinkingHistoryPolicy(d.defaultThinkingHistoryPolicy || 'preserve'); setStatus(null); invalidate();
   };
-  useEffect(() => { if (open) onProvider(DEFAULT_PROVIDER); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!open) return;
+    if (!editModel) { onProvider(DEFAULT_PROVIDER); return; }
+    // 编辑：按落盘配置回填，模型名走手动输入分支（不依赖「获取模型」）
+    const preset = !!PROVIDERS[editModel.provider] && editModel.provider !== 'custom';
+    setProvider(preset ? editModel.provider : 'custom'); setCustomProviderName(preset ? '' : editModel.provider);
+    setBaseURL(editModel.baseURL ?? ''); setApiKey(editModel.apiKey ?? ''); setShowKey(false);
+    setAdapt(editModel.adapt ?? 'openai'); setThinkingHistoryPolicy(editModel.thinkingHistoryPolicy ?? 'preserve');
+    setManual(true); setModelName(editModel.modelName); setSelectedModel(''); setModels([]); setFetchFailed(false);
+    setMaxTokens(String(editModel.maxTokens)); setModelMaxTokens(null); setContextLength(String(editModel.contextLength));
+    setStatus(null); invalidate();
+  }, [open, editModel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** 编辑态只有连接相关字段相对回填值有改动才要求重新测试；只改 token 数不用重测 */
+  const connectionChanged = !editModel || baseURL !== (editModel.baseURL ?? '') || apiKey !== (editModel.apiKey ?? '') || adapt !== (editModel.adapt ?? 'openai');
 
   const applyModel = async (id: string) => {
     setSelectedModel(id); invalidate();
@@ -222,7 +266,7 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const save = async () => {
     if (!apiKey) { setStatus({ type: 'error', text: t('settings.err.apiKey') }); return; }
     if (!currentModel) { setStatus({ type: 'error', text: t('settings.err.needModel') }); return; }
-    if (tested === 'none') { setStatus({ type: 'error', text: t('settings.err.testFirst') }); return; }
+    if (connectionChanged && tested === 'none') { setStatus({ type: 'error', text: t('settings.err.testFirst') }); return; }
     if (tested === 'fail') { setStatus({ type: 'error', text: t('settings.err.testFailed') }); return; }
     const aliasError = provider === 'custom' ? validateCustomProviderName(customProviderName) : null;
     if (aliasError) { setStatus({ type: 'error', text: t('settings.err.providerName', { error: aliasError }) }); return; }
@@ -238,17 +282,17 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const linkCls = 'text-xs text-accent hover:underline cursor-pointer';
 
   return (
-    <Modal open={open} onClose={onClose} title={t('settings.addModel')} width={560}>
+    <Modal open={open} onClose={onClose} title={isEditing ? t('settings.editModel') : t('settings.addModel')} width={560}>
       <div className="flex flex-col gap-4 text-sm">
         <Field label={t('settings.provider')}>
-          <IconSelect value={provider} onChange={onProvider}
+          <IconSelect value={provider} onChange={onProvider} disabled={isEditing}
             options={PROVIDER_ORDER.filter(k => PROVIDERS[k]).map(k => ({ value: k, label: providerLabel(k), icon: <ProviderLogo provider={k} /> }))} />
         </Field>
         {provider === 'custom' && (
           <Field label={t('settings.providerName')}>
-            <input value={customProviderName} onChange={e => { setCustomProviderName(e.target.value.trim()); invalidate(); }}
+            <input value={customProviderName} disabled={isEditing} onChange={e => { setCustomProviderName(e.target.value.trim()); invalidate(); }}
               placeholder={t('settings.providerNamePlaceholder')}
-              className="w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent" />
+              className="w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent disabled:opacity-60" />
             {validateCustomProviderName(customProviderName) && (
               <div className="text-xs text-danger">{validateCustomProviderName(customProviderName)}</div>
             )}
@@ -263,9 +307,9 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
             <button type="button" onClick={() => setShowKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted hover:text-fg" title={showKey ? t('settings.hideKey') : t('settings.showKey')}>{showKey ? <EyeOff size={14} /> : <Eye size={14} />}</button>
           </div>
         </Field>
-        <Field label={t('settings.modelName')} hint={<span className={linkCls} onClick={() => { setManual(v => !v); invalidate(); }}>{manual ? t('settings.pickFromList') : t('settings.manualInput')}</span>}>
+        <Field label={t('settings.modelName')} hint={isEditing ? undefined : <span className={linkCls} onClick={() => { setManual(v => !v); invalidate(); }}>{manual ? t('settings.pickFromList') : t('settings.manualInput')}</span>}>
           {manual ? (
-            <input value={modelName} onChange={e => { setModelName(e.target.value); invalidate(); }} placeholder={p.defaultModel ? t('settings.modelNamePlaceholderEg', { model: p.defaultModel }) : t('settings.modelNamePlaceholder')} className="w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent" />
+            <input value={modelName} disabled={isEditing} onChange={e => { setModelName(e.target.value); invalidate(); }} placeholder={p.defaultModel ? t('settings.modelNamePlaceholderEg', { model: p.defaultModel }) : t('settings.modelNamePlaceholder')} className="w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent disabled:opacity-60" />
           ) : (
             <div className="flex flex-col gap-1.5">
               <div className="flex gap-2 items-center">
@@ -315,7 +359,7 @@ function AddModelDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
         <div className="flex justify-end gap-2 mt-1">
           <Button variant="ghost" onClick={onClose}>{t('dialog.cancel')}</Button>
           <Button onClick={testConn} disabled={testing}>{testing ? <Spinner /> : null}{testing ? t('settings.testing') : t('settings.test')}</Button>
-          <Button variant="primary" onClick={save} disabled={saving}>{saving ? <Spinner /> : null}{saving ? t('settings.adding') : t('settings.addModel')}</Button>
+          <Button variant="primary" onClick={save} disabled={saving}>{saving ? <Spinner /> : null}{saving ? (isEditing ? t('settings.saving') : t('settings.adding')) : (isEditing ? t('settings.saveChanges') : t('settings.addModel'))}</Button>
         </div>
       </div>
     </Modal>

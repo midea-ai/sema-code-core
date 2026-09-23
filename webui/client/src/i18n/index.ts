@@ -6,7 +6,11 @@
  * - 重渲染：根组件 App 用 useLang() 订阅，非 memo 组件随之重渲染；memo 组件内需自行调 useLang()。
  *   依赖文案的 useMemo 需把 lang 放进 deps。
  * - 模块顶层常量里不要调 t()（求值早于 setLang，且切换后不会更新），改存 key 或写成函数。
- * - 新增语言：shared/lang.ts 的 LANGS 加一行 → 本目录加字典（satisfies Dict）→ 在 DICTS 注册，漏写编译报错。
+ * - 字典分两档：zh / en 必须全量（satisfies Dict，漏写编译报错）；其他语言可选（satisfies Partial<Dict>），
+ *   缺的条目回退英文。以下分组只写 zh / en，不翻译到其他语言：
+ *   tool.* / toolName.* / usage.* / ws.* / agent.* / perm.* / mode.* / level.<名>（desc 仍翻译）/
+ *   md.* / diff.* / plan.* / memory.* / image.*，以及各处错误提示（*.error、*Failed、settings.err.* 等）。
+ * - 新增语言：shared/lang.ts 的 LANGS 加一行 → 本目录加字典（satisfies Partial<Dict>）→ 在 DICTS 注册。
  */
 import { useSyncExternalStore } from 'react';
 import { LANGS, DEFAULT_LANG, normalizeLang, type Language } from '../../../shared/lang';
@@ -19,7 +23,8 @@ import { it } from './it';
 export type I18nKey = keyof typeof zh;
 export type Dict = Record<I18nKey, string>;
 
-const DICTS: Record<Language, Dict> = { zh, en, de, fr, it };
+/** zh / en 全量，其余语言可缺条目（缺的回退英文） */
+const DICTS: Record<Language, Partial<Dict>> = { zh, en, de, fr, it };
 
 const CACHE_KEY = 'semawork.lang';
 
@@ -53,9 +58,9 @@ export function useLang(): Language {
   return useSyncExternalStore(subscribeLang, getLang, getLang);
 }
 
-/** 取当前语言文案；{name} 占位符由 vars 替换，缺 key 回退中文，再缺回退 key 本身 */
+/** 取当前语言文案；{name} 占位符由 vars 替换，缺 key 回退英文，再缺回退中文，最后回退 key 本身 */
 export function t(key: I18nKey, vars?: Record<string, string | number>): string {
-  const s = DICTS[currentLang][key] ?? zh[key] ?? key;
+  const s = DICTS[currentLang][key] ?? en[key] ?? zh[key] ?? key;
   if (!vars) return s;
   return s.replace(/\{(\w+)\}/g, (m, k: string) => Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m);
 }

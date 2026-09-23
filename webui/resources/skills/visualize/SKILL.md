@@ -31,7 +31,7 @@ Verify).
   base path is shown at the top of this prompt):
 
   ```
-  node <skill-base-path>/scripts/path.mjs <title>
+  node "<skill-base-path>/scripts/path.mjs" <title>
   ```
 
   `<title>` is a short ASCII lowercase-hyphenated name such as `revenue-by-region`.
@@ -239,7 +239,7 @@ After writing or updating the file, run the bundled checker from a shell (the sc
 lives under the skill base path):
 
 ```
-node <skill-base-path>/scripts/check.mjs <path-to-the-html>
+node "<skill-base-path>/scripts/check.mjs" "<path-to-the-html>"
 ```
 
 It runs the page's ECharts code in Node at 720px and 320px, once with no

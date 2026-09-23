@@ -19,4 +19,6 @@ const raw = process.argv.slice(2).join(' ').trim();
 const title = raw.toLowerCase().replace(/\.html?$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'visualization';
 const dir = path.join(ROOT, 'attachments', randomUUID());
 fs.mkdirSync(dir, { recursive: true });
-console.log(path.join(dir, `${title}.html`));
+// Forward slashes on every platform: the model passes this path to Git Bash on Windows, where
+// an unquoted backslash path would be mangled. Node and the file tools accept C:/... as well.
+console.log(path.join(dir, `${title}.html`).split(path.sep).join('/'));

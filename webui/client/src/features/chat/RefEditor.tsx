@@ -27,7 +27,8 @@ interface Props {
   disabled?: boolean;
   placeholder?: string;
   className?: string;
-  onChange: (text: string, caret: number) => void;
+  /** deleting：本次变化是删除（原生 delete* inputType 或整块删标签），上层据此不新开弹层 */
+  onChange: (text: string, caret: number, deleting: boolean) => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   onKeyUp?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
@@ -70,6 +71,8 @@ export const RefEditor = forwardRef<RefEditorHandle, Props>(function RefEditor(
   const root = useRef<HTMLDivElement>(null);
   const [slots, setSlots] = useState<PortalSlot[]>([]);
   const composing = useRef(false);
+  // 整块删标签后光标应落的全文偏移：DOM 里标签还在，重建时按 DOM 算出的光标会偏后，需强制指定
+  const forcedCaret = useRef<number | null>(null);
 
   const getCaret = useCallback((): number => {
     const el = root.current;
@@ -126,9 +129,11 @@ export const RefEditor = forwardRef<RefEditorHandle, Props>(function RefEditor(
     const segs = parse(value);
     const wantTokens = segs.filter(s => s.type === 'token').map(s => (s as { raw: string }).raw);
     const same = serialize(el) === value && wantTokens.join('\0') === tokensOf(el).join('\0');
-    if (same) { ensureTail(el); return; }
+    const forced = forcedCaret.current;
+    forcedCaret.current = null;
+    if (same) { ensureTail(el); if (forced !== null) setCaret(Math.min(forced, value.length)); return; }
     const focused = document.activeElement === el;
-    const caret = focused ? Math.min(getCaret(), value.length) : null;
+    const caret = forced !== null ? Math.min(forced, value.length) : focused ? Math.min(getCaret(), value.length) : null;
     el.replaceChildren();
     const next: PortalSlot[] = [];
     for (const s of segs) {
@@ -145,13 +150,36 @@ export const RefEditor = forwardRef<RefEditorHandle, Props>(function RefEditor(
     if (caret !== null) setCaret(caret);
   }, [value, parse, getCaret, setCaret]);
 
-  const emit = () => { const el = root.current; if (el) onChange(serialize(el), getCaret()); };
+  const emit = (deleting = false) => { const el = root.current; if (el) onChange(serialize(el), getCaret(), deleting); };
+
+  /** 光标紧贴标签（Backspace 在标签后 / Delete 在标签前）时返回该标签的全文区间 */
+  const adjacentToken = (key: string): { start: number; end: number } | null => {
+    const sel = window.getSelection();
+    if (!sel || !sel.isCollapsed) return null;
+    const caret = getCaret();
+    let pos = 0;
+    for (const s of parse(value)) {
+      const len = s.type === 'text' ? s.text.length : s.raw.length;
+      if (s.type === 'token' && (key === 'Backspace' ? pos + len === caret : pos === caret)) return { start: pos, end: pos + len };
+      pos += len;
+    }
+    return null;
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     onKeyDown?.(e);
     if (e.defaultPrevented || e.nativeEvent.isComposing) return;
     // 换行统一走 insertText：浏览器默认的 insertParagraph 会包 div，序列化虽兼容但光标计算会漂
-    if (e.key === 'Enter') { e.preventDefault(); document.execCommand('insertText', false, '\n'); }
+    if (e.key === 'Enter') { e.preventDefault(); document.execCommand('insertText', false, '\n'); return; }
+    // 光标紧贴标签：按全文模型整块删掉 raw 字面量，不依赖 Chromium 对 contentEditable=false 节点的原生删除
+    //（原生删除有时只删掉一部分或让标签退化成明文逐字删）
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      const tok = adjacentToken(e.key);
+      if (!tok) return;
+      e.preventDefault();
+      forcedCaret.current = tok.start;
+      onChange(value.slice(0, tok.start) + value.slice(tok.end), tok.start, true);
+    }
   };
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     onPaste?.(e);
@@ -169,7 +197,7 @@ export const RefEditor = forwardRef<RefEditorHandle, Props>(function RefEditor(
       <div ref={root} contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-multiline="true" aria-disabled={disabled || undefined}
         data-placeholder={placeholder} data-empty={value === '' ? '' : undefined}
         className={cn('ref-editor relative outline-none', className)}
-        onInput={emit}
+        onInput={e => emit(((e.nativeEvent as InputEvent).inputType || '').startsWith('delete'))}
         onCompositionStart={() => { composing.current = true; }}
         onCompositionEnd={() => { composing.current = false; emit(); }}
         onBeforeInput={e => {

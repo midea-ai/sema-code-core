@@ -82,6 +82,8 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'core.switchModel': return core.switchModel(p.modelName);
     case 'core.addModel': return core.addModel(p.config, p.skipValidation);
     case 'core.delModel': return core.delModel(p.modelName);
+    // 编辑模型：读磁盘上的完整 profile（含 apiKey）回填表单，只读不进 CORE_WRITE_ACTIONS
+    case 'core.getModelProfile': return core.getModelProfile(p.provider, p.modelName);
     case 'core.applyTaskModel': return core.applyTaskModel(p.config);
     case 'core.testApiConnection': return sanitize(await core.testApiConnection(p.params));
     case 'core.fetchAvailableModels': return sanitize(await core.fetchAvailableModels(p.params));

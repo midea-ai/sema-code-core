@@ -32,15 +32,16 @@ function parseRef(body: string): Pick<RefSegment, 'path' | 'line' | 'endLine'> {
 
 /**
  * 把文本切成普通段与引用段（无引用时返回单个普通段；空文本返回空数组）。
- * openEnded=false（输入框用）：顶到文本末尾、后面还没有边界字符的引用视为"正在输入"，保持为普通文本，
- * 否则敲到 `@sr` 就被换成芯片，@ 弹层的 query 就没法继续编辑了；选择器补全会自动补空格，所以补全结果总是芯片
+ * typingAt（输入框用）：@ 选择器正打开的那个引用的 @ 偏移，该引用视为"正在输入"保持为普通文本，
+ * 否则敲到 `@sr` 就被换成芯片，@ 弹层的 query 就没法继续编辑了。
+ * 不按"引用顶到文本末尾"判定：删掉芯片后面的空格时芯片会顶到末尾，那样会被打回明文然后逐字删
  */
-export function splitFileRefs(text: string, openEnded = true): Segment[] {
+export function splitFileRefs(text: string, typingAt: number | null = null): Segment[] {
   const out: Segment[] = [];
   let last = 0;
   for (const m of text.matchAll(FILE_REF_RE)) {
     const idx = m.index!;
-    if (!openEnded && idx + m[0].length === text.length) break;
+    if (idx === typingAt) continue;
     if (idx > last) out.push({ type: 'text', text: text.slice(last, idx) });
     const body = m[1] ?? m[2]!;
     out.push({ type: 'ref', raw: m[0], ...parseRef(body), isDirectory: /[\\/]$/.test(body) });
@@ -54,9 +55,9 @@ export function splitFileRefs(text: string, openEnded = true): Segment[] {
 export const refStatPath = (path: string) => path.replace(/[\\/]+$/, '') || path;
 
 /** 文本里所有引用的 stat 键（去重），交给 usePathStats 批量确认存在性 */
-export function refPaths(text: string, openEnded = true): string[] {
+export function refPaths(text: string, typingAt: number | null = null): string[] {
   const out = new Set<string>();
-  for (const s of splitFileRefs(text, openEnded)) if (s.type === 'ref') out.add(refStatPath(s.path));
+  for (const s of splitFileRefs(text, typingAt)) if (s.type === 'ref') out.add(refStatPath(s.path));
   return [...out];
 }
 

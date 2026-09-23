@@ -81,7 +81,7 @@ export function Sidebar({ width }: { width: number }) {
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3">
         {/* 非固定入口：配置及后续新增入口，随列表一起滚动 */}
-        <NavItem icon={<Settings size={15} />} label={t('sidebar.settings')} active={view.type === 'settings'} onClick={() => setView({ type: 'settings', tab: 'models' })} />
+        <NavItem icon={<Settings size={15} />} label={t('sidebar.settings')} active={view.type === 'settings'} onClick={() => setView({ type: 'settings', tab: 'system' })} />
         <NavItem icon={<CalendarClock size={15} />} label={t('sidebar.schedule')} active={view.type === 'schedule'} onClick={() => setView({ type: 'schedule' })} />
         <NavItem icon={<Blocks size={15} />} label={t('sidebar.eco')} active={view.type === 'eco'} onClick={() => setView({ type: 'eco' })} />
         <NavItem icon={<ChartColumn size={15} />} label={t('sidebar.usage')} active={view.type === 'usage'} onClick={() => setView({ type: 'usage' })} />

@@ -90,8 +90,11 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   // 编辑器分段：开头的 `/<映射技能> ` 显示为「图标 + 名字」标签，`@路径 ` 经服务端 stat 确认存在后显示为「文件图标 + 文件名」芯片，
   // 不存在的引用保持原文；draft.text 与发送内容始终是完整文本，所有光标/触发判定都按完整文本算，编辑器内部负责标签与全文坐标的换算。
   // 芯片点击在右栏打开文件；草稿页没有右栏，芯片只显示不响应
+  // 正在输入的引用 = @ 选择器当前打开的那个（typingAt 为其 @ 的全文偏移），它保持明文以便继续编辑 query；
+  // 其余存在的引用一律是芯片，删掉芯片后的空格也不会打回明文（配合 onChange 里"删除不新开弹层"）
   const scopeId = sessionId || projectId;
-  const refKeys = useMemo(() => refPaths(draft.text, false), [draft.text]);
+  const typingAt = trigger?.kind === 'file' ? trigger.start : null;
+  const refKeys = useMemo(() => refPaths(draft.text, typingAt), [draft.text, typingAt]);
   const stat = usePathStats(scopeId, refKeys, true);
   const openRef = useCallback((seg: RefSegment) => { if (sessionId) openFileRef(sessionId, seg.path, seg.line, seg.endLine); }, [sessionId, openFileRef]);
   const parse = useCallback((text: string): EditorSegment[] => {
@@ -99,14 +102,14 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
     let body = text;
     const sk = matchSkillPrefix(text, true);
     if (sk) { segs.push({ type: 'token', raw: `/${sk.name}`, node: <SkillLabel display={sk.display} /> }); body = text.slice(sk.name.length + 1); }
-    for (const s of splitFileRefs(body, false)) {
+    for (const s of splitFileRefs(body, typingAt === null ? null : typingAt - (text.length - body.length))) {
       if (s.type === 'text') { segs.push(s); continue; }
       const st = stat(refStatPath(s.path));
       if (!st?.exists) { segs.push({ type: 'text', text: s.raw }); continue; }
       segs.push({ type: 'token', raw: s.raw, node: <FileRefChip seg={{ ...s, isDirectory: st.isDir }} onOpen={sessionId ? openRef : undefined} /> });
     }
     return segs;
-  }, [sessionId, openRef, stat]);
+  }, [sessionId, openRef, stat, typingAt]);
   const scope = { sessionId, projectId };
   const fileSearch = useFileSearch(scope, trigger?.kind === 'file' && (sessionId || projectId) ? trigger.query : null);
   const cmds = useCommands(scope, trigger?.kind === 'cmd');
@@ -152,10 +155,12 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   useEffect(() => { setSelIdx(0); }, [triggerKey]);
   const closePicker = () => setTrigger(null);
   const syncCaret = () => { const el = taRef.current; if (el) updateTrigger(draft.text, el.getCaret()); };
-  /** 编辑器上报的就是完整文本与完整坐标 */
-  const onChange = (text: string, caret: number) => {
+  /** 编辑器上报的就是完整文本与完整坐标。删除操作只更新已打开的弹层、不新开：
+   * 删掉芯片后面的空格会让光标紧贴 `@path`，若此时打开 @ 选择器，该引用会被当成"正在输入"打回明文 */
+  const onChange = (text: string, caret: number, deleting: boolean) => {
     histIdx.current = null;
     setDraft(draftKey, d => ({ ...d, text }));
+    if (deleting && !trigger) return;
     updateTrigger(text, caret);
   };
 

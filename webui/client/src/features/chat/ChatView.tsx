@@ -189,7 +189,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       {/* 消息流 */}
       <div className="relative flex-1 min-h-0">
       <div ref={listRef} onScroll={onScroll} className="h-full overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 py-4">
+        <div className="max-w-3xl mx-auto px-10 py-4">
           {!snap && loading && <div className="flex items-center gap-2 text-muted text-sm"><Spinner />{t('common.loading')}</div>}
           {snap && snap.blocks.length === 0 && (snap.agentMode === 'Design' ? (
             // Design 空会话：对齐默认新会话页（DraftView）的居中大字样式，与普通会话的小字提示区分

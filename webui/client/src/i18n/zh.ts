@@ -75,8 +75,6 @@ export const zh = {
   'viz.copied': '已复制图像',
   'viz.copyFailed': '复制图像失败',
   'viz.openPanel': '在右栏打开',
-  'viz.collapse': '折叠',
-  'viz.expand': '展开',
   'card.office.docx': 'Word 文档',
   'card.office.xlsx': 'Excel 工作簿',
   'card.office.pptx': 'PowerPoint 演示文稿',

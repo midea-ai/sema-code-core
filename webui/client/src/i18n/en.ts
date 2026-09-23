@@ -78,8 +78,6 @@ export const en = {
   'viz.copied': 'Image copied',
   'viz.copyFailed': 'Failed to copy image',
   'viz.openPanel': 'Open in side panel',
-  'viz.collapse': 'Collapse',
-  'viz.expand': 'Expand',
   'card.office.docx': 'Word document',
   'card.office.xlsx': 'Excel workbook',
   'card.office.pptx': 'PowerPoint presentation',

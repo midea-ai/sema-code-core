@@ -78,8 +78,6 @@ export const it = {
   'viz.copied': 'Immagine copiata',
   'viz.copyFailed': 'Copia dell’immagine non riuscita',
   'viz.openPanel': 'Apri nel pannello laterale',
-  'viz.collapse': 'Comprimi',
-  'viz.expand': 'Espandi',
   'card.office.docx': 'Documento Word',
   'card.office.xlsx': 'Cartella di lavoro Excel',
   'card.office.pptx': 'Presentazione PowerPoint',

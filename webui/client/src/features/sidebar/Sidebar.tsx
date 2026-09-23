@@ -239,13 +239,15 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
     if (title !== null && title !== session.title) app().renameSession(session.id, title).catch(e => toast(e.message, 'error'));
   };
   const remove = async () => {
-    const ok = await dialog.confirm({
-      title: t('menu.delete'), danger: true, okText: t('menu.delete'),
-      message: session.projectId
-        ? t('dialog.confirmDeleteSession', { name: session.title || t('chat.untitled') })
-        : `${t('dialog.confirmDeleteSession', { name: session.title || t('chat.untitled') })}\n${t('dialog.deleteStandaloneHint')}`,
-    });
-    if (ok) app().deleteSession(session.id).catch(e => toast(e.message, 'error'));
+    // 项目内会话只删对话记录，入口又在右键菜单里，不再二次确认；独立会话会连工作目录一起删，保留确认
+    if (!session.projectId) {
+      const ok = await dialog.confirm({
+        title: t('menu.delete'), danger: true, okText: t('menu.delete'),
+        message: `${t('dialog.confirmDeleteSession', { name: session.title || t('chat.untitled') })}\n${t('dialog.deleteStandaloneHint')}`,
+      });
+      if (!ok) return;
+    }
+    app().deleteSession(session.id).catch(e => toast(e.message, 'error'));
   };
 
   return (

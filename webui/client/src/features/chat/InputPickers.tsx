@@ -177,8 +177,9 @@ export function FilePicker({ items, loading, selected, noScope, onSelect, onHove
                 onMouseDown={e => { e.preventDefault(); onSelect(f); }} onMouseEnter={() => onHover(i)}
                 className={cn('flex items-center gap-2 px-3 py-1.5 cursor-pointer', i === selected ? 'bg-black/[0.06]' : 'hover:bg-black/[0.04]')}>
                 <FileIcon fileName={name} isDirectory={f.isDirectory} size={14} />
-                <span className="truncate">{name}</span>
-                {parent && <span className="ml-auto pl-3 text-xs text-muted truncate max-w-[55%]">{parent}</span>}
+                <span className="shrink-0 max-w-full truncate">{name}</span>
+                {/* 父路径紧跟文件名，样式与命令面板描述一致；放不下时截断 */}
+                {parent && <span className="text-muted/70 truncate">{parent}</span>}
               </div>
             );
           })}

@@ -23,8 +23,8 @@ export const SKILL_DISPLAY: Record<string, SkillDisplay> = {
   'minimax-xlsx':   { file: '.xlsx', color: '#7CA843', name: 'Excel',      desc: 'Create, edit and analyze spreadsheets' },
   'pptx-generator': { file: '.pptx', color: '#E37933', name: 'PowerPoint', desc: 'Generate and edit slides' },
   'minimax-pdf':    { file: '.pdf',  color: '#CC3E44', name: 'PDF',        desc: 'Generate and fill PDFs' },
-  'visualize':      { icon: ChartColumn, color: '#2A78D6', name: 'Visualize', desc: 'Charts, maps, simulators and mockups rendered in the chat' },
-  'chrome-use':     { icon: Chrome,  color: '#4285F4', name: 'Chrome',     desc: 'Browse and operate web pages in your own Chrome' },
+  'visualize':      { icon: ChartColumn, color: '#4285F4', name: 'Visualize', desc: 'Charts, maps, simulators and mockups rendered in the chat' },
+  'chrome-use':     { icon: Chrome,  color: '#fabd15', name: 'Chrome',     desc: 'Browse and operate web pages in your own Chrome' },
   'sema-extend':    { icon: Puzzle,  color: '#A074C4', name: 'SemaExtend',     desc: 'Install, configure or remove skills, MCP servers and plugins' },
 };
 

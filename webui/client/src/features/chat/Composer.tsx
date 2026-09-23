@@ -321,7 +321,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const usagePct = usage && usage.maxTokens ? Math.min(100, (usage.useTokens / usage.maxTokens) * 100) : null;
 
   return (
-    <div className="shrink-0 px-4 pb-3 pt-2">
+    <div className="shrink-0 px-10 pb-3 pt-2">
       <div className="max-w-3xl mx-auto">
         {/* 未配置模型警告条只在已有会话里显示；草稿页由中间的引导卡片提示 */}
         {!hasModel && modelData && sessionId && (

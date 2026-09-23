@@ -78,8 +78,6 @@ export const de = {
   'viz.copied': 'Bild kopiert',
   'viz.copyFailed': 'Bild konnte nicht kopiert werden',
   'viz.openPanel': 'In der Seitenleiste öffnen',
-  'viz.collapse': 'Einklappen',
-  'viz.expand': 'Ausklappen',
   'card.office.docx': 'Word-Dokument',
   'card.office.xlsx': 'Excel-Arbeitsmappe',
   'card.office.pptx': 'PowerPoint-Präsentation',

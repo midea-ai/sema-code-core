@@ -6,8 +6,9 @@ description: "Create charts, plots, dashboards, maps, interactive explainers, si
 # Visualize
 
 Produce one self-contained HTML file. The host renders it inline below your reply and
-lets the user open, copy or publish it. You never see the render, so the file must be
-right by construction: follow the contract, the design rules and the checklist below.
+lets the user open, copy or publish it. Follow the contract, the design rules and the
+checklist below, then verify the file with the bundled checker before replying (see
+Verify).
 
 ## When to use it, and when not
 
@@ -26,16 +27,21 @@ right by construction: follow the contract, the design rules and the checklist b
 
 ### File location
 
-- Path: `<root>/attachments/<uuid>/<title>.html`. The skill base path shown at the top
-  of this prompt is `<root>/skills/visualize`; `<root>` is that same prefix. Never
-  guess the home directory and never write the file inside the user's project.
-- `<uuid>` is a fresh UUID v4 you generate for each new visualization, lowercase,
-  8-4-4-4-12 hex, for example `3f2b9c1e-7a4d-4e8b-9c2f-1d5e6a7b8c9d`. `<title>` is a
-  short ASCII lowercase-hyphenated name, for example `revenue-by-region`.
-- Updating an existing visualization edits the same file in place. Do not create a
-  new directory for a revision.
-- The write tool creates parent directories. Do not run shell commands to prepare
-  the directory.
+- For a new visualization, get the output path from the bundled script (the skill
+  base path is shown at the top of this prompt):
+
+  ```
+  node <skill-base-path>/scripts/path.mjs <title>
+  ```
+
+  `<title>` is a short ASCII lowercase-hyphenated name such as `revenue-by-region`.
+  The script creates the directory and prints one absolute path ending in
+  `<title>.html`. Write the file at exactly that path with the file writing tool.
+- Updating an existing visualization edits the same file in place. Do not request a
+  new path for a revision.
+- Never derive, guess or search for the location yourself: no listing directories,
+  no reading the skill folder, no checking whether the scripts exist. The only shell
+  commands this skill runs are `path.mjs` and `check.mjs`.
 - One visualization per request unless the user explicitly asks for several.
 
 ### Document
@@ -46,6 +52,13 @@ right by construction: follow the contract, the design rules and the checklist b
 - Everything inline: data as a JavaScript constant, CSS in one `<style>`, logic in
   one `<script>`. Never call `fetch`, XHR, WebSocket or any API. The single
   exception is published GeoJSON/TopoJSON for maps (see Maps).
+- Wrap the whole script body in an IIFE: `(() => { ... })();`. A top-level
+  `const`/`let` named `top`, `window`, `document` or `location` is a SyntaxError in
+  browsers and silently blanks the page; the IIFE prevents that class of bug.
+- Two themes, light by default. The host switches with `<html data-theme="dark">`;
+  the attribute absent or `light` means light. It may be set before the page loads
+  or changed while the page is open, so the page re-renders on change (see the
+  script skeleton in Theme). Never use `prefers-color-scheme`.
 - Keep the file under 1 MB. Aggregate, bin, downsample, round, or drop unused fields
   before inlining large data.
 - External scripts only from the pinned URLs below. No other CDN, no fonts, no icon
@@ -81,8 +94,15 @@ anything with axes, tooltips or many points, D3 only where ECharts cannot do the
 
 ## Theme (copy verbatim, do not invent colors)
 
+Both token blocks go into the file as they are. The light block is the default; the
+dark block applies when the host sets `data-theme="dark"` on `<html>`. Every color in
+the file comes from these tokens: CSS through `var(--token)`, scripts through
+`tokens()` at render time. A literal color keeps its light value when the host
+switches to dark, which is the bug the checker looks for.
+
 ```css
 :root {
+  color-scheme: light;
   --bg: #ffffff; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
   --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10);
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
@@ -92,6 +112,16 @@ anything with axes, tooltips or many points, D3 only where ECharts cannot do the
   --good: #0ca30c; --warn: #fab219; --serious: #ec835a; --critical: #d03b3b;
   --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1a1a19; --surface: #232321; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --seq-100: #184f95; --seq-250: #256abf; --seq-400: #3987e5; --seq-550: #6da7ec; --seq-700: #9ec5f4;
+  --div-neg: #e66767; --div-mid: #383835; --div-pos: #3987e5;
+  --good: #0ca30c; --warn: #fab219; --serious: #ec835a; --critical: #d03b3b;
+}
 body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font); }
 h1, h2 { font-weight: 500; margin: 0 0 8px; } h1 { font-size: 16px; } h2 { font-size: 14px; color: var(--ink-2); }
 .muted { color: var(--muted); } .small { font-size: 12px; }
@@ -99,33 +129,78 @@ table.data { border-collapse: collapse; width: 100%; } .data th, .data td { text
 .data td.num, .data th.num { text-align: right; font-variant-numeric: tabular-nums; }
 button, select, input { font: inherit; color: inherit; }
 button { border: 1px solid var(--border); background: var(--surface); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
-button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 ```
 
-ECharts base option (merge your series into it; keep these values):
+Script skeleton (one IIFE; keep the structure and the base option values, fill in
+data, series and controls):
 
 ```js
-const THEME = { color: ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'],
-  textStyle: { fontFamily: getComputedStyle(document.body).fontFamily, color: '#52514e' },
-  grid: { left: 8, right: 16, top: 32, bottom: 8, containLabel: true },
-  categoryAxis: { axisLine: { lineStyle: { color: '#c3c2b7' } }, axisTick: { show: false }, axisLabel: { color: '#898781' } },
-  valueAxis: { axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#898781' },
-    splitLine: { lineStyle: { color: '#e1e0d9', type: 'solid', width: 1 } } },
-  line: { lineStyle: { width: 2 }, symbolSize: 8, showSymbol: false, smooth: false },
-  bar: { barMaxWidth: 24, itemStyle: { borderRadius: [4, 4, 0, 0] } },
-  tooltip: { backgroundColor: '#fff', borderColor: '#e1e0d9', textStyle: { color: '#0b0b0b' } },
-  legend: { icon: 'roundRect', itemWidth: 12, itemHeight: 12, textStyle: { color: '#52514e' } },
-};
-echarts.registerTheme('sema', THEME);
-const chart = echarts.init(document.getElementById('chart'), 'sema', { renderer: 'canvas' });
-chart.setOption({ animationDuration: 0, animationDurationUpdate: 300, tooltip: { trigger: 'axis' }, /* ... */ });
-new ResizeObserver(() => chart.resize()).observe(document.getElementById('chart'));
+(() => {
+  const DATA = [/* inline data */];
+  const state = { /* current control values */ };
+
+  // Read tokens at render time, never copy hex values into the script: the host may switch the theme at any moment.
+  const tokens = () => {
+    const cs = getComputedStyle(document.documentElement);
+    const v = k => cs.getPropertyValue(k).trim();
+    return { bg: v('--bg'), surface: v('--surface'), ink: v('--ink'), ink2: v('--ink-2'), muted: v('--muted'), grid: v('--grid'), axis: v('--axis'), font: v('--font'),
+      series: ['--s1', '--s2', '--s3', '--s4', '--s5', '--s6', '--s7', '--s8'].map(v),
+      seq: ['--seq-100', '--seq-250', '--seq-400', '--seq-550', '--seq-700'].map(v),
+      div: { neg: v('--div-neg'), mid: v('--div-mid'), pos: v('--div-pos') },
+      status: { good: v('--good'), warn: v('--warn'), serious: v('--serious'), critical: v('--critical') } };
+  };
+  // ECharts base option built from the tokens (merge your series into it; keep these values)
+  const themeOf = t => ({ color: t.series,
+    textStyle: { fontFamily: t.font, color: t.ink2 },
+    grid: { left: 8, right: 16, top: 32, bottom: 8, containLabel: true },
+    categoryAxis: { axisLine: { lineStyle: { color: t.axis } }, axisTick: { show: false }, axisLabel: { color: t.muted } },
+    valueAxis: { axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: t.muted },
+      splitLine: { lineStyle: { color: t.grid, type: 'solid', width: 1 } } },
+    line: { lineStyle: { width: 2 }, symbolSize: 8, showSymbol: false, smooth: false },
+    bar: { barMaxWidth: 24, itemStyle: { borderRadius: [4, 4, 0, 0] } },
+    tooltip: { backgroundColor: t.surface, borderColor: t.grid, textStyle: { color: t.ink } },
+    legend: { icon: 'roundRect', itemWidth: 12, itemHeight: 12, textStyle: { color: t.ink2 } },
+  });
+
+  const chartEl = document.getElementById('chart');
+  const charts = [];
+  // Everything that draws lives in render(): it runs once at load and again after every theme change.
+  function render() {
+    for (const c of charts) c.dispose();
+    charts.length = 0;
+    const t = tokens();
+    const chart = echarts.init(chartEl, themeOf(t), { renderer: 'canvas' });
+    chart.setOption({ animationDuration: 0, animationDurationUpdate: 300, tooltip: { trigger: 'axis' }, /* series from DATA and state; colors only from t */ });
+    charts.push(chart);
+    // Hand-written SVG or D3 that computes colors in JS is rebuilt here as well; static SVG can instead
+    // reference the tokens directly (style="fill: var(--s1)") and needs no rebuild.
+  }
+  render();
+  new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  new ResizeObserver(() => charts.forEach(c => c.resize())).observe(chartEl);
+  // Control handlers update state, then call chart.setOption(partial) on the live instance for the animated
+  // transition (or render() when the form changes). render() must rebuild the same view from state alone.
+})();
 ```
 
 Horizontal bars use `borderRadius: [0, 4, 4, 0]`. Stacked segments get
-`itemStyle.borderColor: '#fff', borderWidth: 1` so a white gap separates them.
-Area fills use `areaStyle: { opacity: 0.1 }`. Values shown as text use the ink
-colors, never the series color.
+`itemStyle.borderColor: t.bg, borderWidth: 1` so a background-colored gap separates
+them. Area fills use `areaStyle: { opacity: 0.1 }`. Values shown as text use the
+ink colors, never the series color.
+
+ECharts layout rules (each one prevents a collision the checker would report):
+
+- Units go in the subtitle or `axisLabel.formatter`, never in `yAxis.name`: the axis
+  name is drawn at the top of the axis, where the legend sits.
+- `endLabel` is drawn past the last point and gets cut by the container edge, not by
+  the plot area. Reserve `grid.right` for it: label width plus 8px (56 for a short
+  value, more for a series name). Do not rely on `series.clip`.
+- With the legend on top, keep `grid.top` at 32 or more; a legend that wraps to a
+  second row needs 56. A bottom legend needs `grid.bottom: 32`.
+- Category labels that would collide: fewer ticks (`axisLabel.interval`), a shorter
+  formatter, or horizontal bars. Never rotate labels past 45 degrees.
+- Direct value labels on marks use `labelLayout: { hideOverlap: true }`.
 
 ## Procedure
 
@@ -141,8 +216,8 @@ Color comes last. Most bad charts pick colors first.
    reused for a plain series.
 3. **Apply the mark specs.** Bars at most 24px thick with a 4px rounded data end and a
    square baseline end; 2px lines; markers at least 8px; area fill at 10% opacity;
-   solid hairline grid in `--grid`, axis in `--axis`; a white gap between touching
-   fills instead of a stroke.
+   solid hairline grid in `--grid`, axis in `--axis`; a `--bg`-colored gap between
+   touching fills instead of a stroke.
 4. **Add the hover layer.** Every chart with axes ships a tooltip: axis-trigger
    crosshair for line and bar, per-item for scatter, pie and cells. Hit targets are
    larger than the mark. Tooltips enhance, never gate: each value is also readable
@@ -155,6 +230,41 @@ Color comes last. Most bad charts pick colors first.
    syntax: every queried element exists, no undefined identifiers, the primary
    interaction updates the visual, and no HTML string is built from untrusted labels
    with `innerHTML` (use `textContent`).
+7. **Verify** with the checker (next section). Fix every reported issue, re-run, and
+   look at the screenshot before replying.
+
+## Verify
+
+After writing or updating the file, run the bundled checker from a shell (the script
+lives under the skill base path):
+
+```
+node <skill-base-path>/scripts/check.mjs <path-to-the-html>
+```
+
+It runs the page's ECharts code in Node at 720px and 320px, once with no
+`data-theme` (light) and once with `data-theme="dark"`, and measures every text
+against the others, the plot area and the container. It reports script errors, text
+overlaps, clipped or cut labels, fonts under 11px, text without enough contrast on
+that theme's background, hard-coded colors and a missing dark token block, each with
+a fix. Issues that only appear in dark are labeled `dark`. When the layout is clean
+and a Chromium-based browser is installed, it also renders a 720px light-theme
+screenshot and prints its path.
+
+- The last line is `RESULT: OK` or `RESULT: <n> issue(s)`. On issues, apply the fixes
+  and run again. At most three runs; if something remains after that, choose a simpler
+  form (drop the label, move the legend, stack the panels) rather than tuning pixels.
+- When a screenshot path is printed, open it with the file viewing tool and inspect it
+  once: legibility, collisions the estimator missed, wrong or missing marks, empty
+  space. Fix and re-run once if needed. `page may be shorter than the image` means the
+  white area below the content is expected.
+- Script errors that only involve browser APIs the checker lacks (a real DOM, canvas
+  drawing, D3 or SVG measurement) can be ignored; every other error is a bug.
+- D3 and hand-written SVG are not measured; for those rely on the screenshot and the
+  checklist. If the checker prints a note that it could not download ECharts or found
+  no browser, keep going with what it did check.
+- Run the checker silently like any other step; never mention it, its output or the
+  screenshot in the reply.
 
 ### The job picks the form
 
@@ -228,7 +338,9 @@ ramp with a visible scale legend.
 
 **UI mockups.** Match the depicted product's chrome, navigation, typography and
 colors; if unknown, infer from the platform. Do not use this skill's theme tokens
-inside the mockup; define product-specific colors on the mockup root. Give
+inside the mockup; define product-specific colors as custom properties on a
+`.mockup` root rule (the checker exempts selectors containing `mock`), with a
+`:root[data-theme="dark"] .mockup` override when the product has a dark look. Give
 windows, cards and popovers opaque backgrounds. A contained mockup frames a
 component, dialog or mobile screen as a compact product surface; a full-page mockup
 renders a window or page shell at full width. Show realistic states, not filler
@@ -244,7 +356,8 @@ dashboards or oversized icons.
   or a word. Status colors always ship with an icon or word.
 - Visible text is at least 11px; axis ticks and secondary annotations use the
   `.small` class, never smaller. Contrast of text on its actual background stays
-  readable; muted text is never placed on a filled surface that reduces it.
+  readable in both themes; muted text is never placed on a filled surface that
+  reduces it.
 - Every chart with more than a handful of values has a table view twin reachable
   without hovering: a `<details>` with a `<table class="data">` below the chart is
   enough.
@@ -279,12 +392,20 @@ If the conversation gets compacted, keep this line in the summary:
 - Thick saturated blocks, dashed gridlines, borders drawn around marks, a number on
   every point.
 - A label clipped by its own bar or segment.
+- Text colliding with the legend, an axis name or another label.
+- An end label or value label cut by the container edge or the plot area.
 - A chart container whose fixed height cuts off the x-axis band.
 - A tooltip as the only way to read a value.
 - Any `fetch`, XHR, WebSocket or non-pinned external resource.
 - Any fixed outer height, viewport-height layout, `position: fixed`, or horizontal
   overflow at 320px.
-- Hard-coded colors outside the theme block.
+- A hard-coded color anywhere outside the two token blocks (a hex or `rgb()` literal
+  in the script or a CSS rule), or a color that only reads on the light background.
+  Colors come from `var(--token)` and `tokens()`; the dark block is present verbatim.
+- A `prefers-color-scheme` query. The theme is chosen by the host through
+  `data-theme`, not by the OS.
+- Chart code outside `render()`, or a `render()` that cannot rebuild the current view
+  from `state` after a theme change.
 - Explanatory paragraphs, formulas or instructions inside the file. Only labels,
   legends, values and accessible text belong there.
 - Invented controls, KPI rows, cards or panels the user did not ask for.

@@ -12,6 +12,9 @@ export const GATE_CASES: GateCase[] = [
   { name: 'git status', command: 'git status', expect: 'allow' },
   { name: '只读管道', command: "ls -la | grep -i 'x'", expect: 'allow' },
   { name: 'cat 项目外文件（读由 view_file 规则管，shell 只读白名单直接放行）', command: 'cat /etc/hosts', expect: 'allow' },
+  { name: 'find -exec 只读目标，结束符 \\;', command: 'find . -maxdepth 3 -type f -name "*.py" -exec wc -l {} \\; | sort -k2', expect: 'allow' },
+  { name: "find -exec 只读目标，结束符 ';' 带引号", command: "find . -maxdepth 3 -type f -name '*.py' -exec wc -l {} ';' | sort -k2", expect: 'allow' },
+  { name: 'find -exec 只读目标，结束符 +', command: 'find . -maxdepth 3 -type f -name "*.py" -exec wc -l {} + | sort -k2', expect: 'allow' },
 
   // ---------- 未覆盖 → 交模型 ----------
   { name: '构建命令', command: 'npm run build', expect: 'model' },
@@ -91,6 +94,9 @@ PY`,
   { name: '; 拼接的字面项目外删除', command: 'cat x; rm -rf ~/Documents', expect: 'human' },
   { name: 'eval', command: 'echo hi; eval "$cmd"', expect: 'human' },
   { name: 'find -exec sh -c', command: "find . -name '*.log' -exec sh -c 'rm {}' \\;", expect: 'human' },
+  // \; 结束符不再被拆散，第二个 -exec 的危险目标仍被递归分类拦下
+  { name: 'find 双 -exec，\\; 后接 -exec rm', command: 'find . -name "*.py" -exec wc -l {} \\; -exec rm {} \\;', expect: 'human' },
+  { name: 'find -exec 只读目标 \\; 后 ; 拼接项目外删除', command: 'find . -name "*.py" -exec wc -l {} \\; ; rm -rf ~/Documents', expect: 'human' },
   { name: '$() 内层 sudo', command: 'echo $(sudo id)', expect: 'human' },
   { name: '反引号', command: 'echo `id`', expect: 'human' },
   { name: 'heredoc 后接 sudo', command: `python3 - <<'EOF'

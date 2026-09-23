@@ -195,9 +195,8 @@ function classifyExecTarget(target: string): 'readonly' | 'gray' | 'dangerous' {
  * 提取 find 段内所有 -exec/-execdir 的目标命令（-exec 到 ;/+ 结束符之间、剥掉 {}），
  * 逐个分类后取最严结果：任一 dangerous → dangerous；否则任一 gray → gray；全 readonly → readonly。
  *
- * 结束符识别 token 级精确匹配 ; 或 +（含引号包裹形式）。`\;` 形式经 splitCommand 的转义占位
- * 处理后 `;` 会被当作命令分隔符消耗掉，段内只残留孤立的 `\`，找不到结束符 → fail-closed 判
- * dangerous，与现状（一律危险）一致，不放宽。
+ * 结束符识别 token 级精确匹配 ; 或 +（含引号包裹形式与 `\;` 转义形式；splitCommand 已保证
+ * `\;` 不被当作命令分隔符拆散）。找不到结束符（命令截断）→ fail-closed 判 dangerous。
  */
 function classifyFindExecTargets(seg: string): FindExecClass {
   const tokens = seg.trim().split(/\s+/)
@@ -210,10 +209,10 @@ function classifyFindExecTargets(seg: string): FindExecClass {
     let foundEnd = false
     for (; j < tokens.length; j++) {
       const bare = unquoteToken(tokens[j]!)
-      if (bare === ';' || bare === '+') { foundEnd = true; break }
+      if (bare === ';' || bare === '\\;' || bare === '+') { foundEnd = true; break }
       if (bare !== '{}') targetTokens.push(tokens[j]!)
     }
-    // 找不到结束符（\; 被打散 / 命令截断）→ fail-closed
+    // 找不到结束符（命令截断）→ fail-closed
     if (!foundEnd) return 'dangerous'
     const c = classifyExecTarget(targetTokens.join(' '))
     if (c === 'dangerous') return 'dangerous'

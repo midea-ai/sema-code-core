@@ -6,6 +6,9 @@ import { COMMAND_PREFIX_SYSTEM_PROMPT, COMMAND_PREFIX_USER_PROMPT } from '../pro
 const SQ_PLACEHOLDER = '__SQ_PLACEHOLDER__'
 const DQ_PLACEHOLDER = '__DQ_PLACEHOLDER__'
 const BS_PLACEHOLDER = '__BS_PLACEHOLDER__'
+// 转义分号 \;（find -exec 的结束符写法）：若只把 \ 换成占位符，shell-quote 仍会把后面的 ; 当命令
+// 分隔符吃掉，find 段被截断、结束符丢失。先整体换成不含操作符字符的占位符，分词后原样还原。
+const BS_SEMI_PLACEHOLDER = '__BS_SEMI_PLACEHOLDER__'
 
 export type ExtractedCommandPrefix =
   | {
@@ -138,6 +141,7 @@ export function splitCommand(command: string): string[] {
   // 1. 合并相邻的字符串
   for (const part of parse(
     command
+      .replaceAll('\\;', BS_SEMI_PLACEHOLDER)
       .replaceAll('\\', BS_PLACEHOLDER)
       .replaceAll('"', `"${DQ_PLACEHOLDER}`)
       .replaceAll("'", `'${SQ_PLACEHOLDER}`),
@@ -177,6 +181,7 @@ export function splitCommand(command: string): string[] {
       .replaceAll(`${SQ_PLACEHOLDER}`, "'")
       .replaceAll(`${DQ_PLACEHOLDER}`, '"')
       .replaceAll(`${BS_PLACEHOLDER}`, '\\')
+      .replaceAll(`${BS_SEMI_PLACEHOLDER}`, '\\;')
   })
 
   // 4. 过滤掉分隔符

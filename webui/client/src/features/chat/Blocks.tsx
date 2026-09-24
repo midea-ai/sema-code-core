@@ -1,5 +1,5 @@
 import React, { memo, useState, useMemo, useRef, useLayoutEffect, useEffect } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Brain, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch, Images } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Brain, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch, Images, Plug } from 'lucide-react';
 import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, TodosBlock, CronBlock, BranchOriginBlock } from '../../../../shared/types';
 import { CRON_TOOLS } from '../../../../shared/protocol';
 import { isAttachmentPath } from '../../../../shared/viz';
@@ -297,19 +297,30 @@ function absPathOf(rel: string, workingDir: string): string {
   return workingDir ? `${workingDir}/${rel}` : rel;
 }
 
-/** 搜索类工具整行文案：已在 . 中搜索“pattern” / 正在 . 中查找文件“pattern”（失败：在 . 中搜索“pattern”失败） */
+/** 搜索类工具整行文案：已搜索“pattern” 在 目录末段 (glob)；目录为 . 时不显示位置（失败：搜索“pattern” 在 dir 失败） */
 function searchLabel(block: ToolBlock): string {
   // 无 input（旧记录）时从标题 `pattern: "x" glob: "y" path: "z"` 里解析
   const m = (k: string) => block.title?.match(new RegExp(`${k}: "([^"]*)"`))?.[1];
-  const dir = String(block.input?.path || m('path') || '.');
+  const path = String(block.input?.path || m('path') || '').replace(/[\\/]+$/, '');
+  const glob = String(block.input?.glob || m('glob') || '');
+  const shortDir = path && path !== '.' ? (path.split(/[\\/]/).pop() || '') : '';
+  const loc = glob ? (shortDir ? `${shortDir} (${glob})` : `(${glob})`) : shortDir;
+  const dir = loc ? t('tool.searchIn', { dir: loc }) : '';
   const pattern = block.input?.pattern ?? m('pattern');
   const pat = pattern ? `“${pattern}”` : '';
   const kind = block.toolName === 'search_files' ? 'findFiles' as const : 'searchContent' as const;
   return t(`tool.${kind}.${verbState(block.status)}` as const, { dir, pat });
 }
 
-function toolIcon(n: string): any {
-  return n === 'run_shell' ? Terminal : (n === 'search_files' || n === 'search_content') ? Search : n === 'view_file' ? FileText : FILE_TOOLS.has(n) ? Pencil : n === 'fetch_url' ? Globe : n === 'sub_agent' ? Bot : Wrench;
+/** 记忆文件：<project>/.sema/memory/ 下的 .md（与 core memManager.isMemoryFile 规则一致） */
+function isMemoryPath(p: string | null): boolean {
+  return !!p && /(^|[\\/])\.sema[\\/]memory[\\/].+\.md$/i.test(p);
+}
+
+/** 文件类工具读写记忆文件时用记忆图标，其余按工具名 */
+function toolIcon(n: string, filePath: string | null = null): any {
+  if (FILE_TOOLS.has(n) && isMemoryPath(filePath)) return Brain;
+  return n === 'run_shell' ? Terminal : (n === 'search_files' || n === 'search_content') ? Search : n === 'view_file' ? FileText : FILE_TOOLS.has(n) ? Pencil : n === 'fetch_url' ? Globe : n === 'sub_agent' ? Bot : CRON_TOOLS.has(n) ? Clock : n.startsWith('mcp__') ? Plug : Wrench;
 }
 
 /** 工具单行摘要（动词 + 目标 + 增删统计）：live 工具组组头用，文案规则与工具行一致 */
@@ -353,9 +364,9 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
     return parts.join('\n');
   }, [block.output, block.content]);
   const diff = isDiffContent(block.content) ? block.content : null;
-  const Icon = toolIcon(block.toolName);
   const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
   const filePath = filePathOf(block, workingDir);
+  const Icon = toolIcon(block.toolName, filePath);
   const openFileRef = useApp(s => s.openFileRef);
   /** view_file 读图片文件：行为改为可展开，展开区显示缩略图（点击放大预览） */
   const isImageRead = isRead && !!filePath && /\.(png|jpe?g|gif|webp)$/i.test(filePath);
@@ -478,8 +489,9 @@ function ToolGroup({ blocks, ctx, live }: { blocks: Block[]; ctx: BlockCtx; live
   const [manual, setManual] = useState<boolean | null>(null);
   const open = manual ?? false;
   const last = tools[tools.length - 1];
+  const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
   const label = [hasEdit && t('card.groupEdited'), hasShell && t('card.groupRan'), hasRead && t('card.groupRead')].filter(Boolean).join(' ') || t('card.groupTools');
-  const Icon = live ? toolIcon(last.toolName) : hasEdit ? Pencil : hasShell ? Terminal : hasRead ? Search : Wrench;
+  const Icon = live ? toolIcon(last.toolName, filePathOf(last, workingDir)) : hasEdit ? Pencil : hasShell ? Terminal : hasRead ? Search : Wrench;
   return (
     <div className="my-1.5 text-[13px]">
       <button onClick={() => setManual(!open)} className="group w-full flex items-center gap-2 py-0.5 text-left text-dim hover:text-fg">

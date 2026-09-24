@@ -484,13 +484,14 @@ export const zh = {
   'tool.call.running': '正在调用 {name}',
   'tool.call.done': '已调用 {name}',
   'tool.call.error': '调用 {name} 失败',
-  // 搜索类工具整行文案；{pat} 为带引号的模式串，可能为空
-  'tool.findFiles.running': '正在 {dir} 中查找文件{pat}',
-  'tool.findFiles.done': '已在 {dir} 中查找文件{pat}',
-  'tool.findFiles.error': '在 {dir} 中查找文件{pat}失败',
-  'tool.searchContent.running': '正在 {dir} 中搜索{pat}',
-  'tool.searchContent.done': '已在 {dir} 中搜索{pat}',
-  'tool.searchContent.error': '在 {dir} 中搜索{pat}失败',
+  // 搜索类工具整行文案；{pat} 为带引号的模式串，{dir} 为 tool.searchIn 拼好的位置段（含前置空格），均可能为空
+  'tool.findFiles.running': '正在查找文件{pat}{dir}',
+  'tool.findFiles.done': '已查找文件{pat}{dir}',
+  'tool.findFiles.error': '查找文件{pat}{dir}失败',
+  'tool.searchContent.running': '正在搜索{pat}{dir}',
+  'tool.searchContent.done': '已搜索{pat}{dir}',
+  'tool.searchContent.error': '搜索{pat}{dir}失败',
+  'tool.searchIn': ' 在 {dir}',
   // 工具展示名
   'toolName.read': '读取',
   'toolName.shell': '命令',

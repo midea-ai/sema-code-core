@@ -1,6 +1,6 @@
 {
   "name": "semawork",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "description": "SemaWork — sema-core 的本地 Web 界面（server + client），不进入 sema-core npm 包",
   "workspaces": [

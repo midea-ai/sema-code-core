@@ -17,7 +17,7 @@ import { TOOL_NAME_PATCH_FILE, TOOL_NAME_EDIT_NOTEBOOK } from '../prompt/tool'
 import { applyEdit, normalizeLF } from '../util/edit'
 import { getStateManager } from '../manager/StateManager'
 import { getCheckpointManager } from '../manager/CheckpointManager'
-
+import { isMemoryFile } from '../services/memory/memManager'
 
 const toolParams = z.strictObject({
   file_path: z.string().describe('Absolute path of the file to edit'),
@@ -138,24 +138,27 @@ Always edit existing files rather than creating new ones. Never add emojis unles
       }
     }
 
-    const readTimestamp = readFileTimestamps[fullFilePath]
-    if (!readTimestamp) {
-      return {
-        result: false,
-        message:
-          'You need to read the file before editing it.',
-        meta: {
-          isFilePathAbsolute: String(isAbsolute(file_path)),
-        },
+    // 记忆文件内容已注入系统提示，跳过已读/过期校验（search_text 精确匹配仍兜底）
+    if (!isMemoryFile(fullFilePath)) {
+      const readTimestamp = readFileTimestamps[fullFilePath]
+      if (!readTimestamp) {
+        return {
+          result: false,
+          message:
+            'You need to read the file before editing it.',
+          meta: {
+            isFilePathAbsolute: String(isAbsolute(file_path)),
+          },
+        }
       }
-    }
-    const stats = statSync(fullFilePath)
-    const lastWriteTime = stats.mtimeMs
-    if (lastWriteTime > readTimestamp) {
-      return {
-        result: false,
-        message:
-          'The file was modified externally since last read. Please re-read it before editing.',
+      const stats = statSync(fullFilePath)
+      const lastWriteTime = stats.mtimeMs
+      if (lastWriteTime > readTimestamp) {
+        return {
+          result: false,
+          message:
+            'The file was modified externally since last read. Please re-read it before editing.',
+        }
       }
     }
 
@@ -210,7 +213,7 @@ Always edit existing files rather than creating new ones. Never add emojis unles
       : ''
 
     // 权限确认后二次校验时间戳，防止用户在权限对话框期间修改文件
-    if (fileExists) {
+    if (fileExists && !isMemoryFile(fullFilePath)) {
       const readTimestamp = agentState.getReadFileTimestamps()[fullFilePath]
       const currentMtime = statSync(fullFilePath).mtimeMs
       if (readTimestamp && currentMtime > readTimestamp) {

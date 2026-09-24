@@ -17,6 +17,7 @@ import { IS_WIN } from '../util/platform'
 import { TOOL_NAME_WRITE_FILE, TOOL_NAME_VIEW_FILE, TOOL_NAME_PATCH_FILE } from '../prompt/tool'
 import { getStateManager } from '../manager/StateManager'
 import { getCheckpointManager } from '../manager/CheckpointManager'
+import { isMemoryFile } from '../services/memory/memManager'
 import { getPatch } from '../util/diff'
 import {
   getWriteFileTitle,
@@ -75,7 +76,8 @@ Rules:
     const agentState = stateManager.forAgent(agentContext)
     const fullFilePath = canonicalizeFilePath(file_path)
 
-    if (!existsSync(fullFilePath)) {
+    // 新文件或记忆文件（内容已注入系统提示）不要求先读
+    if (!existsSync(fullFilePath) || isMemoryFile(fullFilePath)) {
       return { result: true }
     }
 
@@ -122,7 +124,7 @@ Rules:
     mkdirSync(dir, { recursive: true })
 
     // 权限确认后二次校验时间戳，防止用户在权限对话框期间修改文件
-    if (oldFileExists) {
+    if (oldFileExists && !isMemoryFile(fullFilePath)) {
       const readTimestamp = agentState.getReadFileTimestamp(fullFilePath)
       const currentMtime = statSync(fullFilePath).mtimeMs
       if (readTimestamp && currentMtime > readTimestamp) {

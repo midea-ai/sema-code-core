@@ -124,6 +124,16 @@ class MemoryManager {
   }
 
   /**
+   * 是否为记忆目录下的 .md 文件（MEMORY.md 及各主题文件）
+   * 记忆内容已注入系统提示，编辑工具对这类文件跳过"编辑前必须已读"校验
+   */
+  isMemoryFile(fullFilePath: string): boolean {
+    if (!fullFilePath.endsWith('.md')) return false
+    const rel = path.relative(this.semaProjectMemoryDir, fullFilePath)
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+  }
+
+  /**
    * 同步获取 memory 描述（从缓存中读取）
    * 缓存未就绪时返回空字符串
    */
@@ -158,6 +168,10 @@ export function getMemoryManager(): MemoryManager {
 
 export function getMemoryDescription(): string {
   return getMemoryManager().getMemoryDescription()
+}
+
+export function isMemoryFile(fullFilePath: string): boolean {
+  return getMemoryManager().isMemoryFile(fullFilePath)
 }
 
 export { MemoryManager }

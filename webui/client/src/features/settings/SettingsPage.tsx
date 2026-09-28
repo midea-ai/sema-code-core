@@ -141,7 +141,7 @@ function ModelsSettings() {
       {list.length > 0 && (
         <section>
           <h2 className="text-base font-semibold mb-3">{t('settings.taskConfig')}</h2>
-          <div className="rounded-lg border border-border bg-white divide-y divide-border">
+          <div className="rounded-lg border border-border bg-white py-1">
             <TaskRow label={t('settings.mainModel')} desc={t('settings.mainDesc')} value={main} list={list} disabled={busy} onChange={v => applyTask({ main: v, quick: quick || v })} />
             <TaskRow label={t('settings.quickModel')} desc={t('settings.quickDesc')} value={quick} list={list} disabled={busy} onChange={v => applyTask({ main: main || v, quick: v })} />
           </div>
@@ -154,15 +154,17 @@ function ModelsSettings() {
 
 function TaskRow({ label, desc, value, list, disabled, onChange }: { label: string; desc: string; value: string; list: string[]; disabled: boolean; onChange: (v: string) => void }) {
   return (
-    <div className="flex items-center gap-4 px-4 py-3">
-      <div className="w-28 shrink-0">
-        <div className="text-sm font-medium">{label}</div>
+    <div className="flex items-start gap-4 px-4 py-3">
+      {/* 标签与下拉框同高，垂直居中对齐下拉框而不是整行 */}
+      <div className="w-28 shrink-0 h-9 flex items-center text-sm font-medium">{label}</div>
+      <div className="flex-1 min-w-0">
+        <Dropdown value={value} options={list.map(m => ({ value: m, label: stripProviderSuffix(m), icon: <ProviderLogo provider={parseProviderKey(m)} /> }))}
+          onChange={onChange} minWidth={260} tone="text-fg hover:bg-black/[0.05]"
+          className={cn('w-full h-9 px-3 border border-border rounded-md bg-white justify-between', disabled && 'opacity-50 pointer-events-none')}
+          // 字号写在内层：Dropdown 按钮自带 text-xs，在 className 里追加 text-sm 会被它盖掉
+          renderValue={v => v ? <span className="inline-flex items-center gap-2 truncate text-sm"><ProviderLogo provider={parseProviderKey(v)} />{stripProviderSuffix(v)}</span> : <span className="text-sm text-muted">—</span>} />
+        <div className="mt-1.5 text-xs text-muted">{desc}</div>
       </div>
-      <div className="flex-1 text-xs text-muted">{desc}</div>
-      <Dropdown value={value} options={list.map(m => ({ value: m, label: stripProviderSuffix(m), icon: <ProviderLogo provider={parseProviderKey(m)} /> }))}
-        onChange={onChange} minWidth={260}
-        className={cn('h-9 px-3 border border-border rounded-md text-sm text-fg bg-white min-w-64 justify-between', disabled && 'opacity-50 pointer-events-none')}
-        renderValue={v => v ? <span className="inline-flex items-center gap-2 truncate"><ProviderLogo provider={parseProviderKey(v)} />{stripProviderSuffix(v)}</span> : <span className="text-muted">—</span>} />
     </div>
   );
 }

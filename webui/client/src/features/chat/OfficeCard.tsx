@@ -1,6 +1,6 @@
 import { Children, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { Popover, MenuSep } from '../../common/ui';
+import { Popover, MenuSep, Tip } from '../../common/ui';
 import { OpenWithItems, useOpenWithApps } from '../../common/openWith';
 import { FileIcon } from '../../common/fileicon/FileIcon';
 import { useApp } from '../../store/app';
@@ -45,10 +45,12 @@ export function ArtifactRow({ sessionId, path, icon, title, subtitle, tip, onOpe
   return (
     <div className="flex items-center gap-3 px-3 py-2.5">
       <span className="h-9 w-9 rounded-lg bg-panel flex items-center justify-center shrink-0">{icon}</span>
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={open} title={tip}>
-        <div className="font-medium truncate">{title}</div>
-        <div className="text-xs text-muted truncate">{subtitle}</div>
-      </div>
+      <Tip content={tip}>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={open}>
+          <div className="font-medium truncate">{title}</div>
+          <div className="text-xs text-muted truncate">{subtitle}</div>
+        </div>
+      </Tip>
       {/* 分体按钮：左半「打开方式」= 默认项（右栏打开），右半箭头才展开下拉（与文件标签顶栏一致） */}
       {appsOnly ? (
         <button onClick={e => setMenu(e.currentTarget.getBoundingClientRect())} className="h-7 px-2 inline-flex items-center gap-1 rounded-md border border-border text-fg text-xs hover:bg-black/[0.05]">

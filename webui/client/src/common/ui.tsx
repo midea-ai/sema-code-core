@@ -55,6 +55,50 @@ export function Popover({ anchor, onClose, children, align = 'left', className }
   );
 }
 
+// ---------- Tip ----------
+/** 悬浮提示：原生 title 延迟长（约 1s）且不可调，展示信息的提示用它；不套额外 DOM，事件合并到唯一子元素上 */
+export function Tip({ content, align = 'left', children }: { content: React.ReactNode; align?: 'left' | 'right'; children: React.ReactElement<any> }) {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const cancel = () => { clearTimeout(timer.current); setRect(null); };
+  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => {
+    if (!rect) return;
+    // 点击/滚动后锚点可能移走或卸载，mouseleave 不一定触发，主动收起
+    const hide = () => setRect(null);
+    document.addEventListener('mousedown', hide, true);
+    window.addEventListener('scroll', hide, true);
+    return () => { document.removeEventListener('mousedown', hide, true); window.removeEventListener('scroll', hide, true); };
+  }, [rect]);
+  if (!content) return children;
+  const p = children.props;
+  const child = React.cloneElement(children, {
+    // 延迟 300ms 显示（与插件 Tooltip 一致），快速划过不闪；到点再量位置，锚点 hover 后可能变宽
+    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
+      p.onMouseEnter?.(e);
+      const el = e.currentTarget;
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => el.isConnected && setRect(el.getBoundingClientRect()), 300);
+    },
+    onMouseLeave: (e: React.MouseEvent<HTMLElement>) => { p.onMouseLeave?.(e); cancel(); },
+    onMouseDown: (e: React.MouseEvent<HTMLElement>) => { p.onMouseDown?.(e); cancel(); },
+  });
+  if (!rect) return child;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  // 默认在锚点上方，上方空间不足时放下方；水平按 align 贴边并限制在视口内
+  const style: React.CSSProperties = { position: 'fixed', zIndex: 1400 };
+  if (rect.top > 80) style.bottom = vh - rect.top + 6; else style.top = rect.bottom + 6;
+  if (align === 'right') { style.right = Math.max(8, vw - rect.right); style.maxWidth = Math.min(480, vw - (style.right as number) - 8); }
+  else { style.left = Math.max(8, Math.min(rect.left, vw - 208)); style.maxWidth = Math.min(480, vw - (style.left as number) - 8); }
+  return <>
+    {child}
+    {createPortal(
+      <div style={style} className="pointer-events-none w-max bg-white border border-border rounded-lg shadow-xl px-3 py-2 text-xs leading-5 text-fg whitespace-pre-wrap [overflow-wrap:anywhere]">{content}</div>,
+      document.body,
+    )}
+  </>;
+}
+
 export function MenuItem({ children, onClick, danger, disabled, hint }: { children: React.ReactNode; onClick?: () => void; danger?: boolean; disabled?: boolean; hint?: string }) {
   return (
     <button disabled={disabled} onClick={onClick}

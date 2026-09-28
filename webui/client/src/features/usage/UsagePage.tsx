@@ -368,7 +368,7 @@ export function UsagePage() {
             const label = toolLabel(x.name);
             return (
               <div className="usage-row" key={x.name}>
-                <div className="usage-row-name" title={label.title ?? x.name}>
+                <div className="usage-row-name" {...tipEvents(() => <div className="usage-tip-title">{label.title ?? x.name}</div>)}>
                   <span>{label.primary}</span>
                   {label.secondary && <span className="shrink-0 text-xs text-muted">{label.secondary}</span>}
                 </div>
@@ -400,7 +400,7 @@ export function UsagePage() {
               <tbody>
                 {failed.map(x => (
                   <tr key={x.name}>
-                    <td title={x.name}>{toolLabel(x.name).primary}</td>
+                    <td {...tipEvents(() => <div className="usage-tip-title">{x.name}</div>)}>{toolLabel(x.name).primary}</td>
                     <td className="num">{t('usage.times', { n: formatCount(x.errors) })}</td>
                     <td className="num">{formatPercent(x.errors / x.calls)}</td>
                   </tr>

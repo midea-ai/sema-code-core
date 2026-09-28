@@ -14,7 +14,7 @@ import { SkillLabel, matchSkillPrefix } from './skillDisplay';
 import { FileRefChip, refPaths, refStatPath, splitFileRefs } from './fileRefDisplay';
 import { usePathStats } from './fileRefs';
 import { PastePill } from './pasteAttachment';
-import { Button, cn, Spinner, useCopy } from '../../common/ui';
+import { Button, cn, Spinner, Tip, useCopy } from '../../common/ui';
 import { api, getToken } from '../../api/http';
 import { contentToString, toolDisplayName, stripAnsi, fmtTime, displayPath } from '../../common/text';
 import { normalizeUrl } from '../../common/url';
@@ -59,16 +59,17 @@ function BranchOrigin({ block }: { block: BranchOriginBlock }) {
   return (
     <div className="my-5 flex items-center gap-3 text-sm">
       <span className="h-px flex-1 bg-border" />
-      <button
-        type="button"
-        disabled={!available}
-        onClick={() => available && setView({ type: 'chat', sessionId: block.sourceSessionId })}
-        className={cn('inline-flex items-center gap-2 font-medium', available ? 'text-accent hover:underline underline-offset-2' : 'text-muted cursor-default')}
-        title={available ? t('chat.openBranchSource', { title: source.title || block.sourceTitle }) : t('chat.branchSourceDeleted')}
-      >
-        <GitBranch size={16} />
-        <span>{available ? t('chat.branchFrom') : t('chat.branchSourceDeleted')}</span>
-      </button>
+      <Tip content={available && t('chat.openBranchSource', { title: source.title || block.sourceTitle })}>
+        <button
+          type="button"
+          disabled={!available}
+          onClick={() => available && setView({ type: 'chat', sessionId: block.sourceSessionId })}
+          className={cn('inline-flex items-center gap-2 font-medium', available ? 'text-accent hover:underline underline-offset-2' : 'text-muted cursor-default')}
+        >
+          <GitBranch size={16} />
+          <span>{available ? t('chat.branchFrom') : t('chat.branchSourceDeleted')}</span>
+        </button>
+      </Tip>
       <span className="h-px flex-1 bg-border" />
     </div>
   );
@@ -576,9 +577,11 @@ function PermissionCard({ block, ctx }: { block: PermissionBlock; ctx: BlockCtx 
         {!resolved && (
           <div className="flex gap-2 mt-3 flex-wrap">
             {optionKeys.map(k => (
-              <Button key={k} disabled={busy} size="sm" variant={k === 'agree' ? 'primary' : k === 'refuse' ? 'danger' : 'outline'} onClick={() => onPick(k)} title={block.options[k]}>
-                {label(k)}
-              </Button>
+              <Tip key={k} content={block.options[k]}>
+                <Button disabled={busy} size="sm" variant={k === 'agree' ? 'primary' : k === 'refuse' ? 'danger' : 'outline'} onClick={() => onPick(k)}>
+                  {label(k)}
+                </Button>
+              </Tip>
             ))}
           </div>
         )}

@@ -14,7 +14,7 @@ import { Composer } from './Composer';
 import { Button, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { usePausableElapsed } from '../../common/useElapsed';
 import { t } from '../../i18n';
-import { collapsedHeaderPad } from '../../common/desktop';
+import { collapsedHeaderPad, panelCollapsedHeaderPad } from '../../common/desktop';
 import { fmtTime, shortPath } from '../../common/text';
 
 export function ChatView({ sessionId }: { sessionId: string }) {
@@ -25,6 +25,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const open = useSessions(s => s.open);
   const toast = useApp(s => s.toast);
   const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
+  const panelCollapsed = useApp(s => s.panels[sessionId]?.collapsed ?? true);
   const dialog = useDialog();
   const listRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
@@ -175,8 +176,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      {/* 头部 */}
-      <div className={cn('app-drag h-11 shrink-0 flex items-center gap-2 px-4 border-b border-border', sidebarCollapsed && collapsedHeaderPad)}>
+      {/* 头部：pt-px 抵消 1px 下边框，让内容的垂直中线落在 22px，与红绿灯、侧栏收起后的浮动按钮同一水平线（各页面头部同） */}
+      <div className={cn('app-drag h-11 shrink-0 flex items-center gap-2 px-4 pt-px border-b border-border', sidebarCollapsed && collapsedHeaderPad, panelCollapsed && panelCollapsedHeaderPad)}>
         <button onClick={renameTitle} className="group inline-flex items-center gap-2 min-w-0 max-w-[60%]" title={record.workingDir}>
           <span className="truncate font-medium">{record.title || t('chat.untitled')}</span>
           <Pencil size={12} className="text-muted opacity-0 group-hover:opacity-100 shrink-0" />

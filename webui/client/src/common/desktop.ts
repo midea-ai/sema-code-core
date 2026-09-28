@@ -17,3 +17,6 @@ export const macTitleBar = desktop?.platform === 'darwin';
  * 网页模式按钮从 8px 起，到 58px；macOS 桌面版还要给红绿灯让位，按钮从 76px 起，到 126px
  */
 export const collapsedHeaderPad = macTitleBar ? 'pl-[132px]' : 'pl-16';
+
+/** 右栏收起时页面头部行的右内边距，给「新建标签 + 展开」两个按钮（各 23px，间距 4px，距右 8px）让位 */
+export const panelCollapsedHeaderPad = 'pr-16';

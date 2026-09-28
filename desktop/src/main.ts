@@ -118,7 +118,8 @@ function createWindow() {
     width: 1280, height: 820, minWidth: 960, minHeight: 600,
     title: 'SemaWork', show: false,
     // macOS 隐藏标题栏文字，红绿灯嵌进页面侧栏顶部（页面侧按 window.sema.desktop.platform 让位并设拖动区）
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 16 } } : {}),
+    // y 是按钮框（高 16px）的顶边，14 + 8 = 22 正好落在页面头部行（44px）的垂直中线上
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

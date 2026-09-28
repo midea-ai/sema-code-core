@@ -72,11 +72,13 @@ export function RightPanel({ sessionId, width }: { sessionId: string; width: num
     </Popover>
   );
 
+  // 收起态不占布局宽度：两个按钮浮在页面头部行（h-11）右端，页面头部用 panelCollapsedHeaderPad 让位。
+  // 占宽的话，无项目新会话页（不渲染右栏）与其他页面的中间区域宽度不一致，切换时输入框会横向跳动
   if (panel.collapsed) {
     return (
-      <div className="w-10 shrink-0 border-l border-border flex flex-col items-center py-2 gap-2 bg-white">
-        <button onClick={() => updatePanel(sessionId, p => ({ ...p, collapsed: false }))} className="p-1.5 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.showSidebar')}><PanelRight size={16} /></button>
-        <button onClick={openMenu} className="p-1.5 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('panel.newTab')}><Plus size={16} /></button>
+      <div className="absolute right-2 top-0 h-11 z-10 flex items-center gap-1">
+        <button onClick={openMenu} className="app-no-drag p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('panel.newTab')}><Plus size={15} /></button>
+        <button onClick={() => updatePanel(sessionId, p => ({ ...p, collapsed: false }))} className="app-no-drag p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.showSidebar')}><PanelRight size={15} /></button>
         {newMenu}
       </div>
     );

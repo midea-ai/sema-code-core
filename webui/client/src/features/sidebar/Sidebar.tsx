@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Settings, CalendarClock, Blocks, ChartColumn, ChevronDown, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
+import { Plus, SquarePen, Settings, CalendarClock, Blocks, ChartColumn, ChevronDown, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { pendingBlocks } from '../../../../shared/transcript';
@@ -76,7 +76,7 @@ export function Sidebar({ width }: { width: number }) {
           <span className="text-base font-semibold tracking-wide">{t('app.name')}</span>
           {!macTitleBar && <button onClick={() => setSidebarCollapsed(true)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.hideSidebar')}><PanelLeft size={15} /></button>}
         </div>
-        <NavItem icon={<Plus size={15} />} label={t('sidebar.newSession')} active={view.type === 'draft' && !view.projectId} onClick={() => newSession()} />
+        <NavItem icon={<SquarePen size={15} />} label={t('sidebar.newSession')} active={view.type === 'draft' && !view.projectId} onClick={() => newSession()} />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3">

@@ -13,7 +13,7 @@ import { DraftView } from '../features/chat/DraftView';
 import { DialogProvider, cn, Spinner } from '../common/ui';
 import { macTitleBar } from '../common/desktop';
 import { t, useLang } from '../i18n';
-import { PanelLeft, Plus } from 'lucide-react';
+import { PanelLeft, SquarePen } from 'lucide-react';
 import { ResizeHandle, usePanelWidth } from '../common/Resizer';
 import { useStatusFavicon } from '../common/favicon';
 import { useActivateJump, useDockBadge, useVisibilityRead } from '../common/unread';
@@ -67,18 +67,6 @@ export function App() {
               )}
             </div>
           )}
-          {/* 侧栏收起后展开按钮盖在各页面头部行（h-11）左侧，页面头部用 collapsedHeaderPad 让位；
-              macOS 桌面版红绿灯也落在这一行，按钮挪到红绿灯右侧，并给红绿灯周围一块窗口拖动区 */}
-          {sidebarCollapsed && (
-            <>
-              {macTitleBar && <div className="absolute left-0 top-0 w-[72px] h-11 z-10 app-drag" />}
-              {/* 展开按钮与侧栏里的收起按钮同尺寸；后面跟一个新会话按钮，行为与侧栏「新会话」一致（切到草稿页） */}
-              <div className={cn('app-no-drag absolute top-2.5 z-10 flex items-center gap-1', macTitleBar ? 'left-[76px]' : 'left-2')}>
-                <button onClick={() => setSidebarCollapsed(false)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.showSidebar')}><PanelLeft size={15} /></button>
-                <button onClick={() => setView({ type: 'draft' })} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newSession')}><Plus size={15} /></button>
-              </div>
-            </>
-          )}
           {view.type === 'settings' && <SettingsPage tab={view.tab} />}
           {view.type === 'schedule' && <SchedulePage />}
           {view.type === 'eco' && <EcoPage />}
@@ -98,6 +86,20 @@ export function App() {
             </div>
           ) : <DraftView key="" />)}
           {view.type === 'empty' && <DraftView />}
+          {/* 侧栏收起后展开按钮盖在各页面头部行（h-11）左侧，页面头部用 collapsedHeaderPad 让位；
+              macOS 桌面版红绿灯也落在这一行，按钮挪到红绿灯右侧，并给红绿灯周围一块窗口拖动区。
+              必须排在页面视图之后：窗口拖动区按 DOM 顺序叠加，no-drag 排在页面头部的 app-drag 之前会被盖掉，点击被拖动吞掉 */}
+          {sidebarCollapsed && (
+            <>
+              {macTitleBar && <div className="absolute left-0 top-0 w-[72px] h-11 z-10 app-drag" />}
+              {/* 展开按钮与侧栏里的收起按钮同尺寸同位置：同样在 h-11 行内垂直居中，写死 top 会差半像素，收起展开时按钮会跳一下；
+                  后面跟一个新会话按钮，行为与侧栏「新会话」一致（切到草稿页） */}
+              <div className={cn('absolute top-0 h-11 z-10 flex items-center gap-1', macTitleBar ? 'left-[76px]' : 'left-2')}>
+                <button onClick={() => setSidebarCollapsed(false)} className="app-no-drag p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.showSidebar')}><PanelLeft size={15} /></button>
+                <button onClick={() => setView({ type: 'draft' })} className="app-no-drag p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newSession')}><SquarePen size={15} /></button>
+              </div>
+            </>
+          )}
         </div>
         <Toasts />
       </div>

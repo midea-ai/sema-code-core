@@ -6,6 +6,7 @@
  * 关闭预览（PREVIEW_COMPONENTS = []）后本文件不做任何事。
  */
 import type { SessionRecord } from '../../../shared/types';
+import type { WsAction } from '../../../shared/protocol';
 import { useApp } from '../store/app';
 import { useSessions } from '../store/sessions';
 import { wsClient } from '../api/ws';
@@ -38,7 +39,7 @@ function installPreview() {
 
   // 2) WS 请求：预览会话的动作短路（不发给服务端），本地乐观更新仍生效（应答权限/提问/计划卡片可点）
   const origRequest = wsClient.request.bind(wsClient);
-  wsClient.request = ((action: string, sessionId?: string, payload?: any, timeoutMs?: number) => {
+  wsClient.request = ((action: WsAction, sessionId?: string, payload?: any, timeoutMs?: number) => {
     if (!isPreviewSession(sessionId)) return origRequest(action, sessionId, payload, timeoutMs);
     if (action === 'session.getCommandsInfo') return Promise.resolve({ commands: [], skills: [], agents: [] });
     if (action === 'session.getForkPreview') return Promise.resolve(MOCK_FORK_PREVIEW);

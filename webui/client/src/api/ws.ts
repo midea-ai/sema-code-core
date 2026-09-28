@@ -5,6 +5,7 @@
 import { api, ApiError, getToken } from './http';
 import { t } from '../i18n';
 import type { EventFrame, ProcEventFrame, ResFrame } from '../../../shared/types';
+import type { WsAction } from '../../../shared/protocol';
 
 type Listener = (frame: EventFrame | ProcEventFrame) => void;
 export type WsStatus = 'connecting' | 'open' | 'closed' | 'unauthorized' | 'failed';
@@ -91,7 +92,7 @@ export class WsClient {
     });
   }
 
-  async request<T = any>(action: string, sessionId?: string, payload?: any, timeoutMs = 120_000): Promise<T> {
+  async request<T = any>(action: WsAction, sessionId?: string, payload?: any, timeoutMs = 120_000): Promise<T> {
     await this.waitOpen();
     const ws = this.ws!;
     const id = `c${++this.seq}`;

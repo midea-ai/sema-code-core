@@ -38,6 +38,7 @@ export const CORE_ACTIONS = [
   'core.switchModel',
   'core.addModel',
   'core.delModel',
+  'core.getModelProfile',
   'core.applyTaskModel',
   'core.testApiConnection',
   'core.fetchAvailableModels',
@@ -73,6 +74,9 @@ export const SESSION_ACTIONS = [
   'session.enableCronTask',
   'session.disableCronTask',
 ] as const;
+
+/** WS 可调用的 action（即 ws/handler 白名单）：前端 wsClient.request 以此约束，漏加白名单编译期即报错 */
+export type WsAction = typeof CORE_ACTIONS[number] | typeof PROJECT_ACTIONS[number] | typeof SESSION_ACTIONS[number];
 
 export const MAIN_AGENT_ID = 'main';
 

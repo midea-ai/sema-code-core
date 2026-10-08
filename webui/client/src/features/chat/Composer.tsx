@@ -124,9 +124,12 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   const agentMode = isDraft ? draftMode : (snap?.agentMode || 'Agent');
   const permissionLevel = isDraft ? draftLevel : normalizeLevel(snap?.permissionLevel || defaultLevel);
   // Design 模式与 Agent/Plan 不同：不能在已有会话里就地切入，选中后回到新会话草稿页并预选 Design，
-  // 与默认新会话一致：首次发送时才真正创建会话
+  // 与默认新会话一致：首次发送时才真正创建会话；已有消息的 Design 会话不能切出（上下文已按 Design 铺开，切出无意义且切不回来），
+  // 空会话仍可改回 Agent/Plan，与扩展端一致
+  const lockedDesign = !isDraft && agentMode === 'Design' && (snap?.blocks.length ?? 0) > 0;
   const changeMode = (m: AgentMode) => {
     if (isDraft) { setDraftMode(m); return; }
+    if (lockedDesign) return;
     if (m === 'Design' && agentMode !== 'Design') {
       const pid = useApp.getState().registry.sessions.find(s => s.id === sessionId)?.projectId;
       setDraftMode('Design');
@@ -332,7 +335,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
         {!hasModel && modelData && sessionId && (
           <div className="mb-2 text-xs rounded-md border border-warn/40 bg-warn/10 px-3 py-1.5 flex items-center gap-2">
             <span>{t('chat.noModel')}</span>
-            <button className="underline" onClick={() => setView({ type: 'settings', tab: 'models' })}>{t('chat.goConfigModel')}</button>
+            <button className="underline" onClick={() => setView({ type: 'settings', tab: 'models', addModel: true })}>{t('chat.goConfigModel')}</button>
           </div>
         )}
         {pending > 0 && <div className="mb-1.5 text-xs text-warn px-1">{t('chat.waitingPermission')}</div>}
@@ -371,7 +374,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
             className="w-full px-3.5 pt-3.5 pb-1.5 text-sm leading-[22px] min-h-[52px] max-h-60 overflow-auto" />
           {/* 底栏：左侧裸按钮 28px 等高，右侧用量 + 32px 发送键，全部垂直居中 */}
           <div className="h-11 flex items-center gap-0.5 pl-2 pr-2">
-            <Dropdown value={agentMode} title={t('chat.mode')} options={MODES.map(m => ({
+            <Dropdown value={agentMode} title={t('chat.mode')} options={(lockedDesign ? ['Design' as AgentMode] : MODES).map(m => ({
               value: m,
               label: m === 'Design'
                 ? <span className="inline-flex items-center gap-1.5">{t('mode.Design')}<span className="text-[9px] leading-none px-1 py-0.5 rounded bg-black/[0.06] text-muted font-medium">beta</span></span>

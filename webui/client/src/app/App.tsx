@@ -67,7 +67,7 @@ export function App() {
               )}
             </div>
           )}
-          {view.type === 'settings' && <SettingsPage tab={view.tab} />}
+          {view.type === 'settings' && <SettingsPage tab={view.tab} addModel={view.addModel} />}
           {view.type === 'schedule' && <SchedulePage />}
           {view.type === 'eco' && <EcoPage />}
           {view.type === 'usage' && <UsagePage />}

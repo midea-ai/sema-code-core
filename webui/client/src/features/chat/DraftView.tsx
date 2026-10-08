@@ -42,7 +42,7 @@ export function DraftView({ projectId }: { projectId?: string }) {
               </div>
             </div>
             <div className="flex items-center justify-between mt-4">
-              <Button variant="primary" size="sm" onClick={() => setView({ type: 'settings', tab: 'models' })}>{t('chat.goConfigModel')}</Button>
+              <Button variant="primary" size="sm" onClick={() => setView({ type: 'settings', tab: 'models', addModel: true })}>{t('chat.goConfigModel')}</Button>
               <LanguageSelect compact />
             </div>
           </div>

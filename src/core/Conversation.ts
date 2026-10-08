@@ -21,9 +21,28 @@ import { runToolsConcurrently, runToolsSerially } from './RunTools'
 import { processFileReferences } from '../util/fileReference'
 import { normalizeImageAttachments, toImageContentBlocks } from '../util/imageCompress'
 import { TOOL_NAME_SKILL } from '../prompt/tool'
+import { normalizeToolUseBlock } from '../prompt/toolAliases'
+import type { Tool } from '../tools/base/Tool'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
 import { t } from '../util/i18n'
 
+
+/**
+ * 模型幻觉兜底：对助手响应里的 tool_use 块做工具名/参数名规范化（原地修改），命中时打 warn 日志。
+ * 规则与守卫见 prompt/toolAliases.ts 的 normalizeToolUseBlock
+ */
+function normalizeToolUseBlocks(assistantMessage: AiMessage, tools: Tool[]): void {
+  const availableToolNames = new Set(tools.map(tool => tool.name))
+  for (const block of assistantMessage.message.content) {
+    if (block.type !== 'tool_use') continue
+    const fixup = normalizeToolUseBlock(block, availableToolNames)
+    if (!fixup) continue
+    const parts: string[] = []
+    if (fixup.name) parts.push(`tool ${fixup.name.from} -> ${fixup.name.to}`)
+    for (const p of fixup.params) parts.push(`param ${p.from} -> ${p.to}`)
+    logWarn(`[ToolAlias] 模型(${assistantMessage.message.model})工具调用已规范化: ${parts.join(', ')}`)
+  }
+}
 
 /**
  * 核心 ReAct 会话循环实现
@@ -135,6 +154,9 @@ export async function* ReAct(
       return
     }
   }
+  // 模型幻觉兜底：把写错的工具名/参数名规范化，放在 yield 之前使历史、UI 事件、并发判断与执行链路拿到的都是规范名
+  normalizeToolUseBlocks(assistantMessage, tools)
+
   yield assistantMessage // 生成助手消息
 
   // 过滤出工具使用消息

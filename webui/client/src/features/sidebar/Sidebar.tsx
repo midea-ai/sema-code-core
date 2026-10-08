@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, SquarePen, Settings, CalendarClock, Blocks, ChartColumn, ChevronDown, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
+import { Plus, SquarePen, Settings, CalendarClock, Blocks, ChartColumn, MessageSquare, Folder, PanelLeft, MoreHorizontal } from 'lucide-react';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { pendingBlocks } from '../../../../shared/transcript';
 import type { ProjectRecord, SessionRecord } from '../../../../shared/types';
-import { Popover, MenuItem, MenuSep, useContextMenu, useDialog, cn, relTime } from '../../common/ui';
+import { Caret, Popover, MenuItem, MenuSep, useContextMenu, useDialog, cn, relTime } from '../../common/ui';
 import { t } from '../../i18n';
 import { CreateProjectDialog } from '../../common/CreateProjectDialog';
 import { macTitleBar } from '../../common/desktop';
@@ -82,8 +82,8 @@ export function Sidebar({ width }: { width: number }) {
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3">
         {/* 非固定入口：配置及后续新增入口，随列表一起滚动 */}
         <NavItem icon={<Settings size={15} />} label={t('sidebar.settings')} active={view.type === 'settings'} onClick={() => setView({ type: 'settings', tab: 'system' })} />
-        <NavItem icon={<CalendarClock size={15} />} label={t('sidebar.schedule')} active={view.type === 'schedule'} onClick={() => setView({ type: 'schedule' })} />
         <NavItem icon={<Blocks size={15} />} label={t('sidebar.eco')} active={view.type === 'eco'} onClick={() => setView({ type: 'eco' })} />
+        <NavItem icon={<CalendarClock size={15} />} label={t('sidebar.schedule')} active={view.type === 'schedule'} onClick={() => setView({ type: 'schedule' })} />
         <NavItem icon={<ChartColumn size={15} />} label={t('sidebar.usage')} active={view.type === 'usage'} onClick={() => setView({ type: 'usage' })} />
 
         {/* 项目 */}
@@ -99,7 +99,7 @@ export function Sidebar({ width }: { width: number }) {
 
         {/* 独立会话 */}
         <SectionHeader label={t('sidebar.sessions')} className="mt-4" open={sessionsOpen} onToggle={() => setSessionsOpen(v => !v)} action={
-          <button onClick={() => newSession()} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newSession')}><Plus size={14} /></button>
+          <button onClick={() => newSession()} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newSession')}><SquarePen size={14} /></button>
         } />
         {sessionsOpen && standalone.length === 0 && <div className="px-2 py-1 text-xs text-muted">{t('sidebar.noSessions')}</div>}
         {sessionsOpen && standalone.map(s => <SessionItem key={s.id} session={s} active={s.id === activeId} />)}
@@ -122,7 +122,7 @@ function SectionHeader({ label, action, className, open = true, onToggle }: { la
     <div className={cn('group flex items-center h-7 px-2 text-sm text-dim select-none', className)}>
       <button onClick={onToggle} className="inline-flex items-center gap-1">
         <span>{label}</span>
-        <ChevronDown size={12} className={cn('transition-transform', !open && '-rotate-90', open && 'opacity-0 group-hover:opacity-100')} />
+        <Caret open={open} className={cn(open && 'opacity-0 group-hover:opacity-100')} />
       </button>
       <span className="flex-1" />
       <span className="inline-flex items-center gap-0.5 opacity-0 group-hover:opacity-100">{action}</span>
@@ -176,7 +176,7 @@ function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSes
           !expanded && sessions.some(s => s.id === activeId) ? 'bg-black/[0.07]' : 'hover:bg-black/[0.05]')} title={project.workingDir}>
         <Folder size={14} className="text-muted shrink-0" />
         <span className="truncate flex-1">{project.name}</span>
-        <button onClick={e => { e.stopPropagation(); onNewSession(); }} className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted hover:text-fg" title={t('menu.newSessionHere')}><Plus size={13} /></button>
+        <button onClick={e => { e.stopPropagation(); onNewSession(); }} className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted hover:text-fg" title={t('menu.newSessionHere')}><SquarePen size={13} /></button>
         <button onClick={e => { e.stopPropagation(); menu.open(e); }} className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted hover:text-fg"><MoreHorizontal size={13} /></button>
       </div>
       {expanded && (

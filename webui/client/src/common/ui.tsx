@@ -1,6 +1,7 @@
 /** 轻量 UI 原语：按钮 / 弹层 / 右键菜单 / 下拉 / 开关 / 对话框（无第三方组件库） */
 import React, { useEffect, useRef, useState, createContext, useContext, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { ChevronRight } from 'lucide-react';
 import { t } from '../i18n';
 
 export function cn(...xs: Array<string | false | null | undefined>) { return xs.filter(Boolean).join(' '); }
@@ -133,8 +134,11 @@ export function Dropdown<T extends string>({ value, options, onChange, renderVal
 }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const btn = useRef<HTMLButtonElement>(null);
+  const selectedRef = useRef<HTMLButtonElement>(null);
   const cur = options.find(o => o.value === value);
   const close = () => setRect(null);
+  // 面板打开时把当前选中项滚到列表中间，长列表（如任务配置的模型列表）不用手动找
+  useEffect(() => { if (rect) selectedRef.current?.scrollIntoView({ block: 'center' }); }, [!!rect]);
   // 菜单打开期间实时跟踪按钮位置（拖侧栏分隔条 / 窗口缩放时布局会动），锚点变了就重算位置与宽度
   useEffect(() => {
     if (!rect) return;
@@ -163,8 +167,8 @@ export function Dropdown<T extends string>({ value, options, onChange, renderVal
           {options.map(o => (
             <React.Fragment key={o.value}>
               {o.sepAbove && <MenuSep />}
-              <button onClick={() => { onChange(o.value); close(); }}
-                className="w-full flex items-center gap-2.5 text-left px-3 py-1.5 rounded hover:bg-black/[0.05] text-sm">
+              <button onClick={() => { onChange(o.value); close(); }} ref={o.value === value ? selectedRef : undefined}
+                className={cn('w-full flex items-center gap-2.5 text-left px-3 py-1.5 rounded hover:bg-black/[0.05] text-sm', o.value === value && 'bg-accent/10')}>
                 {o.icon && <span className="shrink-0 w-4 h-4 flex items-center justify-center">{o.icon}</span>}
                 <span className="flex-1 min-w-0">
                   <span className="block truncate">{o.label}</span>
@@ -252,6 +256,11 @@ export function useDialog() { return useContext(DialogCtx)!; }
 // ---------- misc ----------
 export function Spinner({ className }: { className?: string }) {
   return <span className={cn('inline-block h-3.5 w-3.5 rounded-full border-2 border-muted/40 border-t-accent animate-spin', className)} />;
+}
+
+/** 折叠箭头（全站统一）：收起指右、展开指下，同一图标旋转过渡；颜色跟随父级，需要时用 className 指定 */
+export function Caret({ open, size = 12, className }: { open: boolean; size?: number; className?: string }) {
+  return <ChevronRight size={size} className={cn('shrink-0 transition-transform', open && 'rotate-90', className)} />;
 }
 
 export function useCopy() {

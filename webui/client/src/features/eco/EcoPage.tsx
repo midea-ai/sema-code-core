@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, MoreHorizontal, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../../api/http';
 import { useApp, PanelTab } from '../../store/app';
-import { Button, Modal, Popover, MenuItem, Spinner, Toggle, cn, useDialog } from '../../common/ui';
+import { Button, Caret, Modal, Popover, MenuItem, Spinner, Toggle, cn, useDialog } from '../../common/ui';
 import { FileIcon } from '../../common/fileicon/FileIcon';
 import { usePanelWidth, ResizeHandle } from '../../common/Resizer';
 import { FileTab } from '../panel/FileTab';
@@ -520,7 +520,7 @@ function InstalledRow({ name, title, description, active, expanded, onClick, men
     <div onClick={onClick} className={cn('group flex items-center gap-3 px-2 py-2.5 rounded-lg hover:bg-black/[0.03]', active && 'bg-black/[0.05]', onClick && 'cursor-pointer')}>
       {/* 可展开的行（MCP）：行首角标箭头，展开时旋转 */}
       {expanded !== undefined && (
-        <ChevronRight size={14} className={cn('shrink-0 -mr-1.5 text-muted transition-transform', expanded && 'rotate-90')} />
+        <Caret open={expanded} size={14} className="-mr-1.5 text-muted" />
       )}
       <NameIcon name={name} />
       <div className="flex-1 min-w-0">

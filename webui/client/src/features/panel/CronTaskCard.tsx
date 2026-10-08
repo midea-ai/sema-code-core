@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { ArrowUpRight, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Pencil, Trash2 } from 'lucide-react';
 import type { CronTask } from '../../../../shared/types';
-import { cn, Toggle, useDialog } from '../../common/ui';
+import { Caret, cn, Toggle, useDialog } from '../../common/ui';
 import { t } from '../../i18n';
 
 const PROMPT_MAX_LINES = 2;
@@ -41,7 +41,7 @@ export function CronTaskCard({ task, expanded, onToggleExpand, onToggle, onDelet
   return (
     <div data-cron={task.id} className={cn('rounded-lg border border-border bg-white text-[13px]', !task.status && 'opacity-70')}>
       <div className="flex items-center gap-2 px-2 h-10 cursor-pointer select-none" onClick={onToggleExpand}>
-        {expanded ? <ChevronDown size={13} className="shrink-0 text-muted" /> : <ChevronRight size={13} className="shrink-0 text-muted" />}
+        <Caret open={expanded} size={13} className="text-muted" />
         <div className="flex-1 min-w-0 leading-tight">
           <div className="truncate font-medium text-fg" title={name}>{name}</div>
           <div className="truncate text-[11px] text-muted">{task.describeCronExpression}</div>

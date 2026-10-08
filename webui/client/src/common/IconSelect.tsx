@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Popover, cn } from './ui';
 import { t } from '../i18n';
 
@@ -21,7 +21,10 @@ export function IconSelect({ id, value, options, onChange, disabled, placeholder
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [filter, setFilter] = useState('');
   const btn = useRef<HTMLButtonElement>(null);
+  const selectedRef = useRef<HTMLButtonElement>(null);
   const current = options.find(o => o.value === value);
+  // 面板打开时把当前选中项滚到列表中间，长列表不用手动找
+  useEffect(() => { if (rect) selectedRef.current?.scrollIntoView({ block: 'center' }); }, [rect]);
   const searchable = options.length > SEARCH_THRESHOLD;
   const kw = filter.trim().toLowerCase();
   const visible = searchable && kw ? options.filter(o => o.label.toLowerCase().includes(kw) || o.value.toLowerCase().includes(kw)) : options;
@@ -48,8 +51,8 @@ export function IconSelect({ id, value, options, onChange, disabled, placeholder
           {visible.length === 0 && <div className="px-3 py-2 text-sm text-muted">{t('common.noOptions')}</div>}
           <div className="max-h-72 overflow-auto">
             {visible.map(o => (
-              <button key={o.value} type="button" onClick={() => pick(o)} disabled={o.disabled}
-                className={cn('w-full flex items-center gap-2.5 text-left px-3 py-1.5 rounded text-sm', o.disabled ? 'text-muted/50 cursor-not-allowed' : 'hover:bg-black/[0.05]')}>
+              <button key={o.value} type="button" onClick={() => pick(o)} disabled={o.disabled} ref={o.value === value ? selectedRef : undefined}
+                className={cn('w-full flex items-center gap-2.5 text-left px-3 py-1.5 rounded text-sm', o.disabled ? 'text-muted/50 cursor-not-allowed' : 'hover:bg-black/[0.05]', o.value === value && 'bg-accent/10')}>
                 {o.icon && <span className="shrink-0 w-4 h-4 flex items-center justify-center">{o.icon}</span>}
                 <span className="flex-1 truncate">{o.label}</span>
                 {o.value === value && <svg width="14" height="14" viewBox="0 0 24 24" className="text-ok shrink-0"><path d="M5 12l5 5L20 7" stroke="currentColor" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}

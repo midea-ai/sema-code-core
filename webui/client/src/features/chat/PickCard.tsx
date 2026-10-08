@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
+import { ClipboardList } from 'lucide-react';
 import type { PickBlock } from '../../../../shared/types';
 import { useSessions } from '../../store/sessions';
-import { Button, cn } from '../../common/ui';
+import { Button, Caret, cn } from '../../common/ui';
 import { t } from '../../i18n';
 import type { BlockCtx } from './Blocks';
 
@@ -194,7 +194,7 @@ export function PickCard({ block, ctx }: { block: PickBlock; ctx: BlockCtx }) {
   return (
     <div ref={boxRef} tabIndex={readonly ? -1 : 0} className={cn('my-2 rounded-lg border text-sm outline-none', readonly ? 'border-border bg-panel-2' : 'border-accent/50 bg-accent/5')}>
       <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left" title={open ? t('chat.collapse') : t('chat.expand')}>
-        {open ? <ChevronDown size={14} className="text-muted shrink-0" /> : <ChevronRight size={14} className="text-muted shrink-0" />}
+        <Caret open={open} size={14} className="text-muted" />
         <ClipboardList size={14} className={readonly ? 'text-muted' : 'text-accent'} />
         <div className="flex-1 min-w-0">
           <div className="font-medium">{title}</div>

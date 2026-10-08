@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { PlanExitBlock, NoticeBlock } from '../../../../shared/types';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
-import { Button, cn } from '../../common/ui';
+import { Button, Caret, cn } from '../../common/ui';
 import { t } from '../../i18n';
 import { Markdown } from './Markdown';
 import { Collapsible } from './DiffView';
@@ -43,7 +42,7 @@ export function PlanExitCard({ block, ctx }: { block: PlanExitBlock; ctx: BlockC
   return (
     <div className={cn('my-2 rounded-lg border text-sm', resolved ? 'border-border bg-panel-2' : 'border-ok/50 bg-ok/5')}>
       <button type="button" onClick={() => setOpen(v => !v)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
-        {open ? <ChevronDown size={14} className="text-muted shrink-0" /> : <ChevronRight size={14} className="text-muted shrink-0" />}
+        <Caret open={open} size={14} className="text-muted" />
         <span className="font-medium">Ready to code</span>
         <span className="flex-1" />
         <span className={cn('text-[11px] px-2 h-5 inline-flex items-center rounded-full border shrink-0', resolved ? 'border-border text-muted' : 'border-ok/40 text-ok bg-ok/10')}>
@@ -78,7 +77,7 @@ export function PlanImplementCard({ block, ctx }: { block: NoticeBlock; ctx: Blo
   return (
     <div className="my-2 rounded-lg border border-border bg-white text-sm">
       <button type="button" onClick={() => setOpen(v => !v)} className="w-full px-3 py-2 text-left text-[13px]">
-        <PlanHeader filePath={filePath} ctx={ctx} right={open ? <ChevronDown size={14} className="text-muted shrink-0" /> : <ChevronRight size={14} className="text-muted shrink-0" />} />
+        <PlanHeader filePath={filePath} ctx={ctx} right={<Caret open={open} size={14} className="text-muted" />} />
       </button>
       {open && block.detail && (
         <Collapsible deps={block.detail} className="px-3 pb-2 border-t border-border/60 pt-2"><Markdown text={block.detail} sessionId={ctx.sessionId} /></Collapsible>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GitCompare, ChevronDown, ChevronRight, Copy, Check, FolderOpen, ChevronsDownUp, ChevronsUpDown, SquareArrowOutUpRight, RotateCw } from 'lucide-react';
+import { GitCompare, Copy, Check, FolderOpen, ChevronsDownUp, ChevronsUpDown, SquareArrowOutUpRight, RotateCw } from 'lucide-react';
 import type { FileChange, FileChangesBlock, UserBlock } from '../../../../shared/types';
 import { countPatch } from '../../../../shared/transcript';
 import { isAttachmentPath } from '../../../../shared/viz';
@@ -7,7 +7,7 @@ import { useApp, PanelTab } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { api, getToken } from '../../api/http';
 import { DiffView } from '../chat/DiffView';
-import { Dropdown, DropdownOption, Spinner, cn, useCopy } from '../../common/ui';
+import { Caret, Dropdown, DropdownOption, Spinner, cn, useCopy } from '../../common/ui';
 import { displayPath } from '../../common/text';
 import { t } from '../../i18n';
 
@@ -218,7 +218,7 @@ function FileRow({ sessionId, file, open, onToggle }: { sessionId: string; file:
   return (
     <li id={`review-file-${file.path}`}>
       <div className="group relative flex items-center gap-2 px-2 h-8 rounded-md hover:bg-black/[0.04] cursor-pointer" onClick={onToggle}>
-        {open ? <ChevronDown size={13} className="text-muted shrink-0" /> : <ChevronRight size={13} className="text-muted shrink-0" />}
+        <Caret open={open} size={13} className="text-muted" />
         <span className="truncate flex-1 text-[13px]" title={file.path}><span className="text-muted">{dir}</span><span className="text-fg">{base}</span></span>
         {/* 统计贴最右；悬停时淡出，由悬浮的操作按钮覆盖（按钮平时不占布局空间） */}
         <span className="text-xs font-mono shrink-0 group-hover:opacity-0"><span className="text-ok">+{file.additions}</span> <span className="text-danger">-{file.removals}</span></span>
@@ -341,7 +341,7 @@ function FileTree({ files, selected, onSelect, width }: { files: FileChange[]; s
           return (
             <button key={r.key} style={{ paddingLeft: 4 + r.depth * 10 }} onClick={() => toggleDir(r.key)}
               className="w-full h-6 flex items-center gap-0.5 pr-2 text-xs text-muted text-left hover:bg-black/[0.04]">
-              {collapsed.has(r.key) ? <ChevronRight size={12} className="shrink-0" /> : <ChevronDown size={12} className="shrink-0" />}
+              <Caret open={!collapsed.has(r.key)} />
               <span className="truncate">{r.name}</span>
             </button>
           );

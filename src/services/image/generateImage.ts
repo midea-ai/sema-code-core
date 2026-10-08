@@ -18,13 +18,50 @@ const rejectedFields = new Set<string>()
 // 透明背景：OpenAI Images 形态的 background + output_format（alpha 只有 png/webp 能承载）
 const TRANSPARENT_FIELDS: Record<string, unknown> = { background: 'transparent', output_format: 'png' }
 
+// 参考图单张上限（火山方舟的限制，OpenRouter 未公开数值）
+export const REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024
+export const REFERENCE_IMAGE_MAX_COUNT = 10
+
 export interface GenerateImageParams {
   profile: ImageModelProfile
   prompt: string
   outputPath?: string       // 绝对路径；不传则落到附件目录
   transparent?: boolean     // 请求透明背景；不支持的模型可能静默忽略（返回不带 alpha 的图）
+  referenceImages?: string[] // 参考图：本地绝对路径或 http(s) URL，顺序即提示词里的"图 1、图 2"
   signal?: AbortSignal
   beforeWrite?: (filePath: string) => void  // 每张图写盘前回调（最终路径已确定），抛错则不写盘
+}
+
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value)
+}
+
+/**
+ * 参考图转成服务商可接收的形式：URL 原样透传，本地文件读出来拼 data URL（格式按文件头识别，火山要求格式名小写）。
+ * 不压缩，参考图要保真；只做单张大小硬上限
+ */
+function loadReferenceImage(ref: string): string {
+  if (isHttpUrl(ref)) return ref
+  const buf = fs.readFileSync(ref)
+  if (buf.length > REFERENCE_IMAGE_MAX_BYTES) {
+    throw new Error(`Reference image is too large (${(buf.length / 1024 / 1024).toFixed(1)} MB, limit ${REFERENCE_IMAGE_MAX_BYTES / 1024 / 1024} MB): ${ref}`)
+  }
+  const type = sniffImageType(buf)
+  if (!type) {
+    throw new Error(`Reference image is not a supported image format (png, jpeg, webp, gif): ${ref}`)
+  }
+  return `data:${type.mediaType};base64,${buf.toString('base64')}`
+}
+
+/**
+ * 按服务商拼参考图字段。OpenRouter Image API 用归一化的 input_references；
+ * 其余（火山方舟及 custom，国内 OpenAI 兼容网关多为方舟形态）用 image，一张传字符串、多张传数组
+ */
+function referenceFields(provider: string, refs: string[]): Record<string, unknown> {
+  if (provider === 'openrouter') {
+    return { input_references: refs.map(url => ({ type: 'image_url', image_url: { url } })) }
+  }
+  return { image: refs.length === 1 ? refs[0] : refs }
 }
 
 /**
@@ -131,9 +168,11 @@ async function downloadImage(url: string, signal: AbortSignal): Promise<Buffer> 
  * 生成图片并落盘。失败抛错，错误信息为服务商返回的原文，不自动重试。
  */
 export async function generateImage(params: GenerateImageParams): Promise<ImageGenResult> {
-  const { profile, prompt, outputPath, transparent, signal, beforeWrite } = params
+  const { profile, prompt, outputPath, transparent, referenceImages, signal, beforeWrite } = params
   const start = Date.now()
   const url = buildImageApiUrl(profile.baseURL)
+  // 参考图在发请求前就读好：读不到、格式不对直接失败，不占用超时时间
+  const refs = (referenceImages ?? []).map(loadReferenceImage)
 
   // 超时只中断本次请求，不触碰调用方的 AbortController
   const controller = new AbortController()
@@ -148,8 +187,9 @@ export async function generateImage(params: GenerateImageParams): Promise<ImageG
 
   try {
     // 可选字段：统一不加水印（部分服务商默认加，需显式关闭）；transparent 时下发透明背景与 png 输出。
-    // 不认识某个字段的端点报 4xx 且错误信息点名了该字段时，去掉它重发一次，并记住此后不再带
-    const body: Record<string, unknown> = { model: profile.modelName, prompt }
+    // 不认识某个字段的端点报 4xx 且错误信息点名了该字段时，去掉它重发一次，并记住此后不再带。
+    // 参考图字段不进这个机制：丢了参考图就是另一张图，必须报错而不是降级
+    const body: Record<string, unknown> = { model: profile.modelName, prompt, ...(refs.length > 0 ? referenceFields(profile.provider, refs) : {}) }
     const optional: Record<string, unknown> = { watermark: false, ...(transparent ? TRANSPARENT_FIELDS : {}) }
     for (const [key, value] of Object.entries(optional)) {
       if (!rejectedFields.has(`${url}#${key}`)) body[key] = value
@@ -206,7 +246,7 @@ export async function generateImage(params: GenerateImageParams): Promise<ImageG
     })
 
     const durationMs = Date.now() - start
-    logInfo(`文生图完成: model=${profile.name}, images=${images.length}, ${durationMs}ms`)
+    logInfo(`文生图完成: model=${profile.name}, refs=${refs.length}, images=${images.length}, ${durationMs}ms`)
     return { images, model: profile.name, durationMs }
   } catch (error) {
     if (timedOut) {

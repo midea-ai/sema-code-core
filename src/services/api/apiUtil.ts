@@ -214,7 +214,7 @@ export async function testApiConnection(params: ApiTestParams): Promise<ApiTestR
  * 由上层应用决定用自带的内置列表兜底，还是引导手动输入。
  */
 export async function fetchModels(params: FetchModelsParams): Promise<FetchModelsResult> {
-  const { baseURL, apiKey, modelsUrl } = params;
+  const { baseURL, apiKey, modelsUrl, adapt } = params;
 
   let result: FetchModelsResult;
 
@@ -222,14 +222,20 @@ export async function fetchModels(params: FetchModelsParams): Promise<FetchModel
   const apiUrl = modelsUrl
     ? modelsUrl
     : baseURL.replace(/\/$/, '').replace(/\/chat\/completions$/, '') + '/models';
+  // 始终带 Bearer；Anthropic 适配时再加 x-api-key，两种头同时发、服务端各取所需：
+  // DeepSeek/MiMo 虽是 Anthropic 适配但列表接口是 OpenAI 风格只认 Bearer，MiniMax 的 /anthropic/v1/models 只认 x-api-key
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) {
     headers['Authorization'] = `Bearer ${apiKey}`;
+    if (adapt === 'anthropic') {
+      headers['x-api-key'] = apiKey;
+    }
   }
 
   const curlCommand = `curl ${apiUrl} \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${apiKey}"`;
+  -H "Authorization: Bearer ${apiKey}"${adapt === 'anthropic' ? ` \\
+  -H "x-api-key: ${apiKey}"` : ''}`;
 
   // console.log('curlCommand:', curlCommand)
 

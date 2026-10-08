@@ -10,6 +10,7 @@
  *   缺的条目回退英文。以下分组只写 zh / en，不翻译到其他语言：
  *   tool.* / toolName.* / usage.* / ws.* / agent.* / perm.* / mode.* / level.<名>（desc 仍翻译）/
  *   md.* / diff.* / plan.* / memory.* / image.*，以及各处错误提示（*.error、*Failed、settings.err.* 等）。
+ *   其他语言里译文与英文完全相同的条目（OK、Skill、API Key 等）也不写，直接靠回退。
  * - 新增语言：shared/lang.ts 的 LANGS 加一行 → 本目录加字典（satisfies Partial<Dict>）→ 在 DICTS 注册。
  */
 import { useSyncExternalStore } from 'react';

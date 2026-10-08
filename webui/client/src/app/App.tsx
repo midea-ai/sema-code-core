@@ -91,10 +91,10 @@ export function App() {
               必须排在页面视图之后：窗口拖动区按 DOM 顺序叠加，no-drag 排在页面头部的 app-drag 之前会被盖掉，点击被拖动吞掉 */}
           {sidebarCollapsed && (
             <>
-              {macTitleBar && <div className="absolute left-0 top-0 w-[72px] h-11 z-10 app-drag" />}
+              {macTitleBar && <div className="absolute left-0 top-0 w-[72px] h-11 z-10 app-drag [html.mac-fullscreen_&]:hidden" />}
               {/* 展开按钮与侧栏里的收起按钮同尺寸同位置：同样在 h-11 行内垂直居中，写死 top 会差半像素，收起展开时按钮会跳一下；
-                  后面跟一个新会话按钮，行为与侧栏「新会话」一致（切到草稿页） */}
-              <div className={cn('absolute top-0 h-11 z-10 flex items-center gap-1', macTitleBar ? 'left-[76px]' : 'left-2')}>
+                  后面跟一个新会话按钮，行为与侧栏「新会话」一致（切到草稿页）；macOS 全屏时红绿灯隐藏，按钮贴回左边 */}
+              <div className={cn('absolute top-0 h-11 z-10 flex items-center gap-1', macTitleBar ? 'left-[76px] [html.mac-fullscreen_&]:left-2' : 'left-2')}>
                 <button onClick={() => setSidebarCollapsed(false)} className="app-no-drag p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('app.showSidebar')}><PanelLeft size={15} /></button>
                 <button onClick={() => setView({ type: 'draft' })} className="app-no-drag p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newSession')}><SquarePen size={15} /></button>
               </div>

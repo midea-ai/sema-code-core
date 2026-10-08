@@ -30,6 +30,23 @@ interface DirItem { name: string; isDirectory: boolean }
 
 const MAX_HL = 200 * 1024; // 超过 200KB 不做高亮
 
+/**
+ * 外部改动的复查时机：本轮对话结束（盯着右栏看 agent 改文件时窗口焦点一直没丢，只靠焦点覆盖不到）、
+ * 窗口重新可见 / 获得焦点。返回递增计数，变化即「该查一次了」；后台标签页不计。正文和文件树共用。
+ */
+function useRefreshTick(sessionId: string) {
+  const sessionState = useSessions(s => s.snapshots[sessionId]?.state);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const bump = () => { if (!document.hidden) setTick(n => n + 1); };
+    if (sessionState === 'idle') bump();
+    window.addEventListener('focus', bump);
+    document.addEventListener('visibilitychange', bump);
+    return () => { window.removeEventListener('focus', bump); document.removeEventListener('visibilitychange', bump); };
+  }, [sessionState]);
+  return tick;
+}
+
 /** 文件查看标签：面包屑 + 行号/高亮正文 + 可切换的文件树抽屉 + 「打开」菜单 */
 export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }) {
   const updatePanel = useApp(s => s.updatePanel);
@@ -82,32 +99,32 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
     return () => { alive = false; };
   }, [sessionId, relPath]);
 
-  // 文件在外部变了（agent 改写、别的程序保存）就重新加载。不轮询，只在两个时机查一次修改时间：
-  // 窗口重新可见 / 获得焦点；本轮对话结束（盯着右栏看 agent 改文件时窗口焦点一直没丢，靠前者覆盖不到）。
+  // 文件在外部变了（agent 改写、别的程序保存、脚本删除）就重新加载。不轮询，只在 useRefreshTick 的时机查一次修改时间：
   // 右栏只挂载激活的标签，每次至多一个 stat 请求；没变就什么都不做，变了才重新取内容，且旧内容保留到新内容到达，不闪。
-  const sessionState = useSessions(s => s.snapshots[sessionId]?.state);
+  // 文件没了就标记 gone 换成提示，再出现（如脚本重建）则重新取内容。
+  const tick = useRefreshTick(sessionId);
+  const [gone, setGone] = useState(false);
+  useEffect(() => { setGone(false); }, [relPath]);
   const dataRef = useRef(data);
   dataRef.current = data;
   useEffect(() => {
     if (!relPath) return;
-    let alive = true, busy = false;
-    const check = async () => {
-      const cur = dataRef.current;
-      // cur.path !== relPath：刚切换文件、新内容还没到，此时手里是上一个文件的数据，不拿它比
-      if (busy || !cur || cur.path !== relPath || document.hidden) return;
-      busy = true;
+    let alive = true;
+    const cur = dataRef.current;
+    // cur.path !== relPath：刚切换文件、新内容还没到，此时手里是上一个文件的数据，不拿它比
+    if (!cur || cur.path !== relPath || document.hidden) return;
+    (async () => {
       try {
         const st = (await api<Record<string, { exists: boolean; mtime?: number }>>('POST', `/api/sessions/${sessionId}/files/stat`, { paths: [relPath] }))[relPath];
-        if (!alive || !st?.exists || st.mtime == null || st.mtime === cur.mtime) return;
+        if (!alive || !st) return;
+        if (!st.exists) { setGone(true); return; }
+        if (st.mtime == null || st.mtime === cur.mtime) { setGone(false); return; }
         const d = await api<FileData>('POST', `/api/sessions/${sessionId}/file`, { path: relPath });
-        if (alive) setData(d);
-      } catch { /* 查不到就维持现状 */ } finally { busy = false; }
-    };
-    if (sessionState === 'idle') check();
-    window.addEventListener('focus', check);
-    document.addEventListener('visibilitychange', check);
-    return () => { alive = false; window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check); };
-  }, [sessionId, relPath, sessionState]);
+        if (alive) { setData(d); setGone(false); }
+      } catch { /* 查不到就维持现状 */ }
+    })();
+    return () => { alive = false; };
+  }, [sessionId, relPath, tick]);
 
   const lines = useMemo(() => {
     if (!data || data.binary) return [];
@@ -220,6 +237,7 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
               <div className="text-sm text-muted">{t('file.openHint')}</div>
             </div>
           ) : error ? <div className="p-4 text-sm text-danger">{error}</div>
+            : gone ? <div className="p-4 text-sm text-muted">{t('file.deleted')}</div>
             : !data ? <div className="p-4 text-sm text-muted flex items-center gap-2"><Spinner />{t('common.loading')}</div>
             : data.image ? (
               <div className={cn('min-h-full min-w-full bg-panel font-sans flex', zoom === 'fit' ? 'h-full items-center justify-center p-4' : 'items-start justify-start p-4 w-max')}>
@@ -305,6 +323,8 @@ function MdPreview({ content, sessionId }: { content: string; sessionId: string 
 function FileTree({ sessionId, current, onPick, width }: { sessionId: string; current: string; onPick: (p: string) => void; width: number }) {
   const [query, setQuery] = useState('');
   const search = useFileSearch({ sessionId }, query.trim() ? query.trim() : null);
+  // 脚本删 / 建文件后树要跟上：按正文同样的时机，让已展开的目录各自重拉一层，折叠的目录没加载过无事可做
+  const refresh = useRefreshTick(sessionId);
   // 整棵树共用一个右键菜单实例，行只上报位置和路径
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const onMenu = (e: React.MouseEvent, path: string) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, path }); };
@@ -325,15 +345,15 @@ function FileTree({ sessionId, current, onPick, width }: { sessionId: string; cu
                 <FileIcon fileName={i.path} size={14} /><span className="truncate">{i.path}</span>
               </button>
             ))
-        ) : <DirNode sessionId={sessionId} path="" depth={0} current={current} onPick={onPick} onMenu={onMenu} />}
+        ) : <DirNode sessionId={sessionId} path="" depth={0} current={current} onPick={onPick} onMenu={onMenu} refresh={refresh} />}
       </div>
       <FileMenu sessionId={sessionId} menu={menu} onClose={() => setMenu(null)} onPick={onPick} />
     </div>
   );
 }
 
-function DirNode({ sessionId, path, depth, current, onPick, onMenu }: {
-  sessionId: string; path: string; depth: number; current: string; onPick: (p: string) => void; onMenu: (e: React.MouseEvent, path: string) => void;
+function DirNode({ sessionId, path, depth, current, onPick, onMenu, refresh }: {
+  sessionId: string; path: string; depth: number; current: string; onPick: (p: string) => void; onMenu: (e: React.MouseEvent, path: string) => void; refresh: number;
 }) {
   const [items, setItems] = useState<DirItem[] | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -342,6 +362,12 @@ function DirNode({ sessionId, path, depth, current, onPick, onMenu }: {
     if (loaded.current) return; loaded.current = true;
     api<{ items: DirItem[] }>('POST', `/api/sessions/${sessionId}/ls`, { path }).then(r => setItems(r.items)).catch(() => setItems([]));
   }, [sessionId, path]);
+  // 复查时重拉本层：原地替换，展开状态不动；拉失败（如目录已被删）保留旧列表，等父级重拉后本节点自然卸载
+  const seen = useRef(refresh);
+  useEffect(() => {
+    if (seen.current === refresh) return; seen.current = refresh;
+    api<{ items: DirItem[] }>('POST', `/api/sessions/${sessionId}/ls`, { path }).then(r => setItems(r.items)).catch(() => {});
+  }, [sessionId, path, refresh]);
   // 当前文件所在目录自动展开
   useEffect(() => {
     if (!current) return;
@@ -362,7 +388,7 @@ function DirNode({ sessionId, path, depth, current, onPick, onMenu }: {
                 <Caret open={isOpen} size={11} className="text-muted" />
                 <FileIcon fileName={it.name} isDirectory size={14} /><span className="truncate">{it.name}</span>
               </button>
-              {isOpen && <DirNode sessionId={sessionId} path={p} depth={depth + 1} current={current} onPick={onPick} onMenu={onMenu} />}
+              {isOpen && <DirNode sessionId={sessionId} path={p} depth={depth + 1} current={current} onPick={onPick} onMenu={onMenu} refresh={refresh} />}
             </div>
           );
         }

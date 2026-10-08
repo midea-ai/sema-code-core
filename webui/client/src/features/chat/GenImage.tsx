@@ -54,22 +54,21 @@ export function GenImageCard({ blocks, ctx, live, onOpenChange }: { blocks: Tool
   const pending = blocks.filter(b => b.status === 'running');
   const images = blocks.flatMap(imagesOf);
   const running = pending.length > 0;
-  // 单次调用时行内带提示词：生成中取标题（core 给的提示词摘要），完成后取结果里的完整提示词
-  const prompt = blocks.length === 1 ? String(running ? blocks[0].title || '' : blocks[0].content?.prompt || '') : '';
+  // 行内只放状态与张数，不带提示词或文件名：生成中拿不到文件名，附件目录里的图又都叫 image.png；
+  // 文件名看展开后的缩略图标签，提示词看正文
   return (
     <div className="my-0.5 text-[13px] text-dim">
       <button onClick={() => setManual(!open)} className="max-w-full flex items-center gap-2 py-0.5 text-left cursor-pointer hover:text-fg">
         {running ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : <ImagePlus size={14} className="shrink-0" />}
         <span className="shrink-0">{running ? t('tool.genImage.running') : images.length > 1 ? t('tool.genImage.doneN', { n: images.length }) : t('tool.genImage.done')}</span>
-        {prompt && <span className="truncate">{prompt}</span>}
         <Caret open={open} />
       </button>
       {open && (
         <div className="pl-6 py-1 flex gap-2 flex-wrap">
           {images.map(img => (
-            <ImageThumb key={img.filePath} src={rawFileUrl(ctx.sessionId, img.filePath)} className="h-20 w-20" label={baseName(img.filePath)} title={img.filePath} />
+            <ImageThumb key={img.filePath} src={rawFileUrl(ctx.sessionId, img.filePath)} className={cn('h-20 w-20', live && 'pop-in')} label={baseName(img.filePath)} title={img.filePath} />
           ))}
-          {pending.map(b => <div key={b.id} className="h-20 w-20 rounded-xl border border-border bg-panel animate-pulse" />)}
+          {pending.map(b => <div key={b.id} className="h-20 w-20 rounded-xl border border-border shimmer-block" />)}
         </div>
       )}
     </div>

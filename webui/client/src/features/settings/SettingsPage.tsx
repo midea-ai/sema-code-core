@@ -447,9 +447,6 @@ function AddModelDialog({ open, editModel, onClose, onSaved }: { open: boolean; 
               {fetchFailed && models.length === 0 && (
                 <div className="text-xs text-muted">{t('settings.fetchModelsHint')} <span className={linkCls} onClick={() => setManual(true)}>{t('settings.manualModelName')}</span></div>
               )}
-              {modelSource === 'preset' && models.length > 0 && (
-                <div className="text-xs text-muted">{t('settings.presetModelsHint')} <span className={linkCls} onClick={() => setManual(true)}>{t('settings.manualModelName')}</span></div>
-              )}
             </div>
           )}
         </Field>
@@ -639,9 +636,6 @@ function AddImageModelDialog({ open, editModel, onClose, onSaved }: { open: bool
               </div>
               {fetchFailed && models.length === 0 && (
                 <div className="text-xs text-muted">{t('settings.fetchModelsHint')} <span className={linkCls} onClick={() => setManual(true)}>{t('settings.manualModelName')}</span></div>
-              )}
-              {modelSource === 'preset' && models.length > 0 && (
-                <div className="text-xs text-muted">{t('settings.presetModelsHint')} <span className={linkCls} onClick={() => setManual(true)}>{t('settings.manualModelName')}</span></div>
               )}
             </div>
           )}

@@ -140,5 +140,10 @@ function createWindow() {
     if (!quitting && process.platform === 'darwin') { e.preventDefault(); win?.hide(); }
   });
   win.on('closed', () => { win = null; });
+  // macOS 全屏时红绿灯隐藏，通知页面收回给红绿灯让的位（页面侧 onFullScreen）；页面刷新后也要补发当前状态
+  const sendFullScreen = () => win?.webContents.send('sema:fullscreen', win.isFullScreen());
+  win.on('enter-full-screen', sendFullScreen);
+  win.on('leave-full-screen', sendFullScreen);
+  win.webContents.on('did-finish-load', sendFullScreen);
   win.loadURL(pageUrl());
 }

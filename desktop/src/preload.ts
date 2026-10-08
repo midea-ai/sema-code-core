@@ -16,5 +16,11 @@ contextBridge.exposeInMainWorld('sema', {
       ipcRenderer.on('sema:activate', handler);
       return () => { ipcRenderer.off('sema:activate', handler); };
     },
+    /** 窗口进入/退出全屏时回调（页面加载完也会收到一次当前状态），返回取消订阅函数 */
+    onFullScreen(cb: (on: boolean) => void) {
+      const handler = (_e: unknown, on: boolean) => cb(on);
+      ipcRenderer.on('sema:fullscreen', handler);
+      return () => { ipcRenderer.off('sema:fullscreen', handler); };
+    },
   },
 });

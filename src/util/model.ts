@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as os from 'os';
 import { ModelConfiguration, ModelProfile } from '../types/model';
+import { ImageModelConfig, ImageModelProfile } from '../types/imageModel';
 import { ModelConfig } from '../types';
 import { logWarn } from './log';
 import { t } from './i18n';
@@ -47,9 +48,9 @@ export function parseModelName(name: string): { modelName: string; provider: str
 }
 
 /**
- * 查找模型配置
+ * 查找模型配置（对话模型与文生图模型共用）
  */
-export function findModelProfile(name: string, profiles: ModelProfile[]): ModelProfile | null {
+export function findModelProfile<T extends { provider: string; modelName: string }>(name: string, profiles: T[]): T | null {
   // 解析 modelName 和 provider
   const parsed = parseModelName(name);
   if (!parsed) {
@@ -83,4 +84,17 @@ export function convertToModelProfile(config: ModelConfig): ModelProfile {
     profile.thinkingHistoryPolicy = config.thinkingHistoryPolicy;
   }
   return profile;
+}
+
+/**
+ * 将 ImageModelConfig 转换为 ImageModelProfile
+ */
+export function convertToImageModelProfile(config: ImageModelConfig): ImageModelProfile {
+  return {
+    name: `${config.modelName}[${config.provider}]`,
+    provider: config.provider,
+    modelName: config.modelName,
+    baseURL: config.baseURL,
+    apiKey: config.apiKey
+  };
 }

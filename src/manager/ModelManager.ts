@@ -1,10 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ModelConfiguration, ModelProfile, ModelPointerType, ModelPointers } from '../types/model';
+import { ImageModelConfig, ImageModelProfile } from '../types/imageModel';
 import { ModelConfig, TaskConfig, ModelUpdateData, ApiTestResult } from '../types';
 import { testApiConnection } from '../services/api/apiUtil';
 import { getModelConfigFilePath } from '../util/savePath';
-import { convertToModelProfile, findModelProfile, parseModelName, createDefaultConfig, validateProviderName } from '../util/model';
+import { convertToModelProfile, convertToImageModelProfile, findModelProfile, parseModelName, createDefaultConfig, validateProviderName } from '../util/model';
 import { logWarn, logError } from '../util/log';
 import { t } from '../util/i18n';
 import { getEventBus } from '../events/EventSystem';
@@ -96,16 +97,7 @@ export class ModelManager {
     }
 
     await this.saveConfig();
-    const modelList = this.config.modelProfiles.map(p => p.name);
-
-    return {
-      modelName: this.config.modelPointers.main,
-      modelList,
-      taskConfig: {
-        main: this.config.modelPointers.main,
-        quick: this.config.modelPointers.quick
-      }
-    };
+    return this.buildModelData();
   }
 
   /**
@@ -126,10 +118,10 @@ export class ModelManager {
       throw new Error(t('model.notFound', { name }));
     }
 
-    // 检查是否被模型指针引用
+    // 检查是否被模型指针引用（image 指针指向的是文生图模型，同名也不算引用）
     const pointers = this.config.modelPointers;
     const usedInPointers = Object.entries(pointers).filter(
-      ([, value]) => value === name
+      ([key, value]) => key !== 'image' && value === name
     );
 
     if (usedInPointers.length > 0) {
@@ -139,21 +131,13 @@ export class ModelManager {
 
     this.config.modelProfiles.splice(modelIndex, 1);
     await this.saveConfig();
-    const modelList = this.config.modelProfiles.map(p => p.name);
 
     // 被会话级覆盖钉住的模型删掉后，这些会话回退全局指针，各自收到一次会话级 model:update
     for (const sessionId of this.clearSessionOverridesOf(name)) {
       getEventBus().emit('model:update', this.buildModelData(sessionId), sessionId);
     }
 
-    return {
-      modelName: this.config.modelPointers.main,
-      modelList,
-      taskConfig: {
-        main: this.config.modelPointers.main,
-        quick: this.config.modelPointers.quick
-      }
-    };
+    return this.buildModelData();
   }
 
   /**
@@ -178,16 +162,7 @@ export class ModelManager {
     }
 
     await this.saveConfig();
-    const modelList = this.config.modelProfiles.map(p => p.name);
-
-    return {
-      modelName: name,
-      modelList,
-      taskConfig: {
-        main: this.config.modelPointers.main,
-        quick: this.config.modelPointers.quick
-      }
-    };
+    return this.buildModelData();
   }
 
   /**
@@ -206,17 +181,89 @@ export class ModelManager {
     this.config.modelPointers.main = config.main;
     this.config.modelPointers.quick = config.quick;
     await this.saveConfig();
+    return this.buildModelData();
+  }
 
-    const modelList = this.config.modelProfiles.map(p => p.name);
+  // ===================== 文生图模型（进程级，不支持会话级覆盖） =====================
 
-    return {
-      modelName: config.main,
-      modelList,
-      taskConfig: {
-        main: this.config.modelPointers.main,
-        quick: this.config.modelPointers.quick
+  private get imageProfiles(): ImageModelProfile[] {
+    return this.config.imageModelProfiles ?? (this.config.imageModelProfiles = []);
+  }
+
+  /**
+   * 添加文生图模型，同名覆盖；添加的是第一个文生图模型时 image 指针指向它。
+   * 不做连接测试：测一次就要真实出一张图。
+   */
+  async addImageModel(config: ImageModelConfig): Promise<ModelUpdateData> {
+    const providerError = validateProviderName(config.provider);
+    if (providerError) {
+      throw new Error(t('model.invalidProvider', { error: providerError }));
+    }
+    const profile = convertToImageModelProfile(config);
+    const profiles = this.imageProfiles;
+    const existingIndex = profiles.findIndex(p => p.name === profile.name);
+
+    if (existingIndex !== -1) {
+      profiles[existingIndex] = profile;
+    } else {
+      profiles.push(profile);
+      if (profiles.length === 1) {
+        this.config.modelPointers.image = profile.name;
       }
-    };
+    }
+
+    await this.saveConfig();
+    return this.buildModelData();
+  }
+
+  /**
+   * 删除文生图模型。与对话模型不同，被 image 指针引用时也允许删除：
+   * 指针移到剩余的第一个，没有剩余则置空（文生图工具随之不可用）。
+   */
+  async deleteImageModel(name: string): Promise<ModelUpdateData> {
+    const profiles = this.imageProfiles;
+    const index = profiles.findIndex(p => p.name === name);
+    if (index === -1) {
+      throw new Error(t('model.notFound', { name }));
+    }
+
+    profiles.splice(index, 1);
+    if (this.config.modelPointers.image === name) {
+      this.config.modelPointers.image = profiles[0]?.name ?? '';
+    }
+
+    await this.saveConfig();
+    return this.buildModelData();
+  }
+
+  /**
+   * 切换文生图模型指针；传空串表示停用文生图。
+   */
+  async switchImageModel(name: string): Promise<ModelUpdateData> {
+    if (name && !findModelProfile(name, this.imageProfiles)) {
+      throw new Error(t('model.notFound', { name }));
+    }
+    this.config.modelPointers.image = name;
+    await this.saveConfig();
+    return this.buildModelData();
+  }
+
+  /**
+   * 按 provider + modelName 读取磁盘上的完整文生图 profile，供配置页编辑回填；不存在返回 null。
+   */
+  getImageModelProfile(provider: string, modelName: string): ImageModelProfile | null {
+    return this.imageProfiles.find(p => p.provider === provider && p.modelName === modelName) ?? null;
+  }
+
+  /**
+   * 获取 image 指针当前指向的文生图模型；未配置或指针失效返回 null。
+   */
+  getImageModel(): ImageModelProfile | null {
+    const pointer = this.config.modelPointers?.image;
+    if (!pointer) {
+      return null;
+    }
+    return this.imageProfiles.find(p => p.name === pointer) ?? null;
   }
 
   // ===================== 会话级模型覆盖（仅内存，不持久化） =====================
@@ -306,7 +353,7 @@ export class ModelManager {
 
   /**
    * 拼装模型数据：传入 sessionId 时 modelName 与 taskConfig.main 为该会话生效值
-   * （覆盖优先，回退全局指针），modelList 与 taskConfig.quick 沿用全局。
+   * （覆盖优先，回退全局指针），modelList、taskConfig.quick 与文生图相关字段沿用全局。
    */
   private buildModelData(sessionId?: string): ModelUpdateData {
     const globalMain = this.config.modelPointers.main;
@@ -317,8 +364,10 @@ export class ModelManager {
       modelList: this.config.modelProfiles.map(p => p.name),
       taskConfig: {
         main,
-        quick: this.config.modelPointers.quick
-      }
+        quick: this.config.modelPointers.quick,
+        image: this.config.modelPointers.image || ''
+      },
+      imageModelList: this.imageProfiles.map(p => p.name)
     };
   }
 
@@ -407,7 +456,8 @@ function getModelConfig(): ModelConfiguration | null {
 
     return {
       modelProfiles: modelConfig.modelProfiles || [],
-      modelPointers: modelConfig.modelPointers || { main: '', quick: '' }
+      modelPointers: modelConfig.modelPointers || { main: '', quick: '' },
+      imageModelProfiles: modelConfig.imageModelProfiles || []
     };
   } catch (error) {
     logError(error);

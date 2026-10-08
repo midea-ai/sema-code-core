@@ -27,6 +27,9 @@ export interface Tool<
   // 工具无副作用：跳过权限确认，且可并行执行
   isSafe: () => boolean
 
+  // 工具当前是否可用：返回 false 时不进入工具列表（如未配置文生图模型）；不实现视为始终可用
+  isEnabled?: () => boolean
+
   // 工具自报会产生破坏性/不可逆副作用（如 MCP destructiveHint）：AutoRun 档位下仍转人工确认
   isDestructive?: () => boolean
 

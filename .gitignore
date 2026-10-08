@@ -44,3 +44,5 @@ test-chrome/
 sdks/java/.settings/
 desktop/release/
 webui/resources/cache/
+
+tests/data

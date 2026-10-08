@@ -20,6 +20,7 @@ export const TOOL_NAME_SUB_AGENT = 'sub_agent'
 export const TOOL_NAME_WRITE_FILE = 'write_file'
 export const TOOL_NAME_PATCH_FILE = 'patch_file'
 export const TOOL_NAME_LOAD_TOOLS = 'load_tools'
+export const TOOL_NAME_GENERATE_IMAGE = 'generate_image'
 
 // 工具搜索模式下默认加载的内置工具集（toolSearchDefaultTools 未配置时使用）
 export const TOOL_SEARCH_DEFAULT_TOOLS = [

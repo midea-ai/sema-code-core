@@ -30,6 +30,7 @@ import { DelCron } from '../DelCron'
 import { ListCrons } from '../ListCrons'
 import { FetchUrl } from '../FetchUrl'
 import { LoadTools } from '../LoadTools'
+import { GenerateImage } from '../GenerateImage'
 import { getMCPManager } from '../../services/mcp/MCPManager'
 import { getConfManager } from '../../manager/ConfManager'
 import { getStateManager } from '../../manager/StateManager'
@@ -54,13 +55,20 @@ export const SUBAGENT_EXCLUDED_TOOLS = new Set([
 // 将工具对象安全转换为 Tool 类型（各工具的字面量类型与 Tool 泛型不完全匹配）
 const asTool = (tool: any): Tool => tool
 
+// 工具自报当前不可用（如未配置文生图模型）时不进入可用集合与工具信息列表
+const isToolEnabled = (tool: Tool): boolean => !tool.isEnabled || tool.isEnabled()
+
+// 当前不可用的内置工具名，作为 getAvailableBuiltinTools 缓存 key 的一部分：可用性变化后缓存随之失效
+const getUnavailableToolNames = (): string =>
+  getBuiltinTools().filter(tool => !isToolEnabled(tool)).map(tool => tool.name).join(',')
+
 // 获取全部内置工具信息（含启用/禁用状态）
 // useTools 不传时回退到全局默认配置
 export const getAllBuiltinToolInfos = (useTools?: string[] | null): ToolInfo[] => {
   if (useTools === undefined) {
     useTools = getConfManager().getCoreConfig()?.useTools
   }
-  return getBuiltinTools().map(tool => ({
+  return getBuiltinTools().filter(isToolEnabled).map(tool => ({
     name: tool.name,
     description: getToolDescription(tool),
     status: (!useTools || useTools.includes(tool.name)) ? 'enable' : 'disable'
@@ -68,9 +76,10 @@ export const getAllBuiltinToolInfos = (useTools?: string[] | null): ToolInfo[] =
 }
 
 // 获取全部内置工具名称（黑名单转白名单等场景的单一真值来源）
+// 含当前不可用的工具：白名单在配置时一次算好，按可用性增减会让之后才启用的工具进不了白名单
 export const getAllBuiltinToolNames = (): string[] => getBuiltinTools().map(tool => tool.name)
 
-// 获取全部内置工具
+// 获取全部内置工具（不看可用性，可用性过滤见 getAvailableBuiltinTools）
 export const getBuiltinTools = (): Tool[] => {
   return [
     RunShell,
@@ -94,13 +103,14 @@ export const getBuiltinTools = (): Tool[] => {
     CreateCron,
     DelCron,
     ListCrons,
+    GenerateImage,
   ].map(asTool)
 }
 
-// 获取可用内置工具（按 useTools 配置过滤）
+// 获取可用内置工具（按 useTools 配置与工具自身可用性过滤）
 export const getAvailableBuiltinTools = memoize(
   (useTools?: string[] | null): Tool[] => {
-    const allTools = getBuiltinTools()
+    const allTools = getBuiltinTools().filter(isToolEnabled)
 
     if (!useTools) {
       return allTools
@@ -109,10 +119,8 @@ export const getAvailableBuiltinTools = memoize(
     return allTools.filter(tool => useTools.includes(tool.name))
   },
   (useTools?: string[] | null) => {
-    if (!useTools) {
-      return 'all-tools'
-    }
-    return useTools.sort().join(',')
+    const base = useTools ? useTools.sort().join(',') : 'all-tools'
+    return `${base}|off:${getUnavailableToolNames()}`
   }
 )
 

@@ -1,7 +1,10 @@
+import { ImageModelProfile } from './imageModel';
+
 // 模型管理器配置接口
 export interface ModelConfiguration {
   modelProfiles: ModelProfile[];
   modelPointers: ModelPointers;
+  imageModelProfiles?: ImageModelProfile[];  // 文生图模型，缺失等同空
 }
 
 // API 适配器类型
@@ -27,8 +30,9 @@ export interface ModelProfile {
 export interface ModelPointers {
   main: string;             // 主任务模型
   quick: string;            // 快速模型
+  image?: string;           // 文生图模型，空或缺失表示未启用文生图
 }
 
-// 模型指针类型
+// 模型指针类型（对话模型；文生图指针只有进程级，不参与会话级覆盖）
 export type ModelPointerType = 'main' | 'quick'
 

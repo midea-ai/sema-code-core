@@ -105,6 +105,7 @@ export interface ModelInfo {
 }
 
 export interface FetchModelsParams {
+  /** @deprecated core 不再内置模型列表，该字段已不使用，仅为兼容保留 */
   provider?: string;
   baseURL: string;
   apiKey: string;
@@ -142,7 +143,9 @@ export interface ModelUpdateData {
   taskConfig: {
     main: string;
     quick: string;
+    image?: string;          // 文生图模型指针，空串表示未启用
   };
+  imageModelList?: string[]; // 文生图模型列表（与 modelList 分开）
 }
 
 // 文件引用信息
@@ -261,12 +264,16 @@ export {
   TOOL_NAME_SUB_AGENT,
   TOOL_NAME_WRITE_FILE,
   TOOL_NAME_PATCH_FILE,
+  TOOL_NAME_GENERATE_IMAGE,
 } from '../prompt/tool';
 
 export type { CreateSessionOptions, CreateSessionResult } from './session';
 
 // 磁盘上的完整模型 profile，getModelProfile 返回值
 export type { ModelProfile, ThinkingHistoryPolicy } from './model';
+
+// 文生图模型：addImageModel 入参与 getImageModelProfile 返回值
+export type { ImageModelConfig, ImageModelProfile } from './imageModel';
 
 // 导出 Hook 相关类型
 export type {

@@ -1,6 +1,7 @@
 import { SemaCoreConfig, ModelConfig, TaskConfig, FetchModelsParams, FetchModelsResult, ApiTestParams, ApiTestResult, ModelUpdateData, UpdatableCoreConfigKeys, UpdatableCoreConfig } from '../types';
 import { ToolInfo } from '../types/index';
 import { ModelProfile } from '../types/model';
+import { ImageModelConfig, ImageModelProfile } from '../types/imageModel';
 import { fetchModels, testApiConnection } from '../services/api/apiUtil';
 import { getPluginsManager } from '../services/plugins/pluginsManager';
 import { PluginScopeKind, MarketplacePluginsInfo } from '../types/plugin';
@@ -110,6 +111,13 @@ export class SemaCore {
   applyTaskModel = (config: TaskConfig): Promise<ModelUpdateData> => getModelManager().applyTaskModelConfig(config);
   getModelData = (): Promise<ModelUpdateData> => getModelManager().getModelData();
   getModelProfile = (provider: string, modelName: string): ModelProfile | null => getModelManager().getModelProfile(provider, modelName);
+
+  // ==================== 文生图模型管理（进程级，无会话级覆盖） ====================
+  addImageModel = (config: ImageModelConfig): Promise<ModelUpdateData> => getModelManager().addImageModel(config);
+  delImageModel = (ModelName: string): Promise<ModelUpdateData> => getModelManager().deleteImageModel(ModelName);
+  // 切换文生图模型指针；传空串停用文生图，generate_image 工具随之从工具列表移除
+  switchImageModel = (ModelName: string): Promise<ModelUpdateData> => getModelManager().switchImageModel(ModelName);
+  getImageModelProfile = (provider: string, modelName: string): ImageModelProfile | null => getModelManager().getImageModelProfile(provider, modelName);
 
   // ==================== 配置管理（全局） ====================
   updateCoreConfByKey = <K extends UpdatableCoreConfigKeys>(key: K, value: SemaCoreConfig[K]): void => {

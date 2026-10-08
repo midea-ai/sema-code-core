@@ -10,7 +10,8 @@ import {
   LOG_DIR_PATH,
   LLM_LOG_DIR_PATH,
   TRACKS_DIR_PATH,
-  EVENT_DIR_PATH
+  EVENT_DIR_PATH,
+  ATTACHMENTS_DIR_PATH
 } from '../conf/config';
 
 let _semaRootDir: string | undefined;
@@ -141,4 +142,11 @@ export function getLLMCacheFilePath(): string {
  */
 export function getEventDir(): string {
   return path.join(getSemaRootDir(), EVENT_DIR_PATH);
+}
+
+/**
+ * 获取附件目录路径
+ */
+export function getAttachmentsDir(): string {
+  return path.join(getSemaRootDir(), ATTACHMENTS_DIR_PATH);
 }

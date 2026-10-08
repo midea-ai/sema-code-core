@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask, TextLayer } from 'pdfjs-dist';
-import { Spinner } from '../../../../common/ui';
+import { PanelLeft } from 'lucide-react';
+import { cn, Spinner } from '../../../../common/ui';
 import { t } from '../../../../i18n';
 import { loadPdf } from '../loaders';
 import { viewState } from '../bytes';
@@ -8,9 +9,13 @@ import type { Zoom } from '../ZoomDropdown';
 
 const CSS_UNITS = 96 / 72; // PDF 的单位是 pt（1/72 英寸），100% 缩放对应 96dpi 的 CSS 像素
 const PAD = 16, GAP = 12;
+const PAD_X = 36; // 左右留白比上下宽：左缘的导航短横线落在留白里，适应宽度时不压页面
 const NEAR = 1000; // 可视区上下各这么多像素内的页才持有 canvas / 文本层，其余释放
 const MAX_PIXELS = 16 * 1024 * 1024; // 单页 canvas 像素上限：高分屏 + 大缩放时降采样，避免吃光显存
 const RENDER_DELAY = 150; // 缩放连续变化（拖分隔条）时先靠 CSS 拉伸旧画面，停下来再按新比例重画
+const THUMB_W = 108;
+const THUMB_NEAR = 200; // 缩略图列表可视区上下各这么多像素内的才持有 canvas
+const MAX_TICKS = 40;
 
 export interface PdfPageInfo { cur: number; total: number }
 
@@ -34,6 +39,7 @@ function freeCanvas(c?: HTMLCanvasElement) {
 /**
  * pdf 预览：全部页面纵向连续排布，只有可视区附近的页才真正渲染（canvas + 透明文本层供选中复制），滚远了就释放。
  * 页框由 React 按页面尺寸与缩放排版；canvas 和文本层由命令式代码挂进页框，React 不管其子节点。
+ * 左缘常驻短横线指示条（不分宽窄，悬停无反应），点击滑出缩略图浮层供预览和跳页；缩略图只在浮层展开时渲染。
  */
 export function PdfView({ buf, zoom, tabId, onFitPct, onError, onPage, pagerRef }: {
   buf: ArrayBuffer; zoom: Zoom; tabId: string; onFitPct: (pct: number | null) => void; onError: (msg: string) => void;
@@ -43,6 +49,9 @@ export function PdfView({ buf, zoom, tabId, onFitPct, onError, onPage, pagerRef 
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageEls = useRef<Array<HTMLDivElement | null>>([]);
+  const navListRef = useRef<HTMLDivElement>(null);
+  const thumbEls = useRef<Array<HTMLElement | null>>([]);
+  const [navOpen, setNavOpen] = useState(false);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   /** 每页 100% 缩放下的 CSS 像素尺寸 */
   const [sizes, setSizes] = useState<Array<{ w: number; h: number }>>([]);
@@ -56,7 +65,7 @@ export function PdfView({ buf, zoom, tabId, onFitPct, onError, onPage, pagerRef 
   useEffect(() => {
     let alive = true;
     let task: { destroy(): Promise<void> } | null = null;
-    setDoc(null); setSizes([]);
+    setDoc(null); setSizes([]); setNavOpen(false);
     loadPdf().then(lib => {
       if (!alive) return null;
       // data 会被转移给 worker（原缓冲区随之失效），而 buf 还留在字节缓存里供切回标签复用，所以传副本
@@ -99,7 +108,7 @@ export function PdfView({ buf, zoom, tabId, onFitPct, onError, onPage, pagerRef 
   }, []);
 
   const maxW = useMemo(() => sizes.reduce((m, s) => Math.max(m, s.w), 0), [sizes]);
-  const fit = maxW && stageW ? Math.min(3, Math.max(0.1, (stageW - PAD * 2) / maxW)) : 1;
+  const fit = maxW && stageW ? Math.min(3, Math.max(0.1, (stageW - PAD_X * 2) / maxW)) : 1;
   const z = zoom === 'fit' ? fit : Number(zoom) / 100;
   const ready = !!doc && stageW > 0;
   useEffect(() => { if (ready) onFitPct(zoom === 'fit' ? Math.round(z * 100) : null); }, [ready, zoom, z, onFitPct]);
@@ -246,6 +255,69 @@ export function PdfView({ buf, zoom, tabId, onFitPct, onError, onPage, pagerRef 
     return () => clearTimeout(timer);
   }, [z]);
 
+  // ---------- 缩略图浮层：展开时才渲染，只画列表可视区附近的，滚远了释放 ----------
+  useEffect(() => {
+    const root = navListRef.current;
+    if (!doc || !ready || !navOpen || !root) return;
+    let alive = true;
+    const list = Array.from({ length: doc.numPages }, () => ({ near: false, busy: false, canvas: undefined as HTMLCanvasElement | undefined }));
+
+    const render = async (i: number) => {
+      const s = list[i], host = thumbEls.current[i];
+      if (!host || s.canvas || s.busy) return;
+      s.busy = true;
+      try {
+        const page = await doc.getPage(i + 1);
+        if (!alive || !s.near) return;
+        const out = window.devicePixelRatio || 1;
+        const viewport = page.getViewport({ scale: THUMB_W / page.getViewport({ scale: 1 }).width * out });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        canvas.style.cssText = 'display:block;width:100%;height:100%';
+        // 画得很快，中途滚走也不取消，画完发现已不在附近就直接丢弃
+        await page.render({ canvas, viewport }).promise;
+        if (!alive || !s.near) { freeCanvas(canvas); return; }
+        host.replaceChildren(canvas);
+        s.canvas = canvas;
+      } catch (e: any) {
+        if (alive) console.warn('[pdf] render thumbnail', i + 1, e);
+      } finally {
+        s.busy = false;
+      }
+    };
+
+    const io = new IntersectionObserver(entries => {
+      for (const e of entries) {
+        const i = Number((e.target as HTMLElement).dataset.pos), s = list[i];
+        if (!s) continue;
+        s.near = e.isIntersecting;
+        if (s.near) render(i); else { freeCanvas(s.canvas); s.canvas = undefined; }
+      }
+    }, { root, rootMargin: `${THUMB_NEAR}px 0px` });
+    thumbEls.current.slice(0, doc.numPages).forEach(el => el && io.observe(el));
+    return () => { alive = false; io.disconnect(); list.forEach(s => { freeCanvas(s.canvas); s.canvas = undefined; }); };
+  }, [doc, ready, navOpen]);
+
+  // 浮层展开、当前页变化时把当前页缩略图带进可视区：手动改 scrollTop（scrollIntoView 会连带滚动祖先容器）
+  useEffect(() => {
+    const list = navListRef.current, btn = thumbEls.current[cur]?.parentElement;
+    if (!navOpen || !list || !btn) return;
+    if (btn.offsetTop < list.scrollTop) list.scrollTop = btn.offsetTop - 6;
+    else if (btn.offsetTop + btn.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = btn.offsetTop + btn.offsetHeight - list.clientHeight + 6;
+  }, [navOpen, cur]);
+
+  const closeNav = () => {
+    setNavOpen(false);
+    // 焦点还给页面区：留在已收起的浮层按钮上的话，方向键 / 空格滚不动正文
+    scrollRef.current?.focus({ preventScroll: true });
+  };
+
+  // 页数多时指示条只画当前页附近的一段
+  const count = boxes.length;
+  const tickFrom = count > MAX_TICKS ? Math.min(count - MAX_TICKS, Math.max(0, cur - MAX_TICKS / 2)) : 0;
+  const ticks = Array.from({ length: Math.min(count, MAX_TICKS) }, (_, i) => tickFrom + i);
+
   // ---------- 交互 ----------
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -255,12 +327,15 @@ export function PdfView({ buf, zoom, tabId, onFitPct, onError, onPage, pagerRef 
       case 'ArrowRight': go(cur + 1); break;
       case 'Home': go(0); break;
       case 'End': go(boxes.length - 1); break;
+      case 'Escape': if (!navOpen) return; closeNav(); break;
       default: return;
     }
     e.preventDefault();
   };
   // 拖选期间给文本层加 selecting：占位块铺满整页（见 index.css）
   const onMouseDown = (e: React.MouseEvent) => {
+    // 点页面区收起缩略图浮层
+    if (navOpen) setNavOpen(false);
     const layer = (e.target as HTMLElement).closest?.('.textLayer');
     if (!layer) return;
     layer.classList.add('selecting');
@@ -268,15 +343,44 @@ export function PdfView({ buf, zoom, tabId, onFitPct, onError, onPage, pagerRef 
   };
 
   return (
-    <div ref={scrollRef} tabIndex={0} onScroll={onScroll} onKeyDown={onKeyDown} onMouseDown={onMouseDown}
-      className="pdf-view relative h-full overflow-auto bg-panel outline-none font-sans">
-      {!doc && <div className="p-4 text-sm text-muted flex items-center gap-2"><Spinner />{t('office.loading')}</div>}
+    <div onKeyDown={onKeyDown} className="relative h-full overflow-hidden font-sans">
+      <div ref={scrollRef} tabIndex={0} onScroll={onScroll} onMouseDown={onMouseDown}
+        className="pdf-view relative h-full overflow-auto bg-panel outline-none">
+        {!doc && <div className="p-4 text-sm text-muted flex items-center gap-2"><Spinner />{t('office.loading')}</div>}
+        {ready && (
+          <div className="flex flex-col items-center min-w-fit" style={{ padding: `${PAD}px ${PAD_X}px`, gap: GAP }}>
+            {boxes.map((b, i) => (
+              <div key={i} ref={el => { pageEls.current[i] = el; }} data-page={i} className="pdf-page relative shrink-0 bg-white shadow-md overflow-hidden"
+                style={{ width: b.w, height: b.h, '--total-scale-factor': z * CSS_UNITS } as React.CSSProperties} />
+            ))}
+          </div>
+        )}
+      </div>
+      {/* 指示条整体是一个按钮，只占短横线那一小块（不挡页面左缘的选字），点击展开浮层；悬停不做任何反馈 */}
       {ready && (
-        <div className="flex flex-col items-center min-w-fit" style={{ padding: PAD, gap: GAP }}>
-          {boxes.map((b, i) => (
-            <div key={i} ref={el => { pageEls.current[i] = el; }} data-page={i} className="pdf-page relative shrink-0 bg-white shadow-md overflow-hidden"
-              style={{ width: b.w, height: b.h, '--total-scale-factor': z * CSS_UNITS } as React.CSSProperties} />
-          ))}
+        <button onClick={() => setNavOpen(true)} tabIndex={-1}
+          className="absolute z-10 left-0 top-1/2 -translate-y-1/2 w-8 flex flex-col items-start gap-[5px] pl-2.5 py-2 cursor-default outline-none">
+          {ticks.map(pos => <span key={pos} className={cn('block h-0.5 rounded', pos === cur ? 'w-5 bg-fg' : 'w-3 bg-black/20')} />)}
+        </button>
+      )}
+      {ready && (
+        <div className={cn('absolute z-20 left-2 top-2 bottom-2 w-[168px] flex flex-col rounded-xl border border-border bg-white shadow-lg transition-transform duration-150',
+          navOpen ? 'translate-x-0' : '-translate-x-[calc(100%+8px)]')}>
+          <div className="shrink-0 h-9 flex items-center justify-between pl-3 pr-1.5 text-xs text-muted">
+            <span>{t('office.pageCount', { n: count })}</span>
+            <button onClick={closeNav} tabIndex={navOpen ? 0 : -1} className="p-1 rounded hover:text-fg hover:bg-black/[0.05]"><PanelLeft size={14} /></button>
+          </div>
+          <div ref={navListRef} className="relative flex-1 min-h-0 overflow-y-auto px-1.5 pb-1.5">
+            {boxes.map((_, pos) => (
+              <button key={pos} onClick={() => go(pos)} tabIndex={navOpen ? 0 : -1}
+                className={cn('w-full flex items-start gap-2 p-1.5 rounded-lg', pos === cur ? 'bg-accent/10' : 'hover:bg-black/[0.05]')}>
+                <span className={cn('w-5 shrink-0 pt-0.5 text-right text-xs', pos === cur ? 'text-accent' : 'text-muted')}>{pos + 1}</span>
+                <span ref={el => { thumbEls.current[pos] = el; }} data-pos={pos}
+                  className={cn('block shrink-0 overflow-hidden rounded-md bg-white border', pos === cur ? 'border-accent' : 'border-border')}
+                  style={{ width: THUMB_W, height: Math.round(THUMB_W * sizes[pos].h / sizes[pos].w) }} />
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>

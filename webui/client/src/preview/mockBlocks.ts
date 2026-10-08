@@ -259,6 +259,16 @@ export const mockBlockMap: Record<string, Block[]> = {
     { ...base(), kind: 'tool', agentId: MAIN, toolName: 'run_shell', summary: '对 config.ts 运行 eslint 检查，这是一段足够长的摘要用于验证页面太窄时的省略号效果', title: 'npx eslint src/utils/config.ts', status: 'done', content: '' },
   ],
 
+  // 图片路径是占位（预览里显示「文件已不存在」占位框）；连续的生成块会合并成一行，中间用失败行 / 文字隔开
+  GenerateImage: [
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'A watercolor painting of a lighthouse at...', status: 'running', output: 'Generating image with seedream...\n' },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'A watercolor painting of a lighthouse at...', status: 'error', content: 'Image generation failed (401): The API key is invalid.' },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'image.png', summary: 'Generated image image.png', status: 'done', content: { model: 'seedream[ark]', prompt: 'A watercolor painting of a lighthouse at dusk, soft warm light', images: [{ filePath: '/path/to/attachments/00000000-0000-0000-0000-000000000001/image.png', mediaType: 'image/png', bytes: 1536000 }] } },
+    { ...base(), kind: 'assistant', agentId: MAIN, done: true, thinking: '', text: '再生成两张不同风格的。' },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'image.jpg', summary: 'Generated image image.jpg', status: 'done', content: { model: 'seedream[ark]', prompt: 'A lighthouse at dusk, flat vector style', images: [{ filePath: '/path/to/attachments/00000000-0000-0000-0000-000000000002/image.jpg', mediaType: 'image/jpeg', bytes: 820000 }] } },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'image.webp', summary: 'Generated image image.webp', status: 'done', content: { model: 'seedream[ark]', prompt: 'A lighthouse at dusk, pixel art', images: [{ filePath: '/path/to/attachments/00000000-0000-0000-0000-000000000003/image.webp', mediaType: 'image/webp', bytes: 410000 }] } },
+  ],
+
   AssistantMarkdown: [
     {
       ...base(), kind: 'assistant', agentId: MAIN, thinking: '', done: true,
@@ -468,10 +478,6 @@ python3 SKILL_DIR/scripts/xlsx_insert_row.py /tmp/work/ --at 6 ...  # insert row
 
   PlanExitDialog: [
     { ...base(), kind: 'plan-exit', agentId: 'mock-agent-3', planFilePath: '/workspace/plan.md', planContent: PLAN_CONTENT, options: { startEditing: '开始代码编辑', clearContextAndStart: '清理上下文，并开始代码编辑' } },
-  ],
-
-  TodosPanel: [
-    { ...base(), kind: 'todos', todos: MOCK_TODOS },
   ],
 
   CronPanel: [

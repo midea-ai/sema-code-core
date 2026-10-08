@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FolderOpen, Pencil, ArrowDown, ChevronDown, ChevronRight, Copy, Check, ThumbsUp, ThumbsDown, GitBranch } from 'lucide-react';
+import { FolderOpen, Pencil, ArrowDown, Copy, Check, ThumbsUp, ThumbsDown, GitBranch } from 'lucide-react';
 import type { Block } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
 import { useApp } from '../../store/app';
@@ -8,10 +8,11 @@ import { api } from '../../api/http';
 import { PASTE_RESTORE_MISSING } from './pasteAttachment';
 import { BlockRenderer, renderBlockList, htmlFilesOf, HtmlSiteCard, memoryFilesOf, MemoryCard, type BlockCtx } from './Blocks';
 import { ArtifactGroup, OfficeCards } from './OfficeCard';
+import { GenImageGallery, genImagesIn } from './GenImage';
 import { VizEmbed } from './VizEmbed';
 import { isVizPath } from '../../../../shared/viz';
 import { Composer } from './Composer';
-import { Button, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
+import { Button, Caret, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { usePausableElapsed } from '../../common/useElapsed';
 import { t } from '../../i18n';
 import { collapsedHeaderPad, panelCollapsedHeaderPad } from '../../common/desktop';
@@ -226,10 +227,11 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           })}
         </div>
       </div>
-      {/* 回到底部：内容超出一屏且离底时悬浮显示；运行中图标换成三点动画表示进行中 */}
+      {/* 回到底部：内容超出一屏且离底时悬浮显示；运行中图标换成三点动画表示进行中。
+          z-20 压过用户气泡（.user-sticky 的 z-index: 10，未吸顶时同样生效） */}
       {overflow && !stick && (
         <button onClick={scrollToBottom} title={t('chat.scrollBottom')}
-          className="absolute left-1/2 -translate-x-1/2 bottom-3 h-8 w-8 rounded-full bg-bg border border-border shadow-lg flex items-center justify-center text-muted hover:text-fg">
+          className="absolute z-20 left-1/2 -translate-x-1/2 bottom-3 h-8 w-8 rounded-full bg-bg border border-border shadow-lg flex items-center justify-center text-muted hover:text-fg">
           {snap?.state === 'processing' ? <span className="run-dots"><i /><i /><i /></span> : <ArrowDown size={15} />}
         </button>
       )}
@@ -304,8 +306,8 @@ function groupTurns(blocks: Block[]): Turn[] {
 }
 
 const isWork = (b: Block) => b.kind === 'tool' || b.kind === 'agent';
-/** 末尾卡片：待办面板与定时任务卡片，恒排在本轮所有块之后 */
-const isTail = (b: Block) => b.kind === 'todos' || b.kind === 'cron';
+/** 末尾卡片：定时任务卡片，恒排在本轮所有块之后 */
+const isTail = (b: Block) => b.kind === 'cron';
 const isText = (b: Block) => b.kind === 'assistant' && !!b.text;
 
 /**
@@ -321,7 +323,8 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
 }) {
   const [expanded, setExpanded] = useState(false);
   const opener = turn.opener;
-  const rest = opener ? turn.blocks.slice(1) : turn.blocks;
+  // 待办块不在 UI 展示，先剔除，避免它影响折叠/展开判断
+  const rest = (opener ? turn.blocks.slice(1) : turn.blocks).filter(b => b.kind !== 'todos');
   const running = active && !!opener && !opener.doneTs;
 
   if (!opener) return <>{renderBlockList(rest, ctx)}</>;
@@ -333,10 +336,10 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
   const before = lastTextIdx >= 0 ? rest.slice(0, lastTextIdx) : [];
   const after = lastTextIdx >= 0 ? rest.slice(lastTextIdx + 1) : rest;
 
-  // 待办面板 / 定时任务卡片与文件改动卡片一样始终排在本轮末尾（运行中/展开/折叠三种视图一致），不按工具调用发生的位置插在过程里
+  // 定时任务卡片与文件改动卡片一样始终排在本轮末尾（运行中/展开/折叠三种视图一致），不按工具调用发生的位置插在过程里
   const tailCards = rest.filter(isTail);
   const ordered = [...rest.filter(b => !isTail(b)), ...tailCards];
-  // 折叠视图：文件改动卡片 + 最后一段文字 + 其后的非工具块 + 待办/定时任务卡片
+  // 折叠视图：文件改动卡片 + 最后一段文字 + 其后的非工具块 + 定时任务卡片
   const collapsedView: Block[] = [
     ...before.filter(b => b.kind === 'file-changes'),
     ...(lastText ? [lastText] : []),
@@ -365,6 +368,8 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
         <TurnDivider start={opener.ts} end={opener.doneTs ?? (running ? undefined : (rest[rest.length - 1]?.ts ?? opener.ts))} active={running} pausedAt={running ? awaitingTs : undefined} pausedMs={waitedMsIn(rest)} collapsible={collapsible} expanded={expanded} onToggle={() => setExpanded(v => !v)} />
       )}
       {running ? renderBlockList(ordered, ctx, true) : (expanded && collapsible) ? renderBlockList(ordered, ctx) : renderBlockList(collapsedView, ctx)}
+      {/* 本轮生成的图片（含子代理内的）：过程折叠后工具行不可见，结论之后直接显示画面 */}
+      {!running && <GenImageGallery sessionId={ctx.sessionId} images={genImagesIn(rest)} />}
       {/* 本轮新建/修改的 html 文件（本轮结束后显示，避免半成品页面）：
           可视化产物（attachments/<uuid>/*.html）直接内联嵌入；其余给「网站卡片」，默认右栏浏览器预览 */}
       {!running && htmlFilesOf(rest).filter(isVizPath).map(p => <VizEmbed key={`viz:${p}`} sessionId={ctx.sessionId} path={p} />)}
@@ -428,7 +433,7 @@ function TurnDivider({ start, end, active, pausedAt, pausedMs, collapsible, expa
     <div className="my-3 text-[13px] text-dim">
       <button onClick={collapsible ? onToggle : undefined} className={cn('inline-flex items-center gap-1.5', collapsible ? 'hover:text-fg cursor-pointer' : 'cursor-default')} title={collapsible ? t('chat.toggleProcess') : undefined}>
         <span>{active ? t('chat.processed') : t('chat.elapsed')} {fmtDuration(elapsed(end ?? Date.now()))}</span>
-        {collapsible && (expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
+        {collapsible && <Caret open={expanded} />}
       </button>
       <div className="border-t border-border mt-1.5" />
     </div>

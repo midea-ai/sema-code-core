@@ -14,7 +14,7 @@ export function toolDisplayName(name: string): string {
     view_file: 'toolName.read', run_shell: 'toolName.shell', write_file: 'toolName.write', patch_file: 'toolName.edit', search_files: 'toolName.findFiles', search_content: 'toolName.searchContent',
     fetch_url: 'toolName.fetch', skill: 'toolName.skill', sub_agent: 'toolName.subagent', ask_form: 'toolName.ask', plan_to_agent: 'toolName.exitPlan', edit_notebook: 'toolName.editNotebook',
     create_todo: 'toolName.todo', update_todo: 'toolName.todo', list_todos: 'toolName.todo', get_todo: 'toolName.todo', peek_bg_job: 'toolName.bgJob', stop_bg_job: 'toolName.stopBgJob',
-    create_cron: 'toolName.cron', list_crons: 'toolName.cron', del_cron: 'toolName.cron', load_tools: 'toolName.loadTools',
+    create_cron: 'toolName.cron', list_crons: 'toolName.cron', del_cron: 'toolName.cron', load_tools: 'toolName.loadTools', generate_image: 'toolName.genImage',
   };
   return map[name] ? t(map[name]) : name.replace(/_/g, ' ');
 }

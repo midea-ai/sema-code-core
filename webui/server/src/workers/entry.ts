@@ -85,6 +85,11 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     // 编辑模型：读磁盘上的完整 profile（含 apiKey）回填表单，只读不进 CORE_WRITE_ACTIONS
     case 'core.getModelProfile': return core.getModelProfile(p.provider, p.modelName);
     case 'core.applyTaskModel': return core.applyTaskModel(p.config);
+    // 图像模型：modelName 传空串表示停用；getImageModelProfile 同 getModelProfile，含 apiKey 供编辑回填
+    case 'core.addImageModel': return core.addImageModel(p.config);
+    case 'core.delImageModel': return core.delImageModel(p.modelName);
+    case 'core.switchImageModel': return core.switchImageModel(p.modelName ?? '');
+    case 'core.getImageModelProfile': return core.getImageModelProfile(p.provider, p.modelName);
     case 'core.testApiConnection': return sanitize(await core.testApiConnection(p.params));
     case 'core.fetchAvailableModels': return sanitize(await core.fetchAvailableModels(p.params));
     case 'core.getToolInfos': return core.getToolInfos();

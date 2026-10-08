@@ -5,11 +5,22 @@ import { Download, ImageOff, X } from 'lucide-react';
 import { cn } from '../../common/ui';
 import { t } from '../../i18n';
 
-// data:image/png;base64,... → png（拿不到就默认 png），下载文件名用
-function extFromSrc(src: string): string {
+/** 下载文件名：data URL 按 mime 取扩展名；raw 接口地址取 path 参数里的原文件名；都拿不到默认 png */
+export function downloadName(src: string): string {
   const m = /^data:image\/([a-z+]+)[;,]/i.exec(src);
-  const ext = m ? m[1].toLowerCase() : 'png';
-  return ext === 'jpeg' ? 'jpg' : ext;
+  if (m) { const ext = m[1].toLowerCase(); return `image-${Date.now()}.${ext === 'jpeg' ? 'jpg' : ext}`; }
+  try {
+    const name = new URL(src, window.location.origin).searchParams.get('path')?.split(/[\\/]/).pop();
+    if (name) return name;
+  } catch { /* fall through */ }
+  return `image-${Date.now()}.png`;
+}
+
+export function downloadImage(src: string) {
+  const a = document.createElement('a');
+  a.href = src;
+  a.download = downloadName(src);
+  a.click();
 }
 
 export function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
@@ -22,12 +33,7 @@ export function ImagePreview({ src, onClose }: { src: string; onClose: () => voi
     return () => document.removeEventListener('keydown', onKey, true);
   }, [onClose]);
 
-  const download = () => {
-    const a = document.createElement('a');
-    a.href = src;
-    a.download = `image-${Date.now()}.${extFromSrc(src)}`;
-    a.click();
-  };
+  const download = () => downloadImage(src);
 
   const btn = 'h-8 w-8 rounded-md bg-white/10 hover:bg-white/25 text-white flex items-center justify-center transition-colors';
   return createPortal(
@@ -48,9 +54,12 @@ export function ImagePreview({ src, onClose }: { src: string; onClose: () => voi
   );
 }
 
-/** 共用图片缩略图（输入框 / 用户气泡 / 工具读图）：点击放大预览；传 onDelete 时右上角出删除角标；
- * 加载失败时显示占位框，传 label（文件名）/ title（完整路径）时占位框带文件名与失效说明 */
-export function ImageThumb({ src, className, onDelete, label, title }: { src: string; className?: string; onDelete?: () => void; label?: string; title?: string }) {
+/** 共用图片缩略图（输入框 / 用户气泡 / 工具读图 / 生成图片）：点击放大预览；传 onDelete 时右上角出删除角标；
+ * 加载失败时显示占位框，传 label（文件名）/ title（完整路径）时占位框带文件名与失效说明；
+ * fit=contain 时按原比例完整显示（默认 cover 裁切填满）；overlay 为叠在图片上的操作区，加载失败时不显示 */
+export function ImageThumb({ src, className, onDelete, label, title, fit = 'cover', overlay }: {
+  src: string; className?: string; onDelete?: () => void; label?: string; title?: string; fit?: 'cover' | 'contain'; overlay?: React.ReactNode;
+}) {
   const [preview, setPreview] = useState(false);
   const [failed, setFailed] = useState(false);
   if (failed) {
@@ -67,12 +76,13 @@ export function ImageThumb({ src, className, onDelete, label, title }: { src: st
   const img = (
     <img
       src={src} alt="" onClick={() => setPreview(true)} onError={() => setFailed(true)}
-      className={cn('object-cover rounded-xl border border-border cursor-zoom-in', className)}
+      className={cn(fit === 'contain' ? 'object-contain' : 'object-cover', 'rounded-xl border border-border cursor-zoom-in', className)}
     />
   );
   return (
-    <div className={cn('shrink-0', onDelete && 'relative')}>
+    <div className={cn('shrink-0', (!!onDelete || !!overlay) && 'relative', !!overlay && 'group/thumb max-w-full')}>
       {img}
+      {overlay}
       {onDelete && (
         <button onClick={onDelete}
           className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center">

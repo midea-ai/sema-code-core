@@ -96,7 +96,7 @@ export function MemoryTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
             ))}
             {leftover && (
               <div className="rounded-lg border border-border px-3 py-2 text-[13px]">
-                <Markdown text={leftover} sessionId={sessionId} />
+                <Markdown text={leftover} sessionId={sessionId} renderImages />
               </div>
             )}
           </>

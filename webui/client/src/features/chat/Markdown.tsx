@@ -24,20 +24,21 @@ const urlTransform = (url: string) => (/^file:\/\//i.test(url) ? url : defaultUr
 /** 围栏代码块内的 code 不做文件识别 */
 const InPre = createContext(false);
 
-interface MdCtx { sessionId?: string; stat: (p: string) => PathStat | undefined; done: boolean }
-const Ctx = createContext<MdCtx>({ stat: () => undefined, done: true });
+interface MdCtx { sessionId?: string; stat: (p: string) => PathStat | undefined; done: boolean; renderImages: boolean }
+const Ctx = createContext<MdCtx>({ stat: () => undefined, done: true, renderImages: false });
 
 /**
  * Markdown 渲染：禁原始 HTML；支持 GFM 与 KaTeX 公式（$...$ / $$...$$）；
  * - 链接：http(s) 走 openLink（本机/局域网右栏内嵌，其他系统浏览器）；本地路径经 stat 确认后在右栏打开
  * - 行内代码：形如路径且真实存在 → 带文件图标、可点击在右栏打开（支持 :行 / :起-止）
- * - 图片：本地路径经服务端 raw 接口内嵌显示，点击在右栏打开
+ * - 图片：远程 / data URL 内嵌显示；本地路径默认按文件链接渲染（聊天区的图片由图片区统一展示，正文不重复出图），
+ *   renderImages=true（.md 文件预览、记忆页）时经服务端 raw 接口内嵌显示，点击在右栏打开
  * done=false（流式中）不发起文件确认，避免半截路径抖动
  */
-export const Markdown = memo(function Markdown({ text, sessionId, className, done = true }: { text: string; sessionId?: string; className?: string; done?: boolean }) {
+export const Markdown = memo(function Markdown({ text, sessionId, className, done = true, renderImages = false }: { text: string; sessionId?: string; className?: string; done?: boolean; renderImages?: boolean }) {
   useLang(); // memo 组件自行订阅语言
   const stat = useFileStats(sessionId, text, done);
-  const ctx = useMemo<MdCtx>(() => ({ sessionId, stat, done }), [sessionId, stat, done]);
+  const ctx = useMemo<MdCtx>(() => ({ sessionId, stat, done, renderImages }), [sessionId, stat, done, renderImages]);
   return (
     <Ctx.Provider value={ctx}>
       <div className={`md ${className || ''}`}>
@@ -146,13 +147,19 @@ function SiteIcon({ url }: { url: string }) {
 }
 
 function MdImage({ src, alt }: any) {
-  const { sessionId, stat } = useContext(Ctx);
+  const { sessionId, stat, renderImages } = useContext(Ctx);
   const openExternal = useApp(s => s.openExternal);
   const openFileTab = useApp(s => s.openFileTab);
   if (!src) return null;
   if (/^(https?:|data:|blob:)/i.test(src)) {
     const remote = /^https?:\/\//i.test(src);
     return <img src={src} alt={alt} className={cn(remote && 'cursor-pointer')} title={src} onClick={() => remote && openExternal(src).catch(() => window.open(src, '_blank', 'noopener'))} />;
+  }
+  // 本地图片（含 file://）默认当 [label](path) 处理：存在则为可点击的文件引用，否则纯文本；标签缺省用文件名
+  if (!renderImages) {
+    let name = src;
+    try { name = decodeURIComponent(src); } catch { /* keep */ }
+    return <Anchor href={src}>{alt || name.replace(/#.*$/, '').split(/[\\/]/).pop() || src}</Anchor>;
   }
   // 本地图片：确认存在后经 raw 接口显示；否则回退为原始 markdown 文本
   let p = src;

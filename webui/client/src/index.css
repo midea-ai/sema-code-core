@@ -8,6 +8,10 @@
 .app-no-drag,
 .app-drag :is(button, a, input, select, textarea, [draggable], [role="button"]) { -webkit-app-region: no-drag; }
 
+/* 透明图片底下的灰白方格（图片编辑器惯例）：生成图面板悬浮在有透明像素的图上时显示；
+   用 @utility 定义才能配 group-hover: 之类的变体 */
+@utility bg-checker { background: repeating-conic-gradient(#ebebeb 0 25%, #fbfbfb 0 50%) 0 0 / 24px 24px; }
+
 @theme {
   --color-bg: #ffffff;
   --color-panel: #f4f4f4;

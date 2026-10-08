@@ -13,7 +13,8 @@ export type View =
   /** 新会话草稿页：首次发送时才真正创建会话记录 */
   | { type: 'draft'; projectId?: string }
   | { type: 'chat'; sessionId: string }
-  | { type: 'settings'; tab: 'models' | 'system' }
+  /** addModel：进入模型配置页时直接打开「添加模型」弹窗（未配置模型的引导入口用） */
+  | { type: 'settings'; tab: 'models' | 'system'; addModel?: boolean }
   /** 日程：全局定时任务视图 */
   | { type: 'schedule' }
   /** 生态市场：内置技能 / MCP 资源，一键安装到用户级 */
@@ -21,7 +22,8 @@ export type View =
   /** 使用情况：本机 token / 模型 / 工具 / 技能使用统计 */
   | { type: 'usage' };
 
-export interface ModelData { modelName: string; modelList: string[]; taskConfig: { main: string; quick: string } }
+/** image / imageModelList：图像模型指针与列表（空串 = 不启用），旧版 core 不返回 */
+export interface ModelData { modelName: string; modelList: string[]; taskConfig: { main: string; quick: string; image?: string }; imageModelList?: string[] }
 
 export interface PanelTab {
   id: string; type: 'browser' | 'files' | 'review' | 'terminal' | 'agent' | 'cron' | 'quickchat' | 'memory'; url?: string; title?: string; history: string[]; index: number;

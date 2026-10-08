@@ -28,7 +28,7 @@ const CRON_KEEPER_LEAD_MS = 3 * 60_000;
 const CRON_KEEPER_LATE_MS = 60_000;
 /** keeper 拉起的会话在触发时刻之后再保活多久（覆盖 core 60s tick + 执行排队的时间） */
 const CRON_KEEP_AFTER_FIRE_MS = 5 * 60_000;
-const CORE_WRITE_ACTIONS = new Set(['core.switchModel', 'core.addModel', 'core.delModel', 'core.applyTaskModel']);
+const CORE_WRITE_ACTIONS = new Set(['core.switchModel', 'core.addModel', 'core.delModel', 'core.applyTaskModel', 'core.addImageModel', 'core.delImageModel', 'core.switchImageModel']);
 
 /** 退场上限：项目数、每项目会话数、独立会话数，超出按 lastActiveAt LRU 淘汰 */
 const PROJECT_LIMIT = 20;

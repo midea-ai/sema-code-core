@@ -43,7 +43,7 @@ const KNOWN_TOOLS = new Set([
   'view_file', 'write_file', 'patch_file', 'run_shell', 'search_files', 'search_content', 'fetch_url',
   'sub_agent', 'skill', 'edit_notebook', 'ask_form', 'plan_to_agent', 'load_tools',
   'create_todo', 'update_todo', 'get_todo', 'list_todos', 'create_cron', 'del_cron', 'list_crons',
-  'peek_bg_job', 'stop_bg_job',
+  'peek_bg_job', 'stop_bg_job', 'generate_image',
 ]);
 
 const emptyTokens = (): UsageTokens => ({ hit: 0, miss: 0, output: 0 });

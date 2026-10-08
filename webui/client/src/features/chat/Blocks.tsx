@@ -1,6 +1,6 @@
 import React, { memo, useState, useMemo, useRef, useLayoutEffect, useEffect } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Brain, Pencil, Search, ListTodo, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch, Images, Plug } from 'lucide-react';
-import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, TodosBlock, CronBlock, BranchOriginBlock } from '../../../../shared/types';
+import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Brain, Pencil, Search, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch, Images, ImagePlus, Plug } from 'lucide-react';
+import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, CronBlock, BranchOriginBlock } from '../../../../shared/types';
 import { CRON_TOOLS } from '../../../../shared/protocol';
 import { isAttachmentPath } from '../../../../shared/viz';
 import { Markdown } from './Markdown';
@@ -9,12 +9,13 @@ import { PickCard } from './PickCard';
 import { AgentCard } from './AgentCard';
 import { PlanExitCard, PlanImplementCard } from './PlanCards';
 import { ImageThumb } from './ImagePreview';
+import { GEN_IMAGE_TOOL, GenImageCard, isGenImageBlock } from './GenImage';
 import { ArtifactRow } from './OfficeCard';
 import { SkillLabel, matchSkillPrefix } from './skillDisplay';
 import { FileRefChip, refPaths, refStatPath, splitFileRefs } from './fileRefDisplay';
 import { usePathStats } from './fileRefs';
 import { PastePill } from './pasteAttachment';
-import { Button, cn, Spinner, Tip, useCopy } from '../../common/ui';
+import { Button, Caret, cn, Spinner, Tip, useCopy } from '../../common/ui';
 import { api, getToken } from '../../api/http';
 import { contentToString, toolDisplayName, stripAnsi, fmtTime, displayPath } from '../../common/text';
 import { normalizeUrl } from '../../common/url';
@@ -31,17 +32,19 @@ export interface BlockCtx {
 
 // ==================== 分发 ====================
 
-export const BlockRenderer = memo(function BlockRenderer({ block, ctx }: { block: Block; ctx: BlockCtx }) {
+export const BlockRenderer = memo(function BlockRenderer({ block, ctx, onToolOpenChange }: { block: Block; ctx: BlockCtx; onToolOpenChange?: (open: boolean) => void }) {
   useLang(); // memo 组件自行订阅语言，切换时重渲染
   switch (block.kind) {
     case 'user': return <UserBubble block={block} ctx={ctx} />;
     case 'assistant': return <AssistantMsg block={block} ctx={ctx} />;
     // 定时任务增删成功后由 CronCard 展示、子代理由 AgentCard 展示，工具行不再重复（失败仍显示工具行以便看报错）
-    case 'tool': return (CRON_TOOLS.has(block.toolName) && block.status === 'done') || (block.toolName === 'sub_agent' && block.status !== 'error') ? null : <ToolCard block={block} ctx={ctx} />;
+    case 'tool':
+      if (isGenImageBlock(block)) return <GenImageCard blocks={[block]} ctx={ctx} onOpenChange={onToolOpenChange} />;
+      return isHiddenTool(block) ? null : <ToolCard block={block} ctx={ctx} onOpenChange={onToolOpenChange} />;
     case 'permission': return <PermissionCard block={block} ctx={ctx} />;
     case 'pick': return <PickCard block={block} ctx={ctx} />;
     case 'plan-exit': return <PlanExitCard block={block} ctx={ctx} />;
-    case 'todos': return <TodosCard block={block} />;
+    case 'todos': return null; // 待办信息不在 UI 展示
     case 'agent': return <AgentCard block={block} ctx={ctx} />;
     case 'branch-origin': return <BranchOrigin block={block} />;
     case 'notice': return block.noticeType === 'plan-implement' ? <PlanImplementCard block={block} ctx={ctx} /> : <NoticeBar block={block} />;
@@ -255,7 +258,7 @@ function verbState(status: ToolBlock['status']) {
 /** 工具行动词：按状态三态区分（正在运行 / 已运行 / 运行出错），失败不用「已」 */
 function toolVerb(block: ToolBlock, diff: { type: 'diff' | 'new' } | null): string {
   const st = verbState(block.status);
-  const pick = (kind: 'shell' | 'create' | 'edit' | 'read' | 'search' | 'fetch' | 'agent' | 'skill' | 'ask' | 'bgStart' | 'bgStop') => t(`tool.${kind}.${st}` as const);
+  const pick = (kind: 'shell' | 'create' | 'edit' | 'read' | 'search' | 'fetch' | 'agent' | 'skill' | 'ask' | 'bgStart' | 'bgStop' | 'genImage') => t(`tool.${kind}.${st}` as const);
   const n = block.toolName;
   if (n === 'run_shell') return pick('shell');
   if (n === 'write_file' && diff?.type === 'new') return pick('create');
@@ -268,6 +271,7 @@ function toolVerb(block: ToolBlock, diff: { type: 'diff' | 'new' } | null): stri
   if (n === 'ask_form') return pick('ask');
   if (n === 'peek_bg_job') return pick('bgStart');
   if (n === 'stop_bg_job') return pick('bgStop');
+  if (n === GEN_IMAGE_TOOL) return pick('genImage');
   return t(`tool.call.${st}` as const, { name: toolDisplayName(n) });
 }
 
@@ -321,7 +325,7 @@ function isMemoryPath(p: string | null): boolean {
 /** 文件类工具读写记忆文件时用记忆图标，其余按工具名 */
 function toolIcon(n: string, filePath: string | null = null): any {
   if (FILE_TOOLS.has(n) && isMemoryPath(filePath)) return Brain;
-  return n === 'run_shell' ? Terminal : (n === 'search_files' || n === 'search_content') ? Search : n === 'view_file' ? FileText : FILE_TOOLS.has(n) ? Pencil : n === 'fetch_url' ? Globe : n === 'sub_agent' ? Bot : CRON_TOOLS.has(n) ? Clock : n.startsWith('mcp__') ? Plug : Wrench;
+  return n === 'run_shell' ? Terminal : (n === 'search_files' || n === 'search_content') ? Search : n === 'view_file' ? FileText : FILE_TOOLS.has(n) ? Pencil : n === 'fetch_url' ? Globe : n === 'sub_agent' ? Bot : n === GEN_IMAGE_TOOL ? ImagePlus : CRON_TOOLS.has(n) ? Clock : n.startsWith('mcp__') ? Plug : Wrench;
 }
 
 /** 工具单行摘要（动词 + 目标 + 增删统计）：live 工具组组头用，文案规则与工具行一致 */
@@ -342,7 +346,7 @@ function ToolSummary({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
 }
 
 /** 单个工具：一行摘要（图标 + 动词 + 目标 + 增删统计），点击展开详情 */
-function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
+function ToolCard({ block, ctx, onOpenChange }: { block: ToolBlock; ctx: BlockCtx; onOpenChange?: (open: boolean) => void }) {
   const isShell = block.toolName === 'run_shell';
   /** 子代理调用行：详情看 AgentCard/右侧标签，此行不可展开 */
   const isAgentCall = block.toolName === 'sub_agent';
@@ -372,6 +376,7 @@ function ToolCard({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   /** view_file 读图片文件：行为改为可展开，展开区显示缩略图（点击放大预览） */
   const isImageRead = isRead && !!filePath && /\.(png|jpe?g|gif|webp)$/i.test(filePath);
   const expandable = !isSearch && !isAgentCall && !isSkill && (!isRead || isImageRead);
+  useEffect(() => { onOpenChange?.(open && expandable); }, [open, expandable, onOpenChange]);
 
   return (
     <div className="my-0.5 text-[13px] text-dim">
@@ -417,7 +422,7 @@ function ImageReadCard({ blocks, ctx }: { blocks: ToolBlock[]; ctx: BlockCtx }) 
       <button onClick={() => setOpen(v => !v)} className="flex items-center gap-2 py-0.5 text-left cursor-pointer hover:text-fg">
         {running ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : <Images size={14} className="shrink-0" />}
         <span>{running ? t('card.viewingImages') : t('card.viewedImages', { n: paths.length })}</span>
-        {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        <Caret open={open} />
       </button>
       {open && (
         <div className="pl-6 py-1 flex gap-2 flex-wrap">
@@ -441,12 +446,13 @@ function isImageReadBlock(b: Block): b is ToolBlock {
     && IMAGE_EXT_RE.test(String(b.title || b.input?.file_path || '').replace(/:\d+(-\d+)?$/, ''));
 }
 
-/** 非失败的子代理调用行：由 AgentCard 展示，工具行不渲染，也不计入工具组统计/组头 */
-function isHiddenAgentTool(b: Block): boolean {
-  return b.kind === 'tool' && b.toolName === 'sub_agent' && b.status !== 'error';
+/** 已由独立卡片展示的调用不渲染工具行，也不计入工具组统计/组头 */
+function isHiddenTool(b: Block): boolean {
+  return b.kind === 'tool' && ((b.toolName === 'sub_agent' && b.status !== 'error')
+    || (CRON_TOOLS.has(b.toolName) && b.status === 'done'));
 }
 
-/** 可并入工具组的块：工具本身（读图片除外）、已放行的权限卡（本就不渲染）、自动放行提示 */
+/** 可并入工具组的块：工具本身（读图片除外；生成图片与终端一样并入组）、已放行的权限卡（本就不渲染）、自动放行提示 */
 export function isToolGroupable(b: Block): boolean {
   if (b.kind === 'tool') return !isImageReadBlock(b);
   if (b.kind === 'assistant') return !b.text; // 纯思考块不渲染，不打断分组
@@ -455,7 +461,7 @@ export function isToolGroupable(b: Block): boolean {
   return false;
 }
 
-/** 渲染块列表：连续 ≥2 个工具调用（中间无文字）合并为一个可折叠组；live=运行中（组头显示最后一个工具的摘要） */
+/** 渲染块列表：单工具直接展示，连续多个可见工具合并为可折叠组；live=运行中（组头显示最后一个工具的摘要） */
 export function renderBlockList(blocks: Block[], ctx: BlockCtx, live = false) {
   const out: React.ReactNode[] = [];
   for (let i = 0; i < blocks.length;) {
@@ -470,7 +476,7 @@ export function renderBlockList(blocks: Block[], ctx: BlockCtx, live = false) {
     let j = i;
     while (j < blocks.length && isToolGroupable(blocks[j])) j++;
     const run = blocks.slice(i, j);
-    if (run.filter(b => b.kind === 'tool' && !isHiddenAgentTool(b)).length >= 2) {
+    if (run.some(b => b.kind === 'tool' && !isHiddenTool(b))) {
       // 组头是否仍在增长：只有其后再无新文字/工具调用（真正的末尾组）才用「最后一个工具」当标题，否则回退为整体描述
       const isTailGroup = !blocks.slice(j).some(b => b.kind === 'tool' || (b.kind === 'assistant' && !!b.text));
       out.push(<ToolGroup key={`group:${run[0].id}`} blocks={run} ctx={ctx} live={live && isTailGroup} />);
@@ -480,27 +486,49 @@ export function renderBlockList(blocks: Block[], ctx: BlockCtx, live = false) {
   return out;
 }
 
-/** live：组头显示最后一个工具的单行摘要（随新工具加入自动更新）；结束后组头为类别文案。两种模式都默认折叠，点开内容一致 */
+/** 工具组展开后的行列表：连续的生成图片块（可并发）合并为一张卡片，其余逐块渲染；
+ * 只吞到最后一个生成块为止，夹在中间的不可见过程块（纯思考、已放行的权限卡、自动放行提示）不打断合并 */
+function renderGroupRows(blocks: Block[], ctx: BlockCtx, live?: boolean, onToolOpenChange?: (open: boolean) => void) {
+  const out: React.ReactNode[] = [];
+  const isInvisible = (b: Block) => b.kind !== 'tool' && isToolGroupable(b);
+  for (let i = 0; i < blocks.length;) {
+    if (!isGenImageBlock(blocks[i])) { out.push(<BlockRenderer key={blocks[i].id} block={blocks[i]} ctx={ctx} onToolOpenChange={onToolOpenChange} />); i++; continue; }
+    const run: ToolBlock[] = [];
+    let end = i;
+    for (let j = i; j < blocks.length; j++) {
+      const b = blocks[j];
+      if (isGenImageBlock(b)) { run.push(b as ToolBlock); end = j + 1; }
+      else if (!isInvisible(b)) break;
+    }
+    out.push(<GenImageCard key={blocks[i].id} blocks={run} ctx={ctx} live={live} onOpenChange={onToolOpenChange} />);
+    i = end;
+  }
+  return out;
+}
+
+/** 单工具省略组头；多工具 live 时组头显示最后一项摘要，结束后为类别文案。单工具已展开时，新增工具后保持展开 */
 function ToolGroup({ blocks, ctx, live }: { blocks: Block[]; ctx: BlockCtx; live?: boolean }) {
-  const tools = blocks.filter((b): b is ToolBlock => b.kind === 'tool' && !isHiddenAgentTool(b));
+  const tools = blocks.filter((b): b is ToolBlock => b.kind === 'tool' && !isHiddenTool(b));
+  const single = tools.length === 1;
   const hasEdit = tools.some(b => EDIT_TOOLS.has(b.toolName));
   const hasShell = tools.some(b => b.toolName === 'run_shell');
   const hasRead = tools.some(b => b.toolName === 'view_file' || b.toolName === 'search_files' || b.toolName === 'search_content');
-  // 默认折叠；用户点过则以手动为准
+  const hasGen = tools.some(isGenImageBlock);
+  // 多工具默认折叠；单工具的详情状态用于后续成组时保持展开
   const [manual, setManual] = useState<boolean | null>(null);
   const open = manual ?? false;
   const last = tools[tools.length - 1];
   const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
-  const label = [hasEdit && t('card.groupEdited'), hasShell && t('card.groupRan'), hasRead && t('card.groupRead')].filter(Boolean).join(' ') || t('card.groupTools');
-  const Icon = live ? toolIcon(last.toolName, filePathOf(last, workingDir)) : hasEdit ? Pencil : hasShell ? Terminal : hasRead ? Search : Wrench;
+  const label = [hasEdit && t('card.groupEdited'), hasShell && t('card.groupRan'), hasRead && t('card.groupRead'), hasGen && t('tool.genImage.done')].filter(Boolean).join(' ') || t('card.groupTools');
+  const Icon = live ? toolIcon(last.toolName, filePathOf(last, workingDir)) : hasEdit ? Pencil : hasShell ? Terminal : hasRead ? Search : hasGen ? ImagePlus : Wrench;
   return (
     <div className="my-1.5 text-[13px]">
-      <button onClick={() => setManual(!open)} className="group w-full flex items-center gap-2 py-0.5 text-left text-dim hover:text-fg">
+      {!single && <button onClick={() => setManual(!open)} className="group w-full flex items-center gap-2 py-0.5 text-left text-dim hover:text-fg">
         {live && last.status === 'running' ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : live && last.status === 'error' ? <X size={14} className="text-danger shrink-0" /> : <Icon size={14} className="shrink-0" />}
         {live ? <ToolSummary block={last} ctx={ctx} /> : <span>{label}</span>}
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} className="opacity-0 group-hover:opacity-100" />}
-      </button>
-      {open && <div>{blocks.map(b => <BlockRenderer key={b.id} block={b} ctx={ctx} />)}</div>}
+        <Caret open={open} className={cn(!open && 'opacity-0 group-hover:opacity-100')} />
+      </button>}
+      {(single || open) && <div key="rows">{renderGroupRows(blocks, ctx, live, single ? setManual : undefined)}</div>}
     </div>
   );
 }
@@ -586,42 +614,6 @@ function PermissionCard({ block, ctx }: { block: PermissionBlock; ctx: BlockCtx 
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ==================== 待办 ====================
-
-function TodosCard({ block }: { block: TodosBlock }) {
-  const [open, setOpen] = useState(false);
-  const items = block.todos || [];
-  const doneCount = items.filter((x: any) => x.status === 'completed' || x.status === 'done').length;
-  return (
-    <div className="my-1.5 text-[13px]">
-      <button onClick={() => setOpen(v => !v)} className="group flex items-center gap-2 py-0.5 text-dim hover:text-fg">
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <span>{t('card.todos')} {doneCount}/{items.length}</span>
-      </button>
-      {open && (
-        <ul className="pl-1 pt-0.5 flex flex-col">
-          {items.map((it: any, i: number) => {
-            const st = it.status;
-            const isDone = st === 'completed' || st === 'done';
-            const active = st === 'in_progress' || st === 'running' || st === 'processing';
-            const text = active && it.progressText ? it.progressText : (it.title ?? it.content ?? it.subject ?? JSON.stringify(it));
-            return (
-              <li key={it.id ?? i} className={cn('flex items-start gap-2 py-0.5 leading-5', isDone ? 'text-muted line-through' : active ? 'text-fg' : 'text-dim')}>
-                <span className="w-4 shrink-0 flex items-center justify-center h-5">
-                  {isDone ? <Check size={13} className="text-ok" />
-                    : active ? <span className="h-3 w-3 rounded-full border-[1.5px] border-ok" style={{ background: 'linear-gradient(to right, var(--color-ok) 50%, transparent 50%)' }} />
-                      : <span className="h-3 w-3 rounded-full border-[1.5px] border-current opacity-70" />}
-                </span>
-                <span className="break-words">{text}</span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
     </div>
   );
 }

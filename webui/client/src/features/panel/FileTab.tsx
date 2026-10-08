@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, FolderTree, ExternalLink, Searc
 import hljs from 'highlight.js/lib/common';
 import { api, getToken } from '../../api/http';
 import { useApp, PanelTab } from '../../store/app';
-import { cn, Popover, MenuItem, MenuSep, Spinner, useCopy } from '../../common/ui';
+import { Caret, cn, Popover, MenuItem, MenuSep, Spinner, useCopy } from '../../common/ui';
 import { OpenWithItems, appIconUrl, useOpenWithApps } from '../../common/openWith';
 import { OfficeKind, officeKindOf, isOfficeBinary, baseNameNoExt } from './office/kind';
 import { Zoom, ZoomDropdown } from './office/ZoomDropdown';
@@ -297,7 +297,7 @@ function MdPreview({ content, sessionId }: { content: string; sessionId: string 
           )}
         </div>
       )}
-      <div className="p-4"><Markdown text={fm.body} sessionId={sessionId} /></div>
+      <div className="p-4"><Markdown text={fm.body} sessionId={sessionId} renderImages /></div>
     </div>
   );
 }
@@ -359,7 +359,7 @@ function DirNode({ sessionId, path, depth, current, onPick, onMenu }: {
           return (
             <div key={p}>
               <button onClick={() => setOpen(o => ({ ...o, [it.name]: !isOpen }))} className="w-full flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-black/[0.05] text-fg" style={{ paddingLeft: 8 + depth * 12 }}>
-                {isOpen ? <ChevronDown size={11} className="text-muted shrink-0" /> : <ChevronRight size={11} className="text-muted shrink-0" />}
+                <Caret open={isOpen} size={11} className="text-muted" />
                 <FileIcon fileName={it.name} isDirectory size={14} /><span className="truncate">{it.name}</span>
               </button>
               {isOpen && <DirNode sessionId={sessionId} path={p} depth={depth + 1} current={current} onPick={onPick} onMenu={onMenu} />}

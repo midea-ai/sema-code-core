@@ -17,7 +17,6 @@ function scanProjectDesignState(
   projectDesignDoc: string,
   projectSkillsDir: string,
   projectCodeDir: string,
-  projectScreenDir: string,
 ): ProjectDesignState {
   let designDocContent: string | null = null
   let designDocTruncated = false
@@ -60,14 +59,18 @@ function scanProjectDesignState(
     logError(`扫描 code 目录失败 [${projectCodeDir}]: ${error}`)
   }
 
-  let screenFileCount: number | null = null
+  // 已生成的图片清单：迭代时模型据此复用，避免重复生成
+  const assetFiles: string[] = []
+  const projectAssetsDir = path.join(projectCodeDir, 'assets')
   try {
-    if (fs.existsSync(projectScreenDir)) {
-      const entries = fs.readdirSync(projectScreenDir, { withFileTypes: true })
-      screenFileCount = entries.filter(e => e.isFile()).length
+    if (fs.existsSync(projectAssetsDir)) {
+      for (const entry of fs.readdirSync(projectAssetsDir, { withFileTypes: true })) {
+        if (entry.isFile()) assetFiles.push(entry.name)
+      }
+      assetFiles.sort((a, b) => a.localeCompare(b))
     }
   } catch (error) {
-    logError(`扫描 screen 目录失败 [${projectScreenDir}]: ${error}`)
+    logError(`扫描 assets 目录失败 [${projectAssetsDir}]: ${error}`)
   }
 
   return {
@@ -76,7 +79,7 @@ function scanProjectDesignState(
     designDocPath: projectDesignDoc,
     skillFolders,
     codeEntries,
-    screenFileCount,
+    assetFiles,
   }
 }
 
@@ -85,9 +88,8 @@ export function generateDesignReminders(): Anthropic.ContentBlockParam[] {
   const projectDesignRoot = path.join(currentDir, '.sema/design/')
   const projectSkillsDir = path.join(projectDesignRoot, 'skills/')
   const projectCodeDir = path.join(projectDesignRoot, 'code/')
-  const projectScreenDir = path.join(projectDesignRoot, 'screen/')
 
-  for (const dir of [projectSkillsDir, projectCodeDir, projectScreenDir]) {
+  for (const dir of [projectSkillsDir, projectCodeDir]) {
     try {
       fs.mkdirSync(dir, { recursive: true })
     } catch (error) {
@@ -112,7 +114,6 @@ export function generateDesignReminders(): Anthropic.ContentBlockParam[] {
     projectSkillsDir,
     projectDesignDoc,
     projectCodeDir,
-    projectScreenDir,
     globalSkillsRoot,
     globalDesignSystemsRoot,
     designSkills,
@@ -122,7 +123,6 @@ export function generateDesignReminders(): Anthropic.ContentBlockParam[] {
       projectDesignDoc,
       projectSkillsDir,
       projectCodeDir,
-      projectScreenDir,
     ),
   })
 

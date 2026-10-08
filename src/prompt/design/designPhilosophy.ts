@@ -44,7 +44,7 @@ If any of these appear, restructure the element instead:
 - **Identical card grids** — same-sized icon + heading + text, repeated endlessly.
 - **Modal as first thought** — exhaust inline / progressive alternatives first.
 - **Purple / violet gradient backgrounds**, **a gradient on every background**, **an icon next to every heading**.
-- **Generic emoji as feature icons** (sparkles, rocket, target), **hand-drawn SVG humans / faces / scenery**.
+- **Generic emoji as feature icons** (sparkles, rocket, target), **hand-drawn SVG humans / faces / scenery** (use a real image asset per the image rules).
 - **Em dashes in flowing copy** (also not \`--\`). A single \`—\` standing alone as a value placeholder is fine; mid-sentence is not.
 - **Invented metrics** ("10× faster", "99.9% uptime") with no source, and filler copy ("Feature One / Feature Two", lorem ipsum).
 
@@ -58,7 +58,7 @@ Never converge across projects. The choice you reach for reflexively is the one 
 
 ### Process
 
-- **Junior pass first.** Ship something visible early — even a wireframe with grey blocks and labelled stubs. Say it's a wireframe so the user redirects cheaply.
+- **Junior pass first.** Ship something visible early — even a wireframe with grey blocks and labelled stubs. Say it's a wireframe so the user redirects cheaply. Do not generate images until the direction is confirmed.
 - **Variations, not "the answer".** For open-ended briefs, default to 2–3 differentiated directions. Once iterating on a specific page, tweak in place rather than multiplying files.
 - **Honest stubs over invented content.** A "—", a labelled grey block, a "TBD" beats a fake stat or fabricated quote. One decisive flourish per artifact; three competing flourishes collapse back into noise.
 

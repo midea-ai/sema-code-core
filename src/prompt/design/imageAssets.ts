@@ -1,27 +1,41 @@
-export const PLACEHOLDER_IMAGE_GUIDELINES_PROMPT = `### Image placeholders
+import { TOOL_NAME_GENERATE_IMAGE } from '../tool'
 
-Every \`<img>\` must use one of the sources below. Never solid color blocks, gray fills, placeholder.com, or via.placeholder. (This rule covers \`<img>\` only — labelled grey blocks as wireframe content stubs remain fine per the design philosophy.)
+export const IMAGE_ASSET_GUIDELINES_PROMPT = (codeDir: string) => `### Image assets
 
-#### Decision tree
+Every \`<img>\` must resolve to a real, stable image from the sources below. Never solid color blocks, gray fills, placeholder.com / via.placeholder, hand-drawn SVG people or scenery, or guessed URLs. (This rule covers \`<img>\` only — labelled grey blocks as wireframe content stubs remain fine per the design philosophy.)
 
-1. Person / avatar → DiceBear
-2. Concrete scene or object (product, food, landscape, thumbnail) → LoremFlickr
-3. Banner / hero / abstract decoration → self-generated frosted SVG (default when uncertain)
-4. Icons → Tabler Icons or Heroicons
+#### Which source
 
-#### 1. DiceBear
+1. **Key visuals** — hero, banner, product shot, scene / empty-state illustration, anything that carries the visual direction → \`${TOOL_NAME_GENERATE_IMAGE}\` when the tool is available; otherwise LoremFlickr for concrete subjects, frosted SVG for abstract ones.
+2. **Secondary content images** — list thumbnails, gallery fillers, many-of-a-kind → LoremFlickr, or reuse an already generated asset. Never spend generation budget here.
+3. **Avatars** — one style per prototype, stable per person. Default DiceBear; CSS initials or assets shipped with the chosen skill are fine. Never generated.
+4. **Icons** — one icon set per prototype as inline SVG (Tabler, Heroicons, Lucide, or the set shipped with the chosen skill). Never emoji, never generated.
+5. **Abstract decoration** — section backdrops, dividers → frosted SVG.
+
+A skill or DESIGN.md that ships its own imagery or icon set takes precedence over these defaults.
+
+#### Generated images (\`${TOOL_NAME_GENERATE_IMAGE}\`)
+
+- **Save into the prototype.** Pass \`output_path\` as \`${codeDir}assets/<role>.png\` (\`hero.png\`, \`product-1.png\`, \`empty-inbox.png\`) and reference it relatively from HTML (\`assets/hero.png\`). The tool may return a different path (actual format / existing file) — always write the **returned** path into \`src\`.
+- **Budget.** At most 4–6 generated images for a first build, fewer on iteration. Spend them on the hero and the visuals that define the direction; everything else uses sources 2–5.
+- **Reuse first.** Check the \`assets/\` listing in the project state before generating. Regenerate only when the user asks for a different image.
+- **Timing.** \`code=no\`: generate the whole batch before writing HTML so \`src\` is final on first write, and issue all calls of the batch in one response (they run concurrently). \`code=yes\`: generate on demand and patch only the affected \`<img>\`. During a wireframe pass, do not generate at all.
+- **Prompt recipe.** One fixed style prefix per prototype derived from DESIGN.md tone + palette, naming the hex values (e.g. "flat vector illustration, muted teal #2A6F6B and sand #E8DCC4, soft grain"); then subject, composition, lighting; then the aspect ratio ("wide 16:9 hero", "square product shot"). Always end with: no text, no letters, no logos, no UI elements — text belongs in HTML.
+- **One image per role.** Do not composite several components into one image to crop later.
+
+#### DiceBear
 
 \`https://api.dicebear.com/9.x/{style}/svg?seed={seed}\`
 
 Pick ONE style per prototype. Common picks: \`notionists\` / \`lorelei\` (SaaS), \`avataaars\` / \`micah\` (consumer), \`bottts\` (AI), \`initials\` (initials only). \`seed\` is any stable string.
 
-#### 2. LoremFlickr
+#### LoremFlickr
 
 \`https://loremflickr.com/{width}/{height}/{keywords}?lock={n}\`
 
 Keywords are comma-separated English. **\`lock={n}\` is mandatory** — unique integer per image; without it the image rotates and breaks reviews.
 
-#### 3. Frosted SVG (default for banners / hero / abstract)
+#### Frosted SVG
 
 Inline directly — no external request, colors come from the design system:
 

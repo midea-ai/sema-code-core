@@ -97,6 +97,22 @@ interface ApiConfig {
   buildCurlHeaders: (apiKey: string) => string;
 }
 
+/**
+ * thinking 常开、不接受 { type: "disabled" } 的模型（传了会返回 400）：
+ * Claude Fable / Mythos 全系，以及 Opus 5.5 起
+ */
+function thinkingAlwaysOn(modelName: string): boolean {
+  const name = modelName.toLowerCase();
+  if (/claude[-_\s]+(fable|mythos)/.test(name)) return true;
+
+  const match = name.match(/claude[-_\s]+opus[-_\s]+(\d+)[-._\s]+(\d+)/);
+  if (!match) return false;
+
+  const majorVersion = Number(match[1]);
+  const minorVersion = Number(match[2]);
+  return majorVersion > 5 || (majorVersion === 5 && minorVersion >= 5);
+}
+
 const API_CONFIGS: Record<string, ApiConfig> = {
   anthropic: {
     endpoint: '/v1/messages',
@@ -107,7 +123,7 @@ const API_CONFIGS: Record<string, ApiConfig> = {
     buildBody: (modelName) => ({
       model: modelName,
       max_tokens: 1000,
-      thinking: { type: "disabled" },
+      ...(thinkingAlwaysOn(modelName) ? {} : { thinking: { type: "disabled" } }),
       messages: [{ role: 'user', content: API_CONNECTION_TEST_PROMPT }]
     }),
     extractContent: (response) => response.content?.find((b: any) => b.type === 'text')?.text || '',
@@ -191,44 +207,16 @@ export async function testApiConnection(params: ApiTestParams): Promise<ApiTestR
 
 // ============ 获取模型列表 ============
 
-/** Anthropic 预定义模型列表 */
-const MODEL_MAP = {
-  anthropic: {
-    baseURL: 'https://api.anthropic.com',
-    models: [
-      { id: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
-      { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' },
-      { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
-      { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }
-    ]
-  },
-  minimax: {
-    baseURL: 'https://api.minimaxi.com/anthropic',
-    models: [
-      { id: 'MiniMax-M3', name: 'MiniMax-M3' },
-      { id: 'MiniMax-M2.7', name: 'MiniMax-M2.7' }
-    ]
-  }
-};
-
 /**
  * 获取可用模型列表
  *
- * - adapt === 'anthropic'：Anthropic 协议无标准 /models 接口，命中预设 provider 时返回预设列表，否则同 openai 流程
- * - adapt === 'openai'  ：调用标准 /models 端点
+ * 只做远端请求，core 不内置任何模型列表；服务商不支持列出模型时返回 success: false，
+ * 由上层应用决定用自带的内置列表兜底，还是引导手动输入。
  */
 export async function fetchModels(params: FetchModelsParams): Promise<FetchModelsResult> {
-  const { provider = 'custom', baseURL, apiKey, adapt, modelsUrl } = params;
+  const { baseURL, apiKey, modelsUrl } = params;
 
   let result: FetchModelsResult;
-
-  // 命中预设 provider 时直接返回预设列表；custom 及自定义别名走下方 /models 请求
-  if (adapt === 'anthropic' && !modelsUrl) {
-    const providerConfig = MODEL_MAP[provider as keyof typeof MODEL_MAP];
-    if (providerConfig) {
-      return { success: true, models: providerConfig.models };
-    }
-  }
 
   // 优先使用 modelsUrl，否则按 OpenAI 协议拼接 /models 端点
   const apiUrl = modelsUrl

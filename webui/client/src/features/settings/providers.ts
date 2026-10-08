@@ -6,6 +6,7 @@ export type ThinkingHistoryPolicy = 'preserve' | 'current_turn' | 'omit';
 export interface ProviderDefaults {
   name: string; baseURL: string; baseURLPlaceholder?: string; defaultModel?: string;
   modelsUrl?: string; apikeyUrl?: string; requiresApiKeyForModelList?: boolean; defaultAdapt?: AdapterType;
+  presetModels?: { id: string; name: string }[];  // 内置模型列表：无 modelsUrl 时直接使用，有 modelsUrl 时作为远端获取失败的兜底
   defaultMaxTokens?: number; defaultContextLength?: number; maxTokensOptions?: number[]; contextLengthOptions?: number[];
   defaultThinkingHistoryPolicy?: ThinkingHistoryPolicy;  // 缺省 preserve
 }
@@ -23,10 +24,10 @@ export const DEFAULT_PROVIDER = 'deepseek';
 export const PROVIDER_ORDER = ['custom', 'deepseek', 'minimax', 'glm', 'mimo', 'qwen', 'kimi', 'openrouter', 'anthropic', 'openai'];
 
 export const PROVIDERS: Record<string, ProviderDefaults> = {
-  anthropic: { name: 'Anthropic', baseURL: 'https://api.anthropic.com', defaultAdapt: 'anthropic' },
+  anthropic: { name: 'Anthropic', baseURL: 'https://api.anthropic.com', defaultAdapt: 'anthropic', presetModels: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5' }, { id: 'claude-fable-5-1', name: 'Claude Fable 5.1' }, { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' }, { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }] },
   openai: { name: 'OpenAI', baseURL: 'https://api.openai.com/v1', defaultAdapt: 'openai' },
   kimi: { name: 'Kimi (Moonshot)', baseURL: 'https://api.moonshot.cn/v1', defaultModel: 'kimi-k3', apikeyUrl: 'https://platform.moonshot.cn/console/api-keys', defaultAdapt: 'openai', defaultThinkingHistoryPolicy: 'current_turn' },
-  minimax: { name: 'MiniMax', baseURL: 'https://api.minimaxi.com/anthropic', defaultModel: 'MiniMax-M3', apikeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key', defaultAdapt: 'anthropic', defaultThinkingHistoryPolicy: 'current_turn' },
+  minimax: { name: 'MiniMax', baseURL: 'https://api.minimaxi.com/anthropic', defaultModel: 'MiniMax-M3', apikeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key', defaultAdapt: 'anthropic', defaultThinkingHistoryPolicy: 'current_turn', presetModels: [{ id: 'MiniMax-M3', name: 'MiniMax-M3' }] },
   deepseek: { name: 'DeepSeek', baseURL: 'https://api.deepseek.com/anthropic', modelsUrl: 'https://api.deepseek.com/v1/models', defaultModel: 'deepseek-v4-pro', apikeyUrl: 'https://platform.deepseek.com/api_keys', defaultAdapt: 'anthropic', defaultThinkingHistoryPolicy: 'current_turn' },
   glm: { name: 'GLM', baseURL: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.3', apikeyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys', defaultAdapt: 'openai', defaultThinkingHistoryPolicy: 'current_turn' },
   openrouter: { name: 'OpenRouter', baseURL: 'https://openrouter.ai/api', modelsUrl: 'https://openrouter.ai/api/v1/models', defaultModel: 'anthropic/claude-opus-4.6', apikeyUrl: 'https://openrouter.ai/settings/keys', defaultAdapt: 'anthropic' },

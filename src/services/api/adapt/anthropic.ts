@@ -290,7 +290,7 @@ function usesAdaptiveThinking(modelProfile: ModelProfile): boolean {
 
   const match = modelProfile.modelName
     .toLowerCase()
-    .match(/claude[-_\s]+(opus|sonnet)[-_\s]+(\d+)[-._\s]+(\d+)/)
+    .match(/claude[-_\s]+(opus|sonnet|fable|mythos)[-_\s]+(\d+)[-._\s]+(\d+)/)
 
   if (!match) {
     return false

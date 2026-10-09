@@ -30,7 +30,7 @@ const { getModelManager } = require('../../src/manager/ModelManager') as typeof 
 const { getAvailableBuiltinTools, getAllBuiltinToolNames, getAllBuiltinToolInfos } = require('../../src/tools/base/tools') as typeof import('../../src/tools/base/tools')
 
 const TOOL = 'generate_image'
-const ark = { provider: 'ark', modelName: 'seedream', baseURL: 'https://ark.example.com/api/v3', apiKey: 'a' }
+const volcengine = { provider: 'volcengine', modelName: 'seedream', baseURL: 'https://volcengine.example.com/api/v3', apiKey: 'a' }
 const qwen = { provider: 'qwen', modelName: 'qwen-image', baseURL: 'https://qwen.example.com/v1', apiKey: 'b' }
 const readConf = () => JSON.parse(readFileSync(join(root, 'model.conf'), 'utf8'))
 const hasTool = () => getAvailableBuiltinTools(null).some(t => t.name === TOOL)
@@ -47,23 +47,23 @@ test('旧配置没有文生图字段：列表为空、指针为空、工具不�
 })
 
 test('添加第一个文生图模型：指针指向它，工具可用，对话模型不受影响', async () => {
-  const data = await getModelManager().addImageModel(ark)
-  assert.deepEqual(data.imageModelList, ['seedream[ark]'])
-  assert.equal(data.taskConfig.image, 'seedream[ark]')
+  const data = await getModelManager().addImageModel(volcengine)
+  assert.deepEqual(data.imageModelList, ['seedream[volcengine]'])
+  assert.equal(data.taskConfig.image, 'seedream[volcengine]')
   assert.deepEqual(data.modelList, [chatProfile.name])
   assert.equal(data.taskConfig.main, chatProfile.name)
   assert.equal(hasTool(), true)
 
   const conf = readConf()
-  assert.equal(conf.modelPointers.image, 'seedream[ark]')
+  assert.equal(conf.modelPointers.image, 'seedream[volcengine]')
   assert.equal(conf.imageModelProfiles.length, 1)
   assert.equal(conf.modelProfiles.length, 1)
 })
 
 test('添加第二个不改指针；同名添加为覆盖', async () => {
   let data = await getModelManager().addImageModel(qwen)
-  assert.deepEqual(data.imageModelList, ['seedream[ark]', 'qwen-image[qwen]'])
-  assert.equal(data.taskConfig.image, 'seedream[ark]')
+  assert.deepEqual(data.imageModelList, ['seedream[volcengine]', 'qwen-image[qwen]'])
+  assert.equal(data.taskConfig.image, 'seedream[volcengine]')
 
   data = await getModelManager().addImageModel({ ...qwen, apiKey: 'b2' })
   assert.equal(data.imageModelList?.length, 2)
@@ -71,7 +71,7 @@ test('添加第二个不改指针；同名添加为覆盖', async () => {
 })
 
 test('切换指针：不存在的模型抛错，空串停用并移除工具', async () => {
-  await assert.rejects(() => getModelManager().switchImageModel('nope[ark]'))
+  await assert.rejects(() => getModelManager().switchImageModel('nope[volcengine]'))
 
   let data = await getModelManager().switchImageModel('qwen-image[qwen]')
   assert.equal(data.taskConfig.image, 'qwen-image[qwen]')
@@ -87,15 +87,15 @@ test('切换指针：不存在的模型抛错，空串停用并移除工具', as
 
 test('删除指针所指的模型：指针移到剩余第一个，删光后置空', async () => {
   let data = await getModelManager().deleteImageModel('qwen-image[qwen]')
-  assert.deepEqual(data.imageModelList, ['seedream[ark]'])
-  assert.equal(data.taskConfig.image, 'seedream[ark]')
+  assert.deepEqual(data.imageModelList, ['seedream[volcengine]'])
+  assert.equal(data.taskConfig.image, 'seedream[volcengine]')
 
-  data = await getModelManager().deleteImageModel('seedream[ark]')
+  data = await getModelManager().deleteImageModel('seedream[volcengine]')
   assert.deepEqual(data.imageModelList, [])
   assert.equal(data.taskConfig.image, '')
   assert.equal(hasTool(), false)
 
-  await assert.rejects(() => getModelManager().deleteImageModel('seedream[ark]'))
+  await assert.rejects(() => getModelManager().deleteImageModel('seedream[volcengine]'))
 })
 
 test('对话模型与文生图模型同名时，删除对话模型不受 image 指针影响', async () => {

@@ -224,7 +224,7 @@ AutoRun 档位下，工具动作经快速模型判定为 `safe` 而**自动放�
 
 ### `tool:execution:complete`
 
-工具成功执行完毕。
+工具成功执行完毕。声明 `supportsInterrupt()` 的工具被用户中断时也走这个事件（而非 `tool:execution:error`），以 `interrupted` 标记区分。
 
 ```typescript
 {
@@ -234,6 +234,7 @@ AutoRun 档位下，工具动作经快速模型判定为 `safe` 而**自动放�
   title: string                          // 简短标题
   summary: string                        // 执行摘要
   content: string | Record<string, any>  // 工具返回的详细内容
+  interrupted?: boolean                  // 工具在执行途中被用户中断、以部分或空结果正常结束（仅 supportsInterrupt 的工具）
 }
 ```
 

@@ -2,7 +2,7 @@
 
 内置工具是 Sema Core 默认提供给 Agent 的基础能力集合。它们和 MCP 工具一样实现统一的 `Tool<TInput, TOutput>` 接口，会被转换为模型可调用的 tool schema，并在对话循环中由 `RunTools` 负责权限检查、执行、结果回传和事件通知。
 
-当前内置工具共 21 个，覆盖文件读写、代码搜索、终端执行、网页抓取、子代理、后台任务、任务管理、定时任务和用户交互等场景。宿主应用可以通过 `useTools` 控制启用范围，也可以通过权限配置决定哪些高风险操作需要用户确认。
+当前内置工具共 22 个，覆盖文件读写、代码搜索、终端执行、网页抓取、图像生成、子代理、后台任务、任务管理、定时任务和用户交互等场景。宿主应用可以通过 `useTools` 控制启用范围，也可以通过权限配置决定哪些高风险操作需要用户确认。
 
 ## 工具清单
 
@@ -15,6 +15,7 @@
 | `write_file` | 文件写入 | 否 | 创建或整体覆盖文件 |
 | `patch_file` | 文件编辑 | 否 | 对文件做局部修改并生成 diff 摘要 |
 | `fetch_url` | 网页抓取 | 否 | 获取 URL 内容并转为模型可读文本 |
+| `generate_image` | 图像生成 | 否 | 按提示词调用文生图模型出图并落盘，支持参考图与透明背景；未配置图像模型时不进入工具列表 |
 | `sub_agent` | 子代理 | 否 | 启动子代理处理独立任务，支持并发和后台任务 |
 | `peek_bg_job` | 后台任务读取 | 是 | 读取 `run_shell` / `sub_agent` 后台任务输出 |
 | `stop_bg_job` | 后台任务停止 | 否 | 停止正在运行的后台任务 |
@@ -39,6 +40,10 @@
 ### 命令与外部内容
 
 `run_shell` 提供命令执行能力，适合运行测试、构建、代码生成和项目脚本。它共享持久化 shell 状态，但会限制高风险命令和跨出工作目录的 `cd`。`fetch_url` 用于读取网页内容，属于可能访问外部资源的非安全工具，默认也会进入权限流程。
+
+### 图像生成
+
+`generate_image` 按提示词调用 `image` 指针指向的文生图模型，每次调用出一张图并立即落盘，宿主应用通过完成事件拿到文件路径展示。参数 `output_path` 只在用户明确指定保存位置时传入，否则图片落到附件目录；`transparent` 请求透明背景，只适合图标、贴图等孤立主体；`reference_images` 传入最多 10 张本地图片或 URL，用于改图、保持角色或风格一致。各次调用互相独立，可以并发出多张。出图消耗用户 API 额度，因此按非安全工具处理，权限规则见[工具权限检查](wiki/core-concepts/permission-system/shell-check)。
 
 ### 子代理与后台任务
 
@@ -71,7 +76,7 @@
 
 - 所有工具都是安全工具，或都显式声明 `canRunConcurrently()` 时，可以并发执行。
 - 只要存在一个非安全且不能并发的工具，本轮工具调用会串行执行。
-- `run_shell` 和 `peek_bg_job` 支持中断后保留部分结果，其他工具通常会返回标准取消消息。
+- `run_shell` 和 `peek_bg_job` 支持中断后保留部分结果；`fetch_url` 和 `generate_image` 中断后返回标准中断提示。这四个工具的中断都以带 `interrupted` 标记的 `tool:execution:complete` 事件结束，其他工具中断时返回标准取消消息。
 - `disableBackgroundTasks: true` 时，`run_shell` 和 `sub_agent` 的后台参数会从 schema 中移除，超时接管和主动后台运行也会被禁用。
 
 相关机制见 [工具架构](wiki/core-concepts/tool-system/tool-architecture)、[RunShell 后台任务](wiki/core-concepts/task-management/bash-task) 和 [SubAgent 后台任务](wiki/core-concepts/task-management/agent-task)。

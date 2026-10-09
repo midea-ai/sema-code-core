@@ -11,6 +11,7 @@
 | Skill 调用 | `skipSkillPermission` | 需要确认；内置 Skill 静默放行 | `'Skill(name)'` |
 | MCP 工具 | `skipMCPToolPermission` | 需要确认 | `'mcp__server_tool'`（工具名本身） |
 | Fetch Url | `skipFetchUrlPermission` | 需要确认 | `'fetch_url(domain)'` |
+| 图像生成 `generate_image` | `skipFileEditPermission`（复用文件编辑开关） | `Ask` / `AutoEdit` 需要确认；`AutoRun` / `Bypass` 直接放行 | `'generate_image'`（工具名本身） |
 | 项目外文件读取 `view_file` | `skipExternalFileReadPermission` | 项目内/临时文件/SEMA_ROOT 受信内容目录（skills、commands、agents、plugins、hooks）静默放行；用户目录内的项目外文件需要确认；敏感凭据、其他用户目录、系统目录等受限位置各档位均需确认 | 会话级授权（按父目录，不写入 allowedTools）；受限位置只许单次同意 |
 
 > 对应跳过开关为 `true` 时，该类工具直接放行，不再进入任何检查。其余工具（非以上类型）默认放行。各工具的具体判定流程见[工具权限检查](wiki/core-concepts/permission-system/shell-check)。
@@ -22,7 +23,7 @@
 | 档位 | 自由度 | 行为 |
 |------|--------|------|
 | `'Ask'` | 最低 | 每个需要确认的动作都弹窗询问 |
-| `'AutoEdit'` | 中 | 项目目录内（含系统临时目录）的文件编辑自动放行，其余动作仍询问 |
+| `'AutoEdit'` | 中 | 项目目录内（含系统临时目录）的文件编辑自动放行，其余动作（含图像生成）仍询问 |
 | `'AutoRun'` | 高 | 在发出人工权限申请前先做自动安全判断，判定安全则放行，否则转人工 |
 | `'Bypass'` | 最高（危险） | 所有工具调用直接放行，跳过全部安全检查（含 AutoRun 的确定性危险命令拦截），不做任何判断、不弹窗 |
 
@@ -35,6 +36,7 @@
 - **文件编辑**：确定性判断，不走模型。项目目录内 / 系统临时目录放行，其余项目外转人工。
 - **Skill**：放行（仅注入提示词；技能内的真实动作会作为下游工具再次过权限闸门）。
 - **MCP 工具**：转人工（外部不可逆副作用，语义对模型不透明）。
+- **图像生成 `generate_image`**：确定性放行，不走模型。动作语义固定、无破坏性，只消耗用户 API 额度，不值得再花一次快速模型调用。
 - **fetch_url**：先做确定性 SSRF 兜底——命中环回（`127.0.0.0/8`、`::1`）、链路本地（`169.254.0.0/16`，含云元数据 `169.254.169.254`）、内网（`10/8`、`172.16/12`、`192.168/16`、`100.64/10`、IPv6 ULA/链路本地）、`localhost`、`metadata.google.internal` 等一律转人工，不交给模型；未命中再交由快速模型判断。
 - **run_shell 及其余动作**：交给快速模型（`quick` 指针）判断 `safe` / `risky`。仅当模型明确返回单词 `safe` 时放行；其余情况（解释性文本、空响应、API 错误、超时、中断）一律失败关闭（fail-closed），转人工。
 

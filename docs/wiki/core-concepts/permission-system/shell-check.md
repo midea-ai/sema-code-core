@@ -200,17 +200,20 @@ AutoRun 档交快速模型按请求内容判断：对环回地址的只读 GET �
 - 系统临时目录：`tmpdir()`；非 Windows 另含 `/tmp`、`/var/tmp`；macOS 另含 `/var/folders`。
 - `home` 类在 `Ask` 档位命中本会话已授权的父目录（`getAllowedExternalReadDirs`）则放行，否则请求权限（`prefix` 传父目录）。选 `'allow'` → `grantExternalReadDir(父目录)`，**按父目录会话级生效，不持久化**。`restricted` 类不受目录授权影响。
 
-### Skill / MCP / fetch_url
+### Skill / MCP / fetch_url / generate_image
 
 | 工具 | 放行条件 | 否则 |
 |------|---------|------|
 | Skill | `skipSkillPermission`，或该 Skill 为内置（`locate` 为 `builtin`），或 `allowedTools` 含 `Skill(name)` | 请求权限 |
 | MCP（`mcp__*`） | `skipMCPToolPermission`，或 `allowedTools` 含该工具名 | 请求权限 |
 | fetch_url | `skipFetchUrlPermission`，或（未命中 SSRF 兜底且）`allowedTools` 含 `fetch_url(domain)` | 请求权限 |
+| generate_image | `skipFileEditPermission`，或档位为 `AutoRun` / `Bypass`，或 `allowedTools` 含 `generate_image` | 请求权限（单次同意 / 本项目永久允许 / 拒绝） |
 
 > 内置 Skill 的正文随 Core 提供、不是第三方内容，加载说明本身没有副作用，因此直接放行；其指导下的写文件、执行命令仍各自过权限闸门。判定按 `locate`，所以放一个同名的用户级或项目级 Skill 覆盖它之后，调用仍会询问。
 
 > fetch_url 命中 SSRF 兜底（`isBlockedFetchHost`：内网 / 链路本地 / 元数据 / `localhost` 等）时，即便已保存域名授权也不放行，且转人工时不提供「永久允许该域名」选项，避免给内网地址开永久通行证。
+
+> generate_image 出图消耗用户 API 额度，与项目内文件编辑性质不同，所以 `AutoEdit` 档位不自动放行；`AutoRun` 档位确定性放行，不交快速模型判断。权限面板标题为所用图像模型，正文列出提示词、指定的保存路径、是否透明背景和参考图列表。
 
 ## 通用权限请求与响应
 
@@ -232,7 +235,7 @@ selected = ?
 ├─ 'allow'      → 执行 ✓ + 持久化权限（savePermission）
 │                 文件编辑 → 提升档位至 AutoEdit（会话级）
 │                 view_file → 记录父目录（会话级）
-│                 run_shell/Skill/MCP/fetch_url → 写入 allowedTools
+│                 run_shell/Skill/MCP/fetch_url/generate_image → 写入 allowedTools
 ├─ 'refuse'     → 中断（abort 'refuse'）+ 返回拒绝原因给 LLM
 └─ 其他字符串  → 返回反馈文本给 LLM（不中断）
 ```
@@ -250,6 +253,7 @@ selected = ?
 | `'Skill(commit)'` | 允许调用 `commit` Skill |
 | `'mcp__fs_read_file'` | 允许调用特定 MCP 工具 |
 | `'fetch_url(example.com)'` | 允许对 `example.com` 域名的 `fetch_url` 请求 |
+| `'generate_image'` | 允许本项目内所有图像生成调用 |
 
 > 文件编辑与项目外文件读取以会话级权限控制，**不写入 `allowedTools`**。
 

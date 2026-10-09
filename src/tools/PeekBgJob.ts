@@ -6,6 +6,7 @@ import type { ToolExecutionChunkData } from '../events/types'
 import { MAIN_AGENT_ID } from '../manager/StateManager'
 import { formatOutput } from '../util/shell'
 import { TOOL_NAME_PEEK_BG_JOB, TOOL_NAME_RUN_SHELL } from '../prompt/tool'
+import { TOOL_INTERRUPT_MSG } from '../util/message'
 
 export const toolParams = z.strictObject({
   job_id: z.string().describe('ID of the background task whose output you want'),
@@ -28,6 +29,7 @@ type ToolOut = {
   taskStatus: string
   taskType: string
   output: string
+  interrupted?: boolean  // 等待途中被用户中断，output 只是中断前累积的部分输出
 }
 
 export const PeekBgJob = {
@@ -53,9 +55,11 @@ export const PeekBgJob = {
     return `${input?.job_id}`
   },
   genResultForAssistant(data: ToolOut): string {
+    // 中断时末尾补一行说明，避免模型把中断前累积的部分输出当成全部
+    const note = data.interrupted ? `\n${TOOL_INTERRUPT_MSG} The output above is partial (captured before the interruption); the task may still be running.` : ''
     return `[${TOOL_NAME_PEEK_BG_JOB}] task_id=${data.taskId} task_type=${data.taskType} status=${data.taskStatus} retrieval=${data.retrievalStatus}
 - output:
-${data.output}`
+${data.output}${note}`
   },
   async *call({ job_id, wait = true, wait_timeout = 30000 }: { job_id: string; wait?: boolean; wait_timeout?: number }, agentContext: any) {
     const manager = getTaskManager()
@@ -96,7 +100,7 @@ ${data.output}`
     const interrupted = abortSignal?.aborted ?? false
     const output = truncateOutput(manager.getTaskOutput(job_id))
     const retrievalStatus = interrupted ? 'not_ready' : (finalRecord.status === 'running' ? 'timeout' : 'completed')
-    const data: ToolOut = { taskId: job_id, retrievalStatus, taskStatus: finalRecord.status, taskType: finalRecord.type, output }
+    const data: ToolOut = { taskId: job_id, retrievalStatus, taskStatus: finalRecord.status, taskType: finalRecord.type, output, ...(interrupted ? { interrupted: true } : {}) }
     yield { type: 'result', data, resultForAssistant: this.genResultForAssistant(data) }
   },
 } satisfies Tool<In, ToolOut>

@@ -8,6 +8,7 @@ import * as crypto from 'crypto'
 import * as iconv from 'iconv-lite'
 import { logError, logInfo, logWarn } from './log'
 import { IS_WIN, nativeToShellPath, splitPathEntries } from './platform'
+import { killProcess, getDetachedSpawnOptions } from './kill'
 import { readInitialCwd } from './cwd'
 import { getEffectiveEnv } from '../services/settings/settingsLoader'
 
@@ -432,7 +433,8 @@ export class PersistentShell {
       },
     }
 
-    if (IS_WIN) spawnOptions.windowsHide = true
+    // POSIX 下独占进程组，中断 / 超时接管后终止时可整组回收孙进程；Windows 隐藏窗口
+    Object.assign(spawnOptions, getDetachedSpawnOptions())
 
     this.shell = spawn(this.binShell, this.shellArgs, spawnOptions)
 
@@ -545,33 +547,11 @@ export class PersistentShell {
           }
         }
       } else {
-        // Unix: 使用 pgrep 获取子进程
-        try {
-          const childPids = execSync(`pgrep -P ${parentPid}`)
-            .toString()
-            .trim()
-            .split('\n')
-            .filter(Boolean) // 过滤空字符串
-
-          // 杀死所有子进程
-          childPids.forEach(pid => {
-            try {
-              process.kill(Number(pid), 'SIGTERM')
-            } catch (error) {
-              logError(`Failed to kill process ${pid}: ${error}`)
-            }
-          })
-        } catch {
-          // 没有子进程时是预期的行为
-        }
-
-        // 杀死 bash 进程本身，阻止 for 循环等在 shell 进程内运行的命令继续执行
+        // Unix: shell 以独占进程组启动，整组 SIGTERM（含 shell 本身、子进程与孙进程），超时补 SIGKILL
         // 设置 isAlive=false，下次 getInstance() 会自动创建新的干净 shell
-        try {
-          this.isAlive = false
-          process.kill(parentPid, 'SIGTERM')
-        } catch (error) {
-          logError(`Failed to kill shell process ${parentPid}: ${error}`)
+        this.isAlive = false
+        if (!killProcess(this.shell)) {
+          logError(`Failed to kill shell process group ${parentPid}`)
         }
       }
     } catch {

@@ -1,7 +1,7 @@
 // 文生图模型配置接口（与对话模型分开存放，见 ModelConfiguration.imageModelProfiles）
 export interface ImageModelProfile {
   name: string              // 模型唯一标识  qwen-image-3.0[qwen]
-  provider: string          // 提供商：ark, qwen, openrouter 等，命名规则同对话模型
+  provider: string          // 提供商：volcengine, qwen, openrouter 等，命名规则同对话模型
   modelName: string         // API 调用时使用的模型名
   baseURL: string           // API 端点；以 /images 或 /images/generations 结尾时原样使用，否则追加 /images/generations
   apiKey: string            // API 密钥

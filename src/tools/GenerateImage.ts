@@ -14,6 +14,7 @@ import type { ToolExecutionChunkData } from '../events/types'
 import { canonicalizeFilePath } from '../util/file'
 import { readInitialCwd } from '../util/cwd'
 import { getTimeTag } from '../util/time'
+import { TOOL_INTERRUPT_MSG } from '../util/message'
 
 const TOOL_NAME = TOOL_NAME_GENERATE_IMAGE
 const TITLE_MAX_LEN = 40
@@ -41,6 +42,7 @@ type ToolInput = z.infer<typeof toolParams>
 type ToolRes = ImageGenResult & {
   requestedPath?: string      // 模型传入的 output_path（规范化后），用于提示实际路径与之不同
   referenceImages?: string[]  // 规范化后的参考图路径 / URL，宿主可据此展示缩略图
+  interrupted?: boolean       // 生成途中被用户中断，images 为空
 }
 
 function isHttpUrl(value: string): boolean {
@@ -90,6 +92,10 @@ export const GenerateImage = {
   canRunConcurrently() {
     return true
   },
+  // 中断在 call 内部消化为 interrupted 结果（与 run_shell 一致），宿主收到的是 complete 而非 error
+  supportsInterrupt() {
+    return true
+  },
   async validateInput({ reference_images }: ToolInput) {
     if (!getModelManager().getImageModel()) {
       return { result: false, message: 'No image generation model is configured.' }
@@ -105,13 +111,27 @@ export const GenerateImage = {
     const displayPath = first ? relative(readInitialCwd(), first.filePath) : ''
     return {
       title: first ? basename(first.filePath) : TOOL_NAME,
-      summary: data.images.length > 1 ? `Generated ${data.images.length} images` : `Generated image ${displayPath}`,
+      summary: data.interrupted
+        ? 'Interrupted'
+        : data.images.length > 1 ? `Generated ${data.images.length} images` : `Generated image ${displayPath}`,
       // prompt 随结果带出：完成事件的 title 是文件名，宿主展示提示词只能从这里取
       content: { model: data.model, prompt: input?.prompt ?? '', images: data.images, referenceImages: data.referenceImages },
     }
   },
   getDisplayTitle(input?: { prompt?: string }) {
     return displayTitle(input?.prompt)
+  },
+  // 权限面板：标题为出图模型，正文列出提示词、落盘位置、透明背景与参考图，让用户确认前看清要生成什么
+  genToolPermission({ prompt, output_path, transparent, reference_images }: ToolInput) {
+    const lines = [`Prompt: ${prompt}`]
+    if (output_path) lines.push(`Output: ${canonicalizeFilePath(output_path)}`)
+    if (transparent) lines.push('Transparent background: yes')
+    const refs = normalizeReferences(reference_images)
+    if (refs.length > 0) lines.push(`Reference images:\n${refs.map(ref => `  - ${ref}`).join('\n')}`)
+    return {
+      title: `Generate image with ${getModelManager().getImageModel()?.modelName ?? 'image model'}`,
+      content: lines.join('\n'),
+    }
   },
   async *call({ prompt, output_path, transparent, reference_images }: ToolInput, agentContext: any) {
     const profile = getModelManager().getImageModel()
@@ -134,20 +154,35 @@ export const GenerateImage = {
       getEventBus().emit('tool:execution:chunk', chunkData, agentContext.sessionId)
     }
 
-    const result = await generateImage({
-      profile,
-      prompt,
-      outputPath: requestedPath,
-      transparent,
-      referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
-      signal: agentContext.abortController?.signal,
-      // 指定了落盘位置的图片纳入 Fork 快照（fail-closed：捕获失败则不写盘）；附件目录由宿主管理，不纳入
-      beforeWrite: requestedPath
-        ? filePath => getCheckpointManager().recordPreEdit(agentContext.sessionId, agentContext.agentId, filePath)
-        : undefined,
-    })
+    const start = Date.now()
+    const refs = referenceImages.length > 0 ? referenceImages : undefined
+    let result: ImageGenResult
+    try {
+      result = await generateImage({
+        profile,
+        prompt,
+        outputPath: requestedPath,
+        transparent,
+        referenceImages: refs,
+        signal: agentContext.abortController?.signal,
+        // 指定了落盘位置的图片纳入 Fork 快照（fail-closed：捕获失败则不写盘）；附件目录由宿主管理，不纳入
+        beforeWrite: requestedPath
+          ? filePath => getCheckpointManager().recordPreEdit(agentContext.sessionId, agentContext.agentId, filePath)
+          : undefined,
+      })
+    } catch (error) {
+      // 用户中断：按正常结果返回（interrupted 标记、无成图），非中断的失败照常抛出
+      if (!agentContext.abortController?.signal.aborted) throw error
+      const output: ToolRes = { images: [], model: profile.name, durationMs: Date.now() - start, requestedPath, referenceImages: refs, interrupted: true }
+      yield {
+        type: 'result' as const,
+        data: output,
+        resultForAssistant: this.genResultForAssistant(output),
+      }
+      return
+    }
 
-    const output: ToolRes = { ...result, requestedPath, referenceImages: referenceImages.length > 0 ? referenceImages : undefined }
+    const output: ToolRes = { ...result, requestedPath, referenceImages: refs }
     yield {
       type: 'result' as const,
       data: output,
@@ -155,6 +190,9 @@ export const GenerateImage = {
     }
   },
   genResultForAssistant(output: ToolRes) {
+    if (output.interrupted) {
+      return TOOL_INTERRUPT_MSG
+    }
     const lines = [`Image generated with ${output.model} in ${(output.durationMs / 1000).toFixed(1)}s. The user already sees it.`]
     // 未指定位置：路径只供后续操作（自检、复制到项目），提示模型不要在回复里复述；指定了位置则确认存到了哪
     for (const image of output.images) {

@@ -9,7 +9,7 @@ import { Message, UserMsg } from '../types/message'
  *
  * 设计约束：
  * - 只替换 tool_result 块的 content，不删除任何消息；
- *   uuid / tool_use_id / toolUseResult / controlSignal / checkpointSeq 全部保留，
+ *   uuid / tool_use_id / controlSignal / checkpointSeq 全部保留，
  *   tool_use 与 tool_result 的配对关系结构上不可能被破坏；
  * - 用户输入（含用户粘贴的图片）与 assistant 消息永不触碰；
  * - 命中的消息用 spread 重建，绝不原地 mutate（messages 元素与 StateManager 共享引用）。

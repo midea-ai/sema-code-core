@@ -6,13 +6,131 @@ const MIN_QUALITY = 20
 const MIN_DIMENSION = 100
 const MAX_DIMENSION_HARD_LIMIT = 4096
 
-// 粘贴图片单张体积上限，超出则压缩（与 ViewFile 的 MAX_OUTPUT_BYTES 保持一致）
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024
+// 单张图片体积硬上限，超出则压缩（ViewFile / 粘贴附件 / MCP 图片共用）
+export const MAX_IMAGE_BYTES = 2 * 1024 * 1024
+// PNG 超过此体积即转 JPEG：照片类 PNG 几乎不压缩，转 JPEG 体积通常降一个数量级
+const CONVERT_TO_JPEG_BYTES = 500 * 1024
+// 长边上限：Anthropic 服务端会把长边超过 1568 的图缩到 1568，本地先缩省掉白传的字节
+const MAX_LONG_EDGE = 1568
+// 转 JPEG 的默认质量
+const CONVERT_QUALITY = 85
 // 支持的图片 media_type 白名单
 const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
 
+export type ImageMediaType = typeof SUPPORTED_IMAGE_MEDIA_TYPES[number]
+export type NormalizedImage = { data: string; media_type: ImageMediaType; bytes: number }
+
+/** 图片体积超过硬上限且无法再压时抛出，调用方据此决定报错还是忽略 */
+export class ImageTooLargeError extends Error {
+  constructor(public readonly bytes: number, public readonly limit: number) {
+    super(`image ${Math.round(bytes / 1024)}KB exceeds ${Math.round(limit / 1024)}KB limit`)
+    this.name = 'ImageTooLargeError'
+  }
+}
+
+/** 只读文件头取尺寸，避免为了判断长边把整张图解码一遍；解析不出返回 null */
+function readImageSize(buffer: Buffer, mediaType: ImageMediaType): { width: number; height: number } | null {
+  try {
+    if (mediaType === 'image/png' && buffer.length >= 24) {
+      return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) }
+    }
+    if (mediaType === 'image/jpeg') {
+      let i = 2
+      while (i + 9 < buffer.length) {
+        if (buffer[i] !== 0xff) { i++; continue }
+        const marker = buffer[i + 1]
+        if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue }
+        const len = buffer.readUInt16BE(i + 2)
+        const isSOF = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc
+        if (isSOF) return { height: buffer.readUInt16BE(i + 5), width: buffer.readUInt16BE(i + 7) }
+        i += 2 + len
+      }
+      return null
+    }
+    if (mediaType === 'image/webp' && buffer.length >= 30 && buffer.toString('latin1', 12, 16) === 'VP8X') {
+      return { width: buffer.readUIntLE(24, 3) + 1, height: buffer.readUIntLE(27, 3) + 1 }
+    }
+    if (mediaType === 'image/webp' && buffer.length >= 30 && buffer.toString('latin1', 12, 16) === 'VP8 ') {
+      return { width: buffer.readUInt16LE(26) & 0x3fff, height: buffer.readUInt16LE(28) & 0x3fff }
+    }
+    if (mediaType === 'image/webp' && buffer.length >= 25 && buffer.toString('latin1', 12, 16) === 'VP8L') {
+      const b = buffer.readUInt32LE(21)
+      return { width: (b & 0x3fff) + 1, height: ((b >> 14) & 0x3fff) + 1 }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+const toBase64Result = (buf: Buffer, media_type: ImageMediaType): NormalizedImage =>
+  ({ data: buf.toString('base64'), media_type, bytes: buf.length })
+
 /**
- * 规范化用户输入的图片附件：过滤非法 media_type，单张超限则压缩
+ * 发给模型前的图片归一化，三条入口（view_file 读图、粘贴附件、MCP 返回图）共用：
+ *  - GIF 不解码：≤ 上限原样返回，否则抛 ImageTooLargeError
+ *  - WebP：Jimp 0.22 无解码器，无法转码，规则同 GIF
+ *  - PNG 超过 CONVERT_TO_JPEG_BYTES、或任意格式长边超过 MAX_LONG_EDGE：解码后缩到长边 ≤ 1568 并按 CONVERT_QUALITY 编成 JPEG
+ *    （带透明通道的先铺白底，避免透明区在 JPEG 里变黑）
+ *  - 转码后仍超过硬上限：交给 compressImage 二分质量/尺寸
+ *  - 转码没省字节（如纯色 UI 截图）且原图未超限、无需缩放：保留原图
+ */
+export async function normalizeImage(buffer: Buffer, mediaType: ImageMediaType): Promise<NormalizedImage> {
+  const bytes = buffer.length
+  if (mediaType === 'image/gif' || mediaType === 'image/webp') {
+    if (bytes > MAX_IMAGE_BYTES) throw new ImageTooLargeError(bytes, MAX_IMAGE_BYTES)
+    return toBase64Result(buffer, mediaType)
+  }
+
+  const size = readImageSize(buffer, mediaType)
+  const longEdge = size ? Math.max(size.width, size.height) : 0
+  const needResize = longEdge > MAX_LONG_EDGE
+  const needConvert = mediaType === 'image/png' && bytes > CONVERT_TO_JPEG_BYTES
+  const overLimit = bytes > MAX_IMAGE_BYTES
+  if (!needResize && !needConvert && !overLimit) {
+    return toBase64Result(buffer, mediaType)
+  }
+
+  logDebug(`normalizeImage: ${mediaType} ${Math.round(bytes / 1024)}KB ${size ? `${size.width}x${size.height}` : '?'} resize=${needResize} convert=${needConvert} overLimit=${overLimit}`)
+  let image = await Jimp.read(buffer)
+
+  // 小体积 PNG 只是长边超限：缩放后仍存 PNG，保住透明通道与截图文字的锐度；缩完仍超体积阈值再走 JPEG
+  if (mediaType === 'image/png' && !needConvert && !overLimit) {
+    const scale = MAX_LONG_EDGE / Math.max(image.getWidth(), image.getHeight())
+    const resized = image.clone().resize(Math.round(image.getWidth() * scale), Math.round(image.getHeight() * scale), Jimp.RESIZE_BILINEAR)
+    const png = await resized.getBufferAsync(Jimp.MIME_PNG)
+    if (png.length <= CONVERT_TO_JPEG_BYTES) {
+      logInfo(`normalizeImage: png ${Math.round(bytes / 1024)}KB → png ${Math.round(png.length / 1024)}KB (${resized.getWidth()}x${resized.getHeight()})`)
+      return toBase64Result(png, 'image/png')
+    }
+  }
+
+  if (image.hasAlpha()) {
+    image = new Jimp(image.getWidth(), image.getHeight(), 0xffffffff).composite(image, 0, 0)
+  }
+  const actualLongEdge = Math.max(image.getWidth(), image.getHeight())
+  if (actualLongEdge > MAX_LONG_EDGE) {
+    const scale = MAX_LONG_EDGE / actualLongEdge
+    image.resize(Math.round(image.getWidth() * scale), Math.round(image.getHeight() * scale), Jimp.RESIZE_BILINEAR)
+  }
+  const jpeg = await image.quality(CONVERT_QUALITY).getBufferAsync(Jimp.MIME_JPEG)
+
+  if (jpeg.length > MAX_IMAGE_BYTES) {
+    const compressed = await compressImage(jpeg, 'image/jpeg', MAX_IMAGE_BYTES)
+    const compressedBytes = Math.ceil(compressed.data.length * 3 / 4)
+    if (compressedBytes > MAX_IMAGE_BYTES) throw new ImageTooLargeError(compressedBytes, MAX_IMAGE_BYTES)
+    return { ...compressed, bytes: compressedBytes }
+  }
+  if (jpeg.length >= bytes && !overLimit && actualLongEdge <= MAX_LONG_EDGE) {
+    logDebug(`normalizeImage: jpeg ${Math.round(jpeg.length / 1024)}KB not smaller than original, keeping original`)
+    return toBase64Result(buffer, mediaType)
+  }
+  logInfo(`normalizeImage: ${mediaType} ${Math.round(bytes / 1024)}KB → jpeg ${Math.round(jpeg.length / 1024)}KB (${image.getWidth()}x${image.getHeight()})`)
+  return toBase64Result(jpeg, 'image/jpeg')
+}
+
+/**
+ * 规范化用户输入的图片附件：过滤非法 media_type，单张走 normalizeImage 归一化
  * 返回干净可直接转 image content block 的附件数组；
  * 正常轮次（SemaEngine.processQuery）与轮内注入（Conversation 注入路径）共用同一套规则
  */
@@ -21,28 +139,13 @@ export async function normalizeImageAttachments(attachments?: InputImageAttachme
 
   const result: InputImageAttachment[] = []
   for (const att of attachments) {
-    if (!SUPPORTED_IMAGE_MEDIA_TYPES.includes(att.media_type as typeof SUPPORTED_IMAGE_MEDIA_TYPES[number])) {
+    if (!SUPPORTED_IMAGE_MEDIA_TYPES.includes(att.media_type as ImageMediaType)) {
       logWarn(`忽略不支持的图片类型: ${att.media_type}`)
       continue
     }
     try {
-      const buffer = Buffer.from(att.data, 'base64')
-      if (buffer.length > MAX_IMAGE_BYTES) {
-        if (att.media_type === 'image/gif') {
-          logWarn(`忽略超出上限且不支持压缩的 GIF 附件: ${Math.round(buffer.length / 1024)}KB`)
-          continue
-        }
-        logInfo(`图片附件 ${Math.round(buffer.length / 1024)}KB 超过上限 ${Math.round(MAX_IMAGE_BYTES / 1024)}KB，压缩中...`)
-        const compressed = await compressImage(buffer, att.media_type, MAX_IMAGE_BYTES)
-        const compressedBytes = Math.ceil(compressed.data.length * 3 / 4)
-        if (compressedBytes > MAX_IMAGE_BYTES) {
-          logWarn(`忽略压缩后仍超出上限的图片附件: ${Math.round(compressedBytes / 1024)}KB`)
-          continue
-        }
-        result.push({ type: 'image', data: compressed.data, media_type: compressed.media_type })
-      } else {
-        result.push(att)
-      }
+      const normalized = await normalizeImage(Buffer.from(att.data, 'base64'), att.media_type as ImageMediaType)
+      result.push(normalized.data === att.data ? att : { type: 'image', data: normalized.data, media_type: normalized.media_type })
     } catch (e) {
       logWarn(`处理图片附件失败，已忽略: ${e instanceof Error ? e.message : String(e)}`)
     }

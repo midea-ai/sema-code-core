@@ -12,6 +12,7 @@ import type { ToolExecutionChunkData } from '../events/types'
 import { MAIN_AGENT_ID } from '../manager/StateManager'
 import { getTimeTag } from '../util/time'
 import { TOOL_NAME_FETCH_URL } from '../prompt/tool'
+import { TOOL_INTERRUPT_MSG } from '../util/message'
 
 const TOOL_NAME = TOOL_NAME_FETCH_URL
 
@@ -27,6 +28,7 @@ type ToolRes = {
   result: string
   durationMs: number
   url: string
+  interrupted?: boolean  // 抓取或整理途中被用户中断，result 为中断提示
 }
 
 export const FetchUrl = {
@@ -37,6 +39,10 @@ export const FetchUrl = {
   toolParams,
   isSafe() {
     return false
+  },
+  // 中断在 call 内部消化为 interrupted 结果（与 run_shell 一致），宿主收到的是 complete 而非 error
+  supportsInterrupt() {
+    return true
   },
   async validateInput({ url }) {
     try {
@@ -91,17 +97,21 @@ export const FetchUrl = {
     } : undefined
 
     emitChunk?.(`${getTimeTag()}Retrieving content...\n`)
-    const response = await fetchUrlAsMarkdown(url, abortController)
 
-    // 跨域重定向：通知 LLM 重新请求
-    if ('type' in response && response.type === 'redirect') {
-      const statusText =
-        response.statusCode === 301 ? 'Moved Permanently'
-        : response.statusCode === 308 ? 'Permanent Redirect'
-        : response.statusCode === 307 ? 'Temporary Redirect'
-        : 'Found'
+    let output: ToolRes
+    try {
+      output = await (async (): Promise<ToolRes> => {
+        const response = await fetchUrlAsMarkdown(url, abortController)
 
-      const message = `Cross-origin redirect detected.
+        // 跨域重定向：通知 LLM 重新请求
+        if ('type' in response && response.type === 'redirect') {
+          const statusText =
+            response.statusCode === 301 ? 'Moved Permanently'
+            : response.statusCode === 308 ? 'Permanent Redirect'
+            : response.statusCode === 307 ? 'Temporary Redirect'
+            : 'Found'
+
+          const message = `Cross-origin redirect detected.
 
 From: ${response.originalUrl}
 To:   ${response.redirectUrl}
@@ -111,49 +121,41 @@ Please call ${TOOL_NAME_FETCH_URL} again with the redirected URL:
 - url: "${response.redirectUrl}"
 - prompt: "${prompt}"`
 
-      const output: ToolRes = {
-        bytes: Buffer.byteLength(message),
-        code: response.statusCode,
-        codeText: statusText,
-        result: message,
-        durationMs: Date.now() - start,
-        url,
-      }
+          return {
+            bytes: Buffer.byteLength(message),
+            code: response.statusCode,
+            codeText: statusText,
+            result: message,
+            durationMs: Date.now() - start,
+            url,
+          }
+        }
 
-      yield {
-        type: 'result' as const,
-        data: output,
-        resultForAssistant: this.genResultForAssistant(output),
-      }
-      return
-    }
+        const { content, bytes, code, codeText } = response as FetchUrlResult
 
-    const { content, bytes, code, codeText } = response as FetchUrlResult
+        const sizeKB = (bytes / 1024).toFixed(1)
+        emitChunk?.(`${getTimeTag()}Retrieved ${sizeKB}KB (HTTP ${code}), processing content...\n`)
 
-    const sizeKB = (bytes / 1024).toFixed(1)
-    emitChunk?.(`${getTimeTag()}Retrieved ${sizeKB}KB (HTTP ${code}), processing content...\n`)
+        let result: string
+        if (code < 200 || code >= 300) {
+          // 非 2xx：错误页、挑战页没有整理价值，不走 quick 模型；前置状态行让模型分得清是被拦还是页面本身为空
+          const body = content.length > FETCH_URL_DIRECT_RETURN_LEN
+            ? content.slice(0, FETCH_URL_DIRECT_RETURN_LEN) + '...'
+            : content
+          result = `HTTP ${code}${codeText ? ' ' + codeText : ''}\n\n${body}`
+        } else if (content.length < FETCH_URL_DIRECT_RETURN_LEN) {
+          // 转换后内容够短就直接返回，不分类型、不经 LLM 整理：小页面原样给主模型信息更全、更快
+          result = content
+        } else {
+          result = await injectPromptIntoMarkdown(prompt, content, abortController.signal, agentContext.sessionId)
+        }
 
-    let result: string
-    if (code < 200 || code >= 300) {
-      // 非 2xx：错误页、挑战页没有整理价值，不走 quick 模型；前置状态行让模型分得清是被拦还是页面本身为空
-      const body = content.length > FETCH_URL_DIRECT_RETURN_LEN
-        ? content.slice(0, FETCH_URL_DIRECT_RETURN_LEN) + '...'
-        : content
-      result = `HTTP ${code}${codeText ? ' ' + codeText : ''}\n\n${body}`
-    } else if (content.length < FETCH_URL_DIRECT_RETURN_LEN) {
-      // 转换后内容够短就直接返回，不分类型、不经 LLM 整理：小页面原样给主模型信息更全、更快
-      result = content
-    } else {
-      result = await injectPromptIntoMarkdown(prompt, content, abortController.signal, agentContext.sessionId)
-    }
-
-    const output: ToolRes = {
-      bytes,
-      code,
-      codeText,
-      result,
-      durationMs: Date.now() - start,
-      url,
+        return { bytes, code, codeText, result, durationMs: Date.now() - start, url }
+      })()
+    } catch (error) {
+      // 用户中断（抓取或 quick 模型整理阶段）：按正常结果返回并带 interrupted 标记，非中断的失败照常抛出
+      if (!abortController?.signal.aborted) throw error
+      output = { bytes: 0, code: 0, codeText: '', result: TOOL_INTERRUPT_MSG, durationMs: Date.now() - start, url, interrupted: true }
     }
 
     yield {

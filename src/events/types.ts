@@ -202,6 +202,7 @@ export interface ToolExecutionCompleteData {
   title: string;         // 工具执行标题
   summary: string;       // 工具执行摘要
   content: string | Record<string, any>;  // 工具执行结果内容（字符串或JSON对象）
+  interrupted?: boolean; // 工具在执行途中被用户中断、以部分/空结果正常结束（supportsInterrupt 的工具）
 }
 
 

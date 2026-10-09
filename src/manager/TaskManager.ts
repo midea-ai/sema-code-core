@@ -2,11 +2,10 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import { spawn } from 'child_process'
-import { IS_WIN } from '../util/platform'
 import { logInfo, logError, logWarn } from '../util/log'
 import { getEventBus } from '../events/EventSystem'
 import { TaskRecord, TaskListItem, TimeoutTransferContext } from '../types/task'
-import { MAX_OUTPUT_BYTES, TASK_OUTPUT_DIR, ensureTaskDir, getShellForSpawn, killProcess } from '../util/process'
+import { MAX_OUTPUT_BYTES, TASK_OUTPUT_DIR, ensureTaskDir, getShellForSpawn, getDetachedSpawnOptions, killProcess } from '../util/process'
 import { SessionNotifyRegistry, NotifyCallback } from '../util/notifyRegistry'
 import { readInitialCwd } from '../util/cwd'
 import { getEffectiveEnv } from '../services/settings/settingsLoader'
@@ -141,7 +140,8 @@ export class TaskManager {
       cwd: readInitialCwd(),
       env: getEffectiveEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
-      ...(IS_WIN ? { windowsHide: true } : {}),
+      // 独占进程组，stopTask 时整组回收（npm run dev 之类再起的子进程不残留）
+      ...getDetachedSpawnOptions(),
     })
     record._process = childProcess
     record.pid = childProcess.pid

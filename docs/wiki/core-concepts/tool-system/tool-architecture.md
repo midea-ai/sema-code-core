@@ -111,7 +111,7 @@ const sdkTools = buildTools(filteredTools)
 
 ## 工具分类
 
-### 内置工具（21 个）
+### 内置工具（22 个）
 
 | 工具 | 类型 | isSafe | 备注 |
 |------|------|-----------|------|
@@ -121,7 +121,8 @@ const sdkTools = buildTools(filteredTools)
 | [view_file](wiki/core-concepts/tool-system/built-in-tools/readtool) | 文件读取 | true | |
 | [write_file](wiki/core-concepts/tool-system/built-in-tools/writetool) | 文件写入 | false | |
 | [patch_file](wiki/core-concepts/tool-system/built-in-tools/edittool) | 文件编辑 | false | |
-| [fetch_url](wiki/core-concepts/tool-system/built-in-tools/webfetchtool) | 网页抓取 | false | |
+| [fetch_url](wiki/core-concepts/tool-system/built-in-tools/webfetchtool) | 网页抓取 | false | `supportsInterrupt` |
+| [generate_image](wiki/core-concepts/tool-system/built-in-tools) | 图像生成 | false | `canRunConcurrently`、`supportsInterrupt`；未配置图像模型时不进入工具列表 |
 | [sub_agent](wiki/core-concepts/tool-system/built-in-tools/tasktool) | 子代理创建 | false | `canRunConcurrently`、支持后台任务 |
 | [peek_bg_job](wiki/core-concepts/tool-system/built-in-tools/taskoutputtool) | 后台任务输出读取 | true | `supportsInterrupt` |
 | [stop_bg_job](wiki/core-concepts/tool-system/built-in-tools/taskstoptool) | 后台任务停止 | false | |
@@ -278,7 +279,11 @@ LLM 调用:
 实现该方法的内置工具：
 
 - **run_shell**：中断时保留已捕获的 stdout / stderr，并附 `INTERRUPT_MESSAGE_FOR_TOOL_USE` 标记
-- **peek_bg_job**：阻塞等待后台任务输出时被中断，会返回当前的输出快照与 `retrievalStatus: 'not_ready'`
+- **peek_bg_job**：阻塞等待后台任务输出时被中断，会返回当前的输出快照与 `retrievalStatus: 'not_ready'`，给模型的结果末尾附一句说明：输出只是中断前累积的部分，任务可能仍在运行
+- **fetch_url**：抓取或快速模型整理途中被中断，不保留部分结果，`result` 为标准中断提示
+- **generate_image**：出图途中被中断，`images` 为空，返回标准中断提示
+
+声明 `supportsInterrupt()` 的工具自行捕获中断并把结果 `data.interrupted` 置为 `true`。`RunTools` 把该标记透传到 `tool:execution:complete` 事件的 `interrupted` 字段，宿主收到的是完成事件而非 `tool:execution:error`，可据此展示中断态。
 
 实现细节见 `src/core/RunTools.ts:131`。
 

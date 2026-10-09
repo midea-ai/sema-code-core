@@ -1,6 +1,6 @@
 import { Tool } from '../tools/base/Tool'
 import { RunShell, toolParams } from '../tools/RunShell'
-import { TOOL_NAME_PATCH_FILE as PATCH_FILE_TOOL_NAME, TOOL_NAME_WRITE_FILE as WRITE_FILE_TOOL_NAME, TOOL_NAME_EDIT_NOTEBOOK as EDIT_NOTEBOOK_TOOL_NAME, TOOL_NAME_SKILL, TOOL_NAME_FETCH_URL, TOOL_NAME_VIEW_FILE } from '../prompt/tool'
+import { TOOL_NAME_PATCH_FILE as PATCH_FILE_TOOL_NAME, TOOL_NAME_WRITE_FILE as WRITE_FILE_TOOL_NAME, TOOL_NAME_EDIT_NOTEBOOK as EDIT_NOTEBOOK_TOOL_NAME, TOOL_NAME_SKILL, TOOL_NAME_FETCH_URL, TOOL_NAME_VIEW_FILE, TOOL_NAME_GENERATE_IMAGE } from '../prompt/tool'
 import { splitCommand, getCommandPrefix } from '../util/commands'
 import { readInitialCwd } from '../util/cwd'
 import { logDebug, logError, logInfo } from '../util/log'
@@ -246,7 +246,24 @@ export const checkToolPermission = async (
     return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId, showAllow)
   }
 
-  logDebug(`[Permission]${tool.name} 非编辑、run_shell、skill、mcp或webfetch工具默认允许`)
+  // generate_image 工具权限检查：出图消耗用户 key 的计费额度，与项目内文件编辑不同，AutoEdit 档也不自动放行。
+  // Ask / AutoEdit 档：命中本项目已保存的 generate_image 授权则放行，否则转人工（单次同意 / 本项目永久允许 / 拒绝）；
+  // AutoRun 档：动作语义固定、无破坏性，确定性放行，不交快速模型（skipAutoRun=true 避免再走模型判断）
+  if (tool.name === TOOL_NAME_GENERATE_IMAGE) {
+    if (runtime.isAutoRun() || coreConfig?.skipFileEditPermission) {
+      logDebug(`[Permission]${tool.name} AutoRun 档位或 skipFileEditPermission，自动放行`)
+      return { result: true }
+    }
+
+    const allowedTools = projectConfig?.allowedTools || []
+    if (allowedTools.includes(tool.name)) {
+      return { result: true }
+    }
+
+    return requestPermissionViaEvent(tool, input, null, abortController, agentId, sessionId, toolId, true, true)
+  }
+
+  logDebug(`[Permission]${tool.name} 非编辑、run_shell、skill、mcp、webfetch或generate_image工具默认允许`)
 
   // 其他工具默认允许
   return { result: true }
@@ -346,7 +363,7 @@ export async function savePermission(
     return
   }
 
-  // bash、Skill、MCP 工具永久生效
+  // bash、Skill、MCP、fetch_url、generate_image 工具永久生效（写入项目 allowedTools）
   const key = getPermissionKey(tool, input, prefix)
   const confManager = getConfManager()
   const projectConfig = confManager.getProjectConfig()

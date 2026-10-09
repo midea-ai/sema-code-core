@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { Tool } from '../../tools/base/Tool'
 import { MCPClient } from './MCPClient'
 import { MCPToolDefinition, MCPToolResult } from '../../types/mcp'
-import { compressImage } from '../../util/imageCompress'
+import { normalizeImage, ImageTooLargeError } from '../../util/imageCompress'
 import { logWarn } from '../../util/log'
 
 /**
@@ -176,28 +176,16 @@ type FittedImage =
   | { ok: true; data: string; mimeType: ImageMediaType; bytes: number }
   | { ok: false; reason: string }
 
-/** 单张图片限幅：超过上限则压缩，GIF 或压缩后仍超限、解码失败时给出省略原因 */
+/** 单张图片限幅：走 normalizeImage 统一归一化（大 PNG 转 JPEG、长边缩放、超限压缩），超限无法再压或解码失败时给出省略原因 */
 async function fitImage(data: string, mediaType: ImageMediaType): Promise<FittedImage> {
-  const limitKB = Math.round(MAX_IMAGE_BYTES / 1024)
   try {
-    const buffer = Buffer.from(data, 'base64')
-    if (buffer.length <= MAX_IMAGE_BYTES) {
-      return { ok: true, data, mimeType: mediaType, bytes: buffer.length }
-    }
-    const sizeKB = Math.round(buffer.length / 1024)
-    if (mediaType === 'image/gif') {
-      logWarn(`MCP 图片 ${sizeKB}KB 超出上限且 GIF 不支持压缩，已忽略`)
-      return { ok: false, reason: `${sizeKB}KB exceeds ${limitKB}KB limit` }
-    }
-    logWarn(`MCP 图片 ${sizeKB}KB 超过上限 ${limitKB}KB，压缩中...`)
-    const compressed = await compressImage(buffer, mediaType, MAX_IMAGE_BYTES)
-    const compressedBytes = Math.ceil(compressed.data.length * 3 / 4)
-    if (compressedBytes > MAX_IMAGE_BYTES) {
-      logWarn(`MCP 图片压缩后仍超出上限: ${Math.round(compressedBytes / 1024)}KB，已忽略`)
-      return { ok: false, reason: `${sizeKB}KB exceeds ${limitKB}KB limit` }
-    }
-    return { ok: true, data: compressed.data, mimeType: compressed.media_type, bytes: compressedBytes }
+    const normalized = await normalizeImage(Buffer.from(data, 'base64'), mediaType as Parameters<typeof normalizeImage>[1])
+    return { ok: true, data: normalized.data, mimeType: normalized.media_type, bytes: normalized.bytes }
   } catch (e) {
+    if (e instanceof ImageTooLargeError) {
+      logWarn(`MCP 图片超出上限且无法再压: ${e.message}，已忽略`)
+      return { ok: false, reason: e.message }
+    }
     logWarn(`处理 MCP 图片失败，已忽略: ${e instanceof Error ? e.message : String(e)}`)
     return { ok: false, reason: 'failed to decode' }
   }

@@ -346,6 +346,8 @@ export async function* checkPermissionsAndCallTool(
             }
             getEventBus().emit('tool:execution:error', toolErrorData, agentContext.sessionId)
           } else if (toolResult) {
+            // 支持中断的工具把用户中断消化成正常结果并在 data 上标 interrupted，统一透传给宿主显示中断态
+            const interrupted = (result.data as { interrupted?: boolean } | undefined)?.interrupted === true
             const toolCompleteData: ToolExecutionCompleteData = {
               agentId: agentContext.agentId,
               toolId: toolUseID,
@@ -353,6 +355,7 @@ export async function* checkPermissionsAndCallTool(
               title: toolResult.title,
               summary: toolResult.summary,
               content: toolResult.content,
+              ...(interrupted ? { interrupted: true } : {}),
             }
             getEventBus().emit('tool:execution:complete', toolCompleteData, agentContext.sessionId)
           }
@@ -392,10 +395,6 @@ export async function* checkPermissionsAndCallTool(
               ...additionalBlocks,
               ...buildHookContextBlocks(postHook.contextBlocks),
             ],
-            {
-              data: result.data,
-              resultForAssistant: resultContent,
-            },
             controlSignal,  // 传递控制信号
           )
           return // 工具执行完成，返回

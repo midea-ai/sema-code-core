@@ -134,13 +134,42 @@ console.log('主模型 / 快速模型:', taskConfig)     // { main, quick }
 ```typescript
 interface ModelUpdateData {
   modelName: string                       // 主模型名称
-  modelList: string[]                     // 全部已配置的模型名称
+  modelList: string[]                     // 全部已配置的对话模型名称
   taskConfig: { 
     main: string;    // 主任务模型
     quick: string;   // 快速任务模型
+    image?: string;  // 图像模型指针，空串表示未启用图像生成
   }
+  imageModelList?: string[]               // 全部已配置的图像模型名称（与 modelList 分开）
 }
 ```
+
+## 图像模型
+
+图像模型供内置工具 `generate_image` 出图使用，与对话模型分开存放，通过 `image` 指针选定当前使用的一个。未配置或指针为空时，`generate_image` 不会出现在工具列表中。图像模型为进程级配置，不支持会话级覆盖。
+
+所有服务商都按 OpenAI Images 形态调用：`baseURL` 以 `/images` 或 `/images/generations` 结尾时原样使用，否则自动追加 `/images/generations`。
+
+```javascript
+// 添加：同名覆盖；添加的是第一个图像模型时 image 指针自动指向它。不做连接测试
+await sema.addImageModel({
+  provider: 'openrouter',
+  modelName: 'openai/gpt-image-2.5-flare',
+  baseURL: 'https://openrouter.ai/api/v1/images',
+  apiKey: 'sk-',
+})
+
+// 切换指针；传空串表示停用图像生成
+await sema.switchImageModel('openai/gpt-image-2.5-flare[openrouter]')
+
+// 删除：被 image 指针引用时也允许删除，指针移到剩余的第一个，没有剩余则置空
+await sema.delImageModel('openai/gpt-image-2.5-flare[openrouter]')
+
+// 按 provider + modelName 读取完整配置，供编辑页回填；不存在返回 null
+const profile = sema.getImageModelProfile('openrouter', 'openai/gpt-image-2.5-flare')
+```
+
+> 图像模型命名规则与对话模型相同，为 `${modelName}[${provider}]`。`addImageModel` 入参为 `provider`、`modelName`、`baseURL`、`apiKey` 四项，没有 `maxTokens`、`contextLength` 和 `adapt`。
 
 ## 持久化
 
@@ -170,9 +199,19 @@ interface ModelUpdateData {
       "adapt": "anthropic"
     }
   ],
+  "imageModelProfiles": [
+    {
+      "name": "openai/gpt-image-2.5-flare[openrouter]",
+      "provider": "openrouter",
+      "modelName": "openai/gpt-image-2.5-flare",
+      "baseURL": "https://openrouter.ai/api/v1/images",
+      "apiKey": "sk-"
+    }
+  ],
   "modelPointers": {
     "main": "deepseek-v4-pro[deepseek]",
-    "quick": "deepseek-v4-flash[deepseek]"
+    "quick": "deepseek-v4-flash[deepseek]",
+    "image": "openai/gpt-image-2.5-flare[openrouter]"
   }
 }
 ```

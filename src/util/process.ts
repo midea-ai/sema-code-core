@@ -1,10 +1,10 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { execSync, type ChildProcess } from 'child_process'
-import { IS_WIN } from './platform'
-import { logWarn } from './log'
 import { getOneShotShellRuntimeInfo } from './shell'
+
+// kill / 隔离 spawn 放在 kill.ts，shell.ts 也要用，避免与本文件形成循环引用
+export { killProcess, getDetachedSpawnOptions } from './kill'
 
 // 内存输出上限 2MB
 export const MAX_OUTPUT_BYTES = 2 * 1024 * 1024
@@ -20,24 +20,4 @@ export function ensureTaskDir() {
 export function getShellForSpawn(): { bin: string; args: string[] } {
   const { bin, args } = getOneShotShellRuntimeInfo()
   return { bin, args }
-}
-
-// kill 进程（跨平台），返回是否成功
-export function killProcess(proc: ChildProcess): boolean {
-  if (!proc.pid) return false
-  try {
-    if (IS_WIN) {
-      try {
-        execSync(`taskkill /f /t /pid ${proc.pid}`, { stdio: 'ignore', timeout: 5000 })
-      } catch {
-        proc.kill('SIGTERM')
-      }
-    } else {
-      proc.kill('SIGTERM')
-    }
-    return true
-  } catch (error) {
-    logWarn(`killProcess 失败: ${error}`)
-    return false
-  }
 }

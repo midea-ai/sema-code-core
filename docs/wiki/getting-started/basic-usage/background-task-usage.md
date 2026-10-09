@@ -113,7 +113,7 @@ It will continue running independently. You will be notified when it finishes.
 ```
 
 停止方式根据任务类型：
-- **RunShell 任务**：`killProcess` 终止子进程和接管进程
+- **RunShell 任务**：`killProcess` 按进程组整组终止子进程和接管进程（含其再起的孙进程），SIGTERM 后 2 秒未退出补 SIGKILL
 - **SubAgent 任务**：`AbortController.abort()` 中止执行
 
 ## 用户操作 API

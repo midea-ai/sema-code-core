@@ -18,7 +18,7 @@ import { getStateManager } from '../manager/StateManager'
 import { loadNotebook, formatNotebookCells } from '../util/notebook'
 import { NotebookCellData } from '../types/notebook'
 import { logWarn } from '../util/log'
-import { compressImage } from '../util/imageCompress'
+import { normalizeImage, ImageTooLargeError } from '../util/imageCompress'
 import {
   extractPdfText,
   parsePdfPageRange,
@@ -292,34 +292,18 @@ export const ViewFile = {
       const imageBuffer = fs.readFileSync(fullFilePath)
       const mediaType = IMAGE_MEDIA_TYPES[lowerExt]
 
-      let imageData: string
-      let finalMediaType: typeof mediaType
-
-      if (imageBuffer.length > MAX_OUTPUT_BYTES) {
-        if (mediaType === 'image/gif') {
-          throw new Error(formatFileSizeError(imageBuffer.length, MAX_OUTPUT_BYTES))
-        }
-        logWarn(`ViewFileTool: image size ${Math.round(imageBuffer.length / 1024)}KB exceeds limit ${Math.round(MAX_OUTPUT_BYTES / 1024)}KB, compressing...`)
-        let compressed: Awaited<ReturnType<typeof compressImage>>
-        try {
-          compressed = await compressImage(imageBuffer, mediaType, MAX_OUTPUT_BYTES)
-        } catch (e: any) {
-          throw new Error(formatFileSizeError(imageBuffer.length, MAX_OUTPUT_BYTES))
-        }
-        const compressedBytes = Math.ceil(compressed.data.length * 3 / 4)
-        if (compressedBytes > MAX_OUTPUT_BYTES) {
-          throw new Error(formatFileSizeError(compressedBytes, MAX_OUTPUT_BYTES))
-        }
-        imageData = compressed.data
-        finalMediaType = compressed.media_type
-      } else {
-        imageData = imageBuffer.toString('base64')
-        finalMediaType = mediaType
+      // 统一归一化：大 PNG 转 JPEG、长边缩到 1568、超硬上限再压；规则见 normalizeImage
+      let normalized: Awaited<ReturnType<typeof normalizeImage>>
+      try {
+        normalized = await normalizeImage(imageBuffer, mediaType)
+      } catch (e) {
+        const bytes = e instanceof ImageTooLargeError ? e.bytes : imageBuffer.length
+        throw new Error(formatFileSizeError(bytes, MAX_OUTPUT_BYTES))
       }
 
       const data = {
         type: 'image' as const,
-        image: { filePath: file_path, data: imageData, media_type: finalMediaType },
+        image: { filePath: file_path, data: normalized.data, media_type: normalized.media_type },
       }
 
       yield {

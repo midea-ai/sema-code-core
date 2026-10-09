@@ -44,6 +44,9 @@ export interface Tool<
     input: z.infer<TInput>,
   ) => { title: string; summary?: string; content: string | Record<string, any> }
 
+  // 生成 tool:execution:complete 事件的展示内容。不实现则工具结束时不发 complete 事件。
+  // 约定：凡在 call 内发过 tool:execution:chunk 的工具必须实现本方法，宿主已把工具行标成运行中，
+  // 没有 complete / error 收尾就会一直显示运行中
   genToolResultMessage?: (output: TOutput, input?: z.infer<TInput>) => { title: string; summary: string; content: string | Record<string, any> }
 
   getDisplayTitle?: (input?: z.infer<TInput>) => string
@@ -54,6 +57,10 @@ export interface Tool<
   // 工具是否支持中断并返回部分结果（如 Bash）
   // 实现此方法且返回 true 的工具，在执行被中断时会保留 genResultForAssistant 的结果
   // 不实现此方法的工具，中断时返回标准取消消息
+  // 约定：凡在 call 内发过 tool:execution:chunk 的工具必须返回 true，并自行处理中断——
+  // 监听 agentContext.abortController.signal，中断时把结果 data.interrupted 置 true 并正常 yield result
+  // （genResultForAssistant 对中断结果返回 TOOL_INTERRUPT_MSG），RunTools 会把 interrupted 透传到
+  // tool:execution:complete，宿主据此把运行中的工具行收口为中断态；否则工具行会一直显示运行中
   supportsInterrupt?: () => boolean
 
   // 工具的核心执行方法

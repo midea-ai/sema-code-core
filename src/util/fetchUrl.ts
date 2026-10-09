@@ -153,6 +153,8 @@ export async function injectPromptIntoMarkdown(
 
   try {
     const { message } = await queryQuick({ userPrompt, signal, sessionId })
+    // 中断时 queryQuick 以空消息正常返回而非抛错，先判中断再判空，否则会被当成「模型返回空响应」的正常结果
+    if (signal.aborted) throw new Error('AbortError')
     const firstBlock = message.content[0]
     return firstBlock && 'text' in firstBlock ? firstBlock.text : 'The model returned an empty response.'
   } catch (e) {

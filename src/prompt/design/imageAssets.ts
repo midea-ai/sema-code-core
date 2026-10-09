@@ -22,7 +22,6 @@ A skill or DESIGN.md that ships its own imagery or icon set takes precedence ove
 - **Consistency.** For a series (the same product from several angles, the same character in several scenes, a variant of an existing asset), pass the first generated asset's path as \`reference_images\` and describe the change relative to it.
 - **Timing.** \`code=no\`: generate the whole batch before writing HTML so \`src\` is final on first write, and issue all calls of the batch in one response (they run concurrently). \`code=yes\`: generate on demand and patch only the affected \`<img>\`. During a wireframe pass, do not generate at all.
 - **Prompt recipe.** One fixed style prefix per prototype derived from DESIGN.md tone + palette, naming the hex values (e.g. "flat vector illustration, muted teal #2A6F6B and sand #E8DCC4, soft grain"); then subject, composition, lighting; then the aspect ratio ("wide 16:9 hero", "square product shot"). Always end with: no text, no letters, no logos, no UI elements — text belongs in HTML.
-- **One image per role.** Do not composite several components into one image to crop later.
 
 #### DiceBear
 

@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'crypto'
 import { last } from 'lodash-es'
-import { Message, UserMsg, AiMessage, ToolControlSignal, FullToolUseResult } from '../types/message'
+import { Message, UserMsg, AiMessage, ToolControlSignal } from '../types/message'
 import type { AgentMode } from '../types'
 import { generateRulesReminders, generateSkillsReminder, generatePlanReminders } from '../services/agents/genSystemReminder'
 import { generateDesignReminders } from '../services/agents/genDesignSystemReminder'
@@ -31,14 +31,12 @@ export function isSyntheticAiMessage(text: string): boolean {
 // 创建用户消息
 export function buildUserMsg(
   content: string | Anthropic.ContentBlockParam[],
-  toolUseResult?: FullToolUseResult,
   controlSignal?: ToolControlSignal,
 ): UserMsg {
   return {
     type: 'user',
     message: { role: 'user', content },
     uuid: randomUUID(),
-    toolUseResult,
     controlSignal,
   }
 }

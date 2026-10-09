@@ -29,6 +29,9 @@ const MODELS: Array<{ key: string; name: string }> = [
   { key: 'qwen-image-pro', name: 'qwen/qwen-image-3-pro[openrouter]' },
   { key: 'qwen-image', name: 'qwen/qwen-image-3[openrouter]' },
   { key: 'grok-imagine', name: 'x-ai/grok-imagine-image-2.0[openrouter]' },
+  { key: 'ark-seedream-flash', name: 'doubao-seedream-5-0-flash-260915[volcengine]' },
+  { key: 'ark-seedream', name: 'doubao-seedream-5-0-260128[volcengine]' },
+  { key: 'ark-seedream-pro', name: 'doubao-seedream-5-0-pro-260628[volcengine]' },
 ]
 
 const DEFAULT_PROMPT =

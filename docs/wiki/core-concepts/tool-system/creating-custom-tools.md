@@ -138,6 +138,6 @@ export const MyCustomTool = {
 - `agentContext.agentId` 用于区分主 Agent 和 SubAgent
 - 若工具有副作用，`isSafe()` 必须返回 `false`
 - 并发判定基于 `isSafe() || canRunConcurrently()`：只有同一轮所有工具都满足这个条件时才会并发执行；若你的工具有副作用但多个实例之间互相独立（如基于 task id 操作），可声明 `canRunConcurrently() === true`
-- 若工具内部能在中断时保留有用的部分结果（如已打印的输出），可实现 `supportsInterrupt() === true`，否则中断会被替换为标准取消消息
+- 若工具内部能在中断时保留有用的部分结果（如已打印的输出），或希望中断以完成事件而非错误事件结束，可实现 `supportsInterrupt() === true`，否则中断会被替换为标准取消消息。实现它的工具要自己捕获 `abortController.signal` 的中断，把结果里的 `interrupted` 置为 `true`，并让 `genResultForAssistant` 对中断结果返回中断提示；`RunTools` 会把 `interrupted` 透传到 `tool:execution:complete` 事件
 - `validateInput` 返回 `{ result: false }` 会阻止工具执行，错误信息会返回给 LLM
 - `genToolPermission` 的返回值中 `summary` 为可选字段

@@ -119,7 +119,7 @@ Output: <bgFilepath>
 `stopTask(taskId)`：
 
 1. 清理 `_pollTimer`（如果是接管任务）
-2. `killProcess(_process)` 或 `killProcess(_shellProcess)`
+2. `killProcess(_process)` 或 `killProcess(_shellProcess)`：后台任务与持久 shell 都以独占进程组启动（POSIX `detached`），终止时整组发 SIGTERM，2 秒后仍未退出整组补 SIGKILL，`npm run dev` 之类再起的孙进程不会残留；Windows 走 `taskkill /f /t` 整树强杀（实现见 `src/util/kill.ts`）
 3. 状态置为 `killed`，emit `task:end`
 4. **RunShell 任务不在 stopTask 中调用 `_notify`**（只有 SubAgent 的 stopTask 会发通知）
 

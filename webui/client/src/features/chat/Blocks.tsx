@@ -21,7 +21,7 @@ import { contentToString, toolDisplayName, stripAnsi, fmtTime, displayPath } fro
 import { normalizeUrl } from '../../common/url';
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
-import { t, useLang } from '../../i18n';
+import { t, useLang, type I18nKey } from '../../i18n';
 
 export interface BlockCtx {
   sessionId: string;
@@ -255,11 +255,20 @@ function verbState(status: ToolBlock['status']) {
   return status === 'running' ? 'running' as const : status === 'error' ? 'error' as const : 'done' as const;
 }
 
-/** 工具行动词：按状态三态区分（正在运行 / 已运行 / 运行出错），失败不用「已」 */
+/** 支持中断的工具（core 侧 supportsInterrupt 的四个）中断后的标题；其余工具不会带 interrupted */
+const INTERRUPTED_VERB: Record<string, I18nKey> = {
+  run_shell: 'tool.shell.interrupted',
+  fetch_url: 'tool.fetch.interrupted',
+  peek_bg_job: 'tool.bgPeek.interrupted',
+  [GEN_IMAGE_TOOL]: 'tool.genImage.interrupted',
+};
+
+/** 工具行动词：按状态三态区分（正在运行 / 已运行 / 运行出错），失败不用「已」；中断以部分结果正常结束，单独一套「已中断」文案 */
 function toolVerb(block: ToolBlock, diff: { type: 'diff' | 'new' } | null): string {
-  const st = verbState(block.status);
-  const pick = (kind: 'shell' | 'create' | 'edit' | 'read' | 'search' | 'fetch' | 'agent' | 'skill' | 'ask' | 'bgStart' | 'bgStop' | 'genImage') => t(`tool.${kind}.${st}` as const);
   const n = block.toolName;
+  if (block.interrupted && block.status === 'done' && INTERRUPTED_VERB[n]) return t(INTERRUPTED_VERB[n]);
+  const st = verbState(block.status);
+  const pick = (kind: 'shell' | 'create' | 'edit' | 'read' | 'search' | 'fetch' | 'agent' | 'skill' | 'ask' | 'bgPeek' | 'bgStop' | 'genImage') => t(`tool.${kind}.${st}` as const);
   if (n === 'run_shell') return pick('shell');
   if (n === 'write_file' && diff?.type === 'new') return pick('create');
   if (n === 'write_file' || n === 'patch_file' || n === 'edit_notebook') return pick('edit');
@@ -269,7 +278,7 @@ function toolVerb(block: ToolBlock, diff: { type: 'diff' | 'new' } | null): stri
   if (n === 'sub_agent') return pick('agent');
   if (n === 'skill') return pick('skill');
   if (n === 'ask_form') return pick('ask');
-  if (n === 'peek_bg_job') return pick('bgStart');
+  if (n === 'peek_bg_job') return pick('bgPeek');
   if (n === 'stop_bg_job') return pick('bgStop');
   if (n === GEN_IMAGE_TOOL) return pick('genImage');
   return t(`tool.call.${st}` as const, { name: toolDisplayName(n) });
@@ -334,7 +343,8 @@ function ToolSummary({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   const n = block.toolName;
   const diff = isDiffContent(block.content) ? block.content : null;
   if (n === 'search_files' || n === 'search_content') return <span className={cn('truncate', block.status === 'error' && 'text-danger')}>{searchLabel(block)}</span>;
-  const isGeneric = n.startsWith('mcp__') || n === 'ask_form';
+  // generate_image 三态都只显示描述，不带提示词/文件名
+  const isGeneric = n.startsWith('mcp__') || n === 'ask_form' || n === GEN_IMAGE_TOOL;
   const target = isGeneric ? '' : n === 'view_file' ? (filePathOf(block, workingDir)?.split('/').pop() || '') : n === 'run_shell' ? (block.summary || block.title || '') : FILE_TOOLS.has(n) ? displayPath(filePathOf(block, workingDir) || '') : (block.title && block.title !== n ? block.title : '');
   return (
     <>
@@ -375,7 +385,9 @@ function ToolCard({ block, ctx, onOpenChange }: { block: ToolBlock; ctx: BlockCt
   const openFileRef = useApp(s => s.openFileRef);
   /** view_file 读图片文件：行为改为可展开，展开区显示缩略图（点击放大预览） */
   const isImageRead = isRead && !!filePath && /\.(png|jpe?g|gif|webp)$/i.test(filePath);
-  const expandable = !isSearch && !isAgentCall && !isSkill && (!isRead || isImageRead);
+  /** fetch_url 被中断：只留「抓取已中断 + URL」一行，不展开进度行和中断提示 */
+  const isFetchInterrupted = block.toolName === 'fetch_url' && block.status === 'done' && !!block.interrupted;
+  const expandable = !isSearch && !isAgentCall && !isSkill && !isFetchInterrupted && (!isRead || isImageRead);
   useEffect(() => { onOpenChange?.(open && expandable); }, [open, expandable, onOpenChange]);
 
   return (

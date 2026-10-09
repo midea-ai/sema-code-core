@@ -366,7 +366,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
 
     case 'tool:execution:complete': {
       const toolId = String(data?.toolId ?? `tool:${seq}`);
-      const patch = { title: data?.title || data?.toolName, summary: data?.summary, content: data?.content, status: 'done' as const };
+      const patch = { title: data?.title || data?.toolName, summary: data?.summary, content: data?.content, status: 'done' as const, ...(data?.interrupted === true ? { interrupted: true } : {}) };
       const hit = updateBlock(snap, b => b.kind === 'tool' && b.id === toolId, b => ({ ...b, ...patch } as Block));
       if (!hit) {
         pushBlock(snap, { kind: 'tool', id: toolId, ts: now, agentId: data?.agentId || MAIN_AGENT_ID, toolName: data?.toolName, ...patch }, data?.agentId);

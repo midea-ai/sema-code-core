@@ -21,11 +21,11 @@ export function imagesOf(block: ToolBlock): GenImage[] {
   return Array.isArray(list) ? list.filter((x: any) => x && typeof x.filePath === 'string' && x.filePath) : [];
 }
 
-/** 走图片卡片的工具块：生成中，或已完成且拿得到图；失败或结果解析不出图的仍走普通工具行（能看到报错/原始内容）。
+/** 走图片卡片的工具块：生成中、被中断，或已完成且拿得到图；失败或结果解析不出图的仍走普通工具行（能看到报错/原始内容）。
  * 不写成类型守卫：否定分支会把已收窄为 ToolBlock 的块收成 never */
 export function isGenImageBlock(b: Block): boolean {
   if (b.kind !== 'tool' || b.toolName !== GEN_IMAGE_TOOL) return false;
-  return b.status === 'running' || (b.status === 'done' && imagesOf(b).length > 0);
+  return b.status === 'running' || (b.status === 'done' && (!!b.interrupted || imagesOf(b).length > 0));
 }
 
 /** 收集块列表里全部已生成的图片（含子代理内的），按路径去重 */
@@ -54,16 +54,19 @@ export function GenImageCard({ blocks, ctx, live, onOpenChange }: { blocks: Tool
   const pending = blocks.filter(b => b.status === 'running');
   const images = blocks.flatMap(imagesOf);
   const running = pending.length > 0;
+  // 中断的生成块没有成图；一张都没出时整行只显示「已中断」，没有可展开的内容（不带工具名、提示词、文件名）
+  const interrupted = !running && images.length === 0 && blocks.some(b => b.interrupted);
+  const expandable = running || images.length > 0;
   // 行内只放状态与张数，不带提示词或文件名：生成中拿不到文件名，附件目录里的图又都叫 image.png；
   // 文件名看展开后的缩略图标签，提示词看正文
   return (
     <div className="my-0.5 text-[13px] text-dim">
-      <button onClick={() => setManual(!open)} className="max-w-full flex items-center gap-2 py-0.5 text-left cursor-pointer hover:text-fg">
+      <button onClick={() => expandable && setManual(!open)} className={cn('max-w-full flex items-center gap-2 py-0.5 text-left', expandable ? 'cursor-pointer hover:text-fg' : 'cursor-default')}>
         {running ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : <ImagePlus size={14} className="shrink-0" />}
-        <span className="shrink-0">{running ? t('tool.genImage.running') : images.length > 1 ? t('tool.genImage.doneN', { n: images.length }) : t('tool.genImage.done')}</span>
-        <Caret open={open} />
+        <span className="shrink-0">{running ? t('tool.genImage.running') : interrupted ? t('tool.genImage.interrupted') : images.length > 1 ? t('tool.genImage.doneN', { n: images.length }) : t('tool.genImage.done')}</span>
+        {expandable && <Caret open={open} />}
       </button>
-      {open && (
+      {open && expandable && (
         <div className="pl-6 py-1 flex gap-2 flex-wrap">
           {images.map(img => (
             <ImageThumb key={img.filePath} src={rawFileUrl(ctx.sessionId, img.filePath)} className={cn('h-20 w-20', live && 'pop-in')} label={baseName(img.filePath)} title={img.filePath} />

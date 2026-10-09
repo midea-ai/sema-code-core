@@ -117,6 +117,7 @@ export const mockBlockMap: Record<string, Block[]> = {
 
   BackgroundJob: [
     { ...base(), kind: 'tool', agentId: MAIN, toolName: 'peek_bg_job', title: 'a3f2b1c0', status: 'done', content: '[12:00:01] Starting compilation...\n[12:00:03] Found 0 errors. Watching for file changes.\n[12:00:15] File change detected. Starting incremental compilation...\n[12:00:16] Found 0 errors. Watching for file changes.\n[12:00:15] File change detected. Starting incremental compilation...\n[12:00:16] Found 0 errors. Watching for file changes.' },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'peek_bg_job', title: 'a3f2b1c0', status: 'done', interrupted: true, content: '[12:00:01] Starting compilation...\n[12:00:03] Found 0 errors. Watching for file changes.' },
   ],
 
   StopBackgroundJob: [
@@ -257,16 +258,20 @@ export const mockBlockMap: Record<string, Block[]> = {
   Shell: [
     { ...base(), kind: 'tool', agentId: MAIN, toolName: 'run_shell', summary: '读取 Excel 所有工作表名称并打印', title: LONG_SHELL, status: 'done', content: 'PASS  src/utils/config.test.ts\n  ✓ should load config (12ms)\n  ✓ should validate schema (8ms)\n  ✓ should merge defaults (5ms)\n\nTest Suites: 1 passed, 1 total\nTests:       3 passed, 3 tbvjhsbvhktal\nTime:        1.234s' },
     { ...base(), kind: 'tool', agentId: MAIN, toolName: 'run_shell', summary: '对 config.ts 运行 eslint 检查，这是一段足够长的摘要用于验证页面太窄时的省略号效果', title: 'npx eslint src/utils/config.ts', status: 'done', content: '' },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'run_shell', summary: '启动开发服务器', title: 'npm run dev', status: 'done', interrupted: true, content: '> vite\n\n  VITE v5.4.0  ready in 320 ms' },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'fetch_url', title: 'https://example.com/very/slow/page', status: 'done', interrupted: true, content: '[Tool use interrupted by user]' },
   ],
 
   // 图片路径是占位（预览里显示「文件已不存在」占位框）；连续的生成块会合并成一行，中间用失败行 / 文字隔开
   GenerateImage: [
     { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'A watercolor painting of a lighthouse at...', status: 'running', output: 'Generating image with seedream...\n' },
     { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'A watercolor painting of a lighthouse at...', status: 'error', content: 'Image generation failed (401): The API key is invalid.' },
-    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'image.png', summary: 'Generated image image.png', status: 'done', content: { model: 'seedream[ark]', prompt: 'A watercolor painting of a lighthouse at dusk, soft warm light', images: [{ filePath: '/path/to/attachments/00000000-0000-0000-0000-000000000001/image.png', mediaType: 'image/png', bytes: 1536000 }] } },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'image.png', summary: 'Generated image image.png', status: 'done', content: { model: 'doubao-seedream-5-0-260128[volcengine]', prompt: 'A watercolor painting of a lighthouse at dusk, soft warm light', images: [{ filePath: '/path/to/attachments/00000000-0000-0000-0000-000000000001/image.png', mediaType: 'image/png', bytes: 1536000 }] } },
     { ...base(), kind: 'assistant', agentId: MAIN, done: true, thinking: '', text: '再生成两张不同风格的。' },
-    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'image.jpg', summary: 'Generated image image.jpg', status: 'done', content: { model: 'seedream[ark]', prompt: 'A lighthouse at dusk, flat vector style', images: [{ filePath: '/path/to/attachments/00000000-0000-0000-0000-000000000002/image.jpg', mediaType: 'image/jpeg', bytes: 820000 }] } },
-    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'image.webp', summary: 'Generated image image.webp', status: 'done', content: { model: 'seedream[ark]', prompt: 'A lighthouse at dusk, pixel art', images: [{ filePath: '/path/to/attachments/00000000-0000-0000-0000-000000000003/image.webp', mediaType: 'image/webp', bytes: 410000 }] } },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'image.jpg', summary: 'Generated image image.jpg', status: 'done', content: { model: 'doubao-seedream-5-0-260128[volcengine]', prompt: 'A lighthouse at dusk, flat vector style', images: [{ filePath: '/path/to/attachments/00000000-0000-0000-0000-000000000002/image.jpg', mediaType: 'image/jpeg', bytes: 820000 }] } },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'image.webp', summary: 'Generated image image.webp', status: 'done', content: { model: 'doubao-seedream-5-0-260128[volcengine]', prompt: 'A lighthouse at dusk, pixel art', images: [{ filePath: '/path/to/attachments/00000000-0000-0000-0000-000000000003/image.webp', mediaType: 'image/webp', bytes: 410000 }] } },
+    { ...base(), kind: 'assistant', agentId: MAIN, done: true, thinking: '', text: '再来一张夜景的。' },
+    { ...base(), kind: 'tool', agentId: MAIN, toolName: 'generate_image', title: 'generate_image', summary: 'Interrupted', status: 'done', interrupted: true, content: { model: 'doubao-seedream-5-0-260128[volcengine]', prompt: 'A lighthouse at night, long exposure', images: [] } },
   ],
 
   AssistantMarkdown: [

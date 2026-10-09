@@ -228,6 +228,8 @@ export interface ToolBlock extends BlockBase {
   /** run_shell 等流式输出累计 */
   output?: string;
   status: 'running' | 'done' | 'error';
+  /** 执行途中被用户中断、以部分/空结果正常结束（status 仍为 done），标题显示「已中断」而非「已运行」 */
+  interrupted?: boolean;
   input?: Record<string, any>;
 }
 

@@ -76,6 +76,14 @@ const IMAGE_MEDIA_TYPES: Record<string, 'image/jpeg' | 'image/png' | 'image/gif'
   '.webp': 'image/webp',
 }
 
+// 读图结果给模型的 image content block（genResultForAssistant 与带透明说明的 call 共用）
+function imageBlock(image: { data: string; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' }) {
+  return {
+    type: 'image' as const,
+    source: { type: 'base64' as const, data: image.data, media_type: image.media_type },
+  }
+}
+
 const toolParams = z.strictObject({
   file_path: z.string({
     required_error: 'Missing required parameter \'file_path\'. Please provide the absolute path to the file, e.g. {"file_path": "/path/to/file.txt"}.',
@@ -306,10 +314,16 @@ export const ViewFile = {
         image: { filePath: file_path, data: normalized.data, media_type: normalized.media_type },
       }
 
+      // 带透明像素的 PNG：模型看不出透明（归一化后铺白、原样透传时渲染方式也不可控），把事实用文字附上
+      const alpha = normalized.alpha
+      const alphaNote = alpha && alpha.transparentRatio > 0
+        ? `This PNG has an alpha channel: ${Math.round(alpha.transparentRatio * 100)}% of its pixels are fully transparent${alpha.cornersTransparent ? ' (transparent background)' : ''}. Transparent areas appear white in this preview.`
+        : null
+
       yield {
         type: 'result',
         data,
-        resultForAssistant: this.genResultForAssistant(data),
+        resultForAssistant: alphaNote ? [imageBlock(data.image), { type: 'text' as const, text: alphaNote }] : [imageBlock(data.image)],
       }
       return
     }
@@ -356,16 +370,7 @@ export const ViewFile = {
   },
   genResultForAssistant(data) {
     if (data.type === 'image') {
-      return [
-        {
-          type: 'image' as const,
-          source: {
-            type: 'base64' as const,
-            data: data.image.data,
-            media_type: data.image.media_type,
-          },
-        },
-      ]
+      return [imageBlock(data.image)]
     }
 
     if (data.type === 'notebook') {

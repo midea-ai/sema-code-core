@@ -227,9 +227,10 @@ export async function queryOpenAI(
   sessionId?: string,
 ): Promise<AiMessage> {
   const start = Date.now()
-  let baseURL = modelProfile.baseURL || 'https://api.openai.com/v1'
-  if (modelProfile.provider !== 'glm' && !baseURL.endsWith('/v1')) {
-    baseURL = baseURL.replace(/\/$/, '') + '/v1'
+  // 与 apiUtil.buildApiUrl 同规则：路径里已有 /vN 版本段（GLM /api/paas/v4、火山 /api/v3 等）就不再追加 /v1
+  let baseURL = (modelProfile.baseURL || 'https://api.openai.com/v1').replace(/\/$/, '')
+  if (!/\/v\d+(\/|$)/.test(baseURL)) {
+    baseURL = baseURL + '/v1'
   }
 
   // 构建 header

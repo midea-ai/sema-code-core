@@ -18,7 +18,10 @@ const CONVERT_QUALITY = 85
 const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
 
 export type ImageMediaType = typeof SUPPORTED_IMAGE_MEDIA_TYPES[number]
-export type NormalizedImage = { data: string; media_type: ImageMediaType; bytes: number }
+/** PNG 透明度统计：全透明像素占比、四角是否透明（四角透明基本就是透明背景） */
+export type PngAlphaStats = { transparentRatio: number; cornersTransparent: boolean }
+// alpha 只在 PNG 文件头声明了透明时才统计；转成 JPEG 后透明区已铺白，统计值描述的是原图
+export type NormalizedImage = { data: string; media_type: ImageMediaType; bytes: number; alpha?: PngAlphaStats }
 
 /** 图片体积超过硬上限且无法再压时抛出，调用方据此决定报错还是忽略 */
 export class ImageTooLargeError extends Error {
@@ -63,8 +66,48 @@ function readImageSize(buffer: Buffer, mediaType: ImageMediaType): { width: numb
   return null
 }
 
-const toBase64Result = (buf: Buffer, media_type: ImageMediaType): NormalizedImage =>
-  ({ data: buf.toString('base64'), media_type, bytes: buf.length })
+const toBase64Result = (buf: Buffer, media_type: ImageMediaType, alpha?: PngAlphaStats): NormalizedImage =>
+  ({ data: buf.toString('base64'), media_type, bytes: buf.length, ...(alpha ? { alpha } : {}) })
+
+/** 只看文件头判断 PNG 是否可能带透明：IHDR colorType 4/6（灰度+alpha / RGBA），或 IDAT 之前出现 tRNS 块 */
+function pngMayHaveAlpha(buffer: Buffer): boolean {
+  if (buffer.length < 26) return false
+  const colorType = buffer[25]
+  if (colorType === 4 || colorType === 6) return true
+  let offset = 8
+  while (offset + 8 <= buffer.length) {
+    const len = buffer.readUInt32BE(offset)
+    const type = buffer.toString('latin1', offset + 4, offset + 8)
+    if (type === 'tRNS') return true
+    if (type === 'IDAT' || type === 'IEND') return false
+    offset += 12 + len
+  }
+  return false
+}
+
+/** 扫一遍 alpha 通道：alpha 为 0 的像素占比 + 四角是否全透明 */
+function inspectAlpha(image: Jimp): PngAlphaStats {
+  const { data, width, height } = image.bitmap
+  let transparent = 0
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] === 0) transparent++
+  }
+  const corners = [0, width - 1, (height - 1) * width, height * width - 1]
+  return {
+    transparentRatio: transparent / (width * height),
+    cornersTransparent: corners.every(p => data[p * 4 + 3] === 0),
+  }
+}
+
+/** 读取 PNG 的透明度统计；文件头没声明透明、或不是能解码的 PNG 时返回 null */
+export async function readPngAlphaStats(buffer: Buffer): Promise<PngAlphaStats | null> {
+  if (!pngMayHaveAlpha(buffer)) return null
+  try {
+    return inspectAlpha(await Jimp.read(buffer))
+  } catch {
+    return null
+  }
+}
 
 /**
  * 发给模型前的图片归一化，三条入口（view_file 读图、粘贴附件、MCP 返回图）共用：
@@ -87,12 +130,15 @@ export async function normalizeImage(buffer: Buffer, mediaType: ImageMediaType):
   const needResize = longEdge > MAX_LONG_EDGE
   const needConvert = mediaType === 'image/png' && bytes > CONVERT_TO_JPEG_BYTES
   const overLimit = bytes > MAX_IMAGE_BYTES
+  // 文件头声明了透明的 PNG 要解码统计 alpha，供调用方把"透明区已铺白"的事实告诉模型
+  const mayHaveAlpha = mediaType === 'image/png' && pngMayHaveAlpha(buffer)
   if (!needResize && !needConvert && !overLimit) {
-    return toBase64Result(buffer, mediaType)
+    return toBase64Result(buffer, mediaType, mayHaveAlpha ? inspectAlpha(await Jimp.read(buffer)) : undefined)
   }
 
   logDebug(`normalizeImage: ${mediaType} ${Math.round(bytes / 1024)}KB ${size ? `${size.width}x${size.height}` : '?'} resize=${needResize} convert=${needConvert} overLimit=${overLimit}`)
   let image = await Jimp.read(buffer)
+  const alpha = mayHaveAlpha ? inspectAlpha(image) : undefined
 
   // 小体积 PNG 只是长边超限：缩放后仍存 PNG，保住透明通道与截图文字的锐度；缩完仍超体积阈值再走 JPEG
   if (mediaType === 'image/png' && !needConvert && !overLimit) {
@@ -101,7 +147,7 @@ export async function normalizeImage(buffer: Buffer, mediaType: ImageMediaType):
     const png = await resized.getBufferAsync(Jimp.MIME_PNG)
     if (png.length <= CONVERT_TO_JPEG_BYTES) {
       logInfo(`normalizeImage: png ${Math.round(bytes / 1024)}KB → png ${Math.round(png.length / 1024)}KB (${resized.getWidth()}x${resized.getHeight()})`)
-      return toBase64Result(png, 'image/png')
+      return toBase64Result(png, 'image/png', alpha)
     }
   }
 
@@ -119,14 +165,14 @@ export async function normalizeImage(buffer: Buffer, mediaType: ImageMediaType):
     const compressed = await compressImage(jpeg, 'image/jpeg', MAX_IMAGE_BYTES)
     const compressedBytes = Math.ceil(compressed.data.length * 3 / 4)
     if (compressedBytes > MAX_IMAGE_BYTES) throw new ImageTooLargeError(compressedBytes, MAX_IMAGE_BYTES)
-    return { ...compressed, bytes: compressedBytes }
+    return { ...compressed, bytes: compressedBytes, ...(alpha ? { alpha } : {}) }
   }
   if (jpeg.length >= bytes && !overLimit && actualLongEdge <= MAX_LONG_EDGE) {
     logDebug(`normalizeImage: jpeg ${Math.round(jpeg.length / 1024)}KB not smaller than original, keeping original`)
-    return toBase64Result(buffer, mediaType)
+    return toBase64Result(buffer, mediaType, alpha)
   }
   logInfo(`normalizeImage: ${mediaType} ${Math.round(bytes / 1024)}KB → jpeg ${Math.round(jpeg.length / 1024)}KB (${image.getWidth()}x${image.getHeight()})`)
-  return toBase64Result(jpeg, 'image/jpeg')
+  return toBase64Result(jpeg, 'image/jpeg', alpha)
 }
 
 /**

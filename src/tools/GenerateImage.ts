@@ -12,6 +12,7 @@ import { MAIN_AGENT_ID } from '../manager/StateManager'
 import { getEventBus } from '../events/EventSystem'
 import type { ToolExecutionChunkData } from '../events/types'
 import { canonicalizeFilePath } from '../util/file'
+import { readPngAlphaStats } from '../util/imageCompress'
 import { readInitialCwd } from '../util/cwd'
 import { getTimeTag } from '../util/time'
 import { TOOL_INTERRUPT_MSG } from '../util/message'
@@ -67,6 +68,19 @@ function checkReference(ref: string): string | null {
 
 function formatSize(bytes: number): string {
   return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024).toFixed(1)} KB`
+}
+
+// 请求了透明背景时，按实际 alpha 通道判定是否真透明并告诉模型：模型看图分不清白底和透明，
+// 归一化又会把透明区铺白，所以只能靠这句文本
+async function describeTransparency(image: { filePath: string; mediaType: string }): Promise<string> {
+  const stats = image.mediaType === 'image/png' ? await readPngAlphaStats(fs.readFileSync(image.filePath)) : null
+  if (stats && stats.transparentRatio > 0 && stats.cornersTransparent) {
+    return `Transparent background: yes (alpha channel, ${Math.round(stats.transparentRatio * 100)}% of pixels fully transparent).`
+  }
+  const detail = stats && stats.transparentRatio > 0
+    ? `the image has some transparent pixels (${Math.round(stats.transparentRatio * 100)}%) but its corners are opaque`
+    : 'the model returned an opaque image and ignored transparent=true'
+  return `Transparent background: NO (${detail}).`
 }
 
 function displayTitle(prompt?: string): string {
@@ -183,10 +197,13 @@ export const GenerateImage = {
     }
 
     const output: ToolRes = { ...result, requestedPath, referenceImages: refs }
+    // 透明判定只进给模型的文本，不进 ToolRes
+    const first = output.images[0]
+    const transparencyNote = transparent && first ? `\n${await describeTransparency(first)}` : ''
     yield {
       type: 'result' as const,
       data: output,
-      resultForAssistant: this.genResultForAssistant(output),
+      resultForAssistant: this.genResultForAssistant(output) + transparencyNote,
     }
   },
   genResultForAssistant(output: ToolRes) {

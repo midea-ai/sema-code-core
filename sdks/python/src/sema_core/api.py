@@ -29,7 +29,7 @@ if TYPE_CHECKING:
         AdapterType, AgentConfig, AgentMode, ApiTestParams, ApiTestResult, BranchResult,
         CommandConfig, CreateSessionOptions, CronTask, DesignSkillInfo, DesignSystemInfo,
         FetchModelsParams, FetchModelsResult, ForkOptions, ForkPreview, ForkResult,
-        HooksInfo, InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
+        HooksInfo, ImageModelConfig, ImageModelProfile, InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
         MCPServerInfo, MemoryConfig, ModelConfig, ModelProfile, ModelUpdateData, PermissionLevel,
         RuleConfig, SemaCoreConfig, SkillConfig, TaskConfig, TaskListItem, ToolInfo, UsageStatsData,
     )
@@ -126,6 +126,21 @@ class SemaCore:
     async def get_model_profile(self, provider: str, model_name: str) -> "Optional[ModelProfile]":
         """读取磁盘上的完整模型 profile，供配置页编辑回填；不存在返回 None。"""
         return await self._json("getModelProfile", _obj(provider=provider, modelName=model_name))
+
+    # ── 文生图模型管理（进程级，无会话级覆盖） ───────────────────────────
+
+    async def add_image_model(self, config: "ImageModelConfig") -> "ModelUpdateData":
+        return await self._json("addImageModel", {"config": config})
+
+    async def del_image_model(self, model_name: str) -> "ModelUpdateData":
+        return await self._json("delImageModel", {"modelName": model_name})
+
+    async def switch_image_model(self, model_name: str) -> "ModelUpdateData":
+        """切换文生图模型指针；传空串停用文生图，generate_image 工具随之从工具列表移除。"""
+        return await self._json("switchImageModel", {"modelName": model_name})
+
+    async def get_image_model_profile(self, provider: str, model_name: str) -> "Optional[ImageModelProfile]":
+        return await self._json("getImageModelProfile", _obj(provider=provider, modelName=model_name))
 
     async def fetch_available_models(self, params: "FetchModelsParams") -> "FetchModelsResult":
         return await self._json("fetchAvailableModels", params)

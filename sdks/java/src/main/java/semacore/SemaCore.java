@@ -186,6 +186,25 @@ public final class SemaCore implements AutoCloseable {
         return call("getModelProfile", Json.obj("provider", provider, "modelName", modelName), ModelProfile.class);
     }
 
+    // ── 文生图模型管理（进程级，无会话级覆盖） ───────────────────────────
+
+    public ModelUpdateData addImageModel(ImageModelConfig config) {
+        return call("addImageModel", Json.obj("config", config), ModelUpdateData.class);
+    }
+
+    public ModelUpdateData delImageModel(String modelName) {
+        return call("delImageModel", Json.obj("modelName", modelName), ModelUpdateData.class);
+    }
+
+    /** 切换文生图模型指针；传空串停用文生图，generate_image 工具随之从工具列表移除。 */
+    public ModelUpdateData switchImageModel(String modelName) {
+        return call("switchImageModel", Json.obj("modelName", modelName), ModelUpdateData.class);
+    }
+
+    public ImageModelProfile getImageModelProfile(String provider, String modelName) {
+        return call("getImageModelProfile", Json.obj("provider", provider, "modelName", modelName), ImageModelProfile.class);
+    }
+
     public FetchModelsResult fetchAvailableModels(FetchModelsParams params) {
         return call("fetchAvailableModels", params, FetchModelsResult.class);
     }

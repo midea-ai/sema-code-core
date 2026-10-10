@@ -151,6 +151,11 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         }
         // 进程级只读：ack 为磁盘上的完整 profile或 null，不广播事件
         case 'getModelProfile':  ack(id, manager.instance.getModelProfile(payload.provider, payload.modelName)); return;
+        // 文生图模型（进程级，无会话级覆盖）：增删切同样 ack ModelUpdateData 并广播 model:update
+        case 'addImageModel':    { const r = await manager.instance.addImageModel(payload.config); broadcast('model:update', r); ack(id, r); return; }
+        case 'delImageModel':    { const r = await manager.instance.delImageModel(payload.modelName); broadcast('model:update', r); ack(id, r); return; }
+        case 'switchImageModel': { const r = await manager.instance.switchImageModel(payload.modelName ?? ''); broadcast('model:update', r); ack(id, r); return; }
+        case 'getImageModelProfile': ack(id, manager.instance.getImageModelProfile(payload.provider, payload.modelName)); return;
         case 'listSessions':     ack(id, { sessions: manager.listSessions() }); return;
         case 'setActiveSession': ack(id, { ok: manager.instance.setActiveSession(payload.sessionId) }); return;
 

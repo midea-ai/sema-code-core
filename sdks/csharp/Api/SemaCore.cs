@@ -141,6 +141,21 @@ public sealed class SemaCore : IAsyncDisposable
     public Task<ModelProfile?> GetModelProfile(string provider, string modelName)
         => Call<ModelProfile>("getModelProfile", Json.Obj(("provider", provider), ("modelName", modelName)));
 
+    // ── 文生图模型管理（进程级，无会话级覆盖） ───────────────────────────
+
+    public Task<ModelUpdateData?> AddImageModel(ImageModelConfig config)
+        => Call<ModelUpdateData>("addImageModel", Json.Obj(("config", config)));
+
+    public Task<ModelUpdateData?> DelImageModel(string modelName)
+        => Call<ModelUpdateData>("delImageModel", Json.Obj(("modelName", modelName)));
+
+    /// <summary>切换文生图模型指针；传空串停用文生图，generate_image 工具随之从工具列表移除。</summary>
+    public Task<ModelUpdateData?> SwitchImageModel(string modelName)
+        => Call<ModelUpdateData>("switchImageModel", Json.Obj(("modelName", modelName)));
+
+    public Task<ImageModelProfile?> GetImageModelProfile(string provider, string modelName)
+        => Call<ImageModelProfile>("getImageModelProfile", Json.Obj(("provider", provider), ("modelName", modelName)));
+
     public Task<FetchModelsResult?> FetchAvailableModels(FetchModelsParams @params)
         => Call<FetchModelsResult>("fetchAvailableModels", @params);
 

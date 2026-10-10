@@ -80,6 +80,7 @@ service SemaBridge {
 | `switchModel`    | 切换全局主模型指针，`{ modelName }`；只影响之后创建的会话（已打开会话各自钉住创建时刻的 main）。带 `session_id` 时改为会话级，见下表 |
 | `applyTaskModel` | 应用任务模型，`{ main, quick }`                             |
 | `getModelData`   | 获取全局视角模型信息（数据随 `ack` 的 `data` 返回）。带 `session_id` 时改为会话视角，见下表 |
+| `addImageModel` / `delImageModel` / `switchImageModel` / `getImageModelProfile` | 文生图模型增删切查（进程级，无会话级覆盖）；增删切 ack `ModelUpdateData`（`taskConfig.image` / `imageModelList`）并广播 `model:update`，`switchImageModel` 传空串停用 |
 | `updateCoreConfig` | 更新核心配置                                             |
 | `listSessions`   | 列出会话 ID（随 `ack` 的 `data.sessions` 返回）             |
 | `createSession`  | 创建会话，可选 `{ sessionId?, permissionLevel?, agentMode?, mainModel?, quickModel? }`（`mainModel`/`quickModel` 为会话级模型覆盖，profile 名，仅本会话生效、不持久化）；`ack` 回 `{ sessionId }`，随后触发 `session:ready` |

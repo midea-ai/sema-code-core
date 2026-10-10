@@ -5,5 +5,6 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record ModelUpdateData(String modelName, List<String> modelList, TaskConfig taskConfig) {
+// imageModelList：文生图模型列表（与 modelList 分开），旧版 core 可能为 null
+public record ModelUpdateData(String modelName, List<String> modelList, TaskConfig taskConfig, List<String> imageModelList) {
 }

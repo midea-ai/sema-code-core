@@ -149,6 +149,7 @@ class ToolExecutionCompleteData(TypedDict):
     title: str
     summary: str
     content: Union[str, Dict[str, Any]]
+    interrupted: NotRequired[bool]  # 工具执行途中被用户中断、以部分/空结果正常结束（支持中断的工具才会带）
 
 
 # tool:execution:chunk 结构同 complete（content 只传 delta）

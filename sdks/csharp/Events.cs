@@ -321,6 +321,8 @@ public record ToolExecutionCompleteData
     [JsonPropertyName("title")] public string? Title { get; init; }
     [JsonPropertyName("summary")] public string? Summary { get; init; }
     [JsonPropertyName("content")] public JsonElement? Content { get; init; }
+    /// <summary>工具执行途中被用户中断、以部分/空结果正常结束；支持中断的工具才会带，其余为 null。</summary>
+    [JsonPropertyName("interrupted")] public bool? Interrupted { get; init; }
 }
 
 public record ToolExecutionErrorData

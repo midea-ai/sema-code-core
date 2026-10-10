@@ -417,6 +417,25 @@ public record ModelProfile
     [JsonPropertyName("thinkingHistoryPolicy")] public ThinkingHistoryPolicy? ThinkingHistoryPolicy { get; init; }
 }
 
+/// <summary>AddImageModel 入参：文生图模型（进程级，无会话级覆盖）。</summary>
+public record ImageModelConfig
+{
+    [JsonPropertyName("provider")] public string? Provider { get; init; }
+    [JsonPropertyName("modelName")] public string? ModelName { get; init; }
+    [JsonPropertyName("baseURL")] public string? BaseURL { get; init; }
+    [JsonPropertyName("apiKey")] public string? ApiKey { get; init; }
+}
+
+/// <summary>GetImageModelProfile 返回：磁盘上的完整文生图模型 profile；Name 形如 qwen-image-3.0[qwen]。</summary>
+public record ImageModelProfile
+{
+    [JsonPropertyName("name")] public string? Name { get; init; }
+    [JsonPropertyName("provider")] public string? Provider { get; init; }
+    [JsonPropertyName("modelName")] public string? ModelName { get; init; }
+    [JsonPropertyName("baseURL")] public string? BaseURL { get; init; }
+    [JsonPropertyName("apiKey")] public string? ApiKey { get; init; }
+}
+
 public record ModelInfo
 {
     [JsonPropertyName("id")] public string? Id { get; init; }
@@ -430,6 +449,8 @@ public record ModelUpdateData
     [JsonPropertyName("modelName")] public string? ModelName { get; init; }
     [JsonPropertyName("modelList")] public List<string>? ModelList { get; init; }
     [JsonPropertyName("taskConfig")] public TaskConfig? TaskConfig { get; init; }
+    /// <summary>文生图模型列表（与 ModelList 分开）。</summary>
+    [JsonPropertyName("imageModelList")] public List<string>? ImageModelList { get; init; }
 }
 
 public record PluginComponentEntry
@@ -572,6 +593,8 @@ public record TaskConfig
 {
     [JsonPropertyName("main")] public string? Main { get; init; }
     [JsonPropertyName("quick")] public string? Quick { get; init; }
+    /// <summary>文生图模型指针，只在返回值里出现；空串/null 表示未启用。ApplyTaskModel 入参只用 Main/Quick。</summary>
+    [JsonPropertyName("image")] public string? Image { get; init; }
 }
 
 public record TaskListItem

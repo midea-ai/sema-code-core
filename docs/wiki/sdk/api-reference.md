@@ -69,6 +69,17 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `await getModelData` | `get_model_data` | `getModelData` | `GetModelData` | — | 全局视角;会话实际生效的模型用 `SemaSession.getModelData` |
 | `getModelProfile` | `get_model_profile` | `getModelProfile` | `GetModelProfile` | `provider: string`(必填), `modelName: string`(必填) | 只读,返回磁盘上的完整 `ModelProfile`(含明文 apiKey),不存在为 null/None;不触发 `model:update` |
 
+### 文生图模型管理
+
+进程级,无会话级覆盖;指针在 `ModelUpdateData.taskConfig.image`,列表在 `imageModelList`,与对话模型分开存放。
+
+| sema-core | Python | Java | C# | 参数 | 差异点备注 |
+| --- | --- | --- | --- | --- | --- |
+| `await addImageModel` | `add_image_model` | `addImageModel` | `AddImageModel` | `config: ImageModelConfig`(必填) | 返回 `ModelUpdateData` 并广播 `model:update` |
+| `await delImageModel` | `del_image_model` | `delImageModel` | `DelImageModel` | `modelName: string`(必填) | 删到当前指针时回退到剩余第一个文生图模型,没有则清空停用 |
+| `await switchImageModel` | `switch_image_model` | `switchImageModel` | `SwitchImageModel` | `modelName: string`(必填) | 传空串停用文生图,`generate_image` 工具随之从工具列表移除;对所有会话即时生效 |
+| `getImageModelProfile` | `get_image_model_profile` | `getImageModelProfile` | `GetImageModelProfile` | `provider: string`(必填), `modelName: string`(必填) | 只读,返回 `ImageModelProfile`(含明文 apiKey),不存在为 null/None;不触发 `model:update` |
+
 ### 配置管理
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
@@ -264,7 +275,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | **工具权限与执行** | | |
 | `tool:permission:request` | `ToolPermissionRequestData` | 需 `respondToToolPermission` 应答 |
 | `tool:permission:auto` | `ToolPermissionAutoData` | AutoRun 档模型自动放行 |
-| `tool:execution:complete` | `ToolExecutionCompleteData` | 工具执行完成(含结果) |
+| `tool:execution:complete` | `ToolExecutionCompleteData` | 工具执行完成(含结果);`interrupted` 为 true 表示用户中断后以部分/空结果收尾,宿主应把运行中的工具行标为已中断 |
 | `tool:execution:chunk` | `ToolExecutionChunkData` | 命令执行中间态(`content` 只传 delta) |
 | `tool:execution:error` | `ToolExecutionErrorData` | 工具执行出错 |
 | **交互应答(问答 / Plan)** | | |
@@ -324,7 +335,8 @@ SemaCore, SemaSession                                        // 主类:进程级
 ```
 AgentMode, PermissionLevel, SystemPromptMode                 // Agent 模式 / 权限档位 / 系统提示词模式
 SemaCoreConfig, UpdatableCoreConfig, UpdatableCoreConfigKeys // Core 配置 / 可更新子集 / 可更新键名
-ModelConfig, ModelProfile, TaskConfig, ModelInfo, ModelUpdateData // 模型:配置 / 磁盘完整 profile / 主快指针 / 模型项 / 变更结果
+ModelConfig, ModelProfile, TaskConfig, ModelInfo, ModelUpdateData // 模型:配置 / 磁盘完整 profile / 主快(image)指针 / 模型项 / 变更结果(含 imageModelList)
+ImageModelConfig, ImageModelProfile                          // 文生图模型:配置 / 磁盘完整 profile
 FetchModelsParams, FetchModelsResult                         // 拉取可用模型:参数 / 结果
 ApiTestParams, ApiTestResult                                 // API 连通测试:参数 / 结果
 ToolInfo, FileReferenceInfo                                  // 工具信息 / 文件引用

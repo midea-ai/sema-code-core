@@ -131,9 +131,27 @@ class ModelProfile(TypedDict):
 
 
 class TaskConfig(TypedDict):
-    """applyTaskModel 参数：主/快模型指针。"""
+    """applyTaskModel 参数：主/快模型指针；image 为文生图指针（只在返回值里出现，空串表示未启用）。"""
     main: str
     quick: str
+    image: NotRequired[str]
+
+
+class ImageModelConfig(TypedDict):
+    """add_image_model 入参：文生图模型（进程级，无会话级覆盖）。"""
+    provider: str
+    modelName: str
+    baseURL: str
+    apiKey: str
+
+
+class ImageModelProfile(TypedDict):
+    """get_image_model_profile 返回：磁盘上的完整文生图模型 profile。"""
+    name: str
+    provider: str
+    modelName: str
+    baseURL: str
+    apiKey: str
 
 
 class ModelInfo(TypedDict):
@@ -173,10 +191,11 @@ class ApiTestResult(TypedDict):
 
 
 class ModelUpdateData(TypedDict):
-    """addModel/delModel/switchModel/applyTaskModel/getModelData 返回；亦为 model:update 合成事件数据。"""
+    """addModel/delModel/switchModel/applyTaskModel/getModelData 及 *ImageModel 返回；亦为 model:update 合成事件数据。"""
     modelName: str
     modelList: List[str]
     taskConfig: TaskConfig
+    imageModelList: NotRequired[List[str]]  # 文生图模型列表（与 modelList 分开）
 
 
 class ToolInfo(TypedDict):

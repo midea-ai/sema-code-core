@@ -1,6 +1,6 @@
 import { Hunk } from 'diff'
 import { existsSync, mkdirSync, statSync } from 'fs'
-import { dirname, relative } from 'path'
+import { dirname } from 'path'
 import { z } from 'zod'
 import type { Tool } from './base/Tool'
 import {
@@ -12,7 +12,6 @@ import {
   readTextContent,
   LineEndingKind,
 } from '../util/file'
-import { readInitialCwd } from '../util/cwd'
 import { IS_WIN } from '../util/platform'
 import { TOOL_NAME_WRITE_FILE, TOOL_NAME_VIEW_FILE, TOOL_NAME_PATCH_FILE } from '../prompt/tool'
 import { getStateManager } from '../manager/StateManager'
@@ -63,9 +62,8 @@ Rules:
   },
   genToolResultMessage({ filePath, content, structuredPatch, type }) {
     const title = getWriteFileTitle({ file_path: filePath })
-    const displayPath = relative(readInitialCwd(), filePath)
     const { summary, contentPreview } = buildResultPreview(type, filePath, content, structuredPatch)
-    const finalSummary = type === 'create' ? `Created ${displayPath} ${summary}` : summary
+    const finalSummary = type === 'create' ? `Created ${title} ${summary}` : summary
     return { title, summary: finalSummary, content: contentPreview }
   },
   getDisplayTitle(input) {

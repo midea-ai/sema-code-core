@@ -367,11 +367,18 @@ export function findJsonKeyValueLineRange(json: string, match: string): [number,
 }
 
 /**
- * 获取相对于初始工作目录的显示路径，超出范围则返回绝对路径
+ * 工具事件（title / summary / 搜索结果列表）里文件路径的统一显示规则：
+ * 项目内返回相对初始工作目录的路径（根本身为 `.`），项目外返回原生分隔符的绝对路径，永不出现 `../`。
+ * Windows 跨盘符 relative() 直接返回绝对路径，由 isAbsolute 分支兜住。
+ * 只负责"相对 or 绝对"，`~` 缩写等人类友好渲染由宿主（webui / IDE 插件）做：
+ * 宿主会把 title 直接当路径 resolve，`~` 会被当作相对路径拼错。
  */
 export function getDisplayPath(filePath: string): string {
-  const rel = relative(readInitialCwd(), filePath)
-  return rel.startsWith('..') ? filePath : rel
+  const abs = canonicalizeFilePath(filePath)
+  const rel = relative(readInitialCwd(), abs)
+  if (!rel) return '.'
+  if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return abs
+  return rel
 }
 
 /**

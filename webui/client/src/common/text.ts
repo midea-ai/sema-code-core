@@ -26,9 +26,26 @@ export function stripAnsi(s: string): string {
 
 export function escapeHtml(s: string): string { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-/** 显示用路径：home 目录缩写为 ~（仅展示，打开/复制仍用真实路径） */
+/** 用户 home 目录真值（bootstrap 时由服务端 os.homedir() 下发）；Windows 比较时忽略大小写 */
+let HOME_DIR = '';
+let HOME_CI = false;
+export function setHomeDir(home: string, caseInsensitive: boolean): void {
+  HOME_DIR = home.replace(/[\\/]+$/, '');
+  HOME_CI = caseInsensitive;
+}
+
+/**
+ * 显示用路径：home 下的绝对路径缩写为 ~（保留原生分隔符，Windows 显示 ~\Documents\a.txt）；
+ * 相对路径与 home 外的绝对路径（/tmp、/etc、D:\data）原样返回。仅展示，打开/复制仍用真实路径。
+ */
 export function displayPath(p: string): string {
-  return p.replace(/^(\/(?:Users|home)|[a-zA-Z]:[\\/]Users)[\\/][^\\/]+(?=[\\/])/, '~');
+  if (!HOME_DIR || !p) return p;
+  const head = p.slice(0, HOME_DIR.length);
+  const same = HOME_CI ? head.toLowerCase() === HOME_DIR.toLowerCase() : head === HOME_DIR;
+  if (!same) return p;
+  const rest = p.slice(HOME_DIR.length);
+  if (rest && !/^[\\/]/.test(rest)) return p;
+  return '~' + rest;
 }
 
 const EXT_LANG: Record<string, string> = {
@@ -57,10 +74,4 @@ export function fmtTime(ts: number): string {
   if (dayDiff < 7) return `${d.toLocaleDateString(loc, { weekday: 'long' })} ${hm}`;
   if (d.getFullYear() === now.getFullYear()) return `${d.toLocaleDateString(loc, { month: 'short', day: 'numeric' })} ${hm}`;
   return `${d.toLocaleDateString(loc, { year: 'numeric', month: 'short', day: 'numeric' })} ${hm}`;
-}
-
-/** 绝对路径缩写为 ~ 相对形式：/Users/xxx/Documents → ~/Documents */
-export function shortPath(p: string): string {
-  const home = p.match(/^\/Users\/[^/]+|^\/home\/[^/]+|^[A-Z]:\\Users\\[^\\]+/);
-  return home ? '~' + p.slice(home[0].length) : p;
 }

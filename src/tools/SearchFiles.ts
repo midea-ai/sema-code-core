@@ -1,8 +1,7 @@
 import { z } from 'zod'
-import { isAbsolute, relative, resolve } from 'path'
 import { Tool } from './base/Tool'
 import { readInitialCwd } from '../util/cwd'
-import { globFiles } from '../util/file'
+import { globFiles, getDisplayPath } from '../util/file'
 import { TOOL_NAME_SEARCH_FILES } from '../prompt/tool'
 
 const TOOL_NAME = TOOL_NAME_SEARCH_FILES
@@ -10,18 +9,17 @@ const TOOL_NAME = TOOL_NAME_SEARCH_FILES
 function getTitle(input?: { pattern?: string; path?: string; glob?: string }) {
   if (input?.pattern !== undefined) {
     const parts = [`pattern: "${input.pattern}"`]
-    
+
     if (input.glob) {
       parts.push(`glob: "${input.glob}"`)
     }
-    
+
     if (input.path) {
       try {
-        const absolutePath = isAbsolute(input.path) ? input.path : resolve(readInitialCwd(), input.path)
-        const relativePath = relative(readInitialCwd(), absolutePath)
-        // 只有当相对路径不是空字符串或 '.' 时才添加
-        if (relativePath && relativePath !== '.') {
-          parts.push(`path: "${relativePath}"`)
+        const displayPath = getDisplayPath(input.path)
+        // 搜索目录就是项目根（`.`）时不显示位置
+        if (displayPath !== '.') {
+          parts.push(`path: "${displayPath}"`)
         }
       } catch (error) {
         parts.push(`path: "${input.path}"`)
@@ -67,18 +65,18 @@ For multi-step or exploratory searches, prefer the Agent tool.`
     const title = getTitle({ pattern, path })
     const fileText = numFiles !== 1 ? 'files' : 'file'
     
-    // 将文件路径转换为相对路径
+    // 文件路径按统一显示规则（项目内相对、项目外绝对）
     let content = ''
     if (filenames && filenames.length > 0) {
-      const relativeFilePaths = filenames.map(filePath => {
+      const displayPaths = filenames.map(filePath => {
         try {
-          return relative(readInitialCwd(), filePath)
+          return getDisplayPath(filePath)
         } catch (error) {
           return filePath
         }
       })
 
-      content = relativeFilePaths.join('\n')
+      content = displayPaths.join('\n')
     }
     
     return {

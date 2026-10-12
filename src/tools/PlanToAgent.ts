@@ -1,10 +1,8 @@
-import { relative } from 'path'
 import { z } from 'zod'
 import { Tool } from './base/Tool'
 import { TOOL_DESCRIPTION } from '../prompt/tools/planToAgent'
 import { TOOL_NAME_PLAN_TO_AGENT } from '../prompt/tool'
-import { canonicalizeFilePath, readTextContent } from '../util/file'
-import { readInitialCwd } from '../util/cwd'
+import { canonicalizeFilePath, readTextContent, getDisplayPath } from '../util/file'
 import { safeGetFileInfo } from '../util/secureFile'
 import { ToolControlSignal } from '../types/message'
 import { getEventBus } from '../events/EventSystem'
@@ -74,8 +72,8 @@ export const PlanToAgent = {
     // 读取计划文件内容
     const { content } = readTextContent(fullFilePath, 0)
 
-    // 获取相对路径用于事件
-    const relativePath = relative(readInitialCwd(), fullFilePath)
+    // 事件里的路径按统一显示规则（项目内相对、项目外绝对）
+    const relativePath = getDisplayPath(fullFilePath)
 
     // 发送权限请求事件
     const requestData: PlanExitRequestData = {

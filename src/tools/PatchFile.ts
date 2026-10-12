@@ -1,6 +1,6 @@
 import { Hunk } from 'diff'
 import { existsSync, mkdirSync, readFileSync, statSync } from 'fs'
-import { dirname, isAbsolute, relative } from 'path'
+import { dirname, isAbsolute } from 'path'
 import { z } from 'zod'
 import { Tool, ValidationResult } from './base/Tool'
 import {
@@ -9,10 +9,10 @@ import {
   findFileWithDifferentExt,
   writeTextFile,
   formatWithLineNumbers,
-  canonicalizeFilePath
+  canonicalizeFilePath,
+  getDisplayPath
 } from '../util/file'
 import { getPatch, getUpdateSummary } from '../util/diff'
-import { readInitialCwd } from '../util/cwd'
 import { TOOL_NAME_PATCH_FILE, TOOL_NAME_EDIT_NOTEBOOK } from '../prompt/tool'
 import { applyEdit, normalizeLF } from '../util/edit'
 import { getStateManager } from '../manager/StateManager'
@@ -31,7 +31,7 @@ export type In = typeof toolParams
 // 辅助函数：生成显示标题
 function getTitle(input?: { file_path?: string }) {
   if (input?.file_path) {
-    return relative(readInitialCwd(), input.file_path)
+    return getDisplayPath(input.file_path)
   }
   return TOOL_NAME_PATCH_FILE
 }

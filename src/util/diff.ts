@@ -1,6 +1,5 @@
 import { type Hunk, structuredPatch } from 'diff'
-import { relative } from 'path'
-import { readInitialCwd } from './cwd'
+import { getDisplayPath } from './file'
 
 const PATCH_SURROUNDING_LINES = 3
 
@@ -65,7 +64,7 @@ export function countPatchLines(patches?: Hunk[]): { additions: number; removals
 // 获取更新摘要信息
 export function getUpdateSummary(filePath: string, patches?: Hunk[]): string {
   const hunks = patches ?? []
-  const relativePath = relative(readInitialCwd(), filePath)
+  const relativePath = getDisplayPath(filePath)
 
   const countLines = (prefix: string) =>
     hunks.reduce((count, hunk) => count + hunk.lines.filter(l => l.startsWith(prefix)).length, 0)

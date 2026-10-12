@@ -186,7 +186,7 @@ export interface ToolPermissionRequestData {
   agentId: string;       // 代理ID（主代理为 MAIN_AGENT_ID，子代理为 taskId）
   toolId: string;        // 工具调用唯一ID（对应 Anthropic ToolUseBlock 的 id），用于精确匹配响应
   toolName: string;                  // 工具名称
-  title: string;                     // 工具执行标题
+  title: string;                     // 工具执行标题。文件类工具为路径：项目内相对工作目录、项目外绝对路径（见 util/file getDisplayPath），不含 `../`
   content: string | Record<string, any>;  // 权限说明文字（字符串或JSON对象）
   options: Record<string, string>;   // 可选操作字典
 }
@@ -199,7 +199,7 @@ export interface ToolExecutionCompleteData {
   agentId: string;       // 代理ID（主代理为 MAIN_AGENT_ID，子代理为 taskId）
   toolId: string;        // 工具调用唯一ID（对应 Anthropic ToolUseBlock 的 id）
   toolName: string;      // 工具名称
-  title: string;         // 工具执行标题
+  title: string;         // 工具执行标题。文件类工具为路径：项目内相对工作目录、项目外绝对路径，不含 `../`（view_file 可带 `:起始-结束` 行号后缀）
   summary: string;       // 工具执行摘要
   content: string | Record<string, any>;  // 工具执行结果内容（字符串或JSON对象）
   interrupted?: boolean; // 工具在执行途中被用户中断、以部分/空结果正常结束（supportsInterrupt 的工具）

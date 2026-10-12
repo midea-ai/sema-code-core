@@ -1,10 +1,10 @@
 import { stat } from 'fs/promises'
 import { z } from 'zod'
-import { relative } from 'path'
 import { Tool } from './base/Tool'
 import { readInitialCwd } from '../util/cwd'
 import {
   canonicalizeFilePath,
+  getDisplayPath,
 } from '../util/file'
 import { searchWithRipgrep } from '../util/ripgrep'
 import { TOOL_NAME_SEARCH_CONTENT } from '../prompt/tool'
@@ -21,11 +21,10 @@ function getTitle(input?: { pattern?: string; path?: string; glob?: string }) {
     
     if (input.path) {
       try {
-        const absolutePath = canonicalizeFilePath(input.path)
-        const relativePath = relative(readInitialCwd(), absolutePath)
-        // 只有当相对路径不是空字符串或 '.' 时才添加
-        if (relativePath && relativePath !== '.') {
-          parts.push(`path: "${relativePath}"`)
+        const displayPath = getDisplayPath(input.path)
+        // 搜索目录就是项目根（`.`）时不显示位置
+        if (displayPath !== '.') {
+          parts.push(`path: "${displayPath}"`)
         }
       } catch (error) {
         parts.push(`path: "${input.path}"`)
@@ -113,26 +112,25 @@ export const SearchContent = {
     const title = getTitle({ pattern, path, glob })
     const matchText = numFiles !== 1 ? 'matches' : 'match';
     
-    // 将文件路径转换为相对路径
+    // 文件路径按统一显示规则（项目内相对、项目外绝对）
     let content = ''
     if (filenames && filenames.length > 0) {
-      const relativeFilePaths = filenames.map(line => {
+      const displayPaths = filenames.map(line => {
         try {
           // 检查是否是 "文件路径:行号:内容" 格式（content 模式）
           const match = line.match(/^(.+?):(\d+)(:.*)?$/)
           if (match) {
             const [, filePath, lineNum, rest = ''] = match
-            const relativePath = relative(readInitialCwd(), filePath)
-            return `${relativePath}:${lineNum}${rest}`
+            return `${getDisplayPath(filePath)}:${lineNum}${rest}`
           }
           // 普通文件路径（files 模式）
-          return relative(readInitialCwd(), line)
+          return getDisplayPath(line)
         } catch (error) {
           return line
         }
       })
 
-      content = relativeFilePaths.join('\n')
+      content = displayPaths.join('\n')
     }
     
     return {

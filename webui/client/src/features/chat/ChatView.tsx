@@ -16,7 +16,7 @@ import { Button, Caret, Modal, Spinner, useDialog, useCopy, cn } from '../../com
 import { usePausableElapsed } from '../../common/useElapsed';
 import { t } from '../../i18n';
 import { collapsedHeaderPad, panelCollapsedHeaderPad } from '../../common/desktop';
-import { fmtTime, shortPath } from '../../common/text';
+import { fmtTime, displayPath } from '../../common/text';
 
 export function ChatView({ sessionId }: { sessionId: string }) {
   const record = useApp(s => s.registry.sessions.find(x => x.id === sessionId));
@@ -183,7 +183,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           <span className="truncate font-medium">{record.title || t('chat.untitled')}</span>
           <Pencil size={12} className="text-muted opacity-0 group-hover:opacity-100 shrink-0" />
         </button>
-        <span className="text-xs text-muted truncate hidden md:inline" title={record.workingDir}>{shortPath(record.workingDir)}</span>
+        <span className="text-xs text-muted truncate hidden md:inline" title={record.workingDir}>{displayPath(record.workingDir)}</span>
         <span className="flex-1" />
         <Button size="sm" variant="outline" onClick={() => useApp.getState().revealSession(sessionId).catch(e => toast(e.message, 'error'))}><FolderOpen size={13} />{t('chat.openLocation')}</Button>
       </div>

@@ -6,6 +6,7 @@ import type { Registry, WebUISettings, ProjectRecord, SessionRecord } from '../.
 import { SERVER_EVENTS } from '../../../shared/protocol';
 import { isPrivateUrl, normalizeUrl } from '../common/url';
 import { setLang, t } from '../i18n';
+import { setHomeDir } from '../common/text';
 
 
 export type View =
@@ -154,8 +155,9 @@ export const useApp = create<AppState>((set, get) => ({
   doneUnread: {},
 
   async bootstrap() {
-    const data = await api<{ registry: Registry; settings: WebUISettings; status: any; liveSessions?: string[]; platform: string }>('GET', '/api/bootstrap');
+    const data = await api<{ registry: Registry; settings: WebUISettings; status: any; liveSessions?: string[]; platform: string; homeDir?: string }>('GET', '/api/bootstrap');
     setLang(data.settings.coreConfig.lang);
+    setHomeDir(data.homeDir || '', data.platform === 'win32');
     set({ registry: data.registry, settings: data.settings, status: data.status, liveSessions: toLiveMap(data.liveSessions), platform: data.platform, ready: true });
     // 恢复视图：会话已不存在则回到空
     const v = get().view;

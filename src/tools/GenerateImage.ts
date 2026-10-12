@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import * as fs from 'fs'
-import { basename, extname, relative } from 'path'
+import { basename, extname } from 'path'
 import { Tool } from './base/Tool'
 import { TOOL_DESCRIPTION } from '../prompt/tools/generateImage'
 import { TOOL_NAME_GENERATE_IMAGE } from '../prompt/tool'
@@ -11,9 +11,8 @@ import { getCheckpointManager } from '../manager/CheckpointManager'
 import { MAIN_AGENT_ID } from '../manager/StateManager'
 import { getEventBus } from '../events/EventSystem'
 import type { ToolExecutionChunkData } from '../events/types'
-import { canonicalizeFilePath } from '../util/file'
+import { canonicalizeFilePath, getDisplayPath } from '../util/file'
 import { readPngAlphaStats } from '../util/imageCompress'
-import { readInitialCwd } from '../util/cwd'
 import { getTimeTag } from '../util/time'
 import { TOOL_INTERRUPT_MSG } from '../util/message'
 
@@ -122,7 +121,7 @@ export const GenerateImage = {
   },
   genToolResultMessage(data: ToolRes, input?: { prompt?: string }) {
     const first = data.images[0]
-    const displayPath = first ? relative(readInitialCwd(), first.filePath) : ''
+    const displayPath = first ? getDisplayPath(first.filePath) : ''
     return {
       title: first ? basename(first.filePath) : TOOL_NAME,
       summary: data.interrupted

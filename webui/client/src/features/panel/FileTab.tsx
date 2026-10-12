@@ -161,8 +161,14 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
   const office = kind && kind !== 'md' && !showSource && data && !data.image ? kind : null;
 
   const outside = isAbsPath(relPath);
-  // 面包屑显示：home 目录缩写为 ~（与聊天工具行一致），悬停提示与接口请求仍用真实路径
-  const crumbs = relPath.replace(/^(\/(?:Users|home)|[a-zA-Z]:[\\/]Users)[\\/][^\\/]+(?=[\\/])/, '~').split(/[\\/]/).filter(Boolean);
+  // 面包屑：项目内以项目目录名开头，后接相对路径各段，目录段可点开一层目录列表；
+  // 项目外按绝对路径分段显示（不缩写 ~），目录段不可点（/ls 只能列项目内目录）
+  const segs = relPath.split(/[\\/]/).filter(Boolean);
+  const crumbs = outside ? segs : [rootName, ...segs];
+  // 项目内各目录段对应的相对路径（根为空串），文件段不在其中
+  const dirCount = outside ? 0 : (relPath ? crumbs.length - 1 : crumbs.length);
+  const [crumbMenu, setCrumbMenu] = useState<{ rect: DOMRect; dir: string } | null>(null);
+  useEffect(() => { setCrumbMenu(null); }, [relPath]);
   // 路径过长时默认滚到最右端：文件名可见，左侧路径左右滑动查看。
   // 刚建标签 / 面板展开时容器宽度可能还是 0，此时 scrollLeft 赋值无效，用 ResizeObserver 在尺寸就绪后再吸右
   const crumbRef = useRef<HTMLDivElement>(null);
@@ -181,16 +187,18 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
       <div className="h-9 shrink-0 flex items-center gap-1 px-3 border-b border-border text-xs">
         {/* 路径不省略、始终单行：容器可横向滚动，默认滚到最右端露出文件名（左侧路径滑动可见） */}
         <div ref={crumbRef} className="flex items-center gap-1 min-w-0 overflow-x-auto scrollbar-none whitespace-nowrap" title={relPath ? (outside ? `${t('file.outside')}: ${relPath}` : relPath) : undefined}>
-          {/* 未选文件时显示项目名占位；目录内不重复项目名（会话顶部已可见），目录外直接从首段（如 Users）开始 */}
-          {!relPath && <span className="text-muted shrink-0">{rootName}</span>}
           {/* Office 预览只显示文件名（不带扩展名），完整路径在悬停提示里 */}
           {office ? <span className="text-sm font-medium text-fg shrink-0">{baseNameNoExt(relPath)}</span> : crumbs.map((c, i) => (
             <span key={i} className="inline-flex items-center gap-1 shrink-0">
               {i > 0 && <ChevronRight size={11} className="text-muted" />}
-              <span className={cn(i === crumbs.length - 1 ? 'text-fg' : 'text-muted')}>{c}</span>
+              {i < dirCount
+                ? <button onClick={e => setCrumbMenu({ rect: e.currentTarget.getBoundingClientRect(), dir: segs.slice(0, i).join('/') })}
+                    className={cn('px-0.5 rounded text-muted hover:text-fg hover:bg-black/[0.05]', crumbMenu?.dir === segs.slice(0, i).join('/') && 'text-fg bg-black/[0.06]')}>{c}</button>
+                : <span className={cn(relPath && i === crumbs.length - 1 ? 'text-fg' : 'text-muted')}>{c}</span>}
             </span>
           ))}
         </div>
+        {crumbMenu && <CrumbMenu sessionId={sessionId} anchor={crumbMenu.rect} dir={crumbMenu.dir} current={relPath} onPick={setPath} onClose={() => setCrumbMenu(null)} />}
         <span className="flex-1" />
         {kind && data && !data.binary && (
           <button onClick={toggleSource} className="px-1.5 h-7 shrink-0 whitespace-nowrap rounded text-muted hover:text-fg hover:bg-black/[0.05]">{t(showSource ? 'file.viewPreview' : 'file.viewSource')}</button>
@@ -317,6 +325,35 @@ function MdPreview({ content, sessionId }: { content: string; sessionId: string 
       )}
       <div className="p-4"><Markdown text={fm.body} sessionId={sessionId} renderImages /></div>
     </div>
+  );
+}
+
+/** 面包屑目录段的下拉面板：列出该目录下一层的文件夹和文件，点文件打开，点文件夹进入该层（面板内继续列一层） */
+function CrumbMenu({ sessionId, anchor, dir, current, onPick, onClose }: {
+  sessionId: string; anchor: DOMRect; dir: string; current: string; onPick: (p: string) => void; onClose: () => void;
+}) {
+  const [cur, setCur] = useState(dir);
+  const [items, setItems] = useState<DirItem[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setItems(null);
+    api<{ items: DirItem[] }>('POST', `/api/sessions/${sessionId}/ls`, { path: cur }).then(r => { if (alive) setItems(r.items); }).catch(() => { if (alive) setItems([]); });
+    return () => { alive = false; };
+  }, [sessionId, cur]);
+  return (
+    <Popover anchor={anchor} onClose={onClose} className="min-w-48 max-w-80">
+      {!items ? <div className="px-2.5 py-1.5 text-xs text-muted flex items-center gap-2"><Spinner />{t('common.loading')}</div>
+        : !items.length ? <div className="px-2.5 py-1.5 text-xs text-muted">Empty</div>
+        : items.map(it => {
+          const p = cur ? `${cur}/${it.name}` : it.name;
+          return (
+            <button key={p} onClick={() => { if (it.isDirectory) setCur(p); else { onPick(p); onClose(); } }}
+              className={cn('w-full flex items-center gap-1.5 text-left px-2.5 py-1 rounded text-xs hover:bg-black/[0.06]', p === current ? 'bg-accent/10 text-fg' : 'text-fg')} title={p}>
+              <FileIcon fileName={it.name} isDirectory={it.isDirectory} size={14} /><span className="truncate">{it.name}</span>
+            </button>
+          );
+        })}
+    </Popover>
   );
 }
 

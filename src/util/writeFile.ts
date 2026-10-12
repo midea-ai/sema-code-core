@@ -1,6 +1,5 @@
 import type { Hunk } from 'diff'
-import { relative } from 'path'
-import { readInitialCwd } from './cwd'
+import { getDisplayPath } from './file'
 import { TOOL_NAME_WRITE_FILE, TOOL_NAME_SEARCH_CONTENT } from '../prompt/tool'
 import { getPatch, getUpdateSummary } from './diff'
 
@@ -11,7 +10,7 @@ const WRITE_TRUNCATED_MESSAGE =
 
 export function getWriteFileTitle(input?: { file_path?: string }): string {
   if (input?.file_path) {
-    return relative(readInitialCwd(), input.file_path)
+    return getDisplayPath(input.file_path)
   }
   return TOOL_NAME_WRITE_FILE
 }

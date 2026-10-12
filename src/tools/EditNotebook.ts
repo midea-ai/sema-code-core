@@ -1,6 +1,6 @@
 import { type Hunk } from 'diff'
 import { existsSync,  statSync } from 'fs'
-import { extname, relative } from 'path'
+import { extname } from 'path'
 import { z } from 'zod'
 import { Tool } from './base/Tool'
 import { NotebookCellType, NotebookContent } from '../types/notebook'
@@ -9,23 +9,22 @@ import {
   inferLineEndings,
   writeTextFile,
   canonicalizeFilePath,
-  readTextContent
+  readTextContent,
+  getDisplayPath
 } from '../util/file'
 import { safeParseJSON } from '../util/format'
 import { getPatch } from '../util/diff'
 import { TOOL_NAME_EDIT_NOTEBOOK, TOOL_NAME_PATCH_FILE } from '../prompt/tool'
 import { getStateManager } from '../manager/StateManager'
 import { getCheckpointManager } from '../manager/CheckpointManager'
-import { readInitialCwd } from '../util/cwd'
 
 function getTitle(input?: { notebook_path?: string; cell_index?: number }) {
   if (input?.notebook_path) {
-    const normalizedPath = canonicalizeFilePath(input.notebook_path)
-    const relativePath = relative(readInitialCwd(), normalizedPath)
+    const displayPath = getDisplayPath(input.notebook_path)
     if (input.cell_index !== undefined) {
-      return `${relativePath} cell:${input.cell_index}`
+      return `${displayPath} cell:${input.cell_index}`
     }
-    return relativePath
+    return displayPath
   }
   return TOOL_NAME_EDIT_NOTEBOOK
 }

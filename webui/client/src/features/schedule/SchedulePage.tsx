@@ -7,7 +7,7 @@ import { cn, Spinner, Button } from '../../common/ui';
 import { t, dateLocale } from '../../i18n';
 import { collapsedHeaderPad } from '../../common/desktop';
 import { CronTaskCard, parseCronFileRef } from '../panel/CronTaskCard';
-import { shortPath } from '../../common/text';
+import { displayPath } from '../../common/text';
 import { sortCronTasks } from '../panel/CronTab';
 
 /** 时间线事件：启用中任务的一次未来触发 */
@@ -146,7 +146,7 @@ export function SchedulePage() {
                 <div className="flex items-center gap-2 mb-2 min-w-0">
                   <Folder size={14} className="shrink-0 text-muted" />
                   <span className="font-medium truncate min-w-0 @5xl:shrink-0 @5xl:max-w-[45%]" title={g.workingDir}>{g.projectName}</span>
-                  <span className="hidden @5xl:inline text-xs text-muted truncate" title={g.workingDir}>{shortPath(g.workingDir)}</span>
+                  <span className="hidden @5xl:inline text-xs text-muted truncate" title={g.workingDir}>{displayPath(g.workingDir)}</span>
                   <span className="flex-1" />
                   {g.latestSessionId && g.tasks.some(x => x.persist) && (
                     <Button size="sm" variant="ghost" title={t('schedule.openSession')} onClick={() => setView({ type: 'chat', sessionId: g.latestSessionId! })}>

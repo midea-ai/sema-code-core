@@ -285,7 +285,10 @@ function toolVerb(block: ToolBlock, diff: { type: 'diff' | 'new' } | null): stri
 }
 
 const FILE_TOOLS = new Set(['view_file', 'write_file', 'patch_file', 'edit_notebook']);
-/** `../` 开头的路径基于会话目录归一化为绝对路径（目录外文件统一按绝对路径处理） */
+/**
+ * `../` 开头的路径基于会话目录归一化为绝对路径。core 现已统一"项目内相对、项目外绝对"，新事件不会再出现 `../`；
+ * 保留只为兼容 ~/.sema/webui/transcripts 里的历史记录
+ */
 function normalizeRel(p: string, workingDir: string): string {
   if (!workingDir || !/^\.\.[\\/]/.test(p)) return p;
   const stack: string[] = [];
@@ -345,7 +348,7 @@ function ToolSummary({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   if (n === 'search_files' || n === 'search_content') return <span className={cn('truncate', block.status === 'error' && 'text-danger')}>{searchLabel(block)}</span>;
   // generate_image 三态都只显示描述，不带提示词/文件名
   const isGeneric = n.startsWith('mcp__') || n === 'ask_form' || n === GEN_IMAGE_TOOL;
-  const target = isGeneric ? '' : n === 'view_file' ? (filePathOf(block, workingDir)?.split('/').pop() || '') : n === 'run_shell' ? (block.summary || block.title || '') : FILE_TOOLS.has(n) ? displayPath(filePathOf(block, workingDir) || '') : (block.title && block.title !== n ? block.title : '');
+  const target = isGeneric ? '' : n === 'view_file' ? (filePathOf(block, workingDir)?.split(/[\\/]/).pop() || '') : n === 'run_shell' ? (block.summary || block.title || '') : FILE_TOOLS.has(n) ? displayPath(filePathOf(block, workingDir) || '') : (block.title && block.title !== n ? block.title : '');
   return (
     <>
       <span className={cn('shrink-0', block.status === 'error' && 'text-danger')}>{toolVerb(block, diff)}</span>
@@ -397,7 +400,7 @@ function ToolCard({ block, ctx, onOpenChange }: { block: ToolBlock; ctx: BlockCt
         {block.status === 'running' ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : block.status === 'error' ? <X size={14} className="text-danger shrink-0" /> : <Icon size={14} className="shrink-0" />}
         {isSearch ? <span className={cn('truncate', block.status === 'error' && 'text-danger')}>{searchLabel(block)}</span> : <span className={cn('shrink-0', block.status === 'error' && 'text-danger')}>{toolVerb(block, diff)}</span>}
         {isSearch || isGeneric ? null : filePath
-          ? <span onClick={e => { e.stopPropagation(); openFileRef(ctx.sessionId, filePath); }} className="truncate underline decoration-border underline-offset-2 cursor-pointer hover:text-fg hover:decoration-fg" title={absPathOf(filePath, workingDir)}>{isRead ? filePath.split('/').pop() : isSkill ? block.title : displayPath(filePath)}</span>
+          ? <span onClick={e => { e.stopPropagation(); openFileRef(ctx.sessionId, filePath); }} className="truncate underline decoration-border underline-offset-2 cursor-pointer hover:text-fg hover:decoration-fg" title={absPathOf(filePath, workingDir)}>{isRead ? filePath.split(/[\\/]/).pop() : isSkill ? block.title : displayPath(filePath)}</span>
           : <span className={cn('truncate', isShell && 'font-mono text-[12.5px]')}>{isShell ? (block.summary || block.title) : block.title}</span>}
         {block.summary && !isShell && !isEdit && !isRead && !isSearch && !isGeneric && !isSkill && <span className="text-xs truncate max-w-[40%]">{block.summary}</span>}
         {isEdit && diff && <DiffStat patch={diff.patch} />}
@@ -578,7 +581,7 @@ function PermissionCard({ block, ctx }: { block: PermissionBlock; ctx: BlockCtx 
   const isAgentCall = block.toolName === 'sub_agent';
   /** 技能：名字放标题行（权限请求 · 技能 xlsx-pricing），正文只放说明 */
   const titleInHeader = block.toolName === 'skill';
-  // 文件类工具的 title 是路径：`../` 归一化为绝对路径；正文显示时 home 缩写为 ~，diff 取内容仍用真实路径
+  // 文件类工具的 title 是路径（项目内相对、项目外绝对；历史记录的 `../` 归一化为绝对）；正文显示时 home 缩写为 ~，diff 取内容仍用真实路径
   const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
   const filePath = FILE_TOOLS.has(block.toolName) ? normalizeRel(block.title, workingDir) : null;
   const resolved = block.resolved;

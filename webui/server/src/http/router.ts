@@ -3,6 +3,7 @@
  */
 import http from 'http';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { execFile } from 'child_process';
 import { SessionManager } from '../sessions';
@@ -184,7 +185,8 @@ export class Router {
   constructor(private sm: SessionManager, private tm?: import('../terminal/manager').TerminalManager) {
     const reg = sm.registry;
 
-    this.add('GET', '/api/bootstrap', () => ({ registry: reg.snapshot(), settings: reg.getSettings(), status: sm.statusMap(), liveSessions: sm.liveSessionIds(), platform: process.platform }));
+    // homeDir：前端把绝对路径缩写成 ~ 用，真值取自服务端，前端不再用正则猜 /Users、/home、C:\Users
+    this.add('GET', '/api/bootstrap', () => ({ registry: reg.snapshot(), settings: reg.getSettings(), status: sm.statusMap(), liveSessions: sm.liveSessionIds(), platform: process.platform, homeDir: os.homedir() }));
     this.add('GET', '/api/registry', () => reg.snapshot());
     this.add('GET', '/api/settings', () => reg.getSettings());
     this.add('PUT', '/api/settings', async (_r, _s, _p, body) => {

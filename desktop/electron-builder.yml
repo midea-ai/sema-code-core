@@ -40,7 +40,8 @@ dmg:
   format: UDBZ
 
 win:
-  icon: assets/icon.png
+  # icon.png 按 macOS 规范四周留 10% 透明边，Windows 图标约定铺满画布，这里用裁掉边距的 icon-win.png，否则比其他应用小一圈
+  icon: assets/icon-win.png
   target:
     - target: nsis
       arch: [x64]
@@ -50,7 +51,7 @@ nsis:
   allowToChangeInstallationDirectory: true
 
 linux:
-  icon: assets/icon.png
+  icon: assets/icon-win.png
   category: Development
   target:
     - target: AppImage

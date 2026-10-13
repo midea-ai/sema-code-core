@@ -123,7 +123,7 @@ export function SchedulePage() {
                     {newDay && <div className="px-2 pt-3 pb-1 text-xs font-medium text-fg">{dayLabel(ev.ts, now)}</div>}
                     <button onClick={() => locate(ev.taskId)}
                       className="w-full text-left px-2 py-1.5 rounded-md hover:bg-black/[0.04] flex items-start gap-2">
-                      <span className="font-mono text-xs text-accent pt-0.5 shrink-0">{fmtTime(ev.ts)}</span>
+                      <span className="tabular-nums text-xs text-accent pt-0.5 shrink-0">{fmtTime(ev.ts)}</span>
                       <span className="flex-1 min-w-0">
                         <span className="block truncate text-[13px] text-fg" title={ev.name}>{ev.name}</span>
                         <span className="block truncate text-[11px] text-muted">{ev.projectName}</span>

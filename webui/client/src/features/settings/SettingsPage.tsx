@@ -142,7 +142,7 @@ function ModelsSettings({ autoAdd }: { autoAdd?: boolean }) {
                       <td className="px-4 py-2.5"><span className="inline-flex items-center gap-2"><ProviderLogo provider={provider} />{provider === 'custom' ? provider : providerLabel(provider)}</span></td>
                       <td className="px-4 py-2.5">
                         <span className="inline-flex items-center gap-2">
-                          <span className="font-mono text-[13px]">{stripProviderSuffix(name)}</span>
+                          <span className="text-[13px]">{stripProviderSuffix(name)}</span>
                           {task === 'main' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">{t('settings.mainModel')}</span>}
                           {task === 'quick' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-ok/10 text-ok">{t('settings.quickModel')}</span>}
                         </span>
@@ -204,7 +204,7 @@ function ModelsSettings({ autoAdd }: { autoAdd?: boolean }) {
                       <td className="px-4 py-2.5"><span className="inline-flex items-center gap-2"><ProviderLogo provider={provider} />{provider !== 'custom' && IMAGE_PROVIDERS[provider] ? imageProviderLabel(provider) : provider}</span></td>
                       <td className="px-4 py-2.5">
                         <span className="inline-flex items-center gap-2">
-                          <span className="font-mono text-[13px]">{stripProviderSuffix(name)}</span>
+                          <span className="text-[13px]">{stripProviderSuffix(name)}</span>
                           {name === imageActive && <span className="text-[11px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">{t('settings.imageInUse')}</span>}
                         </span>
                       </td>
@@ -724,7 +724,7 @@ function SystemSettings() {
       </section>
       <section>
         <h2 className="text-base font-semibold mb-3">{t('settings.rolePrompt')}</h2>
-        <input value={rolePrompt} onChange={e => setRolePrompt(e.target.value)} placeholder={DEFAULT_SYSTEM_PROMPT} className="w-full h-9 px-3 rounded-md bg-white border border-border text-sm font-mono" />
+        <input value={rolePrompt} onChange={e => setRolePrompt(e.target.value)} placeholder={DEFAULT_SYSTEM_PROMPT} className="w-full h-9 px-3 rounded-md bg-white border border-border text-sm" />
         <div className="flex justify-end gap-2 mt-2">
           <Button variant="ghost" size="sm" disabled={savingRole || (rolePrompt === DEFAULT_SYSTEM_PROMPT && settings.coreConfig.systemPrompt === DEFAULT_SYSTEM_PROMPT)}
             onClick={async () => { setRolePrompt(DEFAULT_SYSTEM_PROMPT); if (settings.coreConfig.systemPrompt !== DEFAULT_SYSTEM_PROMPT) { setSavingRole(true); await patch({ coreConfig: { ...settings.coreConfig, systemPrompt: DEFAULT_SYSTEM_PROMPT } }); setSavingRole(false); toast(t('settings.saved')); } }}>{t('settings.resetDefault')}</Button>
@@ -734,7 +734,7 @@ function SystemSettings() {
       </section>
       <section>
         <h2 className="text-base font-semibold mb-3">{t('settings.customRules')}</h2>
-        <textarea value={rules} onChange={e => setRules(e.target.value)} rows={5} className="w-full p-3 rounded-md bg-white border border-border text-sm font-mono resize-y" />
+        <textarea value={rules} onChange={e => setRules(e.target.value)} rows={5} className="w-full p-3 rounded-md bg-white border border-border text-sm resize-y" />
         <div className="flex justify-end gap-2 mt-2">
           {/* 恢复为当前界面语言的默认规则 */}
           <Button variant="ghost" size="sm" disabled={savingRules || (rules === defaultRules && settings.coreConfig.customRules === defaultRules)}

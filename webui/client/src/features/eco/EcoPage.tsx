@@ -635,7 +635,7 @@ function McpEditModal({ item, onClose, onSaved }: { item: EcoInstalledMcp | null
     <Modal open={!!item} onClose={onClose} title={item ? `${t('eco.edit')} ${item.name}` : ''} width={520}>
       <div className="flex flex-col gap-3">
         <textarea value={text} onChange={e => { setText(e.target.value); setErr(null); }} spellCheck={false}
-          className="w-full h-56 p-2.5 font-mono text-xs leading-relaxed rounded-md border border-border outline-none resize-none focus:border-black/30" />
+          className="w-full h-56 p-2.5 text-xs leading-relaxed rounded-md border border-border outline-none resize-none focus:border-black/30" />
         {err && <div className="text-xs text-danger">{err}</div>}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>{t('dialog.cancel')}</Button>

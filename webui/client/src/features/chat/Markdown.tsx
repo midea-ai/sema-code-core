@@ -9,7 +9,7 @@ import { Check, Code, Copy, Globe, Workflow, WrapText } from 'lucide-react';
 import { cn, useCopy } from '../../common/ui';
 import { getToken } from '../../api/http';
 import { isPrivateUrl } from '../../common/url';
-import { FileIcon } from '../../common/fileicon/FileIcon';
+import { FileLabel } from './fileRefDisplay';
 import { t, useLang } from '../../i18n';
 import { useApp } from '../../store/app';
 import { isLocalHref, isPathCandidate, parsePathRef, rawFileUrl, useFileStats, type PathStat } from './fileRefs';
@@ -55,17 +55,12 @@ function Table({ children }: any) {
   return <div className="md-table"><table>{children}</table></div>;
 }
 
-/** 可点击的文件引用（行内代码 / 链接共用） */
-function FileRef({ path, line, endLine, label, asCode }: { path: string; line?: number; endLine?: number; label: ReactNode; asCode?: boolean }) {
+/** 可点击的文件引用（行内代码 / 链接共用，两种写法渲染完全一致）：外形走统一的 FileLabel，名字保持原文 */
+function FileRef({ path, line, endLine, label }: { path: string; line?: number; endLine?: number; label: ReactNode }) {
   const { sessionId } = useContext(Ctx);
   const openFileRef = useApp(s => s.openFileRef);
   const onClick = (e: MouseEvent) => { e.preventDefault(); if (sessionId) openFileRef(sessionId, path, line, endLine); };
-  const Tag: any = asCode ? 'code' : 'a';
-  return (
-    <Tag className={cn('md-file', asCode && 'md-file-code')} title={`${t('md.openFile')}: ${path}`} onClick={onClick} href={asCode ? undefined : '#'}>
-      <FileIcon fileName={path} size={13} className="md-file-icon" />{label}
-    </Tag>
-  );
+  return <FileLabel path={path} label={label} className="md-file" title={`${t('md.openFile')}: ${path}`} onClick={onClick} />;
 }
 
 /** http(s) 链接点击分流（链接 / 行内代码 URL 共用）：有会话走 openLink（本机/局域网右栏内嵌，其他系统浏览器），无会话直接外开 */
@@ -79,13 +74,13 @@ function useOpenUrl() {
   };
 }
 
-/** 行内代码整体是一个 http(s) URL：保留代码底色、用链接强调色，渲染为可点链接（前置站点图标） */
+/** 行内代码整体是一个 http(s) URL：渲染成与普通链接完全一致的可点链接（前置站点图标） */
 function UrlCode({ url }: { url: string }) {
   const openUrl = useOpenUrl();
   return (
-    <code className="md-file md-url-code" title={url} onClick={() => openUrl(url)}>
+    <a href={url} className="md-link" title={url} onClick={e => { e.preventDefault(); openUrl(url); }}>
       <SiteIcon url={url} />{url}
-    </code>
+    </a>
   );
 }
 
@@ -98,7 +93,7 @@ function InlineCode({ children, className, ...rest }: any) {
     if (sessionId && isPathCandidate(raw)) {
       const ref = parsePathRef(raw);
       const s = stat(ref.path);
-      if (s?.exists && !s.isDir) return <FileRef path={ref.path} line={ref.line} endLine={ref.endLine} label={raw} asCode />;
+      if (s?.exists && !s.isDir) return <FileRef path={ref.path} line={ref.line} endLine={ref.endLine} label={raw} />;
     }
   }
   return <code className={className} {...rest}>{children}</code>;
@@ -174,8 +169,8 @@ function LocalImage({ sessionId, path, alt, onOpen }: { sessionId: string; path:
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
-      <span className="md-file md-img-failed" title={`${t('md.openImage')}: ${path}`} onClick={onOpen}>
-        <FileIcon fileName={path} size={13} className="md-file-icon" />{alt || path.split(/[\\/]/).pop()}
+      <span className="md-img-failed">
+        <FileLabel path={path} label={alt || path.split(/[\\/]/).pop()} className="md-file" title={`${t('md.openImage')}: ${path}`} onClick={onOpen} />
         <span className="text-muted">（{t('md.imageLoadFailed')}）</span>
       </span>
     );

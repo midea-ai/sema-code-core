@@ -363,7 +363,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
           )}
           {ghost && (
             // 与 textarea 同排版的灰色预测文字（ghost 仅在空输入时出现，此时 textarea 顶到容器顶部）
-            <div className="pointer-events-none absolute inset-x-0 top-0 px-3.5 pt-3.5 text-sm leading-[22px] text-muted/50 truncate">
+            <div className="pointer-events-none absolute inset-x-0 top-0 px-3.5 pt-3.5 text-sm leading-chat text-muted/50 truncate">
               {ghost}
               <span className="ml-2 text-[10px] leading-none px-1 py-0.5 rounded bg-black/[0.06] text-muted/70 align-middle whitespace-nowrap">{t('chat.predictAccept')}</span>
             </div>
@@ -371,7 +371,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
           <RefEditor ref={taRef} value={draft.text} parse={parse} disabled={disabled}
             onChange={onChange}
             onKeyDown={onKeyDown} onKeyUp={onKeyUp} onClick={syncCaret} onBlur={closePicker} onPaste={onPaste} placeholder={ghost ? '' : t('chat.placeholder')}
-            className="w-full px-3.5 pt-3.5 pb-1.5 text-sm leading-[22px] min-h-[52px] max-h-60 overflow-auto" />
+            className="w-full px-3.5 pt-3.5 pb-1.5 text-sm leading-chat min-h-[52px] max-h-60 overflow-auto" />
           {/* 底栏：左侧裸按钮 28px 等高，右侧用量 + 32px 发送键，全部垂直居中 */}
           <div className="h-11 flex items-center gap-0.5 pl-2 pr-2">
             <Dropdown value={agentMode} title={t('chat.mode')} options={(lockedDesign ? ['Design' as AgentMode] : MODES).map(m => ({

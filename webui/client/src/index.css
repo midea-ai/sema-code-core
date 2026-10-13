@@ -13,6 +13,8 @@
 @utility bg-checker { background: repeating-conic-gradient(#ebebeb 0 25%, #fbfbfb 0 50%) 0 0 / 24px 24px; }
 
 @theme {
+  /* 聊天正文行高：Markdown 回复、用户气泡、输入框、@ 面板共用，文件高亮（FileLabel 按 1lh 取高）在各处才能一致 */
+  --leading-chat: 1.65;
   --color-bg: #ffffff;
   --color-panel: #f4f4f4;
   --color-panel-2: #f7f7f7;
@@ -49,7 +51,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 textarea, input, select { outline: none; }
 
 /* Markdown */
-.md { line-height: 1.65; word-break: break-word; }
+.md { line-height: var(--leading-chat); word-break: break-word; }
 .md > *:first-child { margin-top: 0; }
 .md > *:last-child { margin-bottom: 0; }
 .md p { margin: .5em 0; }
@@ -58,21 +60,18 @@ textarea, input, select { outline: none; }
 .md ul, .md ol { padding-left: 1.4em; margin: .5em 0; }
 .md ul { list-style: disc; } .md ol { list-style: decimal; }
 .md li { margin: .2em 0; }
-.md code { font-family: var(--font-mono); font-size: .875em; background: #0000000d; padding: .1em .35em; border-radius: 4px; }
-.md pre { background: var(--color-code); border: 1px solid var(--color-border); border-radius: 8px; padding: .75em 1em; overflow-x: auto; margin: .6em 0; }
-.md pre code { background: transparent; padding: 0; font-size: .85em; }
+.md code { font-family: inherit; font-size: 1em; background: #0000000d; padding: .1em .35em; border-radius: 4px; }
+.md pre { font-family: var(--font-mono); background: var(--color-code); border: 1px solid var(--color-border); border-radius: 8px; padding: .75em 1em; overflow-x: auto; margin: .6em 0; }
+.md pre code { background: transparent; padding: 0; font-size: 1em; }
 .md pre code.hljs { background: transparent; padding: 0; }
-/* 带图标的行内链接/文件引用：链接保持普通行内元素让文字落在基线上，只把图标下沉一点与文字视觉居中
-   （之前用 inline-flex 时容器基线取自没有文字的图标底边，整块会偏高） */
+/* 带站点图标的行内链接：链接保持普通行内元素让文字落在基线上，只把图标下沉一点与文字视觉居中
+   （直接用 inline-flex 时容器基线取自没有文字的图标底边，整块会偏高） */
 .md .md-link { text-decoration: none; }
 .md .md-link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .md .md-link-icon { display: inline-block; width: 13px; height: 13px; vertical-align: -0.15em; margin-right: .25em; border-radius: 2px; }
+/* 文件引用：外形由 FileLabel 统一（inline-flex 占满 1lh 行框居中），这里只管颜色与悬停 */
 .md .md-file { cursor: pointer; color: var(--color-accent); text-decoration: none; }
 .md .md-file:hover { text-decoration: underline; text-underline-offset: 2px; }
-.md .md-file-code { color: var(--color-fg); background: #0000000d; }
-.md .md-file-code:hover { color: var(--color-accent); text-decoration: none; }
-.md .md-url-code { background: #0000000d; }
-.md .md-file-icon { vertical-align: -0.15em; margin-right: .3em; }
 .md .md-local-img { max-height: 360px; border: 1px solid var(--color-border); }
 .md .md-code { position: relative; }
 .md .md-code pre { margin: .6em 0; }

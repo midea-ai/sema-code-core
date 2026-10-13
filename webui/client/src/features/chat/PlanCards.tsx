@@ -18,7 +18,7 @@ function PlanHeader({ filePath, ctx, right }: { filePath: string; ctx: BlockCtx;
     <div className="flex items-center gap-1.5 min-w-0">
       <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-ok/10 text-ok shrink-0">Plan</span>
       <span className="shrink-0">{t('plan.doc')}</span>
-      <span onClick={e => { e.stopPropagation(); if (filePath) openFileTab(ctx.sessionId, rel); }} className="font-mono text-[12.5px] text-accent truncate cursor-pointer hover:underline" title={filePath}>{name}</span>
+      <span onClick={e => { e.stopPropagation(); if (filePath) openFileTab(ctx.sessionId, rel); }} className="text-accent truncate cursor-pointer hover:underline" title={filePath}>{name}</span>
       <span className="flex-1" />
       {right}
     </div>

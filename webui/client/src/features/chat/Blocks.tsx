@@ -130,7 +130,7 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
         {/* 纯图片 / 纯粘贴附件输入（无文字、非排队）不渲染文字气泡，避免出现空块；排队时只显示「排队中」标签 */}
         {(block.text || block.queued) && (
           <div className={cn('rounded-2xl px-4 py-2 bg-panel', block.queued && 'opacity-60')}>
-            <div ref={textRef} className={cn('whitespace-pre-wrap break-words', collapsed && 'overflow-hidden [mask-image:linear-gradient(to_bottom,#000_70%,transparent)]')} style={collapsed ? { maxHeight: USER_COLLAPSED_MAX } : undefined}>
+            <div ref={textRef} className={cn('whitespace-pre-wrap break-words leading-chat', collapsed && 'overflow-hidden [mask-image:linear-gradient(to_bottom,#000_70%,transparent)]')} style={collapsed ? { maxHeight: USER_COLLAPSED_MAX } : undefined}>
               {/* 以映射技能开头的消息：`/<技能名>` 显示为图标 + 名字（排队中的气泡同样处理），复制仍是原文 */}
               {skill && <SkillLabel display={skill.display} className="mr-1.5" />}{body}
               {block.queued && <span className="ml-2 text-xs text-muted">{t('chat.queued')}</span>}
@@ -352,7 +352,7 @@ function ToolSummary({ block, ctx }: { block: ToolBlock; ctx: BlockCtx }) {
   return (
     <>
       <span className={cn('shrink-0', block.status === 'error' && 'text-danger')}>{toolVerb(block, diff)}</span>
-      {target && <span className={cn('truncate', n === 'run_shell' && 'font-mono text-[12.5px]')}>{target}</span>}
+      {target && <span className="truncate">{target}</span>}
       {diff && EDIT_TOOLS.has(n) && <DiffStat patch={diff.patch} />}
     </>
   );
@@ -401,7 +401,7 @@ function ToolCard({ block, ctx, onOpenChange }: { block: ToolBlock; ctx: BlockCt
         {isSearch ? <span className={cn('truncate', block.status === 'error' && 'text-danger')}>{searchLabel(block)}</span> : <span className={cn('shrink-0', block.status === 'error' && 'text-danger')}>{toolVerb(block, diff)}</span>}
         {isSearch || isGeneric ? null : filePath
           ? <span onClick={e => { e.stopPropagation(); openFileRef(ctx.sessionId, filePath); }} className="truncate underline decoration-border underline-offset-2 cursor-pointer hover:text-fg hover:decoration-fg" title={absPathOf(filePath, workingDir)}>{isRead ? filePath.split(/[\\/]/).pop() : isSkill ? block.title : displayPath(filePath)}</span>
-          : <span className={cn('truncate', isShell && 'font-mono text-[12.5px]')}>{isShell ? (block.summary || block.title) : block.title}</span>}
+          : <span className="truncate">{isShell ? (block.summary || block.title) : block.title}</span>}
         {block.summary && !isShell && !isEdit && !isRead && !isSearch && !isGeneric && !isSkill && <span className="text-xs truncate max-w-[40%]">{block.summary}</span>}
         {isEdit && diff && <DiffStat patch={diff.patch} />}
       </div>
@@ -556,7 +556,7 @@ function DiffStat({ patch, additions, removals }: { patch?: any[]; additions?: n
     // 新建文件的预览 hunk 只带前几行，按 newLines 计
     a += h.oldLines === 0 && h.newLines > ha ? h.newLines : ha;
   }
-  return <span className="text-xs font-mono shrink-0"><span className="text-ok">+{a}</span> <span className="text-danger">-{r}</span></span>;
+  return <span className="text-xs tabular-nums shrink-0"><span className="text-ok">+{a}</span> <span className="text-danger">-{r}</span></span>;
 }
 
 // ==================== 权限卡片 ====================
@@ -697,7 +697,7 @@ function FileChangesCard({ block, ctx }: { block: FileChangesBlock; ctx: BlockCt
         <span className="h-9 w-9 rounded-lg bg-panel flex items-center justify-center shrink-0"><FileDiff size={16} className="text-fg" /></span>
         <div className="flex-1 min-w-0">
           <div className="font-medium">{t('card.filesEdited', { n: files.length })}</div>
-          <div className="text-xs font-mono"><span className="text-ok">+{total.a}</span> <span className="text-danger">-{total.r}</span></div>
+          <div className="text-xs tabular-nums"><span className="text-ok">+{total.a}</span> <span className="text-danger">-{total.r}</span></div>
         </div>
         {block.inputId && ctx.onRewind && <Button size="sm" variant="ghost" onClick={() => ctx.onRewind!(block.inputId!)}>{t('card.undo')} <Undo2 size={13} /></Button>}
         <Button size="sm" variant="outline" onClick={() => openReview()}>{t('card.review')}</Button>

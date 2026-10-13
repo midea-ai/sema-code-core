@@ -3,7 +3,7 @@
  * 触发判定、文本补全格式与数据加载 hook 都在这里；Composer 只负责接键盘事件与改写 textarea 文本。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FileIcon } from '../../common/fileicon/FileIcon';
+import { FileLabel } from './fileRefDisplay';
 import { api } from '../../api/http';
 import { wsClient } from '../../api/ws';
 import { cn } from '../../common/ui';
@@ -146,7 +146,8 @@ export function filterSlash(items: SlashItem[], query: string): SlashItem[] {
 
 function PickerShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="absolute left-0 right-0 bottom-full mb-1.5 z-30 bg-white border border-border rounded-lg shadow-xl py-1 max-h-72 overflow-auto text-sm">
+    // 字号与行高与输入框一致（text-sm + leading-chat），行里的 FileLabel / SkillLabel 按 1lh 取高才能与输入框芯片等高
+    <div className="absolute left-0 right-0 bottom-full mb-1.5 z-30 bg-white border border-border rounded-lg shadow-xl py-1 max-h-72 overflow-auto text-sm leading-chat">
       {children}
     </div>
   );
@@ -175,9 +176,8 @@ export function FilePicker({ items, loading, selected, noScope, onSelect, onHove
             return (
               <div key={f.path} data-selected={i === selected} title={f.path}
                 onMouseDown={e => { e.preventDefault(); onSelect(f); }} onMouseEnter={() => onHover(i)}
-                className={cn('flex items-center gap-2 px-3 py-1.5 cursor-pointer', i === selected ? 'bg-black/[0.06]' : 'hover:bg-black/[0.04]')}>
-                <FileIcon fileName={name} isDirectory={f.isDirectory} size={14} />
-                <span className="shrink-0 max-w-full truncate">{name}</span>
+                className={cn('flex items-center gap-2 px-3 py-0.5 cursor-pointer', i === selected ? 'bg-black/[0.06]' : 'hover:bg-black/[0.04]')}>
+                <FileLabel path={name} isDirectory={f.isDirectory} label={name} plain className="shrink-0" />
                 {/* 父路径紧跟文件名，样式与命令面板描述一致；放不下时截断 */}
                 {parent && <span className="text-muted/70 truncate">{parent}</span>}
               </div>
@@ -214,8 +214,8 @@ export function CommandPanel({ items, loading, selected, onSelect, onHover }: {
               return (
                 <div key={`${item.category}:${item.name}`} data-selected={i === selected}
                   onMouseDown={e => { e.preventDefault(); onSelect(item); }} onMouseEnter={() => onHover(i)}
-                  className={cn('flex items-center gap-2 px-3 py-1.5 cursor-pointer text-[13px]', i === selected ? 'bg-black/[0.06]' : 'hover:bg-black/[0.04]')}>
-                  {d ? <SkillLabel display={d} size={14} className="shrink-0" /> : <>
+                  className={cn('flex items-center gap-2 px-3 py-0.5 cursor-pointer', i === selected ? 'bg-black/[0.06]' : 'hover:bg-black/[0.04]')}>
+                  {d ? <SkillLabel display={d} className="shrink-0" /> : <>
                     <span className="text-muted">/</span>
                     <span className="shrink-0 font-medium">{item.name}</span>
                   </>}

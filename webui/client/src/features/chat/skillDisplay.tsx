@@ -5,6 +5,7 @@
  */
 import { ChartColumn, Chrome, Puzzle, type LucideIcon } from 'lucide-react';
 import { FileIcon } from '../../common/fileicon/FileIcon';
+import { FILE_LABEL_ICON } from './fileRefDisplay';
 import { cn } from '../../common/ui';
 
 export interface SkillDisplay {
@@ -47,8 +48,8 @@ export function matchSkillPrefix(text: string, requireSpace = false): { name: st
   return { name: m[1], display, prefixLen, rest: text.slice(prefixLen) };
 }
 
-/** 图标 + 同色名字，内联在文字前面（无底色）；高度取整行行高并 align-top，与 FileRefChip 同一套对齐方式 */
-export function SkillLabel({ display, className, size = 15 }: { display: SkillDisplay; className?: string; size?: number }) {
+/** 图标 + 同色名字，内联在文字前面（无底色）；尺寸与对齐方式与 FileLabel 一致（高度取整行行高并 align-top） */
+export function SkillLabel({ display, className, size = FILE_LABEL_ICON }: { display: SkillDisplay; className?: string; size?: number }) {
   return (
     <span className={cn('inline-flex items-center gap-1 h-[1lh] align-top whitespace-nowrap', className)} style={{ color: display.color }}>
       {display.file ? <FileIcon fileName={display.file} size={size} /> : display.icon && <display.icon size={size} strokeWidth={2} />}

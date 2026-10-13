@@ -158,7 +158,7 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
         <Dropdown value={selected} options={options} onChange={onSelect} fitWidth
           renderValue={() => <span className="max-w-56 truncate text-fg font-medium">{selectedLabel}</span>} />
         <span className="text-xs text-muted">{t('review.filesStat', { n: files.length })}</span>
-        <span className="text-xs font-mono"><span className="text-ok">+{total.a}</span> <span className="text-danger">-{total.r}</span></span>
+        <span className="text-xs tabular-nums"><span className="text-ok">+{total.a}</span> <span className="text-danger">-{total.r}</span></span>
         <span className="flex-1" />
         {isGit && (
           <button onClick={loadGit} title={t('review.refresh')}
@@ -221,7 +221,7 @@ function FileRow({ sessionId, file, open, onToggle }: { sessionId: string; file:
         <Caret open={open} size={13} className="text-muted" />
         <span className="truncate flex-1 text-[13px]" title={file.path}><span className="text-muted">{dir}</span><span className="text-fg">{base}</span></span>
         {/* 统计贴最右；悬停时淡出，由悬浮的操作按钮覆盖（按钮平时不占布局空间） */}
-        <span className="text-xs font-mono shrink-0 group-hover:opacity-0"><span className="text-ok">+{file.additions}</span> <span className="text-danger">-{file.removals}</span></span>
+        <span className="text-xs tabular-nums shrink-0 group-hover:opacity-0"><span className="text-ok">+{file.additions}</span> <span className="text-danger">-{file.removals}</span></span>
         <span className="absolute right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
           <button onClick={e => { e.stopPropagation(); openFileTab(sessionId, file.path); }} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.06]" title={t('review.openFile')}><SquareArrowOutUpRight size={12} /></button>
           <button onClick={e => { e.stopPropagation(); copy(file.path); }} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.06]" title={copied ? t('review.copied') : t('review.copyPath')}>{copied ? <Check size={12} className="text-ok" /> : <Copy size={12} />}</button>
@@ -263,7 +263,7 @@ function FileDetail({ sessionId, file, gitTs }: { sessionId: string; file?: File
     <div className="flex-1 min-w-0 min-h-0 flex flex-col">
       <div className="h-8 shrink-0 flex items-center gap-2 px-3 border-b border-border">
         <span className="truncate flex-1 text-[13px]" title={path}>{displayPath(path)}</span>
-        <span className="text-xs font-mono shrink-0"><span className="text-ok">+{file.additions}</span> <span className="text-danger">-{file.removals}</span></span>
+        <span className="text-xs tabular-nums shrink-0"><span className="text-ok">+{file.additions}</span> <span className="text-danger">-{file.removals}</span></span>
         {!file.deleted && (
           <button onClick={() => openFileTab(sessionId, path)} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.06]" title={t('review.openFile')}>
             <SquareArrowOutUpRight size={12} />
@@ -352,7 +352,7 @@ function FileTree({ files, selected, onSelect, width }: { files: FileChange[]; s
           <button key={r.key} style={{ paddingLeft: 16 + r.depth * 10 }} onClick={() => onSelect(path)} title={path}
             className={cn('w-full h-6 flex items-center gap-1.5 pr-2 text-[12px] text-left hover:bg-black/[0.04]', selected === path && 'bg-black/[0.06]')}>
             <span className="truncate flex-1 text-fg">{r.name}</span>
-            <span className={cn('shrink-0 font-mono text-[11px]', st.cls)}>{st.ch}</span>
+            <span className={cn('shrink-0 text-[11px]', st.cls)}>{st.ch}</span>
           </button>
         );
       })}
@@ -387,7 +387,7 @@ function mergeAll(groups: FileChange[][]): FileChange[] {
 function statNode(files: FileChange[]) {
   const seen = new Set(files.map(f => f.path));
   const a = files.reduce((s, f) => s + f.additions, 0), r = files.reduce((s, f) => s + f.removals, 0);
-  return <>{t('review.filesStat', { n: seen.size })} <span className="font-mono"><span className="text-ok">+{a}</span> <span className="text-danger">-{r}</span></span></>;
+  return <>{t('review.filesStat', { n: seen.size })} <span className="tabular-nums"><span className="text-ok">+{a}</span> <span className="text-danger">-{r}</span></span></>;
 }
 
 function fmtTime(ts: number) {

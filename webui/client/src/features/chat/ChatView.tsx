@@ -250,7 +250,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
                 <input type="checkbox" disabled={!rewind.preview.canRestoreFiles} checked={rewind.restore} onChange={e => setRewind({ ...rewind, restore: e.target.checked })} />
                 {t('chat.restoreFiles')}
               </label>
-              <ul className="mt-2 max-h-48 overflow-auto text-xs font-mono flex flex-col gap-0.5">
+              <ul className="mt-2 max-h-48 overflow-auto text-xs flex flex-col gap-0.5">
                 {rewind.preview.files.map((f: any) => (
                   <li key={f.filePath} className="flex gap-2"><span className="text-muted w-14 shrink-0">{f.effect}</span><span className="truncate flex-1">{f.displayPath}</span><span><span className="text-ok">+{f.additions}</span> <span className="text-danger">-{f.removals}</span></span></li>
                 ))}

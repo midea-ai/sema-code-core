@@ -57,7 +57,7 @@ export function CronTaskCard({ task, expanded, onToggleExpand, onToggle, onDelet
         <div className="border-t border-border px-3 py-2 flex flex-col gap-2">
           <div className="flex items-center gap-1.5 flex-wrap text-xs">
             <span className="text-muted">Cron:</span>
-            <code className="font-mono px-1.5 py-0.5 rounded bg-code border border-border">
+            <code className="font-sans px-1.5 py-0.5 rounded bg-code border border-border">
               {task.schedule.split('').map((ch, i) => ch === '*' || ch === ' ' ? ch : <span key={i} className="text-accent font-semibold">{ch}</span>)}
             </code>
             <Tag>{task.repeat ? t('cron.repeat') : t('cron.once')}</Tag>
@@ -66,7 +66,7 @@ export function CronTaskCard({ task, expanded, onToggleExpand, onToggle, onDelet
           <div className="text-[11px] text-muted">{task.id} · {fmtDateTime(task.createdAt)}</div>
           <div>
             <div className="text-xs text-muted mb-1">Prompt:</div>
-            <pre className="font-mono text-[12px] leading-5 whitespace-pre-wrap break-words rounded-md bg-code border border-border p-2">{promptText}</pre>
+            <pre className="font-sans text-[12px] leading-5 whitespace-pre-wrap break-words rounded-md bg-code border border-border p-2">{promptText}</pre>
             {lines.length > PROMPT_MAX_LINES && (
               <button onClick={() => setPromptOpen(v => !v)} className="mt-1 text-xs text-muted hover:text-fg">
                 {promptOpen ? t('cron.collapsePrompt') : t('cron.morePrompt', { n: lines.length - PROMPT_MAX_LINES })}
@@ -76,7 +76,7 @@ export function CronTaskCard({ task, expanded, onToggleExpand, onToggle, onDelet
           {task.nextFireAt.length > 0 && (
             <div>
               <div className="text-xs text-muted mb-1">{t('cron.nextFire')}:</div>
-              <pre className="font-mono text-[12px] leading-5 overflow-x-auto rounded-md bg-code border border-border p-2">{task.nextFireAt.map(fmtDateTime).join('\n')}</pre>
+              <pre className="font-sans tabular-nums text-[12px] leading-5 overflow-x-auto rounded-md bg-code border border-border p-2">{task.nextFireAt.map(fmtDateTime).join('\n')}</pre>
             </div>
           )}
           {task.lastFiredAt != null && <div className="text-[11px] text-muted">{t('cron.lastFired')}: {fmtDateTime(task.lastFiredAt)}</div>}

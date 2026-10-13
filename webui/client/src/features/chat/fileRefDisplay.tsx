@@ -2,6 +2,7 @@
  * @ 文件引用的显示：把文本里的 `@path` / `@"path with space"` / `@path:13-17` 渲染成「文件图标 + 文件名」芯片，
  * 输入框（RefEditor）与用户气泡共用。只影响显示，发给 core 的文本仍是原始 `@...` 字面量。
  */
+import type { MouseEventHandler, ReactNode } from 'react';
 import { FileIcon } from '../../common/fileicon/FileIcon';
 import { cn } from '../../common/ui';
 
@@ -69,19 +70,39 @@ export function refLabel(seg: RefSegment): string {
   return seg.line ? `${name}:${seg.line}${seg.endLine ? `-${seg.endLine}` : ''}` : name;
 }
 
+/** 文件高亮统一图标尺寸：输入框芯片、用户气泡、@ 文件/命令面板、Markdown 文件引用共用 */
+export const FILE_LABEL_ICON = 15;
+
 /**
- * 图标 + 文件名，内联在文字中（无底色，布局对齐 SkillLabel）；有 onOpen 时可点击。
- * 图标与文字统一用强调色（与全局链接高亮同色），不按文件类型上色，避免正文里色彩杂乱。
- * 高度取整行行高并 align-top 贴满行框，图标/文字在行框内居中，与父级文字的垂直位置一致（align-middle 按 x-height 算会偏高）
+ * 文件高亮的统一外形：图标 + 名字（无底色），四处（输入框芯片、用户气泡、@ 面板、Markdown 引用）都走这里，
+ * 只有名字内容与颜色由调用方决定。
+ * 高度取整行行高并 align-top 贴满行框，图标/文字在行框内居中，与父级文字的垂直位置一致（align-middle 按 x-height 算会偏高；
+ * 行内流式 + vertical-align 下沉的写法与之差半像素，且行高越大图标越显得偏下，故统一用这一种）。
+ * 图标默认按文件类型上色，传 color="currentColor" 时跟随文字色。
+ * 名字默认加粗（正文里作为高亮），plain 时用正常字重（列表行里每行都是文件，加粗反而突兀）。
  */
-export function FileRefChip({ seg, size = 15, className, onOpen }: { seg: RefSegment; size?: number; className?: string; onOpen?: (seg: RefSegment) => void }) {
+export function FileLabel({ path, isDirectory, label, size = FILE_LABEL_ICON, color, plain, className, title, onMouseDown, onClick }: {
+  path: string; isDirectory?: boolean; label: ReactNode; size?: number; color?: string; plain?: boolean; className?: string; title?: string;
+  onMouseDown?: MouseEventHandler; onClick?: MouseEventHandler;
+}) {
   return (
-    <span className={cn('inline-flex items-center gap-1 h-[1lh] align-top whitespace-nowrap max-w-full text-accent', onOpen && 'cursor-pointer', className)}
-      title={seg.path}
-      onMouseDown={onOpen ? e => { e.preventDefault(); e.stopPropagation(); } : undefined}
-      onClick={onOpen ? e => { e.stopPropagation(); onOpen(seg); } : undefined}>
-      <FileIcon fileName={seg.path} isDirectory={seg.isDirectory} size={size} color="currentColor" />
-      <span className="font-medium truncate">{refLabel(seg)}</span>
+    <span className={cn('inline-flex items-center gap-1 h-[1lh] align-top whitespace-nowrap max-w-full', className)}
+      title={title} onMouseDown={onMouseDown} onClick={onClick}>
+      <FileIcon fileName={path} isDirectory={isDirectory} size={size} color={color} />
+      <span className={cn('truncate', !plain && 'font-medium')}>{label}</span>
     </span>
+  );
+}
+
+/**
+ * @ 引用芯片（输入框与用户气泡共用）：名字只显示 basename；有 onOpen 时可点击。
+ * 图标与文字统一用强调色（与全局链接高亮同色），不按文件类型上色，避免正文里色彩杂乱。
+ */
+export function FileRefChip({ seg, className, onOpen }: { seg: RefSegment; className?: string; onOpen?: (seg: RefSegment) => void }) {
+  return (
+    <FileLabel path={seg.path} isDirectory={seg.isDirectory} label={refLabel(seg)} color="currentColor" title={seg.path}
+      className={cn('text-accent', onOpen && 'cursor-pointer', className)}
+      onMouseDown={onOpen ? e => { e.preventDefault(); e.stopPropagation(); } : undefined}
+      onClick={onOpen ? e => { e.stopPropagation(); onOpen(seg); } : undefined} />
   );
 }

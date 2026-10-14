@@ -115,6 +115,11 @@ class PluginsManager {
   }
 
   private async readMarketplaceJson(installLocation: string): Promise<MarketplaceJson | null> {
+    // 目录已被删除（如本地目录市场登记后目录被清掉）：不再调 ripgrep，避免它对不存在的路径打 ERROR
+    if (!fs.existsSync(installLocation)) {
+      logWarn(`市场目录不存在: ${installLocation}`)
+      return null
+    }
     try {
       const results = await searchWithRipgrep(
         ['--files', '--glob', 'marketplace.json', '--max-depth', '3', '--hidden'],

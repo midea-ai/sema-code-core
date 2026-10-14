@@ -85,8 +85,8 @@ export interface WebUISettings {
   defaultSkillsInstalled?: string[];
 }
 
-/** GET/POST /api/browser-control：supported = 非 Windows；experimental = Linux；enabled 即 settings.enableBrowserControl */
-export interface BrowserControlState { supported: boolean; experimental: boolean; enabled: boolean }
+/** GET/POST /api/browser-control：experimental = Linux；enabled 即 settings.enableBrowserControl */
+export interface BrowserControlState { experimental: boolean; enabled: boolean }
 
 // ==================== 输入框辅助 ====================
 

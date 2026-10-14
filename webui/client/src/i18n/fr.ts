@@ -326,7 +326,6 @@ export const fr = {
   'settings.integrations': 'Intégrations',
   'settings.browserControl': 'Contrôle du navigateur',
   'settings.browserControlTip': "Permet à l'IA d'ouvrir, lire et manipuler des pages web dans votre propre Chrome avec vos comptes connectés ; chaque action est visible et vous pouvez reprendre la main à tout moment. L'activation écrit un skill chrome-use et un serveur MCP chrome au niveau utilisateur ; la désactivation supprime les deux.",
-  'settings.browserControlUnsupportedSuffix': ' (Windows pas encore pris en charge)',
   'settings.browserControlExperimentalSuffix': ' (expérimental)',
   'settings.browserControlInstallPrefix': "Installez l'",
   'settings.browserControlInstallLink': 'extension Chrome',

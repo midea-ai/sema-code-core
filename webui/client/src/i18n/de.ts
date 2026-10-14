@@ -321,7 +321,6 @@ export const de = {
   'settings.integrations': 'Integrationen',
   'settings.browserControl': 'Browsersteuerung',
   'settings.browserControlTip': 'Lässt die KI Webseiten in deinem eigenen Chrome mit deinen angemeldeten Konten öffnen, lesen und bedienen; jede Aktion ist sichtbar und du kannst jederzeit übernehmen. Beim Aktivieren werden ein chrome-use-Skill und ein chrome-MCP-Server auf Benutzerebene angelegt, beim Deaktivieren beide entfernt.',
-  'settings.browserControlUnsupportedSuffix': ' (Windows noch nicht unterstützt)',
   'settings.browserControlExperimentalSuffix': ' (experimentell)',
   'settings.browserControlInstallPrefix': 'Installieren Sie die ',
   'settings.browserControlInstallLink': 'Chrome-Erweiterung',

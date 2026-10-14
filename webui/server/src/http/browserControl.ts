@@ -40,7 +40,7 @@ function userSkillDir(): string {
 }
 
 export function browserControlState(enabled: boolean): BrowserControlState {
-  return { supported: process.platform !== 'win32', experimental: process.platform === 'linux', enabled };
+  return { experimental: process.platform === 'linux', enabled };
 }
 
 export class BrowserControl {
@@ -50,7 +50,6 @@ export class BrowserControl {
 
   /** 执行开/关动作，串行化；返回动作完成后的开关值（失败则抛错，配置键保持原值） */
   setEnabled(enabled: boolean): Promise<boolean> {
-    if (process.platform === 'win32') return Promise.reject(new Error('Windows 暂不支持浏览器控制'));
     const run = () => (enabled ? this.enable() : this.disable());
     const task = this.chain.then(run, run);
     this.chain = task.catch(() => undefined);

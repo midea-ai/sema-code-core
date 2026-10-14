@@ -779,7 +779,7 @@ function PreventSleepRow({ value, onChange }: { value: PreventSleepMode; onChang
 
 /**
  * 浏览器控制开关（对齐 IDE 插件 SystemConfig 的同名区块）：不走 saveSettings，而是 POST /api/browser-control 执行装/删动作，
- * 配置键由服务端在动作成功后写入；执行中禁用开关等结果，失败 toast 并回到原值。win32 禁用，linux 标实验性。
+ * 配置键由服务端在动作成功后写入；执行中禁用开关等结果，失败 toast 并回到原值。linux 标实验性。
  */
 function BrowserControlRow() {
   const platform = useApp(s => s.platform);
@@ -789,10 +789,9 @@ function BrowserControlRow() {
   const [busy, setBusy] = useState<false | 'enabling' | 'disabling'>(false);
   useEffect(() => { api<BrowserControlState>('GET', '/api/browser-control').then(setState).catch(() => undefined); }, []);
 
-  const supported = state ? state.supported : platform !== 'win32';
-  const enabled = !!state?.enabled && supported;
+  const enabled = !!state?.enabled;
   const change = async (v: boolean) => {
-    if (busy || !supported) return;
+    if (busy) return;
     setBusy(v ? 'enabling' : 'disabling');
     try { setState(await api<BrowserControlState>('POST', '/api/browser-control', { enabled: v })); }
     catch (e: any) { toast(t('settings.browserControlFailed', { error: e.message }), 'error'); }
@@ -802,14 +801,13 @@ function BrowserControlRow() {
   return (
     <div className="px-4 py-2.5 text-sm">
       <div className="flex items-center justify-between" title={t('settings.browserControlTip')}>
-        <span className={cn(!supported && 'text-muted')}>
+        <span>
           {t('settings.browserControl')}
-          {!supported && t('settings.browserControlUnsupportedSuffix')}
-          {supported && platform === 'linux' && t('settings.browserControlExperimentalSuffix')}
+          {platform === 'linux' && t('settings.browserControlExperimentalSuffix')}
         </span>
         <div className="flex items-center gap-2">
           {busy && <Spinner />}
-          <Toggle checked={enabled} disabled={!supported || !!busy} onChange={change} />
+          <Toggle checked={enabled} disabled={!!busy} onChange={change} />
         </div>
       </div>
       {busy && <div className="mt-1 text-xs text-muted">{busy === 'enabling' ? t('settings.browserControlEnabling') : t('settings.browserControlDisabling')}</div>}

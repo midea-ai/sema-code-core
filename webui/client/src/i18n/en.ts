@@ -368,7 +368,6 @@ export const en = {
   'settings.integrations': 'Integrations',
   'settings.browserControl': 'Browser control',
   'settings.browserControlTip': 'Let the AI open, read and operate web pages in your own Chrome with your logged-in accounts; every action is visible and you can take over at any time. Enabling writes a user-level chrome-use skill and chrome MCP server; disabling removes both.',
-  'settings.browserControlUnsupportedSuffix': ' (Windows not supported yet)',
   'settings.browserControlExperimentalSuffix': ' (experimental)',
   'settings.browserControlInstallPrefix': 'Install the ',
   'settings.browserControlInstallLink': 'Chrome extension',

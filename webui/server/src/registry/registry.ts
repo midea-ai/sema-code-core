@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
-import { DEFAULT_PERMISSION_LEVEL, DEFAULT_SYSTEM_PROMPT, normalizeLevel } from '../../../shared/types';
+import { DEFAULT_PERMISSION_LEVEL, DEFAULT_SYSTEM_PROMPT, PREVENT_SLEEP_MODES, normalizeLevel } from '../../../shared/types';
 import { DEFAULT_LANG, defaultCustomRules, isBuiltinCustomRules, normalizeLang } from '../../../shared/lang';
 import type { Registry, ProjectRecord, SessionRecord, WebUISettings, AgentMode, PermissionLevel } from '../../../shared/types';
 
@@ -40,6 +40,7 @@ export const DEFAULT_SETTINGS: WebUISettings = {
   },
   defaultAgentMode: 'Agent',
   defaultPermissionLevel: DEFAULT_PERMISSION_LEVEL,
+  preventSleep: 'off',
   enableBrowserControl: false,
 };
 
@@ -149,6 +150,7 @@ export class RegistryStore {
     if (cc.lang !== prevLang && isBuiltinCustomRules(cc.customRules)) cc.customRules = defaultCustomRules(cc.lang);
     this.normalizeSystemPrompt();
     this.settings.defaultPermissionLevel = normalizeLevel(this.settings.defaultPermissionLevel);
+    if (!PREVENT_SLEEP_MODES.includes(this.settings.preventSleep as any)) this.settings.preventSleep = 'off';
     writeJsonAtomic(SETTINGS_FILE, this.settings);
     return this.getSettings();
   }

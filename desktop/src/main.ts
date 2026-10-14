@@ -6,14 +6,25 @@
  * 环境变量 SEMA_DESKTOP_DEV_URL=http://localhost:5173：窗口改加载 vite dev 页面（热更新），
  * 此时 server 固定 3210 端口以匹配 vite 代理缺省值。
  */
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { execFile } from 'child_process';
 import { randomBytes } from 'crypto';
 
-interface ServerHandle { host: string; port: number; token: string; url: string; close(): Promise<void> }
+interface ServerHandle {
+  host: string; port: number; token: string; url: string;
+  close(): Promise<void>;
+  /** 设置项「运行任务时阻止系统睡眠」：off / ac（仅接电源时）/ always */
+  preventSleepMode(): 'off' | 'ac' | 'always';
+  /** 是否有不该被睡眠打断的工作 */
+  hasActiveWork(): Promise<boolean>;
+}
 interface ServerModule { startServer(opts: { port: number; host?: string; token: string }): Promise<ServerHandle> }
+
+/** 防睡眠轮询间隔；任务结束后再按住这么久才放开，避免连续回合间抖动 */
+const KEEP_AWAKE_POLL_MS = 30_000;
+const KEEP_AWAKE_HOLD_MS = 2 * 60_000;
 
 /** esbuild 从 webui/server 源码打进 dist 的服务端（与 worker-entry.js、public/ 同目录），运行时依赖来自 desktop/node_modules */
 const SERVER_ENTRY = path.join(__dirname, 'server.js');
@@ -22,6 +33,8 @@ const DEV_URL = process.env.SEMA_DESKTOP_DEV_URL || '';
 let win: BrowserWindow | null = null;
 let handle: ServerHandle | null = null;
 let quitting = false;
+let blockerId: number | null = null;
+let lastActiveAt = 0;
 
 // 与 CLI 入口一致：漏掉的异步异常只打日志，不让整个应用（含所有 worker/终端）崩掉
 process.on('uncaughtException', (err) => { console.error('[desktop] uncaughtException:', err); });
@@ -89,6 +102,43 @@ async function boot() {
   }
   console.log(`[desktop] server ${handle.url}`);
   createWindow();
+  startKeepAwake();
+}
+
+/**
+ * 运行任务时阻止系统睡眠（设置项 preventSleep，缺省关闭）。
+ * prevent-app-suspension 只拦闲置自动睡眠，屏幕照常熄灭；合盖、菜单里手动睡眠拦不住，这是系统限制。
+ * 按住的依据由服务端判定（处理中的会话 / 运行中的后台任务 / 临近触发的定时任务），这里按设置和电源状态决定是否执行；
+ * 工作结束后再按住 KEEP_AWAKE_HOLD_MS 才放开。
+ */
+function startKeepAwake() {
+  const timer = setInterval(() => { void keepAwakeTick(); }, KEEP_AWAKE_POLL_MS);
+  timer.unref?.();
+  // 电源状态变化（拔/插电源）立即重算，不等下一轮
+  powerMonitor.on('on-ac', () => { void keepAwakeTick(); });
+  powerMonitor.on('on-battery', () => { void keepAwakeTick(); });
+  void keepAwakeTick();
+}
+
+async function keepAwakeTick() {
+  if (!handle) { setKeepAwake(false); return; }
+  const mode = handle.preventSleepMode();
+  const allowed = mode === 'always' || (mode === 'ac' && !powerMonitor.isOnBatteryPower());
+  let active = false;
+  if (allowed) { try { active = await handle.hasActiveWork(); } catch { active = false; } }
+  const now = Date.now();
+  if (active) lastActiveAt = now;
+  setKeepAwake(allowed && (active || now - lastActiveAt < KEEP_AWAKE_HOLD_MS));
+}
+
+function isKeepAwake(): boolean { return blockerId !== null && powerSaveBlocker.isStarted(blockerId); }
+
+function setKeepAwake(on: boolean) {
+  if (on === isKeepAwake()) return;
+  if (on) blockerId = powerSaveBlocker.start('prevent-app-suspension');
+  else { if (blockerId !== null) powerSaveBlocker.stop(blockerId); blockerId = null; }
+  console.log(`[desktop] keep-awake ${on ? 'on' : 'off'}`);
+  win?.webContents.send('sema:keepawake', on);
 }
 
 function pageUrl(): string {
@@ -120,6 +170,8 @@ function createWindow() {
     // macOS 隐藏标题栏文字，红绿灯嵌进页面侧栏顶部（页面侧按 window.sema.desktop.platform 让位并设拖动区）
     // y 是按钮框（高 16px）的顶边，14 + 8 = 22 正好落在页面头部行（44px）的垂直中线上
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } } : {}),
+    // Windows/Linux 开发态跑的是 Electron 原始二进制，窗口与任务栏图标是它自带的；打包后由 electron-builder 写进 exe，这里只管开发态
+    ...(process.platform !== 'darwin' && !app.isPackaged ? { icon: path.join(__dirname, '..', 'assets', 'icon-win.png') } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -145,5 +197,7 @@ function createWindow() {
   win.on('enter-full-screen', sendFullScreen);
   win.on('leave-full-screen', sendFullScreen);
   win.webContents.on('did-finish-load', sendFullScreen);
+  // 防睡眠当前是否生效，页面刷新后同样补发
+  win.webContents.on('did-finish-load', () => win?.webContents.send('sema:keepawake', isKeepAwake()));
   win.loadURL(pageUrl());
 }

@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react';
+
 /** 桌面版（desktop/ Electron 壳）preload 注入的标记与原生能力；网页模式下为 undefined。定义见 desktop/src/preload.ts */
 export interface DesktopBridge {
   platform: string;
@@ -8,8 +10,18 @@ export interface DesktopBridge {
   onActivate(cb: () => void): () => void;
   /** 窗口进入/退出全屏时回调（页面加载完也会收到一次当前状态），返回取消订阅函数 */
   onFullScreen(cb: (on: boolean) => void): () => void;
+  /** 「阻止系统睡眠」开始/结束生效时回调（页面加载完也会收到一次当前状态），返回取消订阅函数 */
+  onKeepAwake?(cb: (on: boolean) => void): () => void;
 }
 export const desktop = (window as any).sema?.desktop as DesktopBridge | undefined;
+
+// 防睡眠当前是否生效：模块级缓存，组件晚于首次通知挂载也能拿到当前值
+let keepAwakeOn = false;
+const keepAwakeListeners = new Set<() => void>();
+desktop?.onKeepAwake?.((on) => { keepAwakeOn = on; keepAwakeListeners.forEach(f => f()); });
+const subscribeKeepAwake = (f: () => void) => { keepAwakeListeners.add(f); return () => { keepAwakeListeners.delete(f); }; };
+/** 桌面版「阻止系统睡眠」是否正在生效（网页模式恒为 false） */
+export function useKeepAwake(): boolean { return useSyncExternalStore(subscribeKeepAwake, () => keepAwakeOn, () => false); }
 
 /** macOS 桌面版：标题栏隐藏，红绿灯嵌在页面左上角，侧栏顶部需让位并作为窗口拖动区 */
 export const macTitleBar = desktop?.platform === 'darwin';

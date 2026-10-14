@@ -69,6 +69,8 @@ ripgrep 随包分发：`scripts/afterPack.js` 按目标平台与架构取 `@vsco
 
 数据与网页模式共用 `~/.sema/`，安装包不带模型配置，首次打开需在设置里配模型。
 
+设置 → 系统配置里的「运行任务时阻止系统睡眠」只在桌面版显示（缺省关闭）：有会话处理中、后台任务运行中或定时任务临近触发时按住系统不睡，屏幕照常熄灭；合盖与手动睡眠拦不住。网页模式与命令行没有这个能力，macOS 下可用 `caffeinate -i npm start` 代替。设计与验证见 [docs/prevent-sleep.md](docs/prevent-sleep.md)。
+
 ## 当前范围
 
 - 双击运行、单实例、关窗口 macOS 隐藏（Dock 点击恢复）、退出前优雅关闭 worker 与终端

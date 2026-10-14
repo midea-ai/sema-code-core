@@ -28,6 +28,8 @@ const CRON_KEEPER_LEAD_MS = 3 * 60_000;
 const CRON_KEEPER_LATE_MS = 60_000;
 /** keeper 拉起的会话在触发时刻之后再保活多久（覆盖 core 60s tick + 执行排队的时间） */
 const CRON_KEEP_AFTER_FIRE_MS = 5 * 60_000;
+/** 防睡眠：定时任务距触发不足该时长即视为有工作（要比 keeper 的 lead 更早，保证 keeper 拉起时机器醒着） */
+const KEEP_AWAKE_CRON_LEAD_MS = 5 * 60_000;
 const CORE_WRITE_ACTIONS = new Set(['core.switchModel', 'core.addModel', 'core.delModel', 'core.applyTaskModel', 'core.addImageModel', 'core.delImageModel', 'core.switchImageModel']);
 
 /** 退场上限：项目数、每项目会话数、独立会话数，超出按 lastActiveAt LRU 淘汰 */
@@ -725,6 +727,42 @@ export class SessionManager extends EventEmitter {
     }
   }
 
+  /** 持久化定时任务的扫描范围 = 项目目录 ∪ 会话目录：项目下会话全被删/退场时任务文件仍在，也要能触发 */
+  private cronDirs(): Map<string, { projectId?: string; sessions: SessionRecord[] }> {
+    const dirs = new Map<string, { projectId?: string; sessions: SessionRecord[] }>();
+    for (const p of this.registry.snapshot().projects) dirs.set(p.workingDir, { projectId: p.id, sessions: [] });
+    for (const rec of this.registry.listSessions()) {
+      const e = dirs.get(rec.workingDir) || { projectId: rec.projectId, sessions: [] };
+      e.sessions.push(rec);
+      dirs.set(rec.workingDir, e);
+    }
+    return dirs;
+  }
+
+  /**
+   * 是否有不该被系统睡眠打断的工作（桌面版据此阻止睡眠）：
+   * 会话正在处理且没有等待用户的交互、worker 有运行中的后台任务、
+   * 或定时任务将在 {@link KEEP_AWAKE_CRON_LEAD_MS} 内触发（持久化的看任务文件，非持久化的看 worker.stats）。
+   * 等待权限确认的会话不算：卡在用户身上，机器醒着也没用。
+   */
+  async hasActiveWork(): Promise<boolean> {
+    for (const rt of this.runtimes.values()) {
+      if (rt.snapshot.state === 'processing' && pendingBlocks(rt.snapshot).length === 0) return true;
+    }
+    const now = Date.now();
+    const soon = (at: number | null | undefined) => at != null && at - now <= KEEP_AWAKE_CRON_LEAD_MS;
+    for (const st of (await this.workerStats()).values()) {
+      if (Object.values(st?.runningTasks || {}).some(n => Number(n) > 0)) return true;
+      if (soon(st?.cron?.nextFireAt)) return true;
+    }
+    for (const dir of this.cronDirs().keys()) {
+      if (!fs.existsSync(path.join(dir, '.sema', 'scheduled_tasks.json'))) continue;
+      const sum = readPersistedCron(dir, now);
+      if (sum.active && soon(sum.nextFireAt)) return true;
+    }
+    return false;
+  }
+
   /**
    * cron keeper（每分钟）：扫描注册表里所有目录的持久化定时任务文件，
    * 距最近触发不足 {@link CRON_KEEPER_LEAD_MS} 且该目录没有"活着且带会话"的 worker 时，
@@ -733,15 +771,7 @@ export class SessionManager extends EventEmitter {
    */
   private async cronKeeperTick() {
     const now = Date.now();
-    // 扫描范围 = 项目目录 ∪ 会话目录：项目下会话全被删/退场时任务文件仍在，也要能触发
-    const dirs = new Map<string, { projectId?: string; sessions: SessionRecord[] }>();
-    for (const p of this.registry.snapshot().projects) dirs.set(p.workingDir, { projectId: p.id, sessions: [] });
-    for (const rec of this.registry.listSessions()) {
-      const e = dirs.get(rec.workingDir) || { projectId: rec.projectId, sessions: [] };
-      e.sessions.push(rec);
-      dirs.set(rec.workingDir, e);
-    }
-    for (const [dir, { projectId, sessions }] of dirs) {
+    for (const [dir, { projectId, sessions }] of this.cronDirs()) {
       if (!fs.existsSync(path.join(dir, '.sema', 'scheduled_tasks.json'))) continue;
       const sum = readPersistedCron(dir, now);
       if (!sum.active || sum.nextFireAt == null) continue;

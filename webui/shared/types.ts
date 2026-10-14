@@ -51,6 +51,9 @@ export interface Registry {
 /** 默认 AI 助手角色定位（coreConfig.systemPrompt 的默认值，留空保存时回落） */
 export const DEFAULT_SYSTEM_PROMPT = "You are SemaWork, an Agent AI for work.";
 
+export const PREVENT_SLEEP_MODES = ['off', 'ac', 'always'] as const;
+export type PreventSleepMode = typeof PREVENT_SLEEP_MODES[number];
+
 /** WebUI 全局设置（落盘 ~/.sema/webui/settings.json） */
 export interface WebUISettings {
   coreConfig: {
@@ -74,6 +77,8 @@ export interface WebUISettings {
   defaultPermissionLevel: PermissionLevel;
   /** core worker 进程硬上限（配置 worker 不计入）；缺省 8，服务端 clamp 到 [2,16] */
   maxWorkers?: number;
+  /** 运行任务时阻止系统睡眠（仅桌面版生效）：off 关闭（缺省）/ ac 仅接电源时 / always 始终 */
+  preventSleep?: PreventSleepMode;
   /** 浏览器控制开关（与 IDE 插件同名键）：只由 /api/browser-control 在装/删 skill 与 MCP 全部成功后写入，PUT /api/settings 忽略该键 */
   enableBrowserControl?: boolean;
   /** 已处理过的默认安装技能 id（清单 card.defaultInstall）：只由服务端启动时的默认安装追加，PUT /api/settings 忽略该键；记过的 id 用户卸载后不再重装 */

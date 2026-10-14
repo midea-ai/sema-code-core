@@ -22,5 +22,11 @@ contextBridge.exposeInMainWorld('sema', {
       ipcRenderer.on('sema:fullscreen', handler);
       return () => { ipcRenderer.off('sema:fullscreen', handler); };
     },
+    /** 「阻止系统睡眠」开始/结束生效时回调（页面加载完也会收到一次当前状态），返回取消订阅函数 */
+    onKeepAwake(cb: (on: boolean) => void) {
+      const handler = (_e: unknown, on: boolean) => cb(on);
+      ipcRenderer.on('sema:keepawake', handler);
+      return () => { ipcRenderer.off('sema:keepawake', handler); };
+    },
   },
 });

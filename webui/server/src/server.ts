@@ -16,6 +16,7 @@ import { attachWs } from './ws/handler';
 import { TerminalManager } from './terminal/manager';
 import { attachTermWs } from './ws/terminal';
 import { isVizPath } from '../../shared/viz';
+import type { PreventSleepMode } from '../../shared/types';
 
 export interface StartServerOptions {
   /** 监听端口；0 = 随机空闲端口 */
@@ -33,6 +34,10 @@ export interface ServerHandle {
   url: string;
   /** 优雅关闭：杀终端、等全部 worker 退出、关 HTTP */
   close(): Promise<void>;
+  /** 设置项「运行任务时阻止系统睡眠」的当前值（桌面版轮询） */
+  preventSleepMode(): PreventSleepMode;
+  /** 是否有不该被睡眠打断的工作（处理中的会话 / 运行中的后台任务 / 临近触发的定时任务） */
+  hasActiveWork(): Promise<boolean>;
 }
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -162,7 +167,11 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
     server.listen(opts.port, host, () => {
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : opts.port;
-      resolve({ host, port, token, url: `http://${host}:${port}/?token=${token}`, close });
+      resolve({
+        host, port, token, url: `http://${host}:${port}/?token=${token}`, close,
+        preventSleepMode: () => registry.getSettings().preventSleep || 'off',
+        hasActiveWork: () => sm.hasActiveWork(),
+      });
     });
   });
 }

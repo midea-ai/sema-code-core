@@ -8,12 +8,12 @@ import { Button, Modal, Toggle, Spinner, Dropdown, cn, useDialog } from '../../c
 import ProviderLogo, { parseProviderKey, stripProviderSuffix } from '../../common/ProviderLogo';
 import { LanguageSelect } from '../../common/LanguageSelect';
 import { t, languageLabel, type I18nKey } from '../../i18n';
-import { collapsedHeaderPad } from '../../common/desktop';
+import { collapsedHeaderPad, desktop, useKeepAwake } from '../../common/desktop';
 import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, providerLabel, apiKeyPlaceholder, parseProfileName, AdapterType, ThinkingHistoryPolicy } from './providers';
 import { IMAGE_PROVIDERS, IMAGE_PROVIDER_ORDER, DEFAULT_IMAGE_PROVIDER, imageProviderLabel, validateImageProviderName, isTextToImageModel, type ImageListModel } from './imageProviders';
-import { PERMISSION_LEVELS, DEFAULT_SYSTEM_PROMPT } from '../../../../shared/types';
+import { PERMISSION_LEVELS, DEFAULT_SYSTEM_PROMPT, PREVENT_SLEEP_MODES } from '../../../../shared/types';
 import { defaultCustomRules } from '../../../../shared/lang';
-import type { WebUISettings, BrowserControlState } from '../../../../shared/types';
+import type { WebUISettings, BrowserControlState, PreventSleepMode } from '../../../../shared/types';
 
 /** Chrome 扩展商店页（Sema Browser Control） */
 const CHROME_EXTENSION_STORE_URL = 'https://chromewebstore.google.com/detail/pjofgjgagohldpbcnkgnfjeehealejie';
@@ -674,6 +674,7 @@ const BASIC_KEYS: Array<{ key: CoreBoolKey; label: I18nKey }> = [
   { key: 'enableInputPrediction', label: 'settings.enableInputPrediction' },
   { key: 'disableBackgroundTasks', label: 'settings.disableBg' },
 ];
+const PREVENT_SLEEP_LABELS: Record<PreventSleepMode, I18nKey> = { off: 'settings.preventSleepOff', ac: 'settings.preventSleepAc', always: 'settings.preventSleepAlways' };
 const PERMISSION_KEYS: Array<{ key: CoreBoolKey; label: I18nKey }> = [
   { key: 'skipFileEditPermission', label: 'settings.skipFileEdit' },
   { key: 'skipShellExecPermission', label: 'settings.skipShell' },
@@ -714,6 +715,7 @@ function SystemSettings() {
             <div className="w-40"><LanguageSelect /></div>
           </div>
           {BASIC_KEYS.map(({ key, label }) => <ToggleRow key={key} k={key} label={label} />)}
+          {desktop && <PreventSleepRow value={settings.preventSleep || 'off'} onChange={v => patch({ preventSleep: v })} />}
         </div>
       </section>
       <section>
@@ -754,6 +756,23 @@ function SystemSettings() {
           {PERMISSION_KEYS.map(({ key, label }) => <ToggleRow key={key} k={key} label={label} />)}
         </div>
       </section>
+    </div>
+  );
+}
+
+/**
+ * 运行任务时阻止系统睡眠（仅桌面版显示）：由 Electron 主进程按设置与电源状态执行，这里只存设置并显示当前是否生效。
+ * 只能拦闲置自动睡眠，合盖与手动睡眠拦不住，提示里写明。
+ */
+function PreventSleepRow({ value, onChange }: { value: PreventSleepMode; onChange: (v: PreventSleepMode) => void }) {
+  const active = useKeepAwake();
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5 text-sm" title={t('settings.preventSleepTip')}>
+      <span>
+        {t('settings.preventSleep')}
+        {active && <span className="ml-2 text-xs text-muted">{t('settings.preventSleepActive')}</span>}
+      </span>
+      <div className="w-40"><IconSelect value={value} onChange={v => onChange(v as PreventSleepMode)} options={PREVENT_SLEEP_MODES.map(m => ({ value: m, label: t(PREVENT_SLEEP_LABELS[m]) }))} /></div>
     </div>
   );
 }

@@ -30,6 +30,8 @@ export function normalizeUrl(input: string): string {
   if (/^https?:\/\//i.test(s)) return s;
   if (/^file:\/\//i.test(s)) return s;
   if (s.startsWith('/')) return `file://${encodeURI(s)}`; // 绝对路径视为本地文件
+  // Windows 盘符路径 D:\a\b.html → file:///D:/a/b.html（反斜杠统一为正斜杠；不处理会被当成 http://d/...）
+  if (/^[a-zA-Z]:[\\/]/.test(s)) return `file:///${encodeURI(s.replace(/\\/g, '/'))}`;
   if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/.test(s)) return `http://${s}`;
   return `http://${s}`;
 }

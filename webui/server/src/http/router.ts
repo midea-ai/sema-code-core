@@ -6,6 +6,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execFile } from 'child_process';
+import { fileURLToPath } from 'url';
 import { SessionManager } from '../sessions';
 import { SEMA_DOCS_ROOT, WEBUI_HOME, removeEmptyDateParent } from '../registry/registry';
 import { searchFiles } from '../files/search';
@@ -80,7 +81,7 @@ async function fetchPageMeta(url: string): Promise<PageMeta> {
   // file://：读本地 html 头部解析标题（图标不代理本地文件，留空由前端回退）
   if (/^file:\/\//i.test(url)) {
     try {
-      const fp = decodeURIComponent(new URL(url).pathname);
+      const fp = fileURLToPath(url); // 兼容 Windows 盘符（pathname 会是 /D:/...，直接当路径打不开）
       const fd = fs.openSync(fp, 'r');
       try {
         const buf = Buffer.alloc(64 * 1024);

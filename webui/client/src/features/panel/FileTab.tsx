@@ -87,7 +87,7 @@ export function FileTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }
     return () => { el.removeEventListener('load', update); ro.disconnect(); };
   }, [zoom, relPath, data?.image]);
 
-  const setPath = (p: string) => updatePanel(sessionId, s => ({ ...s, tabs: s.tabs.map(x => x.id === tab.id ? { ...x, path: p, title: p.split('/').pop() } : x) }));
+  const setPath = (p: string) => updatePanel(sessionId, s => ({ ...s, tabs: s.tabs.map(x => x.id === tab.id ? { ...x, path: p, title: p.split(/[\\/]/).pop() } : x) }));
 
   useEffect(() => {
     let alive = true;
@@ -408,7 +408,9 @@ function DirNode({ sessionId, path, depth, current, onPick, onMenu, refresh }: {
   // 当前文件所在目录自动展开
   useEffect(() => {
     if (!current) return;
-    const rel = path ? (current.startsWith(path + '/') ? current.slice(path.length + 1) : '') : current;
+    // current 可能带 Windows 反斜杠（core 事件里的相对路径用原生分隔符），比较与拆分都按两种分隔符处理
+    const cur = current.replace(/\\/g, '/');
+    const rel = path ? (cur.startsWith(path + '/') ? cur.slice(path.length + 1) : '') : cur;
     const first = rel.split('/')[0];
     if (rel.includes('/') && first) setOpen(o => o[first] ? o : { ...o, [first]: true });
   }, [current, path]);

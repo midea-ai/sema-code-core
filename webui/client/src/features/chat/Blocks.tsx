@@ -411,7 +411,7 @@ function ToolCard({ block, ctx, onOpenChange }: { block: ToolBlock; ctx: BlockCt
           {isGeneric && block.title && block.title !== block.toolName && block.toolName !== 'ask_form' && <div className="text-xs text-muted mb-1 break-all">{block.title}</div>}
           {isGeneric && block.summary && <div className="text-xs text-muted mb-1.5">{block.summary}</div>}
           {isImageRead ? (
-            <ImageThumb src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(filePath!)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" label={filePath!.split('/').pop()} title={absPathOf(filePath!, workingDir)} />
+            <ImageThumb src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(filePath!)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" label={filePath!.split(/[\\/]/).pop()} title={absPathOf(filePath!, workingDir)} />
           ) : diff ? <DiffView patch={diff.patch} path={filePath || block.title} sessionId={ctx.sessionId} diffText={diff.diffText} maxLines={400} collapsible collapsedMaxPx={500} /> : (
             bodyText ? (
               <Collapsible deps={bodyText} className="rounded-md bg-code border border-border overflow-hidden">
@@ -442,7 +442,7 @@ function ImageReadCard({ blocks, ctx }: { blocks: ToolBlock[]; ctx: BlockCtx }) 
       {open && (
         <div className="pl-6 py-1 flex gap-2 flex-wrap">
           {paths.map((p, i) => (
-            <ImageThumb key={`${i}:${p}`} src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(p)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" label={p.split('/').pop()} title={absPathOf(p, workingDir)} />
+            <ImageThumb key={`${i}:${p}`} src={`/api/sessions/${ctx.sessionId}/raw?path=${encodeURIComponent(p)}&token=${encodeURIComponent(getToken())}`} className="h-20 w-20" label={p.split(/[\\/]/).pop()} title={absPathOf(p, workingDir)} />
           ))}
         </div>
       )}

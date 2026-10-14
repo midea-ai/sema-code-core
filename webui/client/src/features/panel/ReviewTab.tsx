@@ -295,7 +295,7 @@ interface DirNode { dirs: Map<string, DirNode>; files: FileChange[] }
 function treeRows(files: FileChange[], collapsed: Set<string>): TreeRow[] {
   const root: DirNode = { dirs: new Map(), files: [] };
   for (const f of files) {
-    const parts = displayPath(f.path).split('/').filter(Boolean);
+    const parts = displayPath(f.path).split(/[\\/]/).filter(Boolean);
     let node = root;
     for (const seg of parts.slice(0, -1)) {
       let next = node.dirs.get(seg);
@@ -318,7 +318,7 @@ function treeRows(files: FileChange[], collapsed: Set<string>): TreeRow[] {
       if (!collapsed.has(key)) walk(child, depth + 1, key);
     }
     for (const f of node.files.slice().sort((a, b) => a.path.localeCompare(b.path))) {
-      out.push({ name: f.path.split('/').pop() || f.path, depth, key: f.path, file: f });
+      out.push({ name: f.path.split(/[\\/]/).pop() || f.path, depth, key: f.path, file: f });
     }
   };
   walk(root, 0, '');

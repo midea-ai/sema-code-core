@@ -15,7 +15,7 @@ import { SkillLabel, matchSkillPrefix } from './skillDisplay';
 import { FileRefChip, refPaths, refStatPath, splitFileRefs } from './fileRefDisplay';
 import { usePathStats } from './fileRefs';
 import { PastePill } from './pasteAttachment';
-import { Button, Caret, cn, Spinner, Tip, useCopy } from '../../common/ui';
+import { Button, Caret, cn, DiffNums, Spinner, Tip, useCopy } from '../../common/ui';
 import { api, getToken } from '../../api/http';
 import { contentToString, toolDisplayName, stripAnsi, fmtTime, displayPath } from '../../common/text';
 import { normalizeUrl } from '../../common/url';
@@ -556,7 +556,7 @@ function DiffStat({ patch, additions, removals }: { patch?: any[]; additions?: n
     // 新建文件的预览 hunk 只带前几行，按 newLines 计
     a += h.oldLines === 0 && h.newLines > ha ? h.newLines : ha;
   }
-  return <span className="text-xs tabular-nums shrink-0"><span className="text-ok">+{a}</span> <span className="text-danger">-{r}</span></span>;
+  return <DiffNums additions={a} removals={r} />;
 }
 
 // ==================== 权限卡片 ====================
@@ -697,7 +697,7 @@ function FileChangesCard({ block, ctx }: { block: FileChangesBlock; ctx: BlockCt
         <span className="h-9 w-9 rounded-lg bg-panel flex items-center justify-center shrink-0"><FileDiff size={16} className="text-fg" /></span>
         <div className="flex-1 min-w-0">
           <div className="font-medium">{t('card.filesEdited', { n: files.length })}</div>
-          <div className="text-xs tabular-nums"><span className="text-ok">+{total.a}</span> <span className="text-danger">-{total.r}</span></div>
+          <DiffNums additions={total.a} removals={total.r} className="block" />
         </div>
         {block.inputId && ctx.onRewind && <Button size="sm" variant="ghost" onClick={() => ctx.onRewind!(block.inputId!)}>{t('card.undo')} <Undo2 size={13} /></Button>}
         <Button size="sm" variant="outline" onClick={() => openReview()}>{t('card.review')}</Button>

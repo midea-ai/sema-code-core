@@ -12,7 +12,7 @@ import { GenImageGallery, genImagesIn } from './GenImage';
 import { VizEmbed } from './VizEmbed';
 import { isVizPath } from '../../../../shared/viz';
 import { Composer } from './Composer';
-import { Button, Caret, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
+import { Button, Caret, DiffNums, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { usePausableElapsed } from '../../common/useElapsed';
 import { t } from '../../i18n';
 import { collapsedHeaderPad, panelCollapsedHeaderPad } from '../../common/desktop';
@@ -252,7 +252,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
               </label>
               <ul className="mt-2 max-h-48 overflow-auto text-xs flex flex-col gap-0.5">
                 {rewind.preview.files.map((f: any) => (
-                  <li key={f.filePath} className="flex gap-2"><span className="text-muted w-14 shrink-0">{f.effect}</span><span className="truncate flex-1">{f.displayPath}</span><span><span className="text-ok">+{f.additions}</span> <span className="text-danger">-{f.removals}</span></span></li>
+                  <li key={f.filePath} className="flex gap-2"><span className="text-muted w-14 shrink-0">{f.effect}</span><span className="truncate flex-1">{f.displayPath}</span><DiffNums additions={f.additions} removals={f.removals} /></li>
                 ))}
               </ul>
             </div>
@@ -308,13 +308,14 @@ function groupTurns(blocks: Block[]): Turn[] {
 const isWork = (b: Block) => b.kind === 'tool' || b.kind === 'agent';
 /** 末尾卡片：定时任务卡片，恒排在本轮所有块之后 */
 const isTail = (b: Block) => b.kind === 'cron';
+const isFileChanges = (b: Block) => b.kind === 'file-changes';
 const isText = (b: Block) => b.kind === 'assistant' && !!b.text;
 
 /**
  * 一轮的渲染。
  * 运行中：用户气泡 →（有文字/工具后）「已处理 N秒」分隔 → 全部块按原顺序（连续 ≥2 工具收成 live 组，组头为最后一个工具的摘要）
  * →（仅当最后一个可见块是已完成的文字或本轮尚无输出时）「正在思考」状态行。
- * 结束后：「耗时 N秒 ›」分隔 → 文件改动卡片 + 最终结论（最后一段文字）+ 其后的非工具块 + 待办/定时任务卡片 → 复制行；中间过程默认折叠。
+ * 结束后：「耗时 N秒 ›」分隔 → 最终结论（最后一段文字）+ 其后的非工具块 + 定时任务卡片 → 生图画廊 → 可视化 → 网站/Office/记忆卡片 → 文件改动卡片 → 复制行；中间过程默认折叠。
  * 展开时按原顺序显示全部块（组头为类别文案），与运行中渲染仅差组名与状态行。
  */
 function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, branching, onBranch }: {
@@ -333,20 +334,20 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
   let lastTextIdx = -1;
   for (let i = rest.length - 1; i >= 0; i--) if (isText(rest[i])) { lastTextIdx = i; break; }
   const lastText = lastTextIdx >= 0 ? rest[lastTextIdx] as Extract<Block, { kind: 'assistant' }> : null;
-  const before = lastTextIdx >= 0 ? rest.slice(0, lastTextIdx) : [];
   const after = lastTextIdx >= 0 ? rest.slice(lastTextIdx + 1) : rest;
 
-  // 定时任务卡片与文件改动卡片一样始终排在本轮末尾（运行中/展开/折叠三种视图一致），不按工具调用发生的位置插在过程里
+  // 定时任务卡片始终排在本轮块列表末尾（运行中/展开/折叠三种视图一致），不按工具调用发生的位置插在过程里
   const tailCards = rest.filter(isTail);
-  const ordered = [...rest.filter(b => !isTail(b)), ...tailCards];
-  // 折叠视图：文件改动卡片 + 最后一段文字 + 其后的非工具块 + 定时任务卡片
+  // 文件改动卡片不进块列表：固定渲染在所有产物与入口卡片之后、复制行之前（见下方 JSX），三种视图一致
+  const fileCards = rest.filter(isFileChanges);
+  const ordered = [...rest.filter(b => !isTail(b) && !isFileChanges(b)), ...tailCards];
+  // 折叠视图：最后一段文字 + 其后的非工具块 + 定时任务卡片
   const collapsedView: Block[] = [
-    ...before.filter(b => b.kind === 'file-changes'),
     ...(lastText ? [lastText] : []),
-    ...after.filter(b => !isWork(b) && !isTail(b)),
+    ...after.filter(b => !isWork(b) && !isTail(b) && !isFileChanges(b)),
     ...tailCards,
   ];
-  const hidden = rest.filter(b => !collapsedView.includes(b));
+  const hidden = rest.filter(b => !collapsedView.includes(b) && !isFileChanges(b));
   // 运行中不折叠过程（工具全部可见），结束后才收成摘要视图
   const collapsible = !running && hidden.length > 0;
   const hasWork = rest.some(isWork);
@@ -378,6 +379,8 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
       {!running && lastText && <OfficeCards sessionId={ctx.sessionId} text={lastText.text} />}
       {/* 本轮新建/修改的 .sema/memory/ 记忆文件：结论之后给「记忆卡片」，点击右栏打开记忆窗口 */}
       {!running && memoryFilesOf(rest).length > 0 && <MemoryCard sessionId={ctx.sessionId} files={memoryFilesOf(rest)} />}
+      {/* 文件改动卡片：所有产物与入口卡片之后、复制行之前（块本身在轮结束时才落，运行中不会有） */}
+      {fileCards.map(b => <BlockRenderer key={b.id} block={b} ctx={ctx} />)}
       {showThinking && <StatusLine text={t('chat.thinking')} />}
       {!running && lastText && <FinalActions text={lastText.text} ts={lastText.ts}
         onBranch={canBranch && onBranch ? () => onBranch(branchAnchor) : undefined}

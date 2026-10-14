@@ -254,6 +254,18 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
 export function useDialog() { return useContext(DialogCtx)!; }
 
 // ---------- misc ----------
+/** 增删行数「+a -r」（全站统一）：为 0 的一项不显示，两项都为 0 则什么都不渲染 */
+export function DiffNums({ additions, removals, className }: { additions: number; removals: number; className?: string }) {
+  if (!additions && !removals) return null;
+  return (
+    <span className={cn('text-xs tabular-nums shrink-0', className)}>
+      {additions > 0 && <span className="text-ok">+{additions}</span>}
+      {additions > 0 && removals > 0 && ' '}
+      {removals > 0 && <span className="text-danger">-{removals}</span>}
+    </span>
+  );
+}
+
 export function Spinner({ className }: { className?: string }) {
   return <span className={cn('inline-block h-3.5 w-3.5 rounded-full border-2 border-muted/40 border-t-accent animate-spin', className)} />;
 }

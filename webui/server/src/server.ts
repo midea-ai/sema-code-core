@@ -1,8 +1,9 @@
 /**
  * SemaWork 服务端（库形态）：startServer() 起 HTTP + WebSocket，返回地址与关闭函数。
- * 两个宿主共用：
- *   - index.ts   命令行入口（npm start），负责参数、token 落盘、信号处理
- *   - desktop/   Electron 主进程，进程内直接调用，随机端口
+ * 三个宿主共用：
+ *   - index.ts     命令行入口（npm start），负责参数、token 落盘、信号处理
+ *   - desktop/     Electron 主进程，进程内直接调用，随机端口
+ *   - webui/cli/   npm 包 sema-code-ui，带实例检测（GET /api/health）与 status/open/stop 子命令
  * 只监听 loopback；REST/WS 必须携带 token（Authorization: Bearer 或 ?token=）。
  */
 import http from 'http';
@@ -24,6 +25,8 @@ export interface StartServerOptions {
   /** 只允许 loopback，缺省 127.0.0.1 */
   host?: string;
   token: string;
+  /** 宿主版本号，由免 token 的 GET /api/health 返回（命令行包用来识别自己的实例） */
+  version?: string;
 }
 
 export interface ServerHandle {
@@ -126,6 +129,8 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
       const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
       const pathname = url.pathname;
       if (pathname.startsWith('/api/')) {
+        // 健康检查免 token（仅 loopback 可达，不含敏感信息）：命令行包据此判断端口上是否已是本服务
+        if (pathname === '/api/health') { json(res, 200, { ok: true, name: 'semawork', version: opts.version || null, pid: process.pid }); return; }
         if (pathname.startsWith('/api/local/')) { serveLocalFile(res, pathname); return; } // 鉴权走路径内嵌 token
         if (!authorized(req, url)) { json(res, 401, { ok: false, error: 'unauthorized' }); return; }
         if (!(await router.handle(req, res, pathname))) json(res, 404, { ok: false, error: 'not found' });
@@ -157,7 +162,17 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
     closed = true;
     tm.killAll();
     await sm.dispose(); // 内部等待全部 worker 真正退出（5 秒超时 SIGKILL）
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    // server.close() 要等所有连接断开，而浏览器的 WS 长连接不会自己断：先把 WS 与 keep-alive 连接全部关掉，
+    // 否则 Ctrl+C 永远卡在这里；再留 3 秒兜底，超时也放行（随后 process.exit）
+    for (const ws of wss.clients) ws.terminate();
+    for (const ws of termWss.clients) ws.terminate();
+    wss.close();
+    termWss.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, 3000);
+      server.close(() => { clearTimeout(t); resolve(); });
+    });
   }
 
   return new Promise<ServerHandle>((resolve, reject) => {

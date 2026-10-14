@@ -24,11 +24,13 @@ webui/
 ├── doc/                  # 产品需求 / 开发计划
 ├── shared/               # 服务端与前端共用：协议常量、快照/消息块类型、事件→消息块 reducer
 ├── resources/            # 生态市场内置资源（skills/ + mcp/，加资源只需丢文件）
+├── cli/                  # npm 包 sema-code-ui（独立安装，非 workspace）：start/status/open/stop，产物自包含
 ├── server/
 │   ├── esbuild.mjs       # 打包 dist/index.js（服务端）与 dist/worker-entry.js（core 子进程）
 │   └── src/
 │       ├── index.ts      # 命令行入口（npm start）：参数、token 落盘、信号处理
-│       ├── server.ts     # 库入口 startServer()：HTTP 静态托管、WS 升级；桌面版 desktop/ 进程内调用
+│       ├── cliUtil.ts    # 参数解析 / 持久化 token，index.ts 与 cli/ 共用
+│       ├── server.ts     # 库入口 startServer()：HTTP 静态托管、WS 升级、免 token 健康检查；桌面版与 cli/ 进程内调用
 │       ├── sessions.ts   # SessionManager：快照 / 订阅 / 动作分发 / worker 存活 / LRU 退场
 │       ├── workers/      # 子进程池、子进程入口（SemaCore + 事件转发）、cron 文件读取
 │       ├── registry/     # 注册表与设置（原子写入）
@@ -68,6 +70,13 @@ npm run build && npm start                # 重新构建并启动（改了根目
 ```
 
 参数（经 `npm start -- <参数>` 透传）：`--port 3210` 改端口；`--token xxx` 指定 token。token 首次随机生成后保存在 `~/.sema/webui/token`，重启复用，已打开的页面会自动重连，不用重新打开链接。仅监听 loopback，非 loopback `--host` 会拒绝启动。
+
+发布 npm 包 `sema-code-ui`（用户 `npm i -g sema-code-ui` 后 `sema-code-ui start`）：
+
+```bash
+cd cli && npm install && npm run build && npm pack      # 需先完成上面的 npm run build 出 client/dist
+npm publish
+```
 
 渲染预览：把 `client/src/preview/mockBlocks.ts` 的 `PREVIEW_COMPONENTS` 设为 `null`（全部）或指定 key 列表，侧栏「会话」下会出现「🧪 渲染预览」本地 mock 会话（不经服务端，其他会话照常使用）；设回 `[]` 关闭。预览相关代码全部在 `client/src/preview/`。
 

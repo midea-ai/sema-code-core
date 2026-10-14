@@ -4,6 +4,33 @@
 import { fork, ChildProcess } from 'child_process';
 import fs from 'fs';
 import { EventEmitter } from 'events';
+import type { Readable, Writable } from 'stream';
+
+/**
+ * 安静模式（SEMA_WEBUI_QUIET=1，CLI 默认开）：worker 的 stdout/stderr 不再直接继承到终端，
+ * 由主进程转发并丢掉 core 的日志行（`[HH:MM:SS] [LEVEL] [file:line]: ...` 及其续行）。
+ * 这些日志 core 已落盘到 ~/.sema/logs/，终端只保留 [worker] 等需要用户处理的提示。
+ */
+const QUIET = process.env.SEMA_WEBUI_QUIET === '1';
+const CORE_LOG_RE = /^\[\d{2}:\d{2}:\d{2}\] \[(DEBUG|INFO|WARN|ERROR)\] \[/;
+
+/** 按行转发子进程输出；遇到 core 日志行进入丢弃状态，直到下一条以 `[` 开头的其他来源行 */
+function relayQuiet(src: Readable, dst: Writable) {
+  let buf = '';
+  let dropping = false;
+  const handle = (line: string) => {
+    if (CORE_LOG_RE.test(line)) { dropping = true; return; }
+    if (line.startsWith('[')) dropping = false;
+    if (!dropping) dst.write(line + '\n');
+  };
+  src.setEncoding('utf8');
+  src.on('data', (chunk: string) => {
+    buf += chunk;
+    let i: number;
+    while ((i = buf.indexOf('\n')) >= 0) { handle(buf.slice(0, i)); buf = buf.slice(i + 1); }
+  });
+  src.on('end', () => { if (buf) handle(buf); });
+}
 
 export interface WorkerHandle {
   workingDir: string;
@@ -120,11 +147,15 @@ export class WorkerPool extends EventEmitter {
         // 宿主是 Electron 时 fork 用的是 Electron 二进制，显式让子进程按纯 Node 运行
         ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
       },
-      stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+      stdio: ['ignore', QUIET ? 'pipe' : 'inherit', QUIET ? 'pipe' : 'inherit', 'ipc'],
       // 脱离前台进程组：Ctrl+C 的 SIGINT 只打到主进程，worker 及其 MCP 子进程
       // 统一走 disconnect → core.dispose() 优雅关闭（主进程被 SIGKILL 时 IPC 断开同样触发）
       detached: true,
     });
+    if (QUIET) {
+      if (child.stdout) relayQuiet(child.stdout, process.stdout);
+      if (child.stderr) relayQuiet(child.stderr, process.stderr);
+    }
     const handle: WorkerHandle = {
       workingDir, child, sessions: new Set(), lastUsed: Date.now(), stale: false, alive: true,
       ready: new Promise<void>((resolve, reject) => {
@@ -175,7 +206,7 @@ export class WorkerPool extends EventEmitter {
       }
       this.emit('exit', workingDir, [...handle.sessions], code);
     });
-    console.log(`[pool] spawn worker pid=${child.pid} dir=${workingDir}`);
+    if (!QUIET) console.log(`[pool] spawn worker pid=${child.pid} dir=${workingDir}`);
     return handle;
   }
 

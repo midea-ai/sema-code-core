@@ -139,8 +139,29 @@ export const useSessions = create<SessionsState>((set, get) => ({
 
   async send(sessionId, text, images = [], originalInput) {
     const attachments = images.map(i => ({ type: 'image', data: i.data, media_type: i.media_type }));
-    await wsClient.request('session.processUserInput', sessionId, { input: text, originalInput, attachments: attachments.length ? attachments : undefined });
+    // 乐观回显：回车立即出气泡、清空输入框，不等 core 的 input:received（worker 冷启动时可达数秒）；
+    // 正式事件到达时 reducer 整体替换 pending 块
+    const pendingId = `user:pending:${Date.now()}`;
+    const draft = get().drafts[sessionId];
+    get().local(sessionId, { type: 'user-pending', id: pendingId, input: text, originalInput, attachments: images.map(i => ({ media_type: i.media_type, data: i.data })) });
     get().setDraft(sessionId, () => emptyDraft());
+    try {
+      await wsClient.request('session.processUserInput', sessionId, { input: text, originalInput, attachments: attachments.length ? attachments : undefined });
+      // 兜底：worker 先发事件再回应答、服务端同步转发，应答到达时该有的输入事件已应用；
+      // 此时 pending 仍在说明 core 没发输入事件（/quickchat 旁路等），直接撤掉，避免永久残留并卡住分支
+      get().local(sessionId, { type: 'user-pending-clear', id: pendingId });
+    } catch (e) {
+      // 失败：等待期间用户没再输入 → 撤气泡、草稿还回输入框；已在写新内容 → 不覆盖草稿，气泡留着标记失败供复制
+      const cur = get().drafts[sessionId];
+      const untouched = !cur || (!cur.text.trim() && !cur.images.length && !cur.pastes.length);
+      if (untouched) {
+        get().local(sessionId, { type: 'user-pending-clear', id: pendingId });
+        if (draft) get().setDraft(sessionId, () => draft);
+      } else {
+        get().local(sessionId, { type: 'user-pending-failed', id: pendingId });
+      }
+      throw e;
+    }
   },
   async sendQuickchat(sessionId, question) {
     await wsClient.request('session.processUserInput', sessionId, { input: `/quickchat ${question}` });

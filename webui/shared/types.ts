@@ -209,6 +209,10 @@ export interface UserBlock extends BlockBase {
   /** 超长粘贴转存的附件文件：path 为绝对路径，preview 为首行起的单行预览（从 input 的粘贴模板解析） */
   pastes?: PasteAttachment[];
   queued?: boolean;
+  /** 前端乐观回显：回车即本地插入，core 的 input:received / input:processing 到达时整体替换（仅存在于前端快照） */
+  pending?: boolean;
+  /** 乐观回显发送失败且用户已在输入新内容：保留气泡供复制，不覆盖草稿（仅存在于前端快照） */
+  failed?: boolean;
   /** 输入来源，缺省 user；cron=定时任务自动发送（气泡加标签） */
   source?: 'user' | 'cron';
   /** 本轮结束时间（state 回到 idle 时打上），用于展示耗时分隔 */

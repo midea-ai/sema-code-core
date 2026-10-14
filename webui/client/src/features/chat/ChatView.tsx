@@ -138,7 +138,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const runningIdx = useMemo(() => {
     for (let i = turns.length - 1; i >= 0; i--) {
       const o = turns[i].opener;
-      if (o && !(o.kind === 'user' && o.queued)) return i;
+      if (o && !(o.kind === 'user' && (o.queued || o.pending))) return i;
     }
     return -1;
   }, [turns]);
@@ -166,7 +166,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     && snap.state === 'idle'
     && awaitingTs == null
     && !snap.streamingId
-    && !snap.blocks.some(b => b.kind === 'user' && b.queued);
+    && !snap.blocks.some(b => b.kind === 'user' && (b.queued || (b.pending && !b.failed)));
 
   const renameTitle = async () => {
     const title = await dialog.prompt({ title: t('menu.rename'), defaultValue: record?.title || '' });
@@ -286,8 +286,8 @@ interface Turn { blocks: Block[]; opener?: TurnOpener }
 
 function groupTurns(blocks: Block[]): Turn[] {
   const turns: Turn[] = [];
-  // 排队中的输入不切轮：悬挂到列表末尾，运行轮的后续输出仍归运行轮；
-  // 真正开始处理时 reducer 会把该块搬到 blocks 末尾并翻掉 queued，自然成为新轮开头
+  // 排队中 / 乐观回显（pending）的输入不切轮：悬挂到列表末尾，运行轮的后续输出仍归运行轮；
+  // 真正开始处理时 reducer 会把该块搬到 blocks 末尾并翻掉 queued（pending 块则被正式块整体替换），自然成为新轮开头
   const queuedTail: Turn[] = [];
   let cur: Turn | null = null;
   for (const b of blocks) {
@@ -297,7 +297,7 @@ function groupTurns(blocks: Block[]): Turn[] {
       cur = null;
       continue;
     }
-    if (b.kind === 'user' && b.queued && !b.doneTs) { queuedTail.push({ blocks: [b], opener: b }); continue; }
+    if (b.kind === 'user' && (b.queued || b.pending) && !b.doneTs) { queuedTail.push({ blocks: [b], opener: b }); continue; }
     if (isTurnOpener(b)) { cur = { blocks: [b], opener: b }; turns.push(cur); continue; }
     if (!cur) { cur = { blocks: [] }; turns.push(cur); }
     cur.blocks.push(b);
@@ -329,7 +329,7 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
   const running = active && !!opener && !opener.doneTs;
 
   if (!opener) return <>{renderBlockList(rest, ctx)}</>;
-  const queued = opener.kind === 'user' && !!opener.queued;
+  const queued = opener.kind === 'user' && (!!opener.queued || !!opener.pending);
 
   let lastTextIdx = -1;
   for (let i = rest.length - 1; i >= 0; i--) if (isText(rest[i])) { lastTextIdx = i; break; }

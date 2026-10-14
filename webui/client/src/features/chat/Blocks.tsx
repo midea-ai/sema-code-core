@@ -127,13 +127,15 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
         )}
         {/* 粘贴块各占一行胶囊，点击在右栏打开转存文件（预览留在消息文本里，文件被退场清理后由右栏报文件不存在） */}
         {block.pastes?.map(p => <PastePill key={p.path} preview={p.preview} onOpen={() => openFileRef(ctx.sessionId, p.path)} />)}
-        {/* 纯图片 / 纯粘贴附件输入（无文字、非排队）不渲染文字气泡，避免出现空块；排队时只显示「排队中」标签 */}
+        {/* 纯图片 / 纯粘贴附件输入（无文字、非排队）不渲染文字气泡，避免出现空块；排队时只显示「排队中」标签；乐观回显（pending）同排队淡显，不带标签 */}
         {(block.text || block.queued) && (
-          <div className={cn('rounded-2xl px-4 py-2 bg-panel', block.queued && 'opacity-60')}>
+          <div className={cn('rounded-2xl px-4 py-2 bg-panel', (block.queued || block.pending) && 'opacity-60')}>
             <div ref={textRef} className={cn('whitespace-pre-wrap break-words leading-chat', collapsed && 'overflow-hidden [mask-image:linear-gradient(to_bottom,#000_70%,transparent)]')} style={collapsed ? { maxHeight: USER_COLLAPSED_MAX } : undefined}>
               {/* 以映射技能开头的消息：`/<技能名>` 显示为图标 + 名字（排队中的气泡同样处理），复制仍是原文 */}
               {skill && <SkillLabel display={skill.display} className="mr-1.5" />}{body}
               {block.queued && <span className="ml-2 text-xs text-muted">{t('chat.queued')}</span>}
+              {/* 乐观回显发送失败（边缘路径，英文常量不进五语字典）：气泡留着供复制，下一条正式输入到达时一并清掉 */}
+              {block.failed && <span className="ml-2 text-xs text-danger">Send failed</span>}
             </div>
             {overflowing && (
               <button onClick={() => setExpanded(v => !v)} className="mt-1 text-xs text-muted hover:text-fg">

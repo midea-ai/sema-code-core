@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Square } from 'lucide-react';
+import { ArrowUp, Loader2, Square } from 'lucide-react';
 import { useApp } from '../../store/app';
 import { useSessions, emptyDraft, type DraftPaste } from '../../store/sessions';
 import { pendingBlocks } from '../../../../shared/transcript';
@@ -403,8 +403,11 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
               <button onClick={() => interrupt(sessionId!).catch(e => toast(e.message, 'error'))} title={t('chat.stop')}
                 className="h-8 w-8 rounded-full bg-primary hover:bg-black text-white flex items-center justify-center"><Square size={12} fill="currentColor" /></button>
             ) : (
+              /* 草稿页首条消息要先建会话（含拉起 worker，冷启动可达数秒），期间按钮转圈给反馈 */
               <button onClick={() => doSend()} disabled={disabled || sending || (!draft.text.trim() && !draft.images.length && !draft.pastes.length)} title={t('chat.send')}
-                className="h-8 w-8 rounded-full flex items-center justify-center transition-colors bg-primary hover:bg-black text-white disabled:bg-black/[0.08] disabled:text-muted/60 disabled:cursor-default"><ArrowUp size={16} strokeWidth={2.25} /></button>
+                className="h-8 w-8 rounded-full flex items-center justify-center transition-colors bg-primary hover:bg-black text-white disabled:bg-black/[0.08] disabled:text-muted/60 disabled:cursor-default">
+                {sending ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.25} />}
+              </button>
             )}
           </div>
         </div>

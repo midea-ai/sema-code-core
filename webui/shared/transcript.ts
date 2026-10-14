@@ -75,6 +75,13 @@ function pushBlock(snap: SessionSnapshot, block: Block, agentId?: string) {
   snap.blocks = [...snap.blocks, block];
 }
 
+/** 移除前端乐观回显的用户块：core 的正式输入事件到达即整体替换（会话内输入串行，不按 id 对齐） */
+function dropPendingUser(snap: SessionSnapshot) {
+  if (snap.blocks.some(b => b.kind === 'user' && b.pending)) {
+    snap.blocks = snap.blocks.filter(b => !(b.kind === 'user' && b.pending));
+  }
+}
+
 function notice(snap: SessionSnapshot, seq: number, noticeType: NoticeBlock['noticeType'], level: NoticeBlock['level'], text: string, detail?: string, agentId?: string) {
   pushBlock(snap, { kind: 'notice', id: `notice:${seq}`, ts: Date.now(), noticeType, level, text, detail }, agentId);
 }
@@ -257,6 +264,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
 
     case 'input:received': {
       snap.predictedInput = undefined;
+      dropPendingUser(snap);
       // originalInput 存在就用它（空串 = 只有粘贴附件没打字，气泡无文字、不进历史），缺省才退回完整 input
       const text = data?.originalInput ?? data?.input ?? '';
       // 排队输入的附件随此事件带来（原始未规范化），先回显缩略图；真正处理时 input:processing 用规范化后的覆盖
@@ -279,6 +287,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
 
     case 'input:processing': {
       snap.predictedInput = undefined;
+      dropPendingUser(snap);
       const inputId = data?.inputId;
       const attachments = toAttachmentMetas(data?.attachments);
       const src = data?.source && data.source !== 'user' ? { source: data.source } : {};
@@ -523,10 +532,33 @@ export type LocalAction =
   | { type: 'pick'; id: string; answers: string | null }
   | { type: 'plan-exit'; id: string; selected: string }
   | { type: 'agentMode'; mode: SessionSnapshot['agentMode'] }
-  | { type: 'permissionLevel'; level: SessionSnapshot['permissionLevel'] };
+  | { type: 'permissionLevel'; level: SessionSnapshot['permissionLevel'] }
+  /** 回车即回显用户气泡（仅前端）：input/originalInput 与发给 core 的一致，附件为原始图片 */
+  | { type: 'user-pending'; id: string; input: string; originalInput?: string; attachments?: Array<{ media_type: string; data: string }> }
+  /** 撤掉乐观回显：发送失败且草稿可还回，或应答已到但 core 未发输入事件（如 /quickchat）的兜底 */
+  | { type: 'user-pending-clear'; id: string }
+  /** 发送失败但用户已在编辑新草稿：气泡留着标记失败，不动草稿 */
+  | { type: 'user-pending-failed'; id: string };
 
 export function applyLocal(snap: SessionSnapshot, action: LocalAction): SessionSnapshot {
   switch (action.type) {
+    case 'user-pending': {
+      const attachments = toAttachmentMetas(action.attachments);
+      const pastes = parsePasteInput(action.input);
+      pushBlock(snap, {
+        kind: 'user', id: action.id, ts: Date.now(), pending: true,
+        text: action.originalInput ?? action.input,
+        ...(attachments ? { attachments } : {}),
+        ...(pastes ? { pastes } : {}),
+      });
+      break;
+    }
+    case 'user-pending-clear':
+      snap.blocks = snap.blocks.filter(b => !(b.kind === 'user' && b.pending && b.id === action.id));
+      break;
+    case 'user-pending-failed':
+      updateBlock(snap, b => b.kind === 'user' && !!b.pending && b.id === action.id, b => ({ ...b, failed: true } as Block));
+      break;
     case 'permission':
       updateBlock(snap, b => b.kind === 'permission' && b.id === action.toolId, b => ({ ...b, resolved: action.selected, resolvedTs: Date.now() } as Block));
       break;

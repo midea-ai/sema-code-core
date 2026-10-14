@@ -22,7 +22,7 @@ sema-core                      工具名 mcp__chrome__*
 
 ## 安装
 
-前提：Chrome ≥ 116，Node ≥ 18，宿主应用已装好。
+前提：macOS / Windows / Linux，Chrome ≥ 116，Node ≥ 18，宿主应用已装好。
 
 1. 从商店链接装扩展，图标红色 `!` 正常
 2. `.sema/.mcp.json` 合并进 `~/.sema/.mcp.json`（host 版本钉死，升级时改版本号）

@@ -73,6 +73,14 @@ rm -f ~/Library/Application\ Support/Google/Chrome/NativeMessagingHosts/com.sema
 grep -l '"sema-chrome-host' ~/.npm/_npx/*/package.json 2>/dev/null | xargs -n1 dirname | xargs rm -rf
 ```
 
+Windows 在 PowerShell 里对应：
+
+```powershell
+Remove-Item -Recurse -Force "$HOME\.sema\skills\chrome-use", "$HOME\.sema\chrome" -ErrorAction SilentlyContinue
+reg delete HKCU\Software\Google\Chrome\NativeMessagingHosts\com.sema.chrome /f
+Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx\*\package.json" | Where-Object { Select-String -Path $_ -Pattern '"sema-chrome-host' -Quiet } | ForEach-Object { Remove-Item -Recurse -Force $_.Directory }
+```
+
 2、`chrome://extensions` 移除已装的 Sema Browser Control
 
 3、重新安装：扩展 + skill + mcp
@@ -88,7 +96,9 @@ cat chrome/.sema/.mcp.json  # 只打印，需要手动安装至mcp
 
 | 内容 | 位置 |
 | --- | --- |
-| 原生宿主清单 | `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.sema.chrome.json` |
-| 包装脚本、套接字、日志 | `~/.sema/chrome/` |
+| 原生宿主清单（macOS） | `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.sema.chrome.json` |
+| 原生宿主清单（Windows） | `%USERPROFILE%\.sema\chrome\com.sema.chrome.json`，注册表 `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.sema.chrome` 指向它 |
+| 原生宿主清单（Linux） | `~/.config/google-chrome/NativeMessagingHosts/com.sema.chrome.json` |
+| 包装脚本、套接字、日志 | `~/.sema/chrome/`，macOS/Linux 为 `native-host.sh` + `host.sock`，Windows 为 `native-host.bat` + 命名管道 `\\.\pipe\sema-chrome-<用户名>` |
 | host 包（npx） | `~/.npm/_npx/<hash>/node_modules/sema-chrome-host/` |
 | 授权与标签状态 | `chrome.storage.local` 键 `siteBlock`、`siteAsk`、`siteAuth`；`chrome.storage.session` 键 `siteAuthSession`、`agentTabs`、`controlledTabs`、`stopped` |

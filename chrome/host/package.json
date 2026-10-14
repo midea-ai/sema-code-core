@@ -1,6 +1,6 @@
 {
   "name": "sema-chrome-host",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Sema browser control: native messaging host and stdio MCP bridge for the Sema Browser Control Chrome extension",
   "license": "MIT",
   "type": "module",

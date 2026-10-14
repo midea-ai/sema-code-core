@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import { existsSync } from 'fs'
 import shellquote from 'shell-quote'
-import { spawn, execSync, type ChildProcess } from 'child_process'
+import { spawn, execSync, execFile, execFileSync, type ChildProcess } from 'child_process'
 import { isAbsolute, resolve, join, posix } from 'path'
 import * as os from 'os'
 import * as crypto from 'crypto'
@@ -138,46 +138,91 @@ function realpathOrSelf(p: string): string {
   }
 }
 
-// 测试 bash 是否可用（结果自动缓存）
-const testBashAvailability = (() => {
-  const cache = new Map<string, boolean>()
-  return (bashPath: string, type: 'msys' | 'wsl' = 'msys'): boolean => {
-    const cacheKey = `${bashPath}:${type}`
-    const cached = cache.get(cacheKey)
-    if (cached !== undefined) return cached
+// ==================== Windows Shell 探测 ====================
+// 探测要起 bash / wsl / PowerShell 子进程，Windows 下单次动辄 1～2 秒。
+// 同步版（execFileSync）留给 RunShell / TaskManager / hooks 这类必须立刻拿到 shell 的路径；
+// 建会话主路径（getEnv）走异步版，避免把 worker 整个事件循环卡住。两版共用候选枚举与结果缓存。
 
-    let ok = false
-    try {
-      logInfo(`测试 bash 可用性: ${bashPath}`)
-      const output = execSync(`"${bashPath}" -c "echo SEMA_TEST_OK"`, {
-        stdio: 'pipe', timeout: 3000, encoding: 'utf8',
-      }).toString().trim()
-      ok = output.includes('SEMA_TEST_OK')
-      if (ok) logInfo(`bash 测试通过: ${bashPath}`)
-      else logWarn(`bash 测试失败，输出不符合预期: ${bashPath}, 输出: ${output}`)
-    } catch (error) {
-      logWarn(`bash 测试失败: ${bashPath}, 错误: ${error}`)
-    }
-    cache.set(cacheKey, ok)
-    return ok
+// 单次探测超时
+const PROBE_TIMEOUT_MS = 2000
+const BASH_PROBE_ARGS = ['-c', 'echo SEMA_TEST_OK']
+const WSL_PROBE_ARGS = ['-e', 'bash', '-lc', 'echo SEMA_OK']
+const PS_PROBE_ARGS = ['-NoProfile', '-Command', "Write-Output 'SEMA_PS_OK'"]
+const PS_PATH_ARGS = ['-NoProfile', '-Command', '$env:PATH']
+
+// 起一个子进程拿 stdout；失败 / 非零退出 / 超时一律 null。windowsHide：桌面版（GUI 进程）里不弹控制台窗口
+function probeSync(bin: string, args: string[], timeout = PROBE_TIMEOUT_MS): string | null {
+  try {
+    return execFileSync(bin, args, { stdio: 'pipe', timeout, encoding: 'utf8', windowsHide: true }).toString().trim()
+  } catch {
+    return null
   }
-})()
-
-// 尝试使用指定路径的 bash，存在且测试通过返回 true
-function tryBash(candidate: string, type: 'msys' | 'wsl' = 'msys'): boolean {
-  return existsSync(candidate) && testBashAvailability(candidate, type)
 }
 
-// 检测可用的Shell（结果缓存，避免重复探测）
+function probeAsync(bin: string, args: string[], timeout = PROBE_TIMEOUT_MS): Promise<string | null> {
+  return new Promise(resolve => {
+    execFile(bin, args, { timeout, encoding: 'utf8', windowsHide: true }, (err, stdout) => {
+      resolve(err ? null : String(stdout).trim())
+    })
+  })
+}
+
+// bash 可用性缓存（按路径）
+const bashOkCache = new Map<string, boolean>()
+
+function recordBashProbe(bashPath: string, output: string | null): boolean {
+  const ok = !!output && output.includes('SEMA_TEST_OK')
+  if (ok) logInfo(`bash 测试通过: ${bashPath}`)
+  else logWarn(`bash 测试失败: ${bashPath}${output === null ? '' : `, 输出: ${output}`}`)
+  bashOkCache.set(bashPath, ok)
+  return ok
+}
+
+function testBashAvailability(bashPath: string): boolean {
+  const cached = bashOkCache.get(bashPath)
+  if (cached !== undefined) return cached
+  logInfo(`测试 bash 可用性: ${bashPath}`)
+  return recordBashProbe(bashPath, probeSync(bashPath, BASH_PROBE_ARGS))
+}
+
+async function testBashAvailabilityAsync(bashPath: string): Promise<boolean> {
+  const cached = bashOkCache.get(bashPath)
+  if (cached !== undefined) return cached
+  logInfo(`测试 bash 可用性: ${bashPath}`)
+  return recordBashProbe(bashPath, await probeAsync(bashPath, BASH_PROBE_ARGS))
+}
+
+// 检测结果缓存（进程级）；异步探测进行中时合并并发调用
 let detectedShellCache: DetectedShell | null = null
+let detectingShell: Promise<DetectedShell> | null = null
 
 function resolveShellBinary(): DetectedShell {
   return (detectedShellCache ??= detectShellImpl())
 }
 
+async function resolveShellBinaryAsync(): Promise<DetectedShell> {
+  if (detectedShellCache) return detectedShellCache
+  if (!detectingShell) {
+    detectingShell = detectShellImplAsync()
+      .then(r => (detectedShellCache = r))
+      .finally(() => { detectingShell = null })
+  }
+  return detectingShell
+}
+
 export function getShellRuntimeInfo(): DetectedShell | null {
   try {
     const { bin, args, type } = resolveShellBinary()
+    return { bin, args, type }
+  } catch {
+    return null
+  }
+}
+
+/** 异步版 getShellRuntimeInfo：探测子进程不阻塞事件循环，供建会话等主路径使用 */
+export async function getShellRuntimeInfoAsync(): Promise<DetectedShell | null> {
+  try {
+    const { bin, args, type } = await resolveShellBinaryAsync()
     return { bin, args, type }
   } catch {
     return null
@@ -202,183 +247,88 @@ export function getOneShotShellRuntimeInfo(): DetectedShell {
   return toOneShotShell(resolveShellBinary())
 }
 
-// 从环境变量检测 bash（SEMA_BASH / SHELL）
-function detectBashFromEnv(): DetectedShell | null {
-  // SEMA_BASH 环境变量优先级最高
-  if (process.env.SEMA_BASH && tryBash(process.env.SEMA_BASH)) {
-    logInfo(`使用 SEMA_BASH 环境变量指定的 bash: ${process.env.SEMA_BASH}`)
-    return { bin: process.env.SEMA_BASH, args: ['-l'], type: 'msys' }
-  }
+type BashCandidate = { bin: string; type: 'msys' | 'wsl'; from: string }
 
-  // SHELL 环境变量指向 bash.exe
-  const shell = process.env.SHELL
-  if (shell && /bash\.exe$/i.test(shell) && existsSync(shell)) {
-    const isSystem32 = shell.toLowerCase().includes('system32')
-    const type = isSystem32 ? 'wsl' as const : 'msys' as const
-    if (testBashAvailability(shell, type)) {
-      logInfo(`使用 SHELL 环境变量指定的 bash: ${shell}`)
-      return { bin: shell, args: ['-l'], type }
-    }
+// 读取 PATH（Windows 环境变量名大小写不敏感）；不做任何子进程调用
+function readPathEnv(): string {
+  const direct = process.env.PATH || process.env.Path || process.env.path
+  if (direct) return direct
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.toLowerCase() === 'path' && value) return value
   }
-
-  return null
+  return ''
 }
 
-// 获取 Windows PATH 条目
-function getWindowsPathEntries(): string[] {
-  let pathEnv = process.env.PATH || process.env.Path || process.env.path || ''
-
-  // 遍历所有环境变量找 PATH（Windows 大小写不敏感）
-  if (!pathEnv) {
-    for (const [key, value] of Object.entries(process.env)) {
-      if (key.toLowerCase() === 'path' && value) {
-        pathEnv = value
-        break
-      }
-    }
+// 枚举 bash.exe 候选（按优先级：SEMA_BASH → SHELL → PATH 内 Git Bash / 由 Git cmd 目录推断 → PATH 内其它 bash → 固定安装位置），
+// 只做 existsSync，不起进程；去重后交给同步/异步探测逐个验证
+function listBashCandidates(pathEnv: string): BashCandidate[] {
+  const out: BashCandidate[] = []
+  const seen = new Set<string>()
+  const typeOf = (p: string): 'msys' | 'wsl' => (p.toLowerCase().includes('system32') ? 'wsl' : 'msys')
+  const add = (bin: string, from: string, type: 'msys' | 'wsl' = typeOf(bin)) => {
+    const key = bin.toLowerCase()
+    if (seen.has(key) || !existsSync(bin)) return
+    seen.add(key)
+    out.push({ bin, type, from })
   }
 
-  // PATH 看起来不完整时从 PowerShell 补充
-  if (pathEnv && pathEnv.length < 500) {
-    try {
-      const fullPath = execSync('powershell.exe -Command "$env:PATH"', {
-        encoding: 'utf8', timeout: 5000,
-      }).trim()
-      if (fullPath.length > pathEnv.length) pathEnv = fullPath
-    } catch { /* ignore */ }
-  }
+  if (process.env.SEMA_BASH) add(process.env.SEMA_BASH, 'SEMA_BASH', 'msys')
+  if (process.env.SHELL && /bash\.exe$/i.test(process.env.SHELL)) add(process.env.SHELL, 'SHELL')
 
-  return splitPathEntries(pathEnv)
-}
-
-// 在 PATH 中搜索 bash.exe（Git Bash 优先）
-function detectBashInPath(pathEntries: string[]): DetectedShell | null {
-  // 单次遍历，Git Bash 优先收集，非 Git Bash 延后
-  const nonGitCandidates: string[] = []
-
-  for (const p of pathEntries) {
+  const nonGit: string[] = []
+  for (const p of splitPathEntries(pathEnv)) {
     const candidate = join(p, 'bash.exe')
-
     if (existsSync(candidate)) {
-      const lower = candidate.toLowerCase()
-      if (lower.includes('git') || lower.includes('git for windows')) {
-        if (tryBash(candidate, 'msys'))
-          return { bin: candidate, args: ['-l'], type: 'msys' }
-      } else {
-        nonGitCandidates.push(candidate)
-      }
-    } else {
-      // Git cmd 目录 → 推断 bin 目录
-      const pLower = p.toLowerCase()
-      if (pLower.includes('git') && (pLower.endsWith('cmd') || pLower.endsWith('cmd\\'))) {
-        const gitRoot = p.replace(/[\\\/]cmd[\\\/]?$/i, '')
-        for (const sub of ['bin', 'usr/bin', 'mingw64/bin']) {
-          const c = join(gitRoot, sub, 'bash.exe')
-          if (tryBash(c, 'msys')) return { bin: c, args: ['-l'], type: 'msys' }
-        }
-      }
+      if (candidate.toLowerCase().includes('git')) add(candidate, 'PATH', 'msys')
+      else nonGit.push(candidate)
+      continue
+    }
+    // Git 的 cmd 目录在 PATH 里（标准安装只加 cmd）→ 推断 bin / usr/bin 下的 bash
+    const pLower = p.toLowerCase()
+    if (pLower.includes('git') && /cmd[\\/]?$/.test(pLower)) {
+      const gitRoot = p.replace(/[\\/]cmd[\\/]?$/i, '')
+      for (const sub of ['bin', 'usr/bin', 'mingw64/bin']) add(join(gitRoot, sub, 'bash.exe'), 'PATH(git cmd)', 'msys')
     }
   }
+  for (const c of nonGit) add(c, 'PATH')
 
-  // 非 Git Bash 候选
-  for (const candidate of nonGitCandidates) {
-    const isSystem32 = candidate.toLowerCase().includes('system32')
-    const type = isSystem32 ? 'wsl' as const : 'msys' as const
-    if (testBashAvailability(candidate, type))
-      return { bin: candidate, args: ['-l'], type }
-  }
-
-  return null
-}
-
-// 在固定安装位置搜索 Git Bash / MSYS2
-function detectBashInFixedLocations(): DetectedShell | null {
-  const programFiles = [
-    process.env['ProgramFiles'],
-    process.env['ProgramFiles(x86)'],
-    process.env['ProgramW6432'],
-  ].filter(Boolean) as string[]
-
-  const candidates: string[] = []
-
+  const programFiles = [process.env['ProgramFiles'], process.env['ProgramFiles(x86)'], process.env['ProgramW6432']].filter(Boolean) as string[]
   for (const base of programFiles) {
-    candidates.push(
-      join(base, 'Git', 'bin', 'bash.exe'),
-      join(base, 'Git', 'usr', 'bin', 'bash.exe'),
-    )
+    add(join(base, 'Git', 'bin', 'bash.exe'), 'ProgramFiles', 'msys')
+    add(join(base, 'Git', 'usr', 'bin', 'bash.exe'), 'ProgramFiles', 'msys')
   }
-
   const localAppData = process.env['LocalAppData']
   if (localAppData) {
-    candidates.push(
-      join(localAppData, 'Programs', 'Git', 'bin', 'bash.exe'),
-      join(localAppData, 'Programs', 'Git', 'usr', 'bin', 'bash.exe'),
-    )
+    add(join(localAppData, 'Programs', 'Git', 'bin', 'bash.exe'), 'LocalAppData', 'msys')
+    add(join(localAppData, 'Programs', 'Git', 'usr', 'bin', 'bash.exe'), 'LocalAppData', 'msys')
   }
-
-  // MSYS2
-  candidates.push('C:/msys64/usr/bin/bash.exe', 'C:/msys32/usr/bin/bash.exe')
-
-  for (const candidate of candidates) {
-    if (tryBash(candidate)) return { bin: candidate, args: ['-l'], type: 'msys' }
-  }
-
-  return null
+  add('C:/msys64/usr/bin/bash.exe', 'MSYS2', 'msys')
+  add('C:/msys32/usr/bin/bash.exe', 'MSYS2', 'msys')
+  return out
 }
 
-// 检测 WSL
-function detectWsl(): DetectedShell | null {
-  try {
-    execSync('wsl.exe -e bash -lc "echo SEMA_OK"', { stdio: 'ignore', timeout: 2000 })
-    logInfo('WSL bash 可用')
-    return { bin: 'wsl.exe', args: ['-e', 'bash', '-l'], type: 'wsl' }
-  } catch {
-    return null
-  }
+function bashShell(c: BashCandidate): DetectedShell {
+  logInfo(`使用 bash(${c.from}): ${c.bin}`)
+  return { bin: c.bin, args: ['-l'], type: c.type }
 }
 
-// 检测 PowerShell / cmd.exe 回退
-function detectFallbackShell(): DetectedShell | null {
-  // PowerShell
-  for (const ps of ['pwsh.exe', 'powershell.exe']) {
-    try {
-      const result = execSync(`${ps} -NoProfile -Command "Write-Output 'SEMA_PS_OK'"`, {
-        stdio: 'pipe', timeout: 3000, encoding: 'utf8',
-      })
-      if (result.toString().trim().includes('SEMA_PS_OK')) {
-        logInfo(`使用 PowerShell: ${ps}`)
-        return { bin: ps, args: ['-NoProfile', '-Command'], type: 'powershell' }
-      }
-    } catch { /* ignore */ }
-  }
+function wslShell(): DetectedShell {
+  logInfo('WSL bash 可用')
+  return { bin: 'wsl.exe', args: ['-e', 'bash', '-l'], type: 'wsl' }
+}
 
-  // cmd.exe
+function powershellShell(ps: string): DetectedShell {
+  logInfo(`使用 PowerShell: ${ps}`)
+  return { bin: ps, args: ['-NoProfile', '-Command'], type: 'powershell' }
+}
+
+// 最后回退 cmd.exe；连它都没有则抛出带安装指引的错误
+function cmdShellOrThrow(): DetectedShell {
   const comspec = process.env.ComSpec || 'cmd.exe'
   if (existsSync(comspec)) {
     logInfo(`使用 cmd.exe: ${comspec}`)
     return { bin: comspec, args: ['/k'], type: 'cmd' }
   }
-
-  return null
-}
-
-function detectShellImpl(): DetectedShell {
-  if (!IS_WIN) {
-    return { bin: process.env.SHELL || '/bin/bash', args: ['-l'], type: 'posix' }
-  }
-
-  logInfo('开始检测 Windows Shell 环境...')
-
-  // 按优先级依次尝试
-  const result =
-    detectBashFromEnv() ??
-    detectBashInPath(getWindowsPathEntries()) ??
-    detectBashInFixedLocations() ??
-    detectWsl() ??
-    detectFallbackShell()
-
-  if (result) return result
-
   const hint = [
     '无法找到任何可用的 Shell 环境！',
     '',
@@ -392,6 +342,38 @@ function detectShellImpl(): DetectedShell {
 
   logError(hint)
   throw new Error(hint)
+}
+
+const POSIX_SHELL = (): DetectedShell => ({ bin: process.env.SHELL || '/bin/bash', args: ['-l'], type: 'posix' })
+
+// 同步探测（PATH 为空时才起 PowerShell 补读，不再按长度猜"不完整"）
+function detectShellImpl(): DetectedShell {
+  if (!IS_WIN) return POSIX_SHELL()
+  logInfo('开始检测 Windows Shell 环境...')
+  const pathEnv = readPathEnv() || probeSync('powershell.exe', PS_PATH_ARGS) || ''
+  for (const c of listBashCandidates(pathEnv)) {
+    if (testBashAvailability(c.bin)) return bashShell(c)
+  }
+  if (probeSync('wsl.exe', WSL_PROBE_ARGS) !== null) return wslShell()
+  for (const ps of ['pwsh.exe', 'powershell.exe']) {
+    if (probeSync(ps, PS_PROBE_ARGS)?.includes('SEMA_PS_OK')) return powershellShell(ps)
+  }
+  return cmdShellOrThrow()
+}
+
+// 异步探测：与同步版同一套候选与顺序，只是子进程不阻塞事件循环
+async function detectShellImplAsync(): Promise<DetectedShell> {
+  if (!IS_WIN) return POSIX_SHELL()
+  logInfo('开始检测 Windows Shell 环境...')
+  const pathEnv = readPathEnv() || (await probeAsync('powershell.exe', PS_PATH_ARGS)) || ''
+  for (const c of listBashCandidates(pathEnv)) {
+    if (await testBashAvailabilityAsync(c.bin)) return bashShell(c)
+  }
+  if ((await probeAsync('wsl.exe', WSL_PROBE_ARGS)) !== null) return wslShell()
+  for (const ps of ['pwsh.exe', 'powershell.exe']) {
+    if ((await probeAsync(ps, PS_PROBE_ARGS))?.includes('SEMA_PS_OK')) return powershellShell(ps)
+  }
+  return cmdShellOrThrow()
 }
 
 // 持久化Shell类

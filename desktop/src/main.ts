@@ -6,7 +6,7 @@
  * 环境变量 SEMA_DESKTOP_DEV_URL=http://localhost:5173：窗口改加载 vite dev 页面（热更新），
  * 此时 server 固定 3210 端口以匹配 vite 代理缺省值。
  */
-import { app, BrowserWindow, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, powerSaveBlocker, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { execFile } from 'child_process';
@@ -164,6 +164,8 @@ function showWindow() {
 }
 
 function createWindow() {
+  // Windows/Linux 去掉 Electron 默认的 File/Edit/View/Window 菜单栏；macOS 保留，Cmd+C/V/Q 等快捷键靠菜单 role 生效
+  if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 960, minHeight: 600,
     title: 'SemaWork', show: false,

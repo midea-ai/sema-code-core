@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FolderOpen, Pencil, ArrowDown, Copy, Check, ThumbsUp, ThumbsDown, GitBranch } from 'lucide-react';
-import type { Block } from '../../../../shared/types';
+import type { Block, SessionSnapshot } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
 import { useApp } from '../../store/app';
 import { useSessions, type Draft, type DraftPaste } from '../../store/sessions';
@@ -14,14 +14,22 @@ import { isVizPath } from '../../../../shared/viz';
 import { Composer } from './Composer';
 import { Button, Caret, DiffNums, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { usePausableElapsed } from '../../common/useElapsed';
-import { t } from '../../i18n';
+import { t, useLang } from '../../i18n';
 import { collapsedHeaderPad, panelCollapsedHeaderPad } from '../../common/desktop';
 import { fmtTime, displayPath } from '../../common/text';
 
-export function ChatView({ sessionId }: { sessionId: string }) {
+/**
+ * 会话视图。常驻实例（App 的 chatKeep）在非当前会话时以 active=false 隐藏挂载：
+ * 快照冻结在离开时的那份，store 更新不触发重渲染；保活续租与聚焦等副作用只在 active 时运行。
+ * 切回时 selector 立即换回实时快照，一次性追上离开期间的全部事件。
+ */
+export function ChatView({ sessionId, active = true }: { sessionId: string; active?: boolean }) {
+  const lang = useLang();
   const record = useApp(s => s.registry.sessions.find(x => x.id === sessionId));
-  const registry = useApp(s => s.registry);
-  const snap = useSessions(s => s.snapshots[sessionId]);
+  // 冻结快照：隐藏期间 selector 返回同一引用，zustand 判等后不重渲染
+  const frozen = useRef<SessionSnapshot | undefined>(undefined);
+  const snap = useSessions(s => active ? s.snapshots[sessionId] : frozen.current);
+  useEffect(() => { if (active) frozen.current = snap; }, [active, snap]);
   const loading = useSessions(s => s.loading[sessionId]);
   const open = useSessions(s => s.open);
   const toast = useApp(s => s.toast);
@@ -37,10 +45,15 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const [rewind, setRewind] = useState<{ inputId: string; preview?: any; restore: boolean; busy: boolean } | null>(null);
   const [branching, setBranching] = useState(false);
 
-  useEffect(() => { open(sessionId).catch(e => toast(e.message, 'error')); }, [sessionId, open, toast]);
-
-  // 切换会话时组件不重挂载，重置贴底状态，避免上个会话的离底状态带过来
-  useEffect(() => { setStick(true); }, [sessionId]);
+  // 首次挂载：拉快照 + 订阅 + 预热；常驻实例切回时只补一次预热（订阅一直在，快照已随事件更新）。
+  // 拉快照失败则清掉标记，下次切回重新完整打开，否则输入框会一直停在禁用态；请求在飞期间切走再切回只补预热，不重复拉
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!active) return;
+    if (opened.current) { useSessions.getState().warm(sessionId); return; }
+    opened.current = true;
+    open(sessionId).catch(e => { opened.current = false; toast(e.message, 'error'); });
+  }, [sessionId, active, open, toast]);
 
   // 内容不足一屏（无法滚动）时不显示回到底部按钮；用 ResizeObserver 跟踪内容/视口尺寸变化
   useEffect(() => {
@@ -54,13 +67,14 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   }, [sessionId, !!record]);
 
   // 停留续租：正在看的会话每 4 分钟补发 warm 保活（服务端 warm 宽限 5 分钟）；
-  // 后台标签页跳过续租，切回前台立即补一次；离开会话后由服务端按宽限期回收
+  // 后台标签页跳过续租，切回前台立即补一次；离开会话（隐藏常驻实例）后不续租，由服务端按宽限期回收
   useEffect(() => {
+    if (!active) return;
     const rewarm = () => { if (!document.hidden) useSessions.getState().warm(sessionId); };
     const timer = setInterval(rewarm, 4 * 60_000);
     document.addEventListener('visibilitychange', rewarm);
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', rewarm); };
-  }, [sessionId]);
+  }, [sessionId, active]);
 
   // 自动滚动：贴底时跟随（已在底部时不写 scrollTop——写同值不触发 scroll 事件，会留下悬空标记吞掉用户下一次滚动）
   const blocks = snap?.blocks;
@@ -173,6 +187,25 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     if (title !== null) useApp.getState().renameSession(sessionId, title).catch(e => toast(e.message, 'error'));
   };
 
+  // 轮次列表整体 memo：隐藏实例因 registry / 语言等外部变化重渲染时不重算整棵块树（lang 作依赖保证切语言时刷新文案）
+  const turnEls = useMemo(() => turns.map((turn, i) => {
+    // 分支锚点：中间轮次取下一轮用户输入的 inputId（历史截到它之前）；
+    // 下一轮开头是合成块（plan-implement）或无 inputId 时截不出干净边界，不提供分支。
+    // 最后一轮不带锚点 = 全量分支。
+    const last = i === turns.length - 1;
+    const nextOpener = last ? undefined : turns[i + 1]?.opener;
+    const anchor = nextOpener?.kind === 'user' ? nextOpener.inputId : undefined;
+    return (
+      <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx}
+        active={snap?.state === 'processing' && i === runningIdx}
+        awaitingTs={i === runningIdx ? awaitingTs : undefined}
+        canBranch={canBranchNow && (last || !!anchor)}
+        branchAnchor={anchor}
+        branching={branching}
+        onBranch={branchToNewChat} />
+    );
+  }), [turns, ctx, snap?.state, runningIdx, awaitingTs, canBranchNow, branching, branchToNewChat, lang]);
+
   if (!record) return <div className="flex-1 flex items-center justify-center text-muted">{t('chat.sessionNotFound')}</div>;
 
   return (
@@ -208,23 +241,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
               <div>{t('chat.emptyHint')}</div>
             </div>
           ))}
-          {turns.map((turn, i) => {
-            // 分支锚点：中间轮次取下一轮用户输入的 inputId（历史截到它之前）；
-            // 下一轮开头是合成块（plan-implement）或无 inputId 时截不出干净边界，不提供分支。
-            // 最后一轮不带锚点 = 全量分支。
-            const last = i === turns.length - 1;
-            const nextOpener = last ? undefined : turns[i + 1]?.opener;
-            const anchor = nextOpener?.kind === 'user' ? nextOpener.inputId : undefined;
-            return (
-              <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx}
-                active={snap!.state === 'processing' && i === runningIdx}
-                awaitingTs={i === runningIdx ? awaitingTs : undefined}
-                canBranch={canBranchNow && (last || !!anchor)}
-                branchAnchor={anchor}
-                branching={branching}
-                onBranch={branchToNewChat} />
-            );
-          })}
+          {turnEls}
         </div>
       </div>
       {/* 回到底部：内容超出一屏且离底时悬浮显示；运行中图标换成三点动画表示进行中。
@@ -238,7 +255,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       </div>
 
       {/* 输入区 */}
-      <Composer sessionId={sessionId} />
+      <Composer sessionId={sessionId} active={active} />
 
       {/* 回退对话框 */}
       <Modal open={!!rewind} onClose={() => !rewind?.busy && setRewind(null)} title={t('chat.rewindTitle')}>

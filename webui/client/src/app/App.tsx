@@ -23,6 +23,7 @@ export function App() {
   useLang();
   const ready = useApp(s => s.ready);
   const view = useApp(s => s.view);
+  const chatKeep = useApp(s => s.chatKeep);
   const bootstrap = useApp(s => s.bootstrap);
   const wsStatus = useApp(s => s.wsStatus);
   const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
@@ -71,11 +72,23 @@ export function App() {
           {view.type === 'schedule' && <SchedulePage />}
           {view.type === 'eco' && <EcoPage />}
           {view.type === 'usage' && <UsagePage />}
-          {view.type === 'chat' && (
-            <div className="flex-1 min-h-0 flex">
-              <div className="flex-1 min-w-0 flex flex-col"><ChatView key={view.sessionId} sessionId={view.sessionId} /></div>
-              {!panelCollapsed && <ResizeHandle side="right" width={panelW} onResize={setPanelW} />}
-              <RightPanel sessionId={view.sessionId} width={panelW} />
+          {/* 会话页常驻：最近 chatKeep 个会话的 ChatView 保持挂载（含不在会话页时），切回时滚动位置与折叠状态原样保留。
+              非当前的用 visibility 隐藏而不用 display:none（Chrome 对 display:none 的滚动容器会把 scrollTop 归零）；
+              不在会话页时整块绝对定位叠在当前页面之下并隐藏，不占布局。右侧面板只跟当前会话，不常驻 */}
+          {chatKeep.length > 0 && (
+            <div className={cn('flex-1 min-h-0 flex', view.type !== 'chat' && 'absolute inset-0 invisible pointer-events-none')} aria-hidden={view.type !== 'chat'}>
+              <div className="flex-1 min-w-0 relative">
+                {chatKeep.map(id => {
+                  const isActive = view.type === 'chat' && view.sessionId === id;
+                  return (
+                    <div key={id} className={cn('absolute inset-0 flex flex-col', !isActive && 'invisible pointer-events-none')} aria-hidden={!isActive}>
+                      <ChatView sessionId={id} active={isActive} />
+                    </div>
+                  );
+                })}
+              </div>
+              {view.type === 'chat' && !panelCollapsed && <ResizeHandle side="right" width={panelW} onResize={setPanelW} />}
+              {view.type === 'chat' && <RightPanel sessionId={view.sessionId} width={panelW} />}
             </div>
           )}
           {view.type === 'draft' && (view.projectId ? (

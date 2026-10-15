@@ -641,13 +641,18 @@ function NoticeBar({ block }: { block: NoticeBlock }) {
   const subtle = block.noticeType === 'compact-micro';
   const Icon = block.level === 'error' ? X : block.level === 'warn' ? AlertTriangle : Info;
   const [open, setOpen] = useState(false);
+  // 报错块的叉可点击关掉：只是本组件状态，ChatView 按 sessionId 重建，切回会话后按快照重新渲染
+  const [hidden, setHidden] = useState(false);
   // 模型自动放行提示不展示（工具行本身已足够）
   if (block.noticeType === 'auto-permission') return null;
+  if (hidden) return null;
   if (subtle) return <div className="my-1 text-[11px] text-muted/80 pl-1">· {block.text}{block.detail ? ` (${block.detail})` : ''}</div>;
   return (
     <div className={cn('my-2 rounded-md border px-3 py-1.5 text-xs flex items-start gap-2',
       block.level === 'error' ? 'border-danger/40 bg-danger/10 text-fg' : block.level === 'warn' ? 'border-warn/40 bg-warn/10' : 'border-border bg-white text-muted')}>
-      <Icon size={13} className="mt-0.5 shrink-0" />
+      {block.level === 'error'
+        ? <button onClick={() => setHidden(true)} title={t('common.close')} aria-label={t('common.close')} className="mt-0.5 shrink-0 rounded text-muted hover:text-fg hover:bg-danger/20"><Icon size={13} /></button>
+        : <Icon size={13} className="mt-0.5 shrink-0" />}
       <div className="flex-1 min-w-0">
         <div className="whitespace-pre-wrap break-words">{block.text}</div>
         {block.detail && (

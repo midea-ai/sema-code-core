@@ -38,7 +38,8 @@ const LEVEL_TONE: Record<PermissionLevel, string> = {
 export const DRAFT_KEY = '__draft__';
 
 /** sessionId 为空 = 新会话草稿模式：首次发送时才创建会话并跳转 */
-export function Composer({ sessionId, projectId }: { sessionId?: string; projectId?: string }) {
+/** active：常驻会话视图是否为当前会话（隐藏时不抢焦点，切回时重新聚焦） */
+export function Composer({ sessionId, projectId, active = true }: { sessionId?: string; projectId?: string; active?: boolean }) {
   const isDraft = !sessionId;
   const draftKey = sessionId || DRAFT_KEY;
   const snap = useSessions(s => sessionId ? s.snapshots[sessionId] : undefined);
@@ -82,10 +83,12 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
       .catch(() => undefined);
     return () => { stale = true; };
   }, [isDraft, projectId]);
-  // 草稿页选中项目即预热该项目的 worker（core 初始化 + skills/commands 预载），首条消息免冷启动；失败静默
+  // 草稿页即预热：选中项目则拉起该项目的 worker（core 初始化 + skills/commands 预载）；
+  // 未选项目则让服务端预占独立会话目录并拉起备用 worker。首条消息免冷启动；失败静默
   useEffect(() => {
-    if (!isDraft || !projectId || wsStatus !== 'open') return;
-    wsClient.request('project.warm', undefined, { projectId }).catch(() => undefined);
+    if (!isDraft || wsStatus !== 'open') return;
+    if (projectId) wsClient.request('project.warm', undefined, { projectId }).catch(() => undefined);
+    else wsClient.request('draft.warm', undefined, {}).catch(() => undefined);
   }, [isDraft, projectId, wsStatus]);
   // 编辑器分段：开头的 `/<映射技能> ` 显示为「图标 + 名字」标签，`@路径 ` 经服务端 stat 确认存在后显示为「文件图标 + 文件名」芯片，
   // 不存在的引用保持原文；draft.text 与发送内容始终是完整文本，所有光标/触发判定都按完整文本算，编辑器内部负责标签与全文坐标的换算。
@@ -140,7 +143,7 @@ export function Composer({ sessionId, projectId }: { sessionId?: string; project
   };
   const changeLevel = (l: PermissionLevel) => { if (isDraft) setDraftLevel(l); else setPermissionLevel(sessionId!, l).catch(e => toast(e.message, 'error')); };
 
-  useEffect(() => { taRef.current?.focus(); histIdx.current = null; }, [draftKey]);
+  useEffect(() => { if (!active) return; taRef.current?.focus(); histIdx.current = null; }, [draftKey, active]);
 
   // 补全后把光标放到指定位置（文本更新在下一次渲染才落到 DOM；编辑器的重建在 layout effect 里，先于这里执行）
   useEffect(() => {

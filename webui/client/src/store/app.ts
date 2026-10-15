@@ -59,6 +59,8 @@ interface AppState {
   /** 存活会话集合（core worker 进程活着且会话已在其中创建），侧栏图标亮/灰用 */
   liveSessions: Record<string, true>;
   view: View;
+  /** 常驻的会话视图（LRU，最近切入的在前，含当前会话）：这些 ChatView 保持挂载，切回时滚动位置与折叠状态原样保留 */
+  chatKeep: string[];
   modelData: ModelData | null;
   panels: Record<string, PanelState>;
   toasts: Toast[];
@@ -134,6 +136,11 @@ function loadView(): View {
 
 let toastSeq = 0;
 
+/** 常驻会话视图上限：隐藏实例已冻结不耗 CPU，成本只在内存，带大量预览 iframe 的长会话一个可达几十 MB */
+const KEEP_CHAT_VIEWS = 4;
+/** LRU：把 id 挪到最前，超出上限的从尾部淘汰 */
+const keepChat = (list: string[], id: string): string[] => [id, ...list.filter(x => x !== id)].slice(0, KEEP_CHAT_VIEWS);
+
 const toLiveMap = (ids?: string[]): Record<string, true> =>
   Object.fromEntries((ids || []).map(id => [id, true as const]));
 
@@ -145,6 +152,7 @@ export const useApp = create<AppState>((set, get) => ({
   status: {},
   liveSessions: {},
   view: loadView(),
+  chatKeep: [],
   modelData: null,
   panels: loadPanels(),
   toasts: [],
@@ -163,11 +171,17 @@ export const useApp = create<AppState>((set, get) => ({
     const v = get().view;
     if (v.type === 'chat' && !data.registry.sessions.some(s => s.id === v.sessionId)) set({ view: { type: 'draft' } });
     if (v.type === 'draft' && v.projectId && !data.registry.projects.some(p => p.id === v.projectId)) set({ view: { type: 'draft' } });
+    const restored = get().view;
+    if (restored.type === 'chat') set({ chatKeep: [restored.sessionId] });
 
     wsClient.onStatus(s => set({ wsStatus: s }));
     wsClient.onFrame(frame => {
       if ('sessionId' in frame && frame.sessionId) return; // 会话事件由 sessions store 处理
-      if (frame.event === SERVER_EVENTS.registryUpdate) set({ registry: frame.data });
+      if (frame.event === SERVER_EVENTS.registryUpdate) {
+        // 会话被别处删掉时顺手卸掉它的常驻视图
+        const registry = frame.data as Registry;
+        set(s => ({ registry, chatKeep: s.chatKeep.filter(id => registry.sessions.some(x => x.id === id)) }));
+      }
       else if (frame.event === SERVER_EVENTS.modelUpdate) set({ modelData: frame.data });
       else if (frame.event === SERVER_EVENTS.livenessUpdate) set({ liveSessions: toLiveMap(frame.data?.sessions) });
       else if (frame.event === 'cron:update') {
@@ -190,8 +204,11 @@ export const useApp = create<AppState>((set, get) => ({
     // 配置页是临时进入的，刷新或下次启动不应停留；其余视图（会话/草稿/日程/生态）刷新后留在原页面
     if (v.type !== 'settings') localStorage.setItem(VIEW_KEY, JSON.stringify(v));
     set({ view: v });
-    // 打开会话即视为已阅，清除「后台完成」绿灯
-    if (v.type === 'chat') get().clearDoneUnread(v.sessionId);
+    if (v.type === 'chat') {
+      set(s => ({ chatKeep: keepChat(s.chatKeep, v.sessionId) }));
+      // 打开会话即视为已阅，清除「后台完成」绿灯
+      get().clearDoneUnread(v.sessionId);
+    }
   },
   markDoneUnread(sessionId) {
     set(s => (s.doneUnread[sessionId] ? s : { doneUnread: { ...s.doneUnread, [sessionId]: Date.now() } }));
@@ -240,6 +257,7 @@ export const useApp = create<AppState>((set, get) => ({
   async renameSession(id, title) { await api('PATCH', `/api/sessions/${id}`, { title }); },
   async deleteSession(id) {
     await api('DELETE', `/api/sessions/${id}`);
+    set(s => ({ chatKeep: s.chatKeep.filter(x => x !== id) }));
     const v = get().view;
     if (v.type === 'chat' && v.sessionId === id) get().setView({ type: 'draft' });
   },

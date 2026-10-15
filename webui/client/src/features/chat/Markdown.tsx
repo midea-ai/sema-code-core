@@ -18,8 +18,10 @@ import { isLocalHref, isPathCandidate, parsePathRef, rawFileUrl, useFileStats, t
 const remarkPlugins: any[] = [remarkGfm, remarkMath, remarkBreaks];
 // KaTeX：公式出错时原样显示而不抛错；trust:false 关闭 \href 等危险命令
 const rehypePlugins: any[] = [[rehypeKatex, { throwOnError: false, strict: 'ignore', trust: false }], rehypeHighlight];
-// 默认 urlTransform 白名单不含 file:，会把 file:// 链接的 href 清空；这里放行 file://（Anchor 里在右栏浏览器打开），其余仍走默认清洗
-const urlTransform = (url: string) => (/^file:\/\//i.test(url) ? url : defaultUrlTransform(url));
+// 默认 urlTransform 白名单不含 file:，会把 file:// 链接的 href 清空；这里放行 file://（Anchor 里在右栏浏览器打开）。
+// Windows 盘符路径（D:\x 或 D:/x）会被默认清洗当成 "d:" 协议清空，导致 [a](D:\x\a.py) 落到无 href 的裸 <a>，不走文件引用识别，这里一并放行。
+// 注意此时 href 已经过 hast 的 normalizeUri，反斜杠被编码成 %5C，所以要同时匹配 \ / %5C 三种形态（Anchor 里 decodeURIComponent 会还原）
+const urlTransform = (url: string) => (/^file:\/\//i.test(url) || /^[a-zA-Z]:(?:[\\/]|%5C)/i.test(url) ? url : defaultUrlTransform(url));
 
 /** 围栏代码块内的 code 不做文件识别 */
 const InPre = createContext(false);
@@ -115,17 +117,18 @@ function Anchor({ href, children }: any) {
       }}>{children}</a>
     );
   }
-  if (isLocalHref(href)) {
-    let p = href;
-    try { p = decodeURIComponent(href); } catch { /* keep */ }
-    p = p.replace(/#.*$/, '');
+  // 先解码再判断是否本地路径：hast 会把反斜杠编码成 %5C，Windows 盘符路径 D:%5Cx 不解码就匹配不上盘符规则，会误判为外链
+  let decoded = href;
+  try { decoded = decodeURIComponent(href); } catch { /* keep */ }
+  if (isLocalHref(decoded)) {
+    const p = decoded.replace(/#.*$/, '');
     if (sessionId && isPathCandidate(p)) {
       const ref = parsePathRef(p);
       const s = stat(ref.path);
       if (s?.exists && !s.isDir) return <FileRef path={ref.path} line={ref.line} endLine={ref.endLine} label={children} />;
     }
     // 本地路径尚未确认或不存在：按普通文本展示，悬停可见原始目标
-    return <span title={href}>{children}</span>;
+    return <span title={decoded}>{children}</span>;
   }
   return (
     <a href={href} className="md-link" title={href} onClick={e => { e.preventDefault(); openUrl(href); }}><SiteIcon url={href} />{children}</a>

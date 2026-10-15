@@ -35,6 +35,7 @@ import { deleteProjectHistory, deleteSessionHistory } from '../util/history';
 import { getEventBus } from '../events/EventSystem';
 import { ProcessEvent } from '../events/types';
 import { logInfo } from '../util/log';
+import { getShellRuntimeInfoAsync } from '../util/shell';
 
 /**
  * Sema 核心 API 类（进程级）
@@ -49,11 +50,14 @@ export class SemaCore {
     this.configPromise = getConfManager().setCoreConfig(config || {});
 
     this.configPromise = this.configPromise.then(async () => {
-      // 触发单例初始化，后台加载 市场插件信息、memory 信息、rule 信息、hooks 配置
+      // 触发单例初始化，后台加载 市场插件信息、memory 信息、rule 信息
+      // skills/mcp/hooks 等依赖插件信息的管理器由插件扫描完成后级联拉起，此处不显式初始化
       getPluginsManager();
       getMemoryManager();
       getRuleManager();
-      getHooksManager();
+      // Windows：shell 探测要起 bash/wsl/PowerShell 子进程，首次动辄数秒，这里提前后台开跑，建会话取 env 时多半已就绪；
+      // 结果持久化到 ~/.sema/cache/shell.json，后续进程直接复用。失败不影响初始化（取 env 时会再走一次正式路径）
+      if (process.platform === 'win32') void getShellRuntimeInfoAsync();
       // 使用统计：usageProduct 未配置时 init 直接返回，不做任何采集
       getUsageStatsManager().init(config?.usageProduct);
     });

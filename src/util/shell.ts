@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import { existsSync } from 'fs'
 import shellquote from 'shell-quote'
 import { spawn, execSync, execFile, execFileSync, type ChildProcess } from 'child_process'
-import { isAbsolute, resolve, join, posix } from 'path'
+import { isAbsolute, resolve, join, dirname, posix } from 'path'
 import * as os from 'os'
 import * as crypto from 'crypto'
 import * as iconv from 'iconv-lite'
@@ -10,6 +10,7 @@ import { logError, logInfo, logWarn } from './log'
 import { IS_WIN, nativeToShellPath, splitPathEntries } from './platform'
 import { killProcess, getDetachedSpawnOptions } from './kill'
 import { readInitialCwd } from './cwd'
+import { getSemaRootDir } from './savePath'
 import { getEffectiveEnv } from '../services/settings/settingsLoader'
 
 // 临时文件前缀
@@ -192,19 +193,102 @@ async function testBashAvailabilityAsync(bashPath: string): Promise<boolean> {
   return recordBashProbe(bashPath, await probeAsync(bashPath, BASH_PROBE_ARGS))
 }
 
+// ==================== Windows 探测结果持久化 ====================
+// 进程级缓存意味着每个新 worker 都要重探一遍。结果落到 ~/.sema/cache/shell.json，下个进程直接复用。
+// 立即作废重探：PATH / SEMA_BASH / SHELL 变了、缓存的 bash 绝对路径已不存在、或出现了探测时没有的 bash 候选
+//（装了 Git / MSYS2 哪怕没改 PATH；bash 优先级高于 wsl / PowerShell）。超过 TTL：先用着，后台重探只刷新文件
+const SHELL_CACHE_VERSION = 2
+const SHELL_CACHE_TTL_MS = 24 * 60 * 60_000
+type ShellCacheEntry = { version: number; shell: DetectedShell; envHash: string; bashCandidates: string[]; probedAt: number }
+
+function shellCacheFile(): string {
+  return join(getSemaRootDir(), 'cache', 'shell.json')
+}
+
+function currentEnvHash(): string {
+  return crypto.createHash('sha1').update([readPathEnv(), process.env.SEMA_BASH || '', process.env.SHELL || ''].join('\n')).digest('hex')
+}
+
+// 当前存在的 bash 候选（只做文件存在性检查，不起进程），小写路径便于比较
+function currentBashCandidates(): string[] {
+  return listBashCandidates(readPathEnv()).map(c => c.bin.toLowerCase())
+}
+
+function readShellCache(): { shell: DetectedShell; fresh: boolean } | null {
+  try {
+    const e = JSON.parse(fs.readFileSync(shellCacheFile(), 'utf8')) as ShellCacheEntry
+    if (e?.version !== SHELL_CACHE_VERSION || !e.shell?.bin || !Array.isArray(e.shell.args) || !e.shell.type) return null
+    if (e.envHash !== currentEnvHash()) return null
+    if (isAbsolute(e.shell.bin) && !existsSync(e.shell.bin)) return null
+    const known = new Set(Array.isArray(e.bashCandidates) ? e.bashCandidates : [])
+    if (currentBashCandidates().some(b => !known.has(b))) return null
+    return { shell: e.shell, fresh: Date.now() - e.probedAt < SHELL_CACHE_TTL_MS }
+  } catch {
+    return null
+  }
+}
+
+function writeShellCache(shell: DetectedShell): void {
+  try {
+    const file = shellCacheFile()
+    fs.mkdirSync(dirname(file), { recursive: true })
+    const entry: ShellCacheEntry = {
+      version: SHELL_CACHE_VERSION, shell, envHash: currentEnvHash(), bashCandidates: currentBashCandidates(), probedAt: Date.now(),
+    }
+    const tmp = `${file}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(entry))
+    fs.renameSync(tmp, file)
+  } catch (e) {
+    logWarn(`写入 shell 探测缓存失败: ${e}`)
+  }
+}
+
+let refreshingShellCache = false
+
+// 过期缓存的后台重探：只刷新文件，不改本进程已在用的结果（已创建的 shell 实例各自持有 bin）
+function refreshShellCacheInBackground(): void {
+  if (refreshingShellCache) return
+  refreshingShellCache = true
+  detectShellImplAsync()
+    .then(r => writeShellCache(r))
+    .catch(() => undefined)
+    .finally(() => { refreshingShellCache = false })
+}
+
+// 命中持久化缓存则直接作为本进程结果（仅 Windows；POSIX 不探测）
+function adoptShellCache(): DetectedShell | null {
+  if (!IS_WIN) return null
+  const cached = readShellCache()
+  if (!cached) return null
+  logInfo(`复用 shell 探测缓存${cached.fresh ? '' : '（已过期，后台重探）'}: ${cached.shell.bin}`)
+  if (!cached.fresh) refreshShellCacheInBackground()
+  return (detectedShellCache = cached.shell)
+}
+
 // 检测结果缓存（进程级）；异步探测进行中时合并并发调用
 let detectedShellCache: DetectedShell | null = null
 let detectingShell: Promise<DetectedShell> | null = null
 
 function resolveShellBinary(): DetectedShell {
-  return (detectedShellCache ??= detectShellImpl())
+  if (detectedShellCache) return detectedShellCache
+  const cached = adoptShellCache()
+  if (cached) return cached
+  detectedShellCache = detectShellImpl()
+  if (IS_WIN) writeShellCache(detectedShellCache)
+  return detectedShellCache
 }
 
 async function resolveShellBinaryAsync(): Promise<DetectedShell> {
   if (detectedShellCache) return detectedShellCache
+  const cached = adoptShellCache()
+  if (cached) return cached
   if (!detectingShell) {
     detectingShell = detectShellImplAsync()
-      .then(r => (detectedShellCache = r))
+      .then(r => {
+        detectedShellCache = r
+        if (IS_WIN) writeShellCache(r)
+        return r
+      })
       .finally(() => { detectingShell = null })
   }
   return detectingShell

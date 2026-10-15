@@ -9,23 +9,29 @@ function gitStdout(args: string[]) {
   })
 }
 
-export async function getIsGit(): Promise<boolean> {
-  const { code } = await execFileSafely('git', ['rev-parse', '--is-inside-work-tree'], undefined, undefined, true, readInitialCwd())
-  return code === 0
+let isGitInflight: Promise<boolean> | null = null
+
+/** 并发的调用合并为一个 git 进程（建会话时 env 与 git 状态同时要它）；结束即清，不跨调用缓存结果 */
+export function getIsGit(): Promise<boolean> {
+  if (!isGitInflight) {
+    isGitInflight = execFileSafely('git', ['rev-parse', '--is-inside-work-tree'], undefined, undefined, true, readInitialCwd())
+      .then(({ code }) => code === 0)
+      .finally(() => { isGitInflight = null })
+  }
+  return isGitInflight
 }
 
 export async function getGitStatus(): Promise<string | null> {
-  if (!(await getIsGit())) {
-    return null
-  }
-
   try {
-    const [branch, mainBranch, status, log] = await Promise.all([
+    // 五条命令一轮并发，不先串行判仓库再查状态（Windows 上每个 git 进程都要上百毫秒）；不是仓库时其余结果直接丢弃
+    const [isGit, branch, mainBranch, status, log] = await Promise.all([
+      getIsGit(),
       gitStdout(['branch', '--show-current']),
       gitStdout(['rev-parse', '--abbrev-ref', 'origin/HEAD']).then(s => s.replace('origin/', '')),
       gitStdout(['status', '--short']),
       gitStdout(['log', '--oneline', '-n', '5']),
     ])
+    if (!isGit) return null
 
     const statusParts = status.split('\n')
     const truncatedStatus = statusParts.length > 200

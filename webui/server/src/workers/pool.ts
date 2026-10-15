@@ -110,6 +110,11 @@ export class WorkerPool extends EventEmitter {
     return n;
   }
 
+  /** 未触顶（预热类调用用：不为预热去淘汰别人） */
+  hasCapacity(): boolean {
+    return this.countedSize() < this.maxWorkers();
+  }
+
   /** 获取或拉起 worker */
   async acquire(workingDir: string): Promise<WorkerHandle> {
     if (!fs.existsSync(workingDir)) throw new Error(`工作目录不存在: ${workingDir}`);

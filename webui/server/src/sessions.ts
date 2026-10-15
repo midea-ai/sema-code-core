@@ -5,6 +5,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import { WorkerPool, WorkerHandle } from './workers/pool';
 import { RegistryStore, TRANSCRIPT_DIR, CONFIG_WORKSPACE, SEMA_DOCS_ROOT, writeJsonAtomic, removeEmptyDateParent } from './registry/registry';
@@ -65,6 +66,9 @@ export class SessionManager extends EventEmitter {
   killTerminals?: (sid: string) => void;
   private evicting = false;
   private branching = new Set<string>();
+  /** 独立会话备用 worker：草稿页未选项目时预先占好目录并拉起 worker，首条消息直接复用，免冷启动 */
+  private spare?: { id: string; workingDir: string };
+  private sparing?: Promise<void>;
 
   constructor(readonly registry: RegistryStore, entryPath: string) {
     super();
@@ -324,6 +328,53 @@ export class SessionManager extends EventEmitter {
     return this.pool.acquire(CONFIG_WORKSPACE);
   }
 
+  /** 服务启动即拉起配置 worker（不等就绪）：首屏取模型列表不再等冷启动，也避开与会话 worker 同时冷启动 */
+  prewarmConfigWorker() {
+    void this.configWorker().catch(() => undefined);
+  }
+
+  // ==================== 独立会话备用 worker ====================
+
+  /**
+   * 预热备用 worker：占一个独立会话目录并拉起 worker，不建会话记录。
+   * 已有备用则只确保其 worker 存活（被空闲回收后重新拉起）；触顶时不预热，避免为预热淘汰在用 worker。失败静默。
+   */
+  private async warmSpare(): Promise<void> {
+    if (this.sparing) return this.sparing;
+    this.sparing = (async () => {
+      if (this.spare && !fs.existsSync(this.spare.workingDir)) this.spare = undefined;
+      if (!this.spare) {
+        const id = randomUUID();
+        this.spare = { id, workingDir: this.registry.allocStandaloneDir(id) };
+      }
+      const w = this.pool.get(this.spare.workingDir);
+      if (w?.alive) { w.lastUsed = Date.now(); return; }
+      if (!this.pool.hasCapacity()) return;
+      await this.pool.acquire(this.spare.workingDir);
+    })().catch(() => undefined).finally(() => { this.sparing = undefined; });
+    return this.sparing;
+  }
+
+  /** 取走备用目录给新独立会话（worker 若已被回收也复用目录，不留空目录）；没有则返回 undefined */
+  private takeSpare(): { id: string; workingDir: string } | undefined {
+    const s = this.spare;
+    this.spare = undefined;
+    return s && fs.existsSync(s.workingDir) ? s : undefined;
+  }
+
+  /** 退出时清掉没用上的备用目录（worker 已随 pool.disposeAll 退出） */
+  private discardSpare() {
+    const s = this.spare;
+    this.spare = undefined;
+    if (!s) return;
+    try {
+      if (fs.existsSync(s.workingDir) && fs.readdirSync(s.workingDir).filter(n => n !== '.DS_Store').length === 0) {
+        fs.rmSync(s.workingDir, { recursive: true, force: true });
+        removeEmptyDateParent(s.workingDir);
+      }
+    } catch { /* ignore */ }
+  }
+
   // ==================== 动作分发 ====================
 
   async dispatch(action: string, sid: string | undefined, payload: any): Promise<any> {
@@ -341,6 +392,12 @@ export class SessionManager extends EventEmitter {
         this.broadcastAll({ event: SERVER_EVENTS.modelUpdate, data: result });
       }
       return result;
+    }
+
+    // ---------- 草稿页未选项目：预热独立会话备用 worker ----------
+    if (action === 'draft.warm') {
+      await this.warmSpare();
+      return true;
     }
 
     // ---------- 项目级：按 projectId 路由到项目目录 worker ----------
@@ -424,9 +481,10 @@ export class SessionManager extends EventEmitter {
 
   // ==================== 生命周期 ====================
 
-  /** 新会话：建注册表记录 + 立刻拉起 worker；启动失败回滚注册表/transcript/独立目录，不留垃圾 */
+  /** 新会话：建注册表记录 + 立刻拉起 worker；启动失败回滚注册表/transcript/独立目录，不留垃圾。
+   * 独立会话优先复用草稿页预热好的备用目录与 worker（ensureLive 命中已存活 worker，只做 session.create） */
   async createSession(opts: { projectId?: string }): Promise<{ record: SessionRecord; snapshot: SessionSnapshot }> {
-    const rec = this.registry.createSession(opts);
+    const rec = this.registry.createSession({ ...opts, preallocated: opts.projectId ? undefined : this.takeSpare() });
     const rt = this.loadRuntime(rec.id);
     this.broadcastRegistry();
     try {
@@ -860,5 +918,6 @@ export class SessionManager extends EventEmitter {
       if (rt.saveTimer) { clearTimeout(rt.saveTimer); try { writeJsonAtomic(this.transcriptPath(rt.snapshot.sessionId), rt.snapshot); } catch { /* ignore */ } }
     }
     await this.pool.disposeAll();
+    this.discardSpare();
   }
 }

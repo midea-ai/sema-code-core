@@ -51,10 +51,12 @@ export const CORE_ACTIONS = [
   'core.getCommandsInfo',
 ] as const;
 
-/** 项目级（project.*）action：按 projectId 路由到项目目录的 worker（草稿页预热 / 项目级清单） */
+/** 项目级（project.*）action：按 projectId 路由到项目目录的 worker（草稿页预热 / 项目级清单）；
+ * draft.warm：未选项目的草稿页预热独立会话备用 worker，首条消息免冷启动 */
 export const PROJECT_ACTIONS = [
   'project.warm',
   'project.getCommandsInfo',
+  'draft.warm',
 ] as const;
 
 /** 会话级（session.*）action：映射 SemaSession 同名方法 */

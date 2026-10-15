@@ -212,19 +212,27 @@ export class RegistryStore {
   }
 
   // ---------- 会话 ----------
-  /** 创建会话记录：项目会话共享项目目录；独立会话独占 ~/Documents/Sema/<日期>/<会话id> */
-  createSession(opts: { projectId?: string; agentMode?: AgentMode; permissionLevel?: PermissionLevel }): SessionRecord {
-    const id = randomUUID();
+  /** 预分配一个独立会话目录（~/Documents/Sema/<日期>/<会话id>）：备用 worker 预热用，此时还没有会话记录 */
+  allocStandaloneDir(id: string): string {
+    const dir = path.join(SEMA_DOCS_ROOT, dateFolder(), id);
+    fs.mkdirSync(dir, { recursive: true });
+    return fs.realpathSync(dir);
+  }
+
+  /** 创建会话记录：项目会话共享项目目录；独立会话独占 ~/Documents/Sema/<日期>/<会话id>。
+   * preallocated：复用预热备用 worker 已占的 id 与目录（仅独立会话） */
+  createSession(opts: { projectId?: string; agentMode?: AgentMode; permissionLevel?: PermissionLevel; preallocated?: { id: string; workingDir: string } }): SessionRecord {
+    const id = (!opts.projectId && opts.preallocated?.id) || randomUUID();
     let workingDir: string;
     if (opts.projectId) {
       const p = this.getProject(opts.projectId);
       if (!p) throw new Error('项目不存在');
       workingDir = p.workingDir;
       p.lastActiveAt = Date.now();
+    } else if (opts.preallocated && fs.existsSync(opts.preallocated.workingDir)) {
+      workingDir = opts.preallocated.workingDir;
     } else {
-      workingDir = path.join(SEMA_DOCS_ROOT, dateFolder(), id);
-      fs.mkdirSync(workingDir, { recursive: true });
-      workingDir = fs.realpathSync(workingDir);
+      workingDir = this.allocStandaloneDir(id);
     }
     const now = Date.now();
     const rec: SessionRecord = {

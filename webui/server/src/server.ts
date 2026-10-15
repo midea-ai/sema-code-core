@@ -72,6 +72,8 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
 
   const registry = new RegistryStore();
   const sm = new SessionManager(registry, entryPath);
+  // 配置 worker 启动即预热（不等就绪）：页面加载、连 WS 的这一两秒里它已在起，首屏模型列表少等一段冷启动
+  sm.prewarmConfigWorker();
   const tm = new TerminalManager();
   sm.killTerminals = (sid) => tm.killBySession(sid);
   const router = new Router(sm, tm);

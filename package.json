@@ -48,7 +48,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.25.1",
-    "@vscode/ripgrep": "^1.17.0",
+    "@vscode/ripgrep": "^1.18.0",
     "cron-parser": "^5.5.0",
     "diff": "7.0.0",
     "events": "^3.3.0",

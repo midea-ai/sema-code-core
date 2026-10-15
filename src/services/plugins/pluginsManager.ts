@@ -12,7 +12,6 @@ import { logDebug, logError, logInfo, logWarn } from '../../util/log'
 import { getSemaRootDir } from '../../util/savePath'
 import { readInitialCwd } from '../../util/cwd'
 import { execFileSafely } from '../../util/file'
-import { searchWithRipgrep } from '../../util/ripgrep'
 import { getSettingsPath, readSettingsFile, writeSettingsFile } from '../settings/settingsLoader'
 import { t } from '../../util/i18n'
 import type {
@@ -32,6 +31,31 @@ import type {
   PluginInfoResult,
   MarketplacePluginsInfo
 } from '../../types/plugin'
+
+/**
+ * 在目录下按文件名查找（含隐藏目录，不跟随符号链接，跳过 .git），广度优先，返回最浅的一个
+ * 市场 / 插件描述文件的查找不依赖 ripgrep，避免二进制缺失时整个插件系统不可用
+ */
+async function findFileByName(root: string, fileName: string, maxDepth: number): Promise<string | null> {
+  let level = [root]
+  for (let depth = 0; depth < maxDepth && level.length > 0; depth++) {
+    const next: string[] = []
+    for (const dir of level) {
+      let entries: fs.Dirent[]
+      try {
+        entries = await fsPromises.readdir(dir, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name === fileName) return path.join(dir, entry.name)
+        if (entry.isDirectory() && entry.name !== '.git') next.push(path.join(dir, entry.name))
+      }
+    }
+    level = next
+  }
+  return null
+}
 
 
 // ===================== PluginsManager 类 =====================
@@ -115,21 +139,18 @@ class PluginsManager {
   }
 
   private async readMarketplaceJson(installLocation: string): Promise<MarketplaceJson | null> {
-    // 目录已被删除（如本地目录市场登记后目录被清掉）：不再调 ripgrep，避免它对不存在的路径打 ERROR
+    // 目录已被删除（如本地目录市场登记后目录被清掉）
     if (!fs.existsSync(installLocation)) {
       logWarn(`市场目录不存在: ${installLocation}`)
       return null
     }
     try {
-      const results = await searchWithRipgrep(
-        ['--files', '--glob', 'marketplace.json', '--max-depth', '3', '--hidden'],
-        installLocation
-      )
-      if (results.length === 0) {
+      const found = await findFileByName(installLocation, 'marketplace.json', 3)
+      if (!found) {
         logWarn(`marketplace.json 不存在: ${installLocation}`)
         return null
       }
-      const content = await fsPromises.readFile(results[0], 'utf8')
+      const content = await fsPromises.readFile(found, 'utf8')
       return JSON.parse(content) as MarketplaceJson
     } catch (error) {
       logError(`读取 marketplace.json 失败 [${installLocation}]: ${error}`)
@@ -239,16 +260,13 @@ class PluginsManager {
   }
 
   /**
-   * 读取插件目录下的 plugin.json（通过 ripgrep 搜索，不依赖固定目录名）
+   * 读取插件目录下的 plugin.json（目录内查找，不依赖固定目录名）
    */
   private async readPluginJson(pluginSourcePath: string): Promise<PluginJson | null> {
     try {
-      const results = await searchWithRipgrep(
-        ['--files', '--glob', 'plugin.json', '--max-depth', '3', '--hidden'],
-        pluginSourcePath
-      )
-      if (results.length === 0) return null
-      const content = await fsPromises.readFile(results[0], 'utf8')
+      const found = await findFileByName(pluginSourcePath, 'plugin.json', 3)
+      if (!found) return null
+      const content = await fsPromises.readFile(found, 'utf8')
       return JSON.parse(content) as PluginJson
     } catch (error) {
       logError(`读取 plugin.json 失败 [${pluginSourcePath}]: ${error}`)

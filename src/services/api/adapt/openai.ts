@@ -225,6 +225,7 @@ export async function queryOpenAI(
   enableThinking: boolean,
   emitChunkEvents: boolean,
   sessionId?: string,
+  emitErrorEvents: boolean = true,
 ): Promise<AiMessage> {
   const start = Date.now()
   // 与 apiUtil.buildApiUrl 同规则：路径里已有 /vN 版本段（GLM /api/paas/v4、火山 /api/v3 等）就不再追加 /v1
@@ -271,8 +272,8 @@ export async function queryOpenAI(
 
   logLLMRequest(requestBody, sessionId)
 
-  // 统一使用 streamChat 处理请求（合并超时信号：空闲 2min 无新数据 / 整体 10min）
-  const { signal: streamSignal, cleanup, touch } = withStreamTimeout(signal, sessionId)
+  // 统一使用 streamChat 处理请求（合并超时信号：整体 10min / 首包后空闲 3min 无新数据）
+  const { signal: streamSignal, cleanup, touch } = withStreamTimeout(signal, sessionId, emitErrorEvents)
   let chatCompletion: OpenAI.ChatCompletion
   try {
     chatCompletion = await streamChat({

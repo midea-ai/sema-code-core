@@ -213,6 +213,7 @@ export async function queryAnthropic(
   enableThinking: boolean,
   emitChunkEvents: boolean,
   sessionId?: string,
+  emitErrorEvents: boolean = true,
 ): Promise<AiMessage> {
   const start = Date.now()
   const baseURL = modelProfile.baseURL || 'https://api.anthropic.com'
@@ -259,8 +260,8 @@ export async function queryAnthropic(
 
   logLLMRequest(requestBody, sessionId)
 
-  // 统一使用 streamChat 处理请求（合并超时信号：空闲 2min 无新数据 / 整体 10min）
-  const { signal: streamSignal, cleanup, touch } = withStreamTimeout(signal, sessionId)
+  // 统一使用 streamChat 处理请求（合并超时信号：整体 10min / 首包后空闲 3min 无新数据）
+  const { signal: streamSignal, cleanup, touch } = withStreamTimeout(signal, sessionId, emitErrorEvents)
   let parsedMessage: Anthropic.Message
   try {
     parsedMessage = await streamChat({

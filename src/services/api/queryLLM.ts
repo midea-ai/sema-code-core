@@ -94,11 +94,11 @@ export async function queryLLM(
 
     switch (modelProfile.adapt) {
       case 'anthropic':
-        result = await queryAnthropic(requestMessages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents, sessionId)
+        result = await queryAnthropic(requestMessages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents, sessionId, !disableErrorEvents)
         break
       case 'openai':
       default:
-        result = await queryOpenAI(requestMessages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents, sessionId)
+        result = await queryOpenAI(requestMessages, systemPromptContent, tools, signal, modelProfile, enableThinking, emitChunkEvents, sessionId, !disableErrorEvents)
         break
     }
 

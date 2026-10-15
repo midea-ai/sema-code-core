@@ -19,6 +19,11 @@ files:
   - dist/**
   - package.json
   - "!**/*.map"
+  # node_modules 里的 TS 源码与类型声明（zod/openai/rxjs 的 src/、*.d.ts）运行时用不到，解压后约 17MB；
+  # 依赖包 exports 里指向 .ts 的只有 source/@zod/source 这类自定义条件，Node 不会命中
+  - "!node_modules/**/*.ts"
+  - "!node_modules/**/*.mts"
+  - "!node_modules/**/*.cts"
 
 afterPack: scripts/afterPack.js
 

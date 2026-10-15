@@ -1,33 +1,41 @@
 /**
  * SemaWork 桌面版主进程。
- * 启动即在进程内拉起 webui/server（随机端口、每次启动随机 token），窗口加载该地址；
+ * 启动即起一个 utility 子进程跑 webui/server（dist/server-host.js；随机端口、每次启动随机 token），窗口加载该地址；
+ * 主进程只管窗口与防睡眠。server 不在主进程里跑：worker 的 fork（CreateProcess）是同步调用，在窗口 UI 线程上会把界面卡住，
+ * Windows 还会在调用进程的窗口上显示"启动中"转圈光标；挪到无窗口的子进程后两者都没有。
  * 关窗口 macOS 下隐藏（Dock 点击恢复），其他平台退出；退出前走 server 的优雅关闭。
  *
  * 环境变量 SEMA_DESKTOP_DEV_URL=http://localhost:5173：窗口改加载 vite dev 页面（热更新），
  * 此时 server 固定 3210 端口以匹配 vite 代理缺省值。
  */
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, powerSaveBlocker, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, powerSaveBlocker, shell, utilityProcess } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { execFile } from 'child_process';
 import { randomBytes } from 'crypto';
 
+/** 主进程侧的 server 代理：接口与 server.ts 的 ServerHandle 一致，调用经 utility 进程 IPC 转发（见 server-host.ts 的协议） */
 interface ServerHandle {
   host: string; port: number; token: string; url: string;
   close(): Promise<void>;
   /** 设置项「运行任务时阻止系统睡眠」：off / ac（仅接电源时）/ always */
-  preventSleepMode(): 'off' | 'ac' | 'always';
+  preventSleepMode(): Promise<'off' | 'ac' | 'always'>;
   /** 是否有不该被睡眠打断的工作 */
   hasActiveWork(): Promise<boolean>;
 }
-interface ServerModule { startServer(opts: { port: number; host?: string; token: string }): Promise<ServerHandle> }
+type ServerRequest = 'preventSleepMode' | 'hasActiveWork' | 'close';
 
 /** 防睡眠轮询间隔；任务结束后再按住这么久才放开，避免连续回合间抖动 */
 const KEEP_AWAKE_POLL_MS = 30_000;
 const KEEP_AWAKE_HOLD_MS = 2 * 60_000;
 
-/** esbuild 从 webui/server 源码打进 dist 的服务端（与 worker-entry.js、public/ 同目录），运行时依赖来自 desktop/node_modules */
+/** esbuild 产物：server-host.js 是 utility 子进程入口，它加载同目录的 server.js（与 worker-entry.js、public/ 同目录），运行时依赖来自 desktop/node_modules */
+const SERVER_HOST_ENTRY = path.join(__dirname, 'server-host.js');
 const SERVER_ENTRY = path.join(__dirname, 'server.js');
+/** 主进程 → server 进程的请求超时；close 发出后再等进程退出的上限，超过则强杀；启动后多久没 ready 视为失败 */
+const SERVER_REQ_TIMEOUT_MS = 10_000;
+const SERVER_EXIT_WAIT_MS = 5_000;
+const SERVER_BOOT_TIMEOUT_MS = 30_000;
 const DEV_URL = process.env.SEMA_DESKTOP_DEV_URL || '';
 
 let win: BrowserWindow | null = null;
@@ -85,16 +93,15 @@ function inheritShellPath(): Promise<void> {
 }
 
 async function boot() {
-  if (!fs.existsSync(SERVER_ENTRY)) {
-    dialog.showErrorBox('SemaWork', `未找到服务端构建产物：\n${SERVER_ENTRY}\n\n请先执行 npm run build`);
+  const missing = [SERVER_HOST_ENTRY, SERVER_ENTRY].find((f) => !fs.existsSync(f));
+  if (missing) {
+    dialog.showErrorBox('SemaWork', `未找到服务端构建产物：\n${missing}\n\n请先执行 npm run build`);
     app.quit();
     return;
   }
   await inheritShellPath();
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { startServer } = require(SERVER_ENTRY) as ServerModule;
   try {
-    handle = await startServer({ port: DEV_URL ? 3210 : 0, host: '127.0.0.1', token: randomBytes(16).toString('hex') });
+    handle = await startServerProcess({ port: DEV_URL ? 3210 : 0, token: randomBytes(16).toString('hex') });
   } catch (e: any) {
     dialog.showErrorBox('SemaWork', `服务启动失败：${e?.message || e}`);
     app.quit();
@@ -103,6 +110,75 @@ async function boot() {
   console.log(`[desktop] server ${handle.url}`);
   createWindow();
   startKeepAwake();
+}
+
+/**
+ * 在 utility 子进程里起 server，返回代理句柄。PATH 等环境在 inheritShellPath 之后整体传下去，worker 与终端照旧继承。
+ * 子进程意外退出（不是我们发的 close、也不在退出流程中）：弹框后退出应用；worker 随 IPC 断开自行 dispose。
+ */
+function startServerProcess(opts: { port: number; token: string }): Promise<ServerHandle> {
+  const child = utilityProcess.fork(SERVER_HOST_ENTRY, [], {
+    env: { ...process.env, SEMA_DESKTOP_PORT: String(opts.port), SEMA_DESKTOP_TOKEN: opts.token },
+    stdio: 'inherit',
+    serviceName: 'sema-server',
+  });
+  const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  let seq = 0;
+  let exited = false;
+  let closing = false;
+  const exitedP = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+
+  const request = (type: ServerRequest, timeoutMs = SERVER_REQ_TIMEOUT_MS) => new Promise<any>((resolve, reject) => {
+    if (exited) { reject(new Error('server process exited')); return; }
+    const id = ++seq;
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`server request timeout: ${type}`)); }, timeoutMs);
+    pending.set(id, { resolve, reject, timer });
+    child.postMessage({ id, type });
+  });
+  const close = async () => {
+    closing = true;
+    if (exited) return;
+    await request('close').catch((err) => console.error('[desktop] 关闭服务失败:', err?.message || err));
+    await Promise.race([exitedP, new Promise<void>((r) => setTimeout(r, SERVER_EXIT_WAIT_MS))]);
+    if (!exited) child.kill();
+  };
+
+  return new Promise<ServerHandle>((resolve, reject) => {
+    let ready = false;
+    // 子进程既不报 ready / error 也不退出的极端情况（server-host 自身已兜住同步异常）：不能让窗口永远开不出来
+    const bootTimer = setTimeout(() => { reject(new Error(`服务进程 ${SERVER_BOOT_TIMEOUT_MS / 1000} 秒内未就绪`)); child.kill(); }, SERVER_BOOT_TIMEOUT_MS);
+    child.on('message', (m: any) => {
+      if (!m) return;
+      if (m.type === 'ready') {
+        clearTimeout(bootTimer);
+        ready = true;
+        resolve({
+          host: m.host, port: m.port, token: m.token, url: m.url, close,
+          preventSleepMode: () => request('preventSleepMode'),
+          hasActiveWork: () => request('hasActiveWork'),
+        });
+        return;
+      }
+      if (m.type === 'error') { clearTimeout(bootTimer); reject(new Error(m.message)); return; }
+      if (typeof m.id !== 'number') return;
+      const p = pending.get(m.id);
+      if (!p) return;
+      pending.delete(m.id);
+      clearTimeout(p.timer);
+      if (m.ok) p.resolve(m.data); else p.reject(new Error(m.error || 'server error'));
+    });
+    child.on('exit', (code) => {
+      clearTimeout(bootTimer);
+      exited = true;
+      for (const [id, p] of pending) { pending.delete(id); clearTimeout(p.timer); p.reject(new Error(`server process exited (code ${code})`)); }
+      if (!ready) { reject(new Error(`服务进程启动即退出（code ${code}）`)); return; }
+      if (closing || quitting) return;
+      console.error(`[desktop] 服务进程异常退出 code=${code}`);
+      handle = null;
+      dialog.showErrorBox('SemaWork', `服务进程异常退出（code ${code}），应用将退出`);
+      app.quit();
+    });
+  });
 }
 
 /**
@@ -122,7 +198,8 @@ function startKeepAwake() {
 
 async function keepAwakeTick() {
   if (!handle) { setKeepAwake(false); return; }
-  const mode = handle.preventSleepMode();
+  let mode: 'off' | 'ac' | 'always' = 'off';
+  try { mode = await handle.preventSleepMode(); } catch { mode = 'off'; }
   const allowed = mode === 'always' || (mode === 'ac' && !powerMonitor.isOnBatteryPower());
   let active = false;
   if (allowed) { try { active = await handle.hasActiveWork(); } catch { active = false; } }

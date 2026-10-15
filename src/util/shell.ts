@@ -194,15 +194,16 @@ async function testBashAvailabilityAsync(bashPath: string): Promise<boolean> {
 }
 
 // ==================== Windows 探测结果持久化 ====================
-// 进程级缓存意味着每个新 worker 都要重探一遍。结果落到 ~/.sema/cache/shell.json，下个进程直接复用。
-// 立即作废重探：PATH / SEMA_BASH / SHELL 变了、缓存的 bash 绝对路径已不存在、或出现了探测时没有的 bash 候选
-//（装了 Git / MSYS2 哪怕没改 PATH；bash 优先级高于 wsl / PowerShell）。超过 TTL：先用着，后台重探只刷新文件
+// 进程级缓存意味着每个新 worker 都要重探一遍。结果落到 ~/.sema/cache/shell-<环境哈希>.json，下个进程直接复用。
+// 文件名带环境哈希：桌面版、CLI、IDE 插件的 PATH 可能不同，各用各的条目，不会互相作废来回重探。
+// 立即作废重探：PATH / SEMA_BASH / SHELL 变了（哈希变即换文件）、缓存的 bash 绝对路径已不存在、或出现了探测时没有的
+// bash 候选（装了 Git / MSYS2 哪怕没改 PATH；bash 优先级高于 wsl / PowerShell）。超过 TTL：先用着，后台重探只刷新文件
 const SHELL_CACHE_VERSION = 2
 const SHELL_CACHE_TTL_MS = 24 * 60 * 60_000
 type ShellCacheEntry = { version: number; shell: DetectedShell; envHash: string; bashCandidates: string[]; probedAt: number }
 
 function shellCacheFile(): string {
-  return join(getSemaRootDir(), 'cache', 'shell.json')
+  return join(getSemaRootDir(), 'cache', `shell-${currentEnvHash().slice(0, 12)}.json`)
 }
 
 function currentEnvHash(): string {

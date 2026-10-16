@@ -52,7 +52,8 @@ interface Tool<TInput extends z.ZodObject<any> = z.ZodObject<any>, TOutput = any
     content: string | Record<string, any>
   }
 
-  // 获取工具调用的展示标题
+  // 获取工具调用的展示标题；涉及文件路径时统一用 getDisplayPath：项目内为相对初始工作目录的路径，
+  // 项目外为绝对路径，不出现 ../；~ 缩写等友好渲染由宿主自行处理
   getDisplayTitle?(input?: z.infer<TInput>): string
 
   // 工具的实际执行逻辑（异步生成器）

@@ -62,7 +62,14 @@
 
 ## 🚀 快速开始
 
-以 [SemaWork](./webui/README.md) 为例，两步在本地跑起来：
+以 [SemaWork](./webui/README.md) 为例，一条命令在本地跑起来（要求 Node ≥ 20.18.1）：
+
+```bash
+npm i -g sema-code-ui
+sema-ui        # 启动服务并打开浏览器
+```
+
+或从源码两步运行：
 
 ### 1. 克隆并构建
 
@@ -94,22 +101,6 @@ npm pack
 ```
 
 非 Node 项目可通过[多语言 SDK](./sdks/README.md)（Java / Python / C#）接入。
-
-<a id="the-sema-family"></a>
-
-## 🌐 The Sema Family
-
-**Midea AIRC · SEMA Agent Systems** 从三个方向探索 Agent 系统工程：**Sema Code** 将编码 Agent 解耦为可编程、可嵌入的基础设施；**SemaClaw** 通过 Harness Engineering 构建开放、可控、可扩展的个人 Agent 系统；**SemaPLC** 面向工业代码生成，以项目上下文以及规格、编译和运行时验证结果约束交付。图中的 **Embed · Harness · Verify** 分别概括三项工作的研究重点，并不表示统一流程或严格依赖关系。
-
-<p align="center">
-  <img src="./docs/images/sema-series-family.png" alt="SEMA 项目家族：Sema Code、SemaClaw 与 SemaPLC" width="1000" />
-</p>
-
-SEMA 系列目前包含以下论文与开源实现：
-
-[1] [*Sema Code: Decoupling AI Coding Agents into Programmable, Embeddable Infrastructure*](https://arxiv.org/abs/2604.11045) · [代码](https://github.com/midea-ai/sema-code-core)<br>
-[2] [*SemaClaw: A Step Towards General-Purpose Personal AI Agents through Harness Engineering*](https://arxiv.org/abs/2604.11548) · [代码](https://github.com/midea-ai/SemaClaw)<br>
-[3] [*SemaPLC: A Project-Grounded, Verification-Gated Agent Harness for PLC Code Generation*](https://arxiv.org/abs/2608.18565) · [代码](https://github.com/midea-ai/SemaPLC)
 
 ## 📜 许可证
 

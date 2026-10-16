@@ -10,7 +10,7 @@ import { SemaCore } from 'sema-core'
 const sema = new SemaCore(config?: SemaCoreConfig)
 ```
 
-构造函数会异步完成核心配置写入，并触发 `PluginsManager`、`MemoryManager`、`RuleManager` 等单例的后台初始化（市场插件信息、Memory、Rule）。首次 `createSession()` 会等待该初始化完成。
+构造函数会异步完成核心配置写入，并触发 `PluginsManager`、`MemoryManager`、`RuleManager` 等单例的后台初始化（市场插件信息、Memory、Rule）；Windows 下还会提前在后台探测可用 shell，结果缓存到 `~/.sema/cache/`（见[数据持久化](wiki/core-concepts/persistent-storage/index)）。首次 `createSession()` 会等待该初始化完成。
 
 `SemaCoreConfig` 详见 [基础用法](wiki/getting-started/basic-usage/basic-usage)。
 

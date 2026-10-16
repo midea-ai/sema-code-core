@@ -16,4 +16,8 @@
 
 ## 启动方式
 
-见[快速开始 · 方式一](wiki/getting-started/quick-start)。
+- **npm 包** `sema-code-ui`：`npm i -g sema-code-ui` 后运行 `sema-ui` 一条命令启动并打开浏览器，`status` / `open` / `stop` 子命令管理实例
+- **源码运行**：构建 `webui/` 后 `npm start`
+- **桌面版**：`desktop/` 目录基于 Electron 打包，与网页版同源
+
+命令与参数见[快速开始 · 方式一](wiki/getting-started/quick-start)。

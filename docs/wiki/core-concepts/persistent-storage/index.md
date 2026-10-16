@@ -25,10 +25,12 @@ Sema Core 的所有持久化数据存储在用户主目录的 `~/.sema/` 下，�
 │   └── 2024-01-15.log
 ├── event/                        # 事件日志
 │   └── 2024-01-15_[sessionId].log
-├── stats/                        # 使用统计（按天一文件，多产品共用）
-│   └── 2024-01-15.jsonl
+├── stats/                        # 使用统计（每个产品一个子目录，按天一文件）
+│   └── [product]/
+│       └── 2024-01-15.jsonl
 ├── cache/                        # 缓存
-│   └── llm-cache.json
+│   ├── llm-cache.json            # LLM 响应缓存
+│   └── shell-[envHash].json      # Windows shell 探测结果（跨进程复用）
 ├── skills/
 │   └── [skill-name]/
 │       └── SKILL.md              # 用户级 Skill
@@ -288,6 +290,14 @@ LLM 日志归档文件，从原始日志中提取 **messages 最长的一次请�
 ### LLM 响应缓存 `~/.sema/cache/llm-cache.json`
 
 LLM 响应缓存文件，由 `enableLLMCache` 配置控制是否启用。
+
+### Shell 探测缓存 `~/.sema/cache/shell-[envHash].json`
+
+仅 Windows。探测可用 shell（bash / wsl / PowerShell）要起子进程，首次动辄数秒，结果落盘后新进程直接复用，`SemaCore` 构造时也会提前在后台探测。文件名带 `PATH` / `SEMA_BASH` / `SHELL` 的哈希，桌面版、CLI、IDE 插件环境不同时各用各的条目，互不作废。
+
+- **立即作废重探**：环境哈希变化、缓存的 bash 路径已不存在、出现了探测时没有的 bash 候选（如新装了 Git）
+- **超过 24 小时**：先沿用旧结果，后台重探只刷新文件
+- 写入走临时文件 + rename，临时文件名带 pid 和随机后缀，多线程跑 core 时不会互相覆盖
 
 ### 规则文件 `~/.sema/AGENTS.md` 和 `<project>/AGENTS.md`
 

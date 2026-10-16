@@ -44,6 +44,7 @@ query(messages, systemPromptContent, agentContext)
    ▼
 2. queryLLM(...) 流式调用 LLM
    ├─ emit message:thinking:chunk / message:text:chunk
+   ├─ 超时：整体 10 分钟；首包后空闲 3 分钟（首包前不计空闲）→ emit session:error 并返回已积累内容
    ├─ 异常处理：
    │   ├─ aborted → 追加 INTERRUPT_MESSAGE 后保存历史 + emit session:interrupted
    │   └─ API 错误 → 仅保存原历史并 flushHistory

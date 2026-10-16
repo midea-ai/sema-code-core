@@ -1,11 +1,11 @@
 /**
- * sema-code-ui 命令行入口（npm 包，bin/sema-code-ui.js 加载 dist/cli.js）。
+ * sema-ui 命令行入口（npm 包 sema-code-ui，bin/sema-ui.js 加载 dist/cli.js）。
  *
- *   sema-code-ui start [--port 3210] [--token xxx] [--no-open]   前台启动，默认打开浏览器；已在运行则只打开页面
- *                                                                终端只打必读的几句；内部错误进 ~/.sema/webui/error.log，core 日志在 ~/.sema/logs/
- *   sema-code-ui status                                         运行状态：端口 / 地址 / 版本 / pid
- *   sema-code-ui open                                            只打开页面，不重复起服务
- *   sema-code-ui stop                                            结束运行中的实例
+ *   sema-ui [--port 3210] [--token xxx] [--no-open]   前台启动，默认打开浏览器；已在运行则只打开页面（等同 sema-ui start）
+ *                                                     终端只打必读的几句；内部错误进 ~/.sema/webui/error.log，core 日志在 ~/.sema/logs/
+ *   sema-ui status                                    运行状态：端口 / 地址 / 版本 / pid
+ *   sema-ui open                                      只打开页面，不重复起服务
+ *   sema-ui stop                                      结束运行中的实例
  *
  * 实例检测：启动时写 ~/.sema/webui/run.json（pid/port/url/version/startedAt），退出时删除；
  * 真正判定以 GET /api/health 为准（返回 name=semawork 才算本服务），记录残留而接口不通视为僵尸记录清掉。
@@ -33,14 +33,15 @@ interface RunRecord { pid: number; port: number; url: string; version: string; s
 interface Health { name: string; version: string | null; pid: number }
 interface Running { port: number; url: string; version: string | null; pid: number; startedAt?: string }
 
-const HELP = `sema-code-ui ${VERSION}
+const HELP = `sema-ui ${VERSION}
 
 用法：
-  sema-code-ui start [--port 3210] [--token xxx] [--no-open]   启动服务并打开浏览器（已在运行则只打开页面）
-  sema-code-ui status                                         查看运行状态
-  sema-code-ui open                                            打开页面，不重复起服务
-  sema-code-ui stop                                            结束运行中的实例
-  sema-code-ui --version
+  sema-ui [--port 3210] [--token xxx] [--no-open]   启动服务并打开浏览器（已在运行则只打开页面），等同 sema-ui start
+  sema-ui status                                    查看运行状态
+  sema-ui open                                      打开页面，不重复起服务
+  sema-ui stop                                      结束运行中的实例
+  sema-ui --version
+  sema-ui --help
 
 Ctrl+C 或关闭终端即停止服务，正在运行的任务会被中断。数据目录 ~/.sema/webui/，错误日志 ~/.sema/webui/error.log。`;
 
@@ -107,7 +108,7 @@ async function start() {
   const running = await findRunning(port);
   if (running) {
     console.log(`SemaWork 已在运行，不重复启动。\n${describe(running)}`);
-    if (running.version && running.version !== VERSION) console.log(`\n注意：运行中的版本 ${running.version} 与当前命令 ${VERSION} 不一致，可先 sema-code-ui stop 再 start。`);
+    if (running.version && running.version !== VERSION) console.log(`\n注意：运行中的版本 ${running.version} 与当前命令 ${VERSION} 不一致，可先 sema-ui stop 再重新运行 sema-ui。`);
     if (!noOpen) await open(running.url);
     return;
   }
@@ -152,13 +153,13 @@ async function start() {
 
 async function status() {
   const running = await findRunning(Number(arg('port', process.env.PORT || '3210')));
-  if (!running) { console.log('SemaWork 未运行。启动：sema-code-ui start'); return; }
+  if (!running) { console.log('SemaWork 未运行。启动：sema-ui'); return; }
   console.log(`SemaWork 运行中\n${describe(running)}`);
 }
 
 async function openPage() {
   const running = await findRunning(Number(arg('port', process.env.PORT || '3210')));
-  if (!running) { console.error('SemaWork 未运行，请先 sema-code-ui start'); process.exit(1); }
+  if (!running) { console.error('SemaWork 未运行，请先运行 sema-ui'); process.exit(1); }
   await open(running.url);
   console.log(`已打开 ${running.url}`);
 }
@@ -182,8 +183,11 @@ const cmd = process.argv[2];
 const run: Record<string, () => Promise<void>> = { start, status, open: openPage, stop };
 if (cmd === '--version' || cmd === '-v') {
   console.log(VERSION);
-} else if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
+} else if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
   console.log(HELP);
+} else if (!cmd || cmd.startsWith('--')) {
+  // 不带子命令（或直接跟 --port 等选项）等同 start
+  start().catch((e: any) => { console.error(e?.message || e); process.exit(1); });
 } else if (run[cmd]) {
   run[cmd]().catch((e: any) => { console.error(e?.message || e); process.exit(1); });
 } else {

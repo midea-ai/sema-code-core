@@ -24,7 +24,7 @@ webui/
 ├── doc/                  # 产品需求 / 开发计划
 ├── shared/               # 服务端与前端共用：协议常量、快照/消息块类型、事件→消息块 reducer
 ├── resources/            # 生态市场内置资源（skills/ + mcp/，加资源只需丢文件）
-├── cli/                  # npm 包 sema-code-ui（独立安装，非 workspace）：start/status/open/stop，产物自包含
+├── cli/                  # npm 包 sema-code-ui（独立安装，非 workspace）：命令 sema-ui [start]/status/open/stop，产物自包含
 ├── server/
 │   ├── esbuild.mjs       # 打包 dist/index.js（服务端）与 dist/worker-entry.js（core 子进程）
 │   └── src/
@@ -71,7 +71,7 @@ npm run build && npm start                # 重新构建并启动（改了根目
 
 参数（经 `npm start -- <参数>` 透传）：`--port 3210` 改端口；`--token xxx` 指定 token。token 首次随机生成后保存在 `~/.sema/webui/token`，重启复用，已打开的页面会自动重连，不用重新打开链接。仅监听 loopback，非 loopback `--host` 会拒绝启动。
 
-发布 npm 包 `sema-code-ui`（用户 `npm i -g sema-code-ui` 后 `sema-code-ui start`）：
+发布 npm 包 `sema-code-ui`（用户 `npm i -g sema-code-ui` 后运行 `sema-ui`）：
 
 ```bash
 cd cli && npm install && npm run build && npm pack      # 需先完成上面的 npm run build 出 client/dist

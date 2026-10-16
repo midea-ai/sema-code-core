@@ -1,7 +1,7 @@
 {
   "name": "sema-code-ui",
   "version": "2.1.3",
-  "description": "SemaWork 命令行启动器：sema-code-ui start 在浏览器打开基于 sema-core 的本地 Web 界面",
+  "description": "SemaWork 命令行启动器：sema-ui 一条命令在浏览器打开基于 sema-core 的本地 Web 界面",
   "author": "AIRC Sema Team",
   "license": "MIT",
   "repository": {
@@ -10,7 +10,7 @@
     "directory": "webui/cli"
   },
   "bin": {
-    "sema-code-ui": "bin/sema-code-ui.js"
+    "sema-ui": "bin/sema-ui.js"
   },
   "files": [
     "bin",

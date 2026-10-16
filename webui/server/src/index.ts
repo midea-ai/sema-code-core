@@ -8,6 +8,7 @@
 import { openExternal } from './http/router';
 import { startServer, type ServerHandle } from './server';
 import { arg, loadOrCreateToken } from './cliUtil';
+import { initErrorLog, installProcessTraps } from './errlog';
 
 // core worker 是线程，整个进程共用一个 libuv 线程池（异步 fs / DNS / zlib）：缺省 4 不够多个会话同时读写文件，放宽到 16。
 // libuv 在首次用到线程池时才读这个变量，必须早于任何异步 fs 调用
@@ -34,9 +35,9 @@ async function shutdown() {
   await handle?.close();
   process.exit(0);
 }
-// 兜底：异步回调里漏掉的异常只打日志，不让单个请求的错误把整个服务（含所有会话 worker/终端）拖垮
-process.on('uncaughtException', (err) => { console.error('[server] uncaughtException:', err); });
-process.on('unhandledRejection', (reason) => { console.error('[server] unhandledRejection:', reason); });
+// 终端只留必读的几句，内部错误与兜底异常进 ~/.sema/webui/error.log（每次启动清空）
+initErrorLog('server');
+installProcessTraps('server');
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 

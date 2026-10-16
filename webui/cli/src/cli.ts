@@ -1,10 +1,9 @@
 /**
  * sema-code-ui 命令行入口（npm 包，bin/sema-code-ui.js 加载 dist/cli.js）。
  *
- *   sema-code-ui start [--port 3210] [--token xxx] [--no-open] [--verbose]
- *                                                                前台启动，默认打开浏览器；已在运行则只打开页面
- *                                                                默认安静模式（不回显 worker 的 core 日志，见 pool.ts），--verbose 恢复
- *   sema-code-ui status                                          运行状态：端口 / 地址 / 版本 / pid
+ *   sema-code-ui start [--port 3210] [--token xxx] [--no-open]   前台启动，默认打开浏览器；已在运行则只打开页面
+ *                                                                终端只打必读的几句；内部错误进 ~/.sema/webui/error.log，core 日志在 ~/.sema/logs/
+ *   sema-code-ui status                                         运行状态：端口 / 地址 / 版本 / pid
  *   sema-code-ui open                                            只打开页面，不重复起服务
  *   sema-code-ui stop                                            结束运行中的实例
  *
@@ -19,6 +18,7 @@ import { WEBUI_HOME } from '../../server/src/registry/registry';
 import { openExternal } from '../../server/src/http/router';
 import { startServer, type ServerHandle } from '../../server/src/server';
 import { arg, loadOrCreateToken } from '../../server/src/cliUtil';
+import { initErrorLog, installProcessTraps } from '../../server/src/errlog';
 
 // 同 server/src/index.ts：core worker 是线程，共用进程的 libuv 线程池，缺省 4 放宽到 16；须早于任何异步 fs 调用
 if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = '16';
@@ -37,13 +37,12 @@ const HELP = `sema-code-ui ${VERSION}
 
 用法：
   sema-code-ui start [--port 3210] [--token xxx] [--no-open]   启动服务并打开浏览器（已在运行则只打开页面）
-                     [--verbose]                               回显 worker 进程的 core 日志（默认只写 ~/.sema/logs/）
-  sema-code-ui status                                          查看运行状态
+  sema-code-ui status                                         查看运行状态
   sema-code-ui open                                            打开页面，不重复起服务
   sema-code-ui stop                                            结束运行中的实例
   sema-code-ui --version
 
-Ctrl+C 或关闭终端即停止服务，正在运行的任务会被中断。数据目录 ~/.sema/webui/。`;
+Ctrl+C 或关闭终端即停止服务，正在运行的任务会被中断。数据目录 ~/.sema/webui/，错误日志 ~/.sema/webui/error.log。`;
 
 // ---- 运行记录 ----
 
@@ -104,8 +103,6 @@ function open(url: string) {
 async function start() {
   const port = Number(arg('port', process.env.PORT || '3210'));
   const noOpen = arg('no-open') === 'true';
-  // 安静模式由 pool.ts 在 fork worker 时读取，须在 startServer 之前设好
-  if (arg('verbose') !== 'true') process.env.SEMA_WEBUI_QUIET = '1';
 
   const running = await findRunning(port);
   if (running) {
@@ -134,9 +131,9 @@ async function start() {
     removeRecord();
     process.exit(0);
   }
-  // 兜底：异步回调里漏掉的异常只打日志，不让单个请求的错误把整个服务（含所有会话 worker/终端）拖垮
-  process.on('uncaughtException', (err) => { console.error('[server] uncaughtException:', err); });
-  process.on('unhandledRejection', (reason) => { console.error('[server] unhandledRejection:', reason); });
+  // 终端只留必读的几句，内部错误与兜底异常进 ~/.sema/webui/error.log（每次启动清空）
+  initErrorLog('cli', VERSION);
+  installProcessTraps('server');
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
   process.on('SIGHUP', shutdown);

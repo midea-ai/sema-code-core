@@ -13,6 +13,7 @@ import path from 'path';
 import fs from 'fs';
 import { execFile } from 'child_process';
 import { randomBytes } from 'crypto';
+import { initErrorLog, installProcessTraps, logErr } from '../../webui/server/src/errlog';
 
 /** 主进程侧的 server 代理：接口与 server.ts 的 ServerHandle 一致，调用经 utility 进程 IPC 转发（见 server-host.ts 的协议） */
 interface ServerHandle {
@@ -44,9 +45,9 @@ let quitting = false;
 let blockerId: number | null = null;
 let lastActiveAt = 0;
 
-// 与 CLI 入口一致：漏掉的异步异常只打日志，不让整个应用（含所有 worker/终端）崩掉
-process.on('uncaughtException', (err) => { console.error('[desktop] uncaughtException:', err); });
-process.on('unhandledRejection', (reason) => { console.error('[desktop] unhandledRejection:', reason); });
+// 与 CLI 入口一致：错误与漏掉的异步异常记 ~/.sema/webui/error.log（每次启动清空；须先于 fork server 进程，它只追加），不让整个应用崩掉
+initErrorLog('desktop', app.getVersion());
+installProcessTraps('desktop');
 
 app.setName('SemaWork');
 // 开发态跑的是 Electron 原始二进制，Dock 图标是它自带的；打包后由 electron-builder 写进 .app，这里只管开发态
@@ -69,7 +70,7 @@ if (!app.requestSingleInstanceLock()) {
     e.preventDefault();
     const h = handle;
     handle = null;
-    h.close().catch((err) => console.error('[desktop] 关闭服务失败:', err)).finally(() => app.quit());
+    h.close().catch((err) => logErr('desktop', '关闭服务失败:', err)).finally(() => app.quit());
   });
   app.whenReady().then(boot);
 }
@@ -84,7 +85,7 @@ function inheritShellPath(): Promise<void> {
   const marker = '__SEMA_PATH__';
   return new Promise((resolve) => {
     execFile(shell, ['-ilc', `printf '${marker}%s${marker}' "$PATH"`], { timeout: 5000 }, (err, stdout) => {
-      if (err) console.warn('[desktop] 读取 shell PATH 失败:', err.message);
+      if (err) logErr('desktop', '读取 shell PATH 失败:', err.message);
       const parts = String(stdout || '').split(marker);
       if (parts.length >= 3 && parts[1]) process.env.PATH = parts[1];
       resolve();
@@ -110,7 +111,6 @@ async function boot() {
     app.quit();
     return;
   }
-  console.log(`[desktop] server ${handle.url}`);
   loadPage();
   startKeepAwake();
 }
@@ -147,7 +147,7 @@ function startServerProcess(opts: { port: number; token: string }): Promise<Serv
   const close = async () => {
     closing = true;
     if (exited) return;
-    await request('close').catch((err) => console.error('[desktop] 关闭服务失败:', err?.message || err));
+    await request('close').catch((err) => logErr('desktop', '关闭服务失败:', err?.message || err));
     await Promise.race([exitedP, new Promise<void>((r) => setTimeout(r, SERVER_EXIT_WAIT_MS))]);
     if (!exited) child.kill();
   };
@@ -182,7 +182,7 @@ function startServerProcess(opts: { port: number; token: string }): Promise<Serv
       for (const [id, p] of pending) { pending.delete(id); clearTimeout(p.timer); p.reject(new Error(`server process exited (code ${code})`)); }
       if (!ready) { reject(new Error(`服务进程启动即退出（code ${code}）`)); return; }
       if (closing || quitting) return;
-      console.error(`[desktop] 服务进程异常退出 code=${code}`);
+      logErr('desktop', `服务进程异常退出 code=${code}`);
       handle = null;
       dialog.showErrorBox('SemaWork', `服务进程异常退出（code ${code}），应用将退出`);
       app.quit();
@@ -223,7 +223,6 @@ function setKeepAwake(on: boolean) {
   if (on === isKeepAwake()) return;
   if (on) blockerId = powerSaveBlocker.start('prevent-app-suspension');
   else { if (blockerId !== null) powerSaveBlocker.stop(blockerId); blockerId = null; }
-  console.log(`[desktop] keep-awake ${on ? 'on' : 'off'}`);
   win?.webContents.send('sema:keepawake', on);
 }
 

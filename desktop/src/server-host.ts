@@ -7,6 +7,7 @@
  * worker 从这里 fork：本进程没有窗口，CreateProcess 不会卡住界面，Windows 的"启动中"转圈光标也不会出现在主窗口上。
  */
 import path from 'path';
+import { logErr } from '../../webui/server/src/errlog';
 
 interface ServerHandle {
   host: string; port: number; token: string; url: string;
@@ -33,12 +34,12 @@ function fail(err: any): void {
 }
 
 // 启动阶段（还没 ready）的未捕获异常必须让主进程知道，否则窗口永远开不出来；
-// 启动后与 CLI 入口一致：只打日志，不让 server（含所有 worker/终端）崩掉
+// 启动后与 CLI 入口一致：只记 error.log（主进程已在 fork 前清空重建），不让 server（含所有 worker/终端）崩掉
 process.on('uncaughtException', (err) => {
-  console.error('[server-host] uncaughtException:', err);
+  logErr('server-host', 'uncaughtException:', err);
   if (!handle) fail(err);
 });
-process.on('unhandledRejection', (reason) => { console.error('[server-host] unhandledRejection:', reason); });
+process.on('unhandledRejection', (reason) => { logErr('server-host', 'unhandledRejection:', reason); });
 
 port.on('message', async (e) => {
   const m = e.data;

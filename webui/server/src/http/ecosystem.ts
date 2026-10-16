@@ -12,6 +12,7 @@ import os from 'os';
 import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { logErr } from '../errlog';
 import type { EcoItem, EcoInstalled, EcoInstalledSkill, EcoInstalledMcp } from '../../../shared/types';
 
 const execFileP = promisify(execFile);
@@ -308,7 +309,7 @@ export async function installDefaultSkills(handled: string[]): Promise<string[]>
       if (!fs.existsSync(userSkillDir(r.id))) await installResource(r.id, false);
       return r.id;
     } catch (e: any) {
-      console.error(`[eco] 默认技能 ${r.id} 安装失败:`, e?.message || e);
+      logErr('eco', `默认技能 ${r.id} 安装失败:`, e?.message || e);
       return null;
     }
   }));

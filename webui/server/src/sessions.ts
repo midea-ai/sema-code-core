@@ -14,6 +14,7 @@ import { applyEvent, applyLocal, createSnapshot, pendingBlocks } from '../../sha
 import { FILE_EDIT_TOOLS, SERVER_EVENTS } from '../../shared/protocol';
 import { DiffBaselines, createBaselines, resetTurn, resetAll, captureOnRead, computeCumulative, NEW_FILE_MAX_LINES, NEW_FILE_MAX_BYTES } from './turnDiff';
 import { readPersistedCron, readPersistedTasks } from './workers/cronFile';
+import { logErr } from './errlog';
 
 const BUFFER_MAX = 3000;
 const SAVE_DEBOUNCE_MS = 500;
@@ -47,6 +48,8 @@ interface Runtime {
   buffer: EventFrame[];
   subscribers: Set<Subscriber>;
   saveTimer?: NodeJS.Timeout;
+  /** 落盘失败已记过一次日志（磁盘满/无权限时每轮事件都会失败，只记首次） */
+  saveFailed?: boolean;
   /** 正在拉起 worker/创建会话的 promise（去重） */
   ensuring?: Promise<WorkerHandle>;
   /** cron keeper 为注入定时任务拉起的会话：该时刻前不做会话回收/退场（不改 lastActiveAt，不影响侧边栏排序） */
@@ -129,7 +132,13 @@ export class SessionManager extends EventEmitter {
     if (rt.saveTimer) return;
     rt.saveTimer = setTimeout(() => {
       rt.saveTimer = undefined;
-      try { writeJsonAtomic(this.transcriptPath(rt.snapshot.sessionId), rt.snapshot); } catch (e) { console.error('[transcript] save failed', e); }
+      try {
+        writeJsonAtomic(this.transcriptPath(rt.snapshot.sessionId), rt.snapshot);
+        rt.saveFailed = false;
+      } catch (e: any) {
+        if (!rt.saveFailed) logErr('transcript', `会话 ${rt.snapshot.sessionId} 落盘失败（后续同类失败不再记录）:`, e?.message || e);
+        rt.saveFailed = true;
+      }
     }, SAVE_DEBOUNCE_MS);
   }
 
@@ -677,12 +686,11 @@ export class SessionManager extends EventEmitter {
           try { fs.rmSync(rec.workingDir, { recursive: true, force: true }); } catch { /* ignore */ }
           removeEmptyDateParent(rec.workingDir);
           await this.dispatch('core.deleteProjectHistory', undefined, { projectPath: rec.workingDir })
-            .catch((e: any) => console.error('[evict] 删除 history 项目失败:', e?.message || e));
+            .catch((e: any) => logErr('evict', '删除 history 项目失败:', e?.message || e));
         } else {
           await this.dispatch('core.deleteSessionHistory', undefined, { sessionId: rec.id, projectPath: rec.workingDir })
-            .catch((e: any) => console.error('[evict] 删除会话历史失败:', e?.message || e));
+            .catch((e: any) => logErr('evict', '删除会话历史失败:', e?.message || e));
         }
-        console.log(`[evict] 独立会话退场: ${rec.id}`);
         changed = true;
       }
 
@@ -701,8 +709,7 @@ export class SessionManager extends EventEmitter {
           if (!this.isEvictable(rec.id, cronGuard)) continue;
           await this.evictSession(rec.id);
           await this.dispatch('core.deleteSessionHistory', undefined, { sessionId: rec.id, projectPath: proj?.workingDir || rec.workingDir })
-            .catch((e: any) => console.error('[evict] 删除会话历史失败:', e?.message || e));
-          console.log(`[evict] 项目会话退场: ${rec.id} (项目 ${proj?.name || pid})`);
+            .catch((e: any) => logErr('evict', '删除会话历史失败:', e?.message || e));
           changed = true;
         }
       }
@@ -715,13 +722,12 @@ export class SessionManager extends EventEmitter {
         if (this.hasPersistedCron(proj.workingDir)) continue;
         for (const s of sess) { this.killTerminals?.(s.id); await this.closeSession(s.id); }
         this.registry.removeProject(proj.id);
-        console.log(`[evict] 项目索引退场: ${proj.name}（磁盘与 history 保留）`);
         changed = true;
       }
 
       if (changed) this.broadcastRegistry();
     } catch (e: any) {
-      console.error('[evict] 退场失败:', e?.message || e);
+      logErr('evict', '退场失败:', e?.message || e);
     } finally {
       this.evicting = false;
     }
@@ -777,7 +783,6 @@ export class SessionManager extends EventEmitter {
    * - idle / stale：正常路径，由 keeper 临近触发再拉起，不打扰用户
    */
   private onCronWorkerReclaimed(workingDir: string, sids: string[], reason: 'idle' | 'stale' | 'evict') {
-    console.log(`[cron] worker 已回收（${reason}）dir=${workingDir}，持久化定时任务将在临近触发时由 keeper 拉起`);
     if (reason !== 'evict') return;
     for (const sid of sids) {
       if (!this.registry.getSession(sid)) continue;
@@ -852,14 +857,12 @@ export class SessionManager extends EventEmitter {
           target = this.registry.createSession({ projectId });
           this.loadRuntime(target.id);
           this.broadcastRegistry();
-          console.log(`[cron] keeper 为项目 ${dir} 新建会话 ${target.id} 以承接定时任务`);
         }
         const rt = this.loadRuntime(target.id);
         rt.keepUntil = sum.nextFireAt + CRON_KEEP_AFTER_FIRE_MS;
         await this.ensureLive(target.id);
-        console.log(`[cron] keeper 已拉起 ${dir}（会话 ${target.id}），${Math.round(delta / 1000)}s 后触发`);
       } catch (e: any) {
-        console.warn(`[cron] keeper 拉起失败 ${dir}: ${e?.message || e}`);
+        logErr('cron', `keeper 拉起失败 ${dir}:`, e?.message || e);
       }
     }
   }

@@ -32,9 +32,8 @@ const coreConfig = input.coreConfig || {};
 /** 使用统计的产品标识：所有 worker（含配置 worker）同一标识，桌面版与网页版共用；「使用情况」页按此过滤 */
 const USAGE_PRODUCT = 'sema-work-webui';
 
-/** 启动失败：把原因发给主进程再退出（线程里 console 是异步转发，帧更可靠；两种形态的 process.exit 都只结束自己） */
+/** 启动失败：把原因发给主进程再退出（worker 的 stdout/stderr 被 pool 丢弃，只能走帧；pool 收到后记 error.log；两种形态的 process.exit 都只结束自己） */
 function fail(message: string): never {
-  console.error(`[worker] ${message}`);
   send({ type: 'error', message });
   process.exit(2);
 }

@@ -511,7 +511,7 @@ export function sendFile(res: http.ServerResponse, file: string, headers: Record
   const stream = fs.createReadStream(file);
   stream.on('open', () => { res.writeHead(200, headers); stream.pipe(res); });
   stream.on('error', (err: NodeJS.ErrnoException) => {
-    console.error(`[http] 读取文件失败 ${file}: ${err.message}`);
+    // 错误已随响应回给前端，不另记日志
     if (!res.headersSent) json(res, err.code === 'ENOENT' ? 404 : 500, { ok: false, error: `读取文件失败: ${err.message}` });
     else res.destroy();
   });

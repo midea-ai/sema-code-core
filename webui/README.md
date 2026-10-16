@@ -89,6 +89,7 @@ npm publish
 | 访问 token（重启复用） | `~/.sema/webui/token` |
 | 会话页面消息流快照（用于刷新/重启恢复） | `~/.sema/webui/transcripts/<sessionId>.json` |
 | 进程级 core 的工作目录（模型/系统配置等全局操作专用） | `~/.sema/webui/workspace/` |
+| 服务端错误日志（内部错误与兜底异常；每次启动清空，终端不打；core 日志另在 `~/.sema/logs/`） | `~/.sema/webui/error.log` |
 | 右侧面板标签、当前视图、栏宽 | 浏览器 `localStorage`（仅 UI 状态） |
 | 项目目录 | `~/Documents/Sema/<项目名>/`（导入目录只记录路径） |
 | 独立会话目录 | `~/Documents/Sema/<YYYY-MM-DD>/<sessionId>/` |

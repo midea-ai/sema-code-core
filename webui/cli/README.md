@@ -14,7 +14,7 @@ sema-code-ui open             # 只打开页面，不重复起服务
 sema-code-ui stop             # 结束运行中的实例
 ```
 
-`start` 参数：`--port 3210` 改端口；`--token xxx` 指定 token；`--no-open` 不打开浏览器；`--verbose` 在终端回显各工作目录子进程的运行日志（默认只写入 `~/.sema/logs/`）。Ctrl+C 或关闭终端即停止服务，正在运行的任务会被中断。
+`start` 参数：`--port 3210` 改端口；`--token xxx` 指定 token；`--no-open` 不打开浏览器。Ctrl+C 或关闭终端即停止服务，正在运行的任务会被中断。终端只打启动地址与关闭提示；服务内部错误写 `~/.sema/webui/error.log`（每次启动清空），core 运行日志在 `~/.sema/logs/`。
 
 数据目录 `~/.sema/webui/`（项目 / 会话索引、设置、token、运行记录 `run.json`），与 `npm start`、桌面版共用，详见 `webui/README.md`「数据位置」。
 

@@ -17,6 +17,7 @@ import { attachWs } from './ws/handler';
 import { TerminalManager } from './terminal/manager';
 import { attachTermWs } from './ws/terminal';
 import { isVizPath } from '../../shared/viz';
+import { logErr } from './errlog';
 import type { PreventSleepMode } from '../../shared/types';
 
 export interface StartServerOptions {
@@ -141,7 +142,7 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
       serveStatic(res, pathname);
     } catch (e: any) {
       // 顶层兜底：任何未捕获异常只失败本次请求，绝不让主进程崩溃
-      console.error('[http] 未捕获异常:', e?.message || e);
+      logErr('http', '未捕获异常:', e?.stack || e?.message || e);
       try { if (!res.headersSent) json(res, 500, { ok: false, error: 'internal error' }); else res.end(); } catch { /* ignore */ }
     }
   });

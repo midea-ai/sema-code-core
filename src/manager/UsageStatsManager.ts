@@ -10,6 +10,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
+import { randomUUID } from 'crypto'
 import { getEventBus } from '../events/EventSystem'
 import { ToolExecutionCompleteData, ToolExecutionErrorData } from '../events/types'
 import { STATS_DIR_PATH, USAGE_STATS_FLUSH_INTERVAL } from '../conf/config'
@@ -326,9 +327,9 @@ export class UsageStatsManager {
     }
   }
 
-  /** 先写临时文件再 rename 覆盖，失败时清理临时文件并抛出 */
+  /** 先写临时文件再 rename 覆盖，失败时清理临时文件并抛出。文件名带随机后缀：多线程跑 core 时 pid 相同，同时压缩会互相 rename 走对方的临时文件 */
   private async writeFileAtomic(file: string, content: string): Promise<void> {
-    const tmp = `${file}.${process.pid}.tmp`
+    const tmp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
     try {
       await fs.promises.writeFile(tmp, content, 'utf8')
       await fs.promises.rename(tmp, file)

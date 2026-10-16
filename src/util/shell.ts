@@ -236,7 +236,8 @@ function writeShellCache(shell: DetectedShell): void {
     const entry: ShellCacheEntry = {
       version: SHELL_CACHE_VERSION, shell, envHash: currentEnvHash(), bashCandidates: currentBashCandidates(), probedAt: Date.now(),
     }
-    const tmp = `${file}.${process.pid}.tmp`
+    // 临时文件名带随机后缀：宿主以多个线程跑 core 时 pid 相同，同时写会互相 rename 走对方的临时文件
+    const tmp = `${file}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.tmp`
     fs.writeFileSync(tmp, JSON.stringify(entry))
     fs.renameSync(tmp, file)
   } catch (e) {

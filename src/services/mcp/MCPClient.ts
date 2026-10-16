@@ -15,6 +15,7 @@ import {
 } from '../../types/mcp'
 import { logDebug, logError } from '../../util/log'
 import { t } from '../../util/i18n'
+import { readInitialCwd } from '../../util/cwd'
 
 type McpTransport = StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport
 
@@ -173,7 +174,8 @@ export class MCPClient {
           command: this.config.command,
           args: this.config.args,
           env: this.config.env as Record<string, string> | undefined,
-          // cwd: this.config.cwd
+          // 显式传项目目录：宿主以线程跑 core 时进程 cwd 是宿主进程的目录，不能靠继承
+          cwd: readInitialCwd(),
         })
 
       case 'sse':

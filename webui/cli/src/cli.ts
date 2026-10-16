@@ -20,6 +20,9 @@ import { openExternal } from '../../server/src/http/router';
 import { startServer, type ServerHandle } from '../../server/src/server';
 import { arg, loadOrCreateToken } from '../../server/src/cliUtil';
 
+// 同 server/src/index.ts：core worker 是线程，共用进程的 libuv 线程池，缺省 4 放宽到 16；须早于任何异步 fs 调用
+if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = '16';
+
 const { version: VERSION } = require('../package.json') as { version: string };
 const HOST = '127.0.0.1';
 const RUN_FILE = path.join(WEBUI_HOME, 'run.json');

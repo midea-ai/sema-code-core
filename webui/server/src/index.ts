@@ -9,6 +9,10 @@ import { openExternal } from './http/router';
 import { startServer, type ServerHandle } from './server';
 import { arg, loadOrCreateToken } from './cliUtil';
 
+// core worker 是线程，整个进程共用一个 libuv 线程池（异步 fs / DNS / zlib）：缺省 4 不够多个会话同时读写文件，放宽到 16。
+// libuv 在首次用到线程池时才读这个变量，必须早于任何异步 fs 调用
+if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = '16';
+
 const port = Number(arg('port', process.env.PORT || '3210'));
 const host = arg('host', '127.0.0.1')!;
 const token = arg('token') || process.env.SEMA_WEBUI_TOKEN || loadOrCreateToken();

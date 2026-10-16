@@ -99,6 +99,9 @@ async function boot() {
     app.quit();
     return;
   }
+  // 先建窗口（暂不加载页面）再起 server：渲染进程与 server 进程的创建重叠。Windows 上每起一个 electron.exe 进程
+  // 都要被杀毒按体积扫一遍（约 2 秒），串行是两段，并行只剩一段；窗口在页面首帧前不显示，用户看不到空窗
+  createWindow();
   await inheritShellPath();
   try {
     handle = await startServerProcess({ port: DEV_URL ? 3210 : 0, token: randomBytes(16).toString('hex') });
@@ -108,7 +111,7 @@ async function boot() {
     return;
   }
   console.log(`[desktop] server ${handle.url}`);
-  createWindow();
+  loadPage();
   startKeepAwake();
 }
 
@@ -118,7 +121,13 @@ async function boot() {
  */
 function startServerProcess(opts: { port: number; token: string }): Promise<ServerHandle> {
   const child = utilityProcess.fork(SERVER_HOST_ENTRY, [], {
-    env: { ...process.env, SEMA_DESKTOP_PORT: String(opts.port), SEMA_DESKTOP_TOKEN: opts.token },
+    env: {
+      ...process.env,
+      SEMA_DESKTOP_PORT: String(opts.port),
+      SEMA_DESKTOP_TOKEN: opts.token,
+      // core worker 是线程，整个 server 进程共用一个 libuv 线程池（异步 fs / DNS / zlib）：缺省 4 不够多个会话同时读写文件，放宽到 16
+      UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || '16',
+    },
     stdio: 'inherit',
     serviceName: 'sema-server',
   });
@@ -237,7 +246,7 @@ function showWindow() {
     if (wasHidden) win.webContents.send('sema:activate');
     return;
   }
-  if (handle) createWindow();
+  if (handle) { createWindow(); loadPage(); }
 }
 
 function createWindow() {
@@ -278,5 +287,9 @@ function createWindow() {
   win.webContents.on('did-finish-load', sendFullScreen);
   // 防睡眠当前是否生效，页面刷新后同样补发
   win.webContents.on('did-finish-load', () => win?.webContents.send('sema:keepawake', isKeepAwake()));
-  win.loadURL(pageUrl());
+}
+
+/** server 就绪后再加载页面（createWindow 只建窗口，见 boot） */
+function loadPage() {
+  win?.loadURL(pageUrl());
 }

@@ -1028,7 +1028,8 @@ export class PersistentShell {
 
   // 设置当前工作目录
   async setCwd(cwd: string) {
-    const resolved = isAbsolute(cwd) ? cwd : resolve(process.cwd(), cwd)
+    // 相对路径按 shell 当前目录拼：宿主以线程跑 core 时 process.cwd() 是宿主进程的目录，不是项目目录
+    const resolved = isAbsolute(cwd) ? cwd : resolve(this.pwd(), cwd)
     if (!existsSync(resolved)) {
       throw new Error(`Path "${resolved}" does not exist`)
     }

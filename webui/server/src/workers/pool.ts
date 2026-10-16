@@ -1,7 +1,10 @@
 /**
- * Worker 池：按 workingDir fork core 子进程，按需拉起、常驻、空闲回收（LRU）。
+ * Worker 池：按 workingDir 拉起 core worker，按需拉起、常驻、空闲回收（LRU）。
+ * worker 缺省是 worker_threads 线程：没有进程创建开销（Windows 上每起一个 electron.exe 进程都要被杀毒按体积扫一遍，约 2 秒），
+ * 每个线程独立 isolate、独立模块实例，与原来每进程一份等价。SEMA_WEBUI_WORKER_MODE=process 回退为 fork 子进程（留一个版本周期后删）。
  */
-import { fork, ChildProcess } from 'child_process';
+import { fork } from 'child_process';
+import { SHARE_ENV, Worker } from 'worker_threads';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import type { Readable, Writable } from 'stream';
@@ -12,7 +15,9 @@ import type { Readable, Writable } from 'stream';
  * 这些日志 core 已落盘到 ~/.sema/logs/，终端只保留 [worker] 等需要用户处理的提示。
  */
 const QUIET = process.env.SEMA_WEBUI_QUIET === '1';
-const CORE_LOG_RE = /^\[\d{2}:\d{2}:\d{2}\] \[(DEBUG|INFO|WARN|ERROR)\] \[/;
+/** worker 载体：缺省线程；process 走旧的 fork 路径（回退开关） */
+const WORKER_MODE: 'thread' | 'process' = process.env.SEMA_WEBUI_WORKER_MODE === 'process' ? 'process' : 'thread';
+const CORE_LOG_RE =/^\[\d{2}:\d{2}:\d{2}\] \[(DEBUG|INFO|WARN|ERROR)\] \[/;
 
 /** 按行转发子进程输出；遇到 core 日志行进入丢弃状态，直到下一条以 `[` 开头的其他来源行 */
 function relayQuiet(src: Readable, dst: Writable) {
@@ -32,9 +37,85 @@ function relayQuiet(src: Readable, dst: Writable) {
   src.on('end', () => { if (buf) handle(buf); });
 }
 
+/**
+ * 线程 / 子进程两种 worker 载体的统一接口，pool 只认这个接口。
+ * 帧格式两种载体相同；线程模式下帧以 JSON 字符串经 postMessage 传，与进程模式 IPC 的 JSON 语义一致
+ * （函数 / undefined 静默丢，Date 变字符串），不会像 structured clone 那样遇到函数就抛 DataCloneError。
+ */
+export interface WorkerBackend {
+  /** 日志与 pending 键：进程为 pid，线程为 t<threadId> */
+  id: string;
+  send(msg: any): void;
+  on(event: 'message' | 'exit' | 'error', fn: (...args: any[]) => void): void;
+  /** 请求优雅退出：线程发 dispose 帧，进程断开 IPC；worker 自行 core.dispose() 后结束 */
+  requestExit(): void;
+  /** 优雅退出超时的兜底：线程 terminate，进程 SIGKILL */
+  forceKill(): void;
+}
+
+function spawnThread(entryPath: string, workingDir: string, coreConfig: Record<string, any>): WorkerBackend {
+  const worker = new Worker(entryPath, {
+    workerData: { workingDir, coreConfig },
+    // 共享进程的真实环境变量而不是拷贝：Node 给线程拷出来的 env 是大小写敏感的 map，Windows 上 process.env.PATH / SYSTEMROOT
+    // 会读不到系统存成 Path / SystemRoot 的键（core 的 ComSpec / ProgramFiles 读取、MCP SDK 继承给子进程的 PATH 都受影响）；
+    // 共享后与进程模式的视图一致。core 不写 process.env，共享无副作用
+    env: SHARE_ENV,
+    // 安静模式：不自动透传到父进程 stdout/stderr，改由 relayQuiet 过滤 core 日志行
+    stdout: QUIET,
+    stderr: QUIET,
+    // 不设 resourceLimits：线程默认堆上限与主线程相同（Node 22 / Electron 44 实测一致），和进程模式等价；超限只结束该线程
+  });
+  if (QUIET) {
+    relayQuiet(worker.stdout, process.stdout);
+    relayQuiet(worker.stderr, process.stderr);
+  }
+  const post = (msg: any) => worker.postMessage(JSON.stringify(msg));
+  return {
+    id: `t${worker.threadId}`,
+    send: post,
+    on: (event, fn) => {
+      if (event === 'message') worker.on('message', (raw: unknown) => fn(typeof raw === 'string' ? JSON.parse(raw) : raw));
+      else worker.on(event, fn);
+    },
+    requestExit: () => post({ type: 'dispose' }),
+    forceKill: () => { void worker.terminate(); },
+  };
+}
+
+function spawnProcess(entryPath: string, workingDir: string, coreConfig: Record<string, any>): WorkerBackend {
+  const child = fork(entryPath, [], {
+    cwd: workingDir,
+    env: {
+      ...process.env,
+      SEMA_WEBUI_WORKING_DIR: workingDir,
+      SEMA_WEBUI_CORE_CONFIG: JSON.stringify(coreConfig),
+      // 宿主是 Electron 时 fork 用的是 Electron 二进制，显式让子进程按纯 Node 运行
+      ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
+    },
+    stdio: ['ignore', QUIET ? 'pipe' : 'inherit', QUIET ? 'pipe' : 'inherit', 'ipc'],
+    // 脱离前台进程组：Ctrl+C 的 SIGINT 只打到主进程，worker 及其 MCP 子进程
+    // 统一走 disconnect → core.dispose() 优雅关闭（主进程被 SIGKILL 时 IPC 断开同样触发）
+    detached: true,
+  });
+  if (QUIET) {
+    if (child.stdout) relayQuiet(child.stdout, process.stdout);
+    if (child.stderr) relayQuiet(child.stderr, process.stderr);
+  }
+  return {
+    id: String(child.pid),
+    send: (msg) => { child.send(msg); },
+    on: (event, fn) => { child.on(event, fn); },
+    // disconnect 后 IPC 通道立即不可用；通道已坏时直接 SIGKILL
+    requestExit: () => { try { child.disconnect(); } catch { try { child.kill('SIGKILL'); } catch { /* ignore */ } } },
+    forceKill: () => { try { child.kill('SIGKILL'); } catch { /* ignore */ } },
+  };
+}
+
 export interface WorkerHandle {
   workingDir: string;
-  child: ChildProcess;
+  /** 进程 pid 或线程 t<threadId>（日志用） */
+  id: string;
+  backend: WorkerBackend;
   ready: Promise<void>;
   /** 该 worker 上已创建的会话 */
   sessions: Set<string>;
@@ -129,7 +210,7 @@ export class WorkerPool extends EventEmitter {
     if (!this.opts.exemptDirs?.has(workingDir)) {
       while (this.countedSize() >= this.maxWorkers()) {
         if (!(await this.evictOne())) {
-          throw new Error(`已达 worker 进程上限(${this.maxWorkers()})且均在处理或有运行中任务，请等待其他会话完成或关闭部分会话`);
+          throw new Error(`已达 worker 上限(${this.maxWorkers()})且均在处理或有运行中任务，请等待其他会话完成或关闭部分会话`);
         }
       }
       // 回收等待期间，可能已有并发请求拉起了同目录 worker
@@ -143,37 +224,23 @@ export class WorkerPool extends EventEmitter {
   }
 
   private spawn(workingDir: string): WorkerHandle {
-    const child = fork(this.opts.entryPath, [], {
-      cwd: workingDir,
-      env: {
-        ...process.env,
-        SEMA_WEBUI_WORKING_DIR: workingDir,
-        SEMA_WEBUI_CORE_CONFIG: JSON.stringify(this.opts.getCoreConfig()),
-        // 宿主是 Electron 时 fork 用的是 Electron 二进制，显式让子进程按纯 Node 运行
-        ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
-      },
-      stdio: ['ignore', QUIET ? 'pipe' : 'inherit', QUIET ? 'pipe' : 'inherit', 'ipc'],
-      // 脱离前台进程组：Ctrl+C 的 SIGINT 只打到主进程，worker 及其 MCP 子进程
-      // 统一走 disconnect → core.dispose() 优雅关闭（主进程被 SIGKILL 时 IPC 断开同样触发）
-      detached: true,
-    });
-    if (QUIET) {
-      if (child.stdout) relayQuiet(child.stdout, process.stdout);
-      if (child.stderr) relayQuiet(child.stderr, process.stderr);
-    }
+    const coreConfig = this.opts.getCoreConfig();
+    const backend = WORKER_MODE === 'thread'
+      ? spawnThread(this.opts.entryPath, workingDir, coreConfig)
+      : spawnProcess(this.opts.entryPath, workingDir, coreConfig);
+    let resolveReady!: () => void;
+    let rejectReady!: (e: Error) => void;
     const handle: WorkerHandle = {
-      workingDir, child, sessions: new Set(), lastUsed: Date.now(), stale: false, alive: true,
-      ready: new Promise<void>((resolve, reject) => {
-        const onMsg = (m: any) => { if (m?.type === 'ready') { child.off('message', onMsg); resolve(); } };
-        child.on('message', onMsg);
-        child.once('exit', (code) => reject(new Error(`worker exited before ready (code ${code})`)));
-      }),
+      workingDir, id: backend.id, backend, sessions: new Set(), lastUsed: Date.now(), stale: false, alive: true,
+      ready: new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; }),
     };
     handle.ready.catch(() => { /* 由 exit 事件统一处理 */ });
 
-    child.on('message', (m: any) => {
+    backend.on('message', (m: any) => {
       if (!m) return;
-      if (m.type === 'res') {
+      if (m.type === 'ready') {
+        resolveReady();
+      } else if (m.type === 'res') {
         const p = this.pending.get(m.id);
         if (p) {
           this.pending.delete(m.id);
@@ -184,63 +251,66 @@ export class WorkerPool extends EventEmitter {
         this.emit('event', workingDir, m.sessionId, m.event, m.data);
       } else if (m.type === 'proc-event') {
         this.emit('proc-event', workingDir, m.event, m.data);
+      } else if (m.type === 'error') {
+        // worker 启动失败的原因（随后它会退出，exit 事件照常处理）
+        console.error(`[pool] worker id=${backend.id} 启动失败 dir=${workingDir}: ${m.message}`);
       }
     });
-    // send() 写入已关闭的通道等场景会异步 emit error，无监听时会升级为 uncaughtException
-    child.on('error', (err: any) => {
-      console.error(`[pool] worker pid=${child.pid} 通道错误 dir=${workingDir}:`, err?.message || err);
-      for (const [id, p] of this.pending) {
-        if (id.startsWith(`${child.pid}:`)) {
-          this.pending.delete(id);
-          clearTimeout(p.timer);
-          p.reject(err instanceof Error ? err : new Error(String(err)));
-        }
-      }
+    // 进程：send() 写入已关闭的通道等场景会异步 emit error；线程：未捕获异常先 emit error 再 exit。无监听时都会升级为 uncaughtException
+    backend.on('error', (err: any) => {
+      console.error(`[pool] worker id=${backend.id} 错误 dir=${workingDir}:`, err?.message || err);
+      this.rejectPending(backend.id, err instanceof Error ? err : new Error(String(err)));
     });
-    child.on('exit', (code) => {
+    backend.on('exit', (code: number | null) => {
       handle.alive = false;
-      if (code && code !== 0) console.error(`[pool] worker pid=${child.pid} 异常退出 code=${code} dir=${workingDir}（若目录已被删除/移入废纸篓，请删除对应会话或重新创建）`);
+      rejectReady(new Error(`worker exited before ready (code ${code})`));
+      if (code && code !== 0) console.error(`[pool] worker id=${backend.id} 异常退出 code=${code} dir=${workingDir}（若目录已被删除/移入废纸篓，请删除对应会话或重新创建）`);
       if (this.workers.get(workingDir) === handle) this.workers.delete(workingDir);
       // 该 worker 的未决请求全部失败
-      for (const [id, p] of this.pending) {
-        if (id.startsWith(`${handle.child.pid}:`)) {
-          this.pending.delete(id);
-          clearTimeout(p.timer);
-          p.reject(new Error('worker exited'));
-        }
-      }
+      this.rejectPending(backend.id, new Error('worker exited'));
       this.emit('exit', workingDir, [...handle.sessions], code);
     });
-    if (!QUIET) console.log(`[pool] spawn worker pid=${child.pid} dir=${workingDir}`);
+    if (!QUIET) console.log(`[pool] spawn worker(${WORKER_MODE}) id=${backend.id} dir=${workingDir}`);
     return handle;
+  }
+
+  /** 让某个 worker 的全部未决请求失败 */
+  private rejectPending(workerId: string, err: Error) {
+    for (const [id, p] of this.pending) {
+      if (id.startsWith(`${workerId}:`)) {
+        this.pending.delete(id);
+        clearTimeout(p.timer);
+        p.reject(err);
+      }
+    }
   }
 
   /** 向 worker 发请求；opts.bump=false 时不刷新 lastUsed（池内部的巡检查询，不影响 LRU/空闲判定） */
   request(w: WorkerHandle, action: string, sessionId: string | undefined, payload: any, timeoutMs = 120_000, opts?: { bump?: boolean }): Promise<any> {
     if (!w.alive) return Promise.reject(new Error('worker not alive'));
     if (opts?.bump !== false) w.lastUsed = Date.now();
-    const id = `${w.child.pid}:${++this.seq}`;
+    const id = `${w.id}:${++this.seq}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`worker request timeout: ${action}`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      w.child.send({ type: 'req', id, action, sessionId, payload });
+      w.backend.send({ type: 'req', id, action, sessionId, payload });
     });
   }
 
-  /** 关闭 worker（优雅：断开 IPC 让子进程自行 dispose，5 秒未退出则 SIGKILL）；resolve 于进程真正退出 */
+  /** 关闭 worker（优雅：请求 worker 自行 dispose 后退出，5 秒未退出则强制结束）；resolve 于 worker 真正退出 */
   kill(w: WorkerHandle): Promise<void> {
     if (!w.alive) return Promise.resolve();
-    console.log(`[pool] kill worker pid=${w.child.pid} dir=${w.workingDir}`);
-    // disconnect 后 IPC 通道立即不可用，但 exit 事件可能延迟数秒：
-    // 先标记死亡并摘出池，避免这期间巡检路径（reapSessions 等）继续向已关闭通道 send
+    console.log(`[pool] kill worker id=${w.id} dir=${w.workingDir}`);
+    // 退出请求发出后通道随即不可用，但 exit 事件可能延迟数秒：
+    // 先标记死亡并摘出池，避免这期间巡检路径（reapSessions 等）继续向它 send
     w.alive = false;
     if (this.workers.get(w.workingDir) === w) this.workers.delete(w.workingDir);
-    const exited = new Promise<void>((resolve) => w.child.once('exit', () => resolve()));
-    try { w.child.disconnect(); } catch { try { w.child.kill('SIGKILL'); } catch { /* ignore */ } }
-    const t = setTimeout(() => { try { w.child.kill('SIGKILL'); } catch { /* ignore */ } }, 5000);
+    const exited = new Promise<void>((resolve) => w.backend.on('exit', () => resolve()));
+    w.backend.requestExit();
+    const t = setTimeout(() => w.backend.forceKill(), 5000);
     t.unref?.();
     return exited.then(() => clearTimeout(t));
   }

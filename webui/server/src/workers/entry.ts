@@ -1,35 +1,51 @@
 /**
- * core worker 子进程入口：一个 workingDir 一个进程，持有 SemaCore 与会话池。
- * 与主进程通过 IPC 交换帧：
- *   主→子  { type:'req', id, action, sessionId?, payload }
+ * core worker 入口：一个 workingDir 一个 worker，持有 SemaCore 与会话池。
+ * 缺省以 worker_threads 线程运行；SEMA_WEBUI_WORKER_MODE=process 时由 pool fork 为子进程运行。两种形态只差入参与通道：
+ *   线程：入参来自 workerData，帧经 parentPort 以 JSON 字符串收发，退出由 dispose 帧触发（process.exit 只结束本线程）
+ *   进程：入参来自 env，帧经 IPC 收发，退出由 disconnect 触发
+ * 帧：
+ *   主→子  { type:'req', id, action, sessionId?, payload } | { type:'dispose' }
  *   子→主  { type:'res', id, ok, data|error }
  *          { type:'event', sessionId, event, data }        会话级事件
  *          { type:'proc-event', event, data }              进程级事件
  *          { type:'ready' }                                 SemaCore 构造完成
+ *          { type:'error', message }                        启动失败原因（随后退出）
  */
 import fs from 'fs';
+import { isMainThread, parentPort, threadId, workerData } from 'worker_threads';
 import type { SemaCore as SemaCoreType, SemaSession } from 'sema-core';
 import { SESSION_EVENTS, PROCESS_EVENTS } from '../../../shared/protocol';
 import type { CommandsInfo } from '../../../shared/types';
 
-const send = (msg: any) => { if (process.send) process.send(msg); };
+const IN_THREAD = !isMainThread && !!parentPort;
+const send = (msg: any) => {
+  if (IN_THREAD) parentPort!.postMessage(JSON.stringify(msg));
+  else if (process.send) process.send(msg);
+};
 
-const workingDir = process.env.SEMA_WEBUI_WORKING_DIR || '';
-const coreConfig = JSON.parse(process.env.SEMA_WEBUI_CORE_CONFIG || '{}');
+interface WorkerInput { workingDir: string; coreConfig: Record<string, any> }
+const input: WorkerInput = IN_THREAD
+  ? (workerData as WorkerInput)
+  : { workingDir: process.env.SEMA_WEBUI_WORKING_DIR || '', coreConfig: JSON.parse(process.env.SEMA_WEBUI_CORE_CONFIG || '{}') };
+const workingDir = input.workingDir || '';
+const coreConfig = input.coreConfig || {};
 /** 使用统计的产品标识：所有 worker（含配置 worker）同一标识，桌面版与网页版共用；「使用情况」页按此过滤 */
 const USAGE_PRODUCT = 'sema-work-webui';
 
-// 先校验工作目录：core 在模块加载时就会调用 process.cwd()，cwd 不可用（目录被删/移入废纸篓/无权限）会直接崩溃
-if (!workingDir || !fs.existsSync(workingDir)) {
-  console.error(`[worker] 工作目录不存在: ${workingDir}`);
+/** 启动失败：把原因发给主进程再退出（线程里 console 是异步转发，帧更可靠；两种形态的 process.exit 都只结束自己） */
+function fail(message: string): never {
+  console.error(`[worker] ${message}`);
+  send({ type: 'error', message });
   process.exit(2);
 }
-try { process.chdir(workingDir); process.cwd(); } catch (e: any) {
-  console.error(`[worker] 无法进入工作目录 ${workingDir}: ${e?.message || e}`);
-  if (process.platform === 'darwin' && /EPERM|EACCES/.test(String(e?.message))) {
-    console.error('[worker] macOS 提示：请在「系统设置 → 隐私与安全性 → 文件与文件夹」中允许你的终端访问「文稿」文件夹，或改用 ~/Documents 之外的项目目录');
-  }
-  process.exit(2);
+// 先校验工作目录可进入（目录被删/移入废纸篓/无权限时建会话会直接崩）。线程里不能 process.chdir，统一改为探测可读；
+// 进程模式 fork 时已传 cwd，本来也不需要 chdir。core 只在加载时读一次进程 cwd 作兜底，实际工作目录由 SemaCore 配置传入
+if (!workingDir || !fs.existsSync(workingDir)) fail(`工作目录不存在: ${workingDir}`);
+try { fs.opendirSync(workingDir).closeSync(); } catch (e: any) {
+  const hint = process.platform === 'darwin' && /EPERM|EACCES/.test(String(e?.message))
+    ? '。macOS 提示：请在「系统设置 → 隐私与安全性 → 文件与文件夹」中允许你的终端访问「文稿」文件夹，或改用 ~/Documents 之外的项目目录'
+    : '';
+  fail(`无法进入工作目录 ${workingDir}: ${e?.message || e}${hint}`);
 }
 // 目录校验通过后再加载 core（不能用静态 import：会被提升到最前面）
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -181,22 +197,32 @@ async function handle(action: string, sessionId: string | undefined, payload: an
   }
 }
 
-process.on('message', async (msg: any) => {
-  if (!msg || msg.type !== 'req') return;
+async function onFrame(msg: any) {
+  if (!msg) return;
+  if (msg.type === 'dispose') { void shutdown(); return; }
+  if (msg.type !== 'req') return;
   try {
     const data = await handle(msg.action, msg.sessionId, msg.payload);
     send({ type: 'res', id: msg.id, ok: true, data });
   } catch (e: any) {
     send({ type: 'res', id: msg.id, ok: false, error: e?.message || String(e) });
   }
-});
+}
 
-process.on('disconnect', async () => {
-  // dispose 卡死兜底：3 秒后强制退出（unref：正常路径下不阻止进程结束）
+/** 优雅退出：dispose 卡死兜底 3 秒后强制结束（unref：正常路径下不阻止退出）；线程模式 process.exit 只结束本线程 */
+async function shutdown() {
   const t = setTimeout(() => process.exit(0), 3000);
   t.unref?.();
   try { await core.dispose(); } catch { /* ignore */ }
   process.exit(0);
-});
+}
 
-send({ type: 'ready', pid: process.pid, workingDir });
+if (IN_THREAD) {
+  parentPort!.on('message', (raw: unknown) => { void onFrame(typeof raw === 'string' ? JSON.parse(raw) : raw); });
+} else {
+  process.on('message', (msg: any) => { void onFrame(msg); });
+  // 主进程退出或主动 kill：IPC 断开即优雅关闭（主进程被 SIGKILL 时同样触发）
+  process.on('disconnect', () => { void shutdown(); });
+}
+
+send({ type: 'ready', pid: process.pid, threadId: IN_THREAD ? threadId : undefined, workingDir });

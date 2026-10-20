@@ -779,10 +779,9 @@ function PreventSleepRow({ value, onChange }: { value: PreventSleepMode; onChang
 
 /**
  * 浏览器控制开关（对齐 IDE 插件 SystemConfig 的同名区块）：不走 saveSettings，而是 POST /api/browser-control 执行装/删动作，
- * 配置键由服务端在动作成功后写入；执行中禁用开关等结果，失败 toast 并回到原值。linux 标实验性。
+ * 配置键由服务端在动作成功后写入；执行中禁用开关等结果，失败 toast 并回到原值。
  */
 function BrowserControlRow() {
-  const platform = useApp(s => s.platform);
   const toast = useApp(s => s.toast);
   const openExternal = useApp(s => s.openExternal);
   const [state, setState] = useState<BrowserControlState | null>(null);
@@ -801,10 +800,7 @@ function BrowserControlRow() {
   return (
     <div className="px-4 py-2.5 text-sm">
       <div className="flex items-center justify-between" title={t('settings.browserControlTip')}>
-        <span>
-          {t('settings.browserControl')}
-          {platform === 'linux' && t('settings.browserControlExperimentalSuffix')}
-        </span>
+        <span>{t('settings.browserControl')}</span>
         <div className="flex items-center gap-2">
           {busy && <Spinner />}
           <Toggle checked={enabled} disabled={!!busy} onChange={change} />

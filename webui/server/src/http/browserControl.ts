@@ -40,7 +40,7 @@ function userSkillDir(): string {
 }
 
 export function browserControlState(enabled: boolean): BrowserControlState {
-  return { experimental: process.platform === 'linux', enabled };
+  return { enabled };
 }
 
 export class BrowserControl {

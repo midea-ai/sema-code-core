@@ -1,0 +1,7 @@
+{
+  "name": "深度调研",
+  "description": "在你自己的 Chrome 里跨多个网页并行搜索和阅读，汇总成带引用来源的调研报告。需要先开启浏览器控制。",
+  "category": "insight",
+  "order": 60,
+  "defaultInstall": true
+}

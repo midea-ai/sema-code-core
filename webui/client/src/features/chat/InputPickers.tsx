@@ -9,7 +9,7 @@ import { wsClient } from '../../api/ws';
 import { cn } from '../../common/ui';
 import { t } from '../../i18n';
 import type { CommandsInfo, FileSearchItem, SlashItem } from '../../../../shared/types';
-import { SkillLabel, skillDisplayOf, skillDisplayOrder } from './skillDisplay';
+import { SkillLabel, commandDisplayOf, displayDesc, displayName, skillDisplayOf, skillDisplayOrder } from './skillDisplay';
 
 // ==================== 触发判定 ====================
 
@@ -85,6 +85,7 @@ const BUILTIN_COMMANDS: SlashItem[] = [
   { name: 'clear', description: t('chat.commands.clear'), category: 'command', send: true },
   { name: 'compact', description: t('chat.commands.compact'), category: 'command', send: true },
   { name: 'quickchat', description: t('chat.commands.quickchat'), category: 'command' },
+  { name: 'goal', description: t('chat.commands.goal'), category: 'command' },
 ];
 
 const commandsCache = new Map<string, SlashItem[]>();
@@ -118,8 +119,8 @@ export function useCommands(scope: PickerScope, active: boolean): { items: Slash
   return { items, loading };
 }
 
-/** 有显示映射的 skill：面板上用「图标 + 名字 + 短描述」代替斜杠名与 frontmatter 描述 */
-const displayOf = (item: SlashItem) => item.category === 'skill' ? skillDisplayOf(item.name) : undefined;
+/** 有显示映射的 skill / 内置命令：面板上用「图标 + 名字 + 短描述」代替斜杠名与原描述（自定义同名命令已在 useCommands 里过滤，不会误命中） */
+const displayOf = (item: SlashItem) => item.category === 'skill' ? skillDisplayOf(item.name) : item.category === 'command' ? commandDisplayOf(item.name) : undefined;
 
 /** 过滤排序（对齐插件）：名前缀 > 描述前缀 > 名包含 > 描述包含；同档：完全匹配 > 名更短 > 原顺序。有显示映射的技能，显示名/短描述也参与匹配 */
 export function filterSlash(items: SlashItem[], query: string): SlashItem[] {
@@ -129,7 +130,7 @@ export function filterSlash(items: SlashItem[], query: string): SlashItem[] {
   items.forEach((item, idx) => {
     const names = [item.name.toLowerCase()], descs = [(item.description || '').toLowerCase()];
     const d = displayOf(item);
-    if (d) { names.push(d.name.toLowerCase()); descs.push(d.desc.toLowerCase()); }
+    if (d) { names.push(displayName(d).toLowerCase()); descs.push(displayDesc(d).toLowerCase()); }
     const rank = names.some(n => n.startsWith(q)) ? 0 : descs.some(s => s.startsWith(q)) ? 1 : names.some(n => n.includes(q)) ? 2 : descs.some(s => s.includes(q)) ? 3 : -1;
     if (rank >= 0) ranked.push({ item, idx, rank });
   });
@@ -221,7 +222,7 @@ export function CommandPanel({ items, loading, selected, onSelect, onHover }: {
                   </>}
                   {item.argumentHint && <span className="text-xs text-muted/70 shrink-0">{item.argumentHint}</span>}
                   {/* 描述紧跟名字，淡色；放不下时截断 */}
-                  <span className="text-muted/70 truncate">{d ? d.desc : item.description}</span>
+                  <span className="text-[13px] text-muted/70 truncate">{d ? displayDesc(d) : item.description}</span>
                 </div>
               );
             })}

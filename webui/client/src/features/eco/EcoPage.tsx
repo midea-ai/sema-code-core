@@ -67,9 +67,10 @@ function NameIcon({ name }: { name: string }) {
 // ==================== 市场 ====================
 
 /** 分类展示顺序；不在列表里的归入「其他」 */
-const CAT_ORDER = ['doc', 'office', 'writing', 'dev', 'web', 'mobile', 'design', 'media'] as const;
+const CAT_ORDER = ['doc', 'insight', 'office', 'writing', 'dev', 'web', 'mobile', 'design', 'media'] as const;
 function catLabel(c: string): string {
   switch (c) {
+    case 'insight': return t('eco.catInsight');
     case 'doc': return t('eco.catDoc');
     case 'office': return t('eco.catOffice');
     case 'writing': return t('eco.catWriting');

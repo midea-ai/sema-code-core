@@ -42,3 +42,7 @@ export const ATTACHMENTS_DIR_PATH = 'attachments'
 // 使用统计
 export const STATS_DIR_PATH = 'stats'
 export const USAGE_STATS_FLUSH_INTERVAL = 10 * 1000  // 增量账本落盘延迟（毫秒）
+
+// 长期目标（/goal）自主循环
+export const GOAL_MAX_ROUNDS = 10        // 目标轮数上限，到达置 paused；/goal resume 时累加
+export const GOAL_MAX_IDLE_ROUNDS = 3    // 连续无 tool_use 的目标轮数达到即置 paused（无进展止损）

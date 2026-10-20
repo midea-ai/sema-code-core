@@ -40,9 +40,11 @@ const sema = new SemaCore({
 
 `toolSearchDefaultTools` 未配置时使用内置默认集，覆盖高频核心能力：
 
-`run_shell`、`search_files`、`search_content`、`view_file`、`write_file`、`patch_file`、`sub_agent`、`skill`、`ask_form`、`plan_to_agent`
+`run_shell`、`search_files`、`search_content`、`view_file`、`write_file`、`patch_file`、`sub_agent`、`skill`、`ask_form`
 
 其余内置工具（后台任务、Todo、定时任务、`fetch_url`、`edit_notebook` 等）与全部 MCP 工具进入延迟池。
+
+`plan_to_agent` 不受白名单和延迟池管理：仅 Plan 模式下由 core 自动注入到工具列表，退出 Plan 模式后重建工具列表时自动移除；白名单里写了该名字会被忽略，`load_tools` 也搜不到它。
 
 ## 白名单规则
 

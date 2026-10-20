@@ -89,6 +89,64 @@ argument-hint: <file-path>
 | `/clear` | 清空当前会话的消息历史 |
 | `/compact` | 压缩当前消息历史以减少 token 占用 |
 | `/quickchat <question>` | 旁路问答：不影响主对话状态，回复通过 `quickchat:response` 事件返回 |
+| `/goal <目标>` / `/goal` | 长期目标自主循环：设定新目标并启动（运行中再发则更新目标文本）/ 回显当前状态 |
+
+### 长期目标 `/goal`
+
+设定目标后模型持续推进，每轮结束自动开下一轮，直到模型宣告达成或阻塞、到达轮次上限暂停等确认、被用户中断或终止。目标随会话持久化，重开会话时降为 `paused`，调 `resumeGoal()` 继续。
+
+**循环规则**
+
+- 目标文本和行为规则放在回合级 system-reminder 里，运行中每轮都挂；起始轮、更新轮与续轮的用户消息只是一句触发语。
+- 达成判定由模型自己调用内置工具 `complete_goal`（参数 `status: achieved | blocked`、`summary`）宣告。该工具只在目标 `running` 时追加到工具列表末尾，不进工具面板、黑白名单和子代理工具集。
+- 轮数只统计起始轮与自动续轮，插话、更新目标、`/goal` 回显、`/compact` 等轮次不计。上限 10 轮，到达后置 `paused`；`resumeGoal()` 后上限累加 10（10 → 20 → 30），轮数不清零。
+- 无进展止损：目标轮连续 3 轮没有任何工具调用则置 `paused`。
+- 轮末处于 Plan / Design 模式时不续轮，置 `paused`；Plan 模式下经 `plan_to_agent` 批准切回 Agent 的，正常续轮。
+
+**中断、终止与恢复**
+
+- 用户中断、权限拒绝、关闭会话、API 报错都把 `running` 置为 `paused`，不自动重试，可恢复。
+- `stopGoal()` 置 `stopped`，循环到本轮结束不再续，不中断当前轮，要立刻停请同时调 `interrupt()`；`stopped`、`completed` 不可恢复，需重新 `/goal <目标>`。
+- 权限申请、`ask_form` 提问挂起时轮次未结束，不续轮，等用户响应即可。
+- 目标只由 `/clear`、`clearGoal()`、`/goal <目标>` 清除或改写；`/compact`、Fork、计划确认"清理上下文并开始"都不影响。
+
+**会话级接口**
+
+终止 / 删除 / 恢复 / 改文本不走用户输入（输入会排队），走 `SemaSession` 接口，立即生效并发 `goal:update`：
+
+| 接口 | 行为 | 返回 |
+|---|---|---|
+| `getGoal()` | 读当前目标，开会话时回填 | `GoalState \| null` |
+| `updateGoal(text)` | 改目标文本，状态与轮数不变，下一轮生效 | `GoalState \| null` |
+| `stopGoal()` | 置 `stopped`，记录保留 | `GoalState \| null` |
+| `clearGoal()` | 删除目标记录 | `void` |
+| `resumeGoal()` | `paused` / `blocked` → `running`，空闲立即续轮，处理中排到本轮之后 | `GoalState \| null` |
+
+**事件**
+
+状态反馈不带文案，统一走 `goal:update` 事件，宿主按 `reason` 展示：
+
+```typescript
+interface GoalUpdateData {
+  goal: GoalState | null
+  reason: 'set' | 'updated' | 'round'
+        | 'completed' | 'blocked'
+        | 'stopped' | 'cleared' | 'resumed'
+        | 'paused' | 'error' | 'noProgress' | 'maxRounds' | 'mode'
+        | 'status'
+}
+```
+
+- `paused` 为用户中断或权限拒绝；`error` / `noProgress` / `maxRounds` / `mode` 为系统置 `paused` 的各自原因，此时 `goal.status` 均为 `paused`。
+- `status` 是裸 `/goal` 的回显，不是状态变化。
+
+与目标相关的输入在 `input:received` / `input:processing` 事件和持久化的用户消息上带 `goal` 标记，UI 据此给气泡打标，不用解析文本：
+
+```typescript
+goal?: { action: 'set' | 'update' | 'round'; round: number; maxRounds: number }
+```
+
+`set` / `update` 对应 `/goal <目标>`（按处理时目标是否 `running` 区分），`round` 对应自动续轮输入（`source: 'goal'`）。
 
 ## 查看与管理命令
 

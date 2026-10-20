@@ -282,3 +282,6 @@ export type {
   HookSource,
 } from './hook';
 
+// 长期目标（/goal）：getGoal 返回值与 goal:update 事件载荷
+export type { GoalState, GoalStatus, GoalInputMark } from './goal';
+

@@ -25,6 +25,7 @@ import { TodoTask, TodoTaskStatus } from '../types/todoTask';
 import { LineEndingKind } from '../util/file';
 import type { AgentContext } from '../types/agent';
 import type { AgentMode, PermissionLevel } from '../types';
+import type { GoalState } from '../types/goal';
 
 
 // 待处理用户输入项
@@ -141,7 +142,19 @@ export class SessionRuntime {
   // 会话级系统提示快照：首次构建后冻结，整个会话不再变化
   private systemPromptContent: Array<{ type: 'text'; text: string }> | null = null;
 
+  // 长期目标（/goal）：随会话历史落盘；只由 /clear、/goal stop、/goal <文本> 清除或改写，clearAllState 不碰
+  private goal: GoalState | null = null;
+
   constructor(public readonly sessionId: string) {}
+
+  getGoal(): GoalState | null {
+    return this.goal;
+  }
+
+  setGoal(goal: GoalState | null): void {
+    this.goal = goal;
+    this.saveSessionHistory();
+  }
 
   // ============================================================
   // 消息历史管理（按代理隔离）
@@ -609,8 +622,9 @@ export class SessionRuntime {
       const todoTasks = this.listTodoTasks(MAIN_AGENT_ID);
       const readFileTimestamps = this.getReadFileTimestamps(MAIN_AGENT_ID);
       const workingDir = getConfManager().getCoreConfig()?.workingDir;
-      if (messageHistory.length > 0) {
-        await saveHistory(this.sessionId, messageHistory, todos, workingDir, readFileTimestamps, todoTasks, this.historyNoDate);
+      // 有目标时即使尚无消息也写盘：新会话刚设目标就能持久化
+      if (messageHistory.length > 0 || this.goal) {
+        await saveHistory(this.sessionId, messageHistory, todos, workingDir, readFileTimestamps, todoTasks, this.historyNoDate, this.goal ?? undefined);
         logInfo(`会话历史已保存: ${this.sessionId}`);
       }
     } catch (error) {

@@ -11,6 +11,7 @@ import { ToolPermissionResponse, PickOptionResponseData, PlanExitResponseData } 
 import { TaskListItem } from '../types/task';
 import type { AgentMode, PermissionLevel, ModelUpdateData } from '../types';
 import type { InputImageAttachment } from '../types/message';
+import type { GoalState } from '../types/goal';
 import { logInfo } from '../util/log';
 
 /**
@@ -74,6 +75,13 @@ export class SemaSession {
   updatePermissionLevel = (level: PermissionLevel): void => this.engine.updatePermissionLevel(level);
   switchModel = async (modelName: string): Promise<ModelUpdateData> => getModelManager().switchSessionModel(this.sessionId, modelName);
   getModelData = (): Promise<ModelUpdateData> => getModelManager().getModelData(this.sessionId);
+  // ==================== 长期目标（/goal） ====================
+  // 设定目标走用户输入 /goal <文本>；以下接口不进输入队列、立即生效，状态变化经 goal:update 事件推送
+  getGoal = (): GoalState | null => getStateManager().session(this.sessionId).getGoal();
+  updateGoal = (text: string): GoalState | null => this.engine.updateGoal(text);
+  stopGoal = (): GoalState | null => this.engine.stopGoal();
+  clearGoal = (): void => this.engine.clearGoal();
+  resumeGoal = (): GoalState | null => this.engine.resumeGoal();
 
   // ==================== 会话 Fork / 撤销 ====================
   getForkPreview = (messageUuid: string): ForkPreview => getCheckpointManager().preview(this.sessionId, messageUuid);

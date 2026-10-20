@@ -1,0 +1,1 @@
+export const TOOL_DESCRIPTION = `Mark the session's active goal as achieved or blocked. Call only when a goal is active. Use \`achieved\` after verifying the outcome with evidence; use \`blocked\` when no further progress is possible without the user. Give a short summary either way.`

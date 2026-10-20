@@ -24,7 +24,7 @@ import { ReAct } from './Conversation';
 import type { AgentContext } from '../types/agent'
 import { getStateManager, MAIN_AGENT_ID, PendingUserInput, SessionRuntime } from '../manager/StateManager';
 import { getCheckpointManager } from '../manager/CheckpointManager';
-import { handleCommand } from '../services/commands/runCommand';
+import { handleCommand, goalInputMark } from '../services/commands/runCommand';
 import { getPluginsManager } from '../services/plugins/pluginsManager';
 import { getRuleManager } from '../services/rules/rulesManager';
 import { getMemoryManager } from '../services/memory/memManager';
@@ -32,8 +32,14 @@ import { getHooksManager } from '../services/hooks/hooksManager';
 import { getTaskManager } from '../manager/TaskManager';
 import { getCronManager } from '../manager/CronManager';
 import { handlequickchat } from '../util/quickchat';
-import { TOOL_NAME_SKILL } from '../prompt/tool';
+import { TOOL_NAME_SKILL, TOOL_NAME_COMPLETE_GOAL } from '../prompt/tool';
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define';
+import { buildGoalRoundPrompt, GOAL_ROUND_DISPLAY } from '../prompt/goal';
+import { GOAL_MAX_IDLE_ROUNDS, GOAL_MAX_ROUNDS } from '../conf/config';
+import { CompleteGoal } from '../tools/CompleteGoal';
+import type { Tool } from '../tools/base/Tool';
+import type { GoalState, GoalInputMark } from '../types/goal';
+import type { GoalUpdateData } from '../events/types';
 import { fireSessionStart, fireUserPromptSubmit, fireSessionEnd, fireStop } from '../services/hooks/hookTriggers';
 import type { AgentMode, PermissionLevel } from '../types';
 import type { FileReferenceInfo } from '../types/index';
@@ -147,6 +153,13 @@ export class SemaEngine {
     if (historyData.readFileTimestamps) {
       mainAgentState.setReadFileTimestamps(historyData.readFileTimestamps);
     }
+    // 长期目标恢复：重开会话时 running 降为 paused（循环不自动接续）；不发事件，宿主开会话时用 getGoal 回填
+    if (historyData.goal) {
+      const goal: GoalState = historyData.goal.status === 'running'
+        ? { ...historyData.goal, status: 'paused', updatedAt: Date.now() }
+        : historyData.goal;
+      this.runtime.setGoal(goal);
+    }
 
     const projectConfig = getConfManager().getProjectConfig();
     const projectInputHistory = projectConfig?.history || [];
@@ -198,6 +211,9 @@ export class SemaEngine {
       return
     }
 
+    // 长期目标标记（设定 / 更新 / 续轮）：排队时按当前状态预判，input:processing 时重算为准
+    const goal = goalInputMark(trimmedInput, source, this.sessionId)
+
     if (mainAgentState.getCurrentState() === 'processing') {
       const type: PendingUserInput['type'] = trimmedInput.startsWith('/') ? 'command' : 'inject'
       this.runtime.addPendingUserInput({ inputId, input: trimmedInput, originalInput, silent, type, attachments, source })
@@ -213,6 +229,7 @@ export class SemaEngine {
           inject: type === 'inject',
           queueLength: this.runtime.getPendingUserInputsLength(),
           attachments: attachments && attachments.length > 0 ? attachments : undefined,
+          goal,
         })
       }
       return
@@ -227,6 +244,7 @@ export class SemaEngine {
         queued: false,
         inject: false,
         queueLength: 0,
+        goal,
       })
     }
     this.startQuery([{ inputId, input: trimmedInput, originalInput, silent, attachments, source }]);
@@ -259,7 +277,7 @@ export class SemaEngine {
     }
 
     // 保存当前的 processQuery Promise，用于等待其完成
-    this.currentProcessingPromise = this.processQuery(inputs, agentContext, agentMode)
+    const promise: Promise<void> = this.processQuery(inputs, agentContext, agentMode)
       .catch(error => {
         logWarn(`processQuery 未捕获异常: ${error instanceof Error ? error.message : String(error)}`);
         if (this.runtime.currentAbortController === agentContext.abortController) {
@@ -268,8 +286,13 @@ export class SemaEngine {
         mainAgentState.updateState('idle');
       })
       .finally(() => {
-        this.currentProcessingPromise = null;
+        // finally 内起的下一轮（排队输入 / 目标续轮）已换成新 promise，只在引用仍是自己时才置 null，
+        // 否则 waitForIdle 会提前返回
+        if (this.currentProcessingPromise === promise) {
+          this.currentProcessingPromise = null;
+        }
       });
+    this.currentProcessingPromise = promise;
   }
 
   /**
@@ -290,7 +313,11 @@ export class SemaEngine {
     }
 
     // 为每条输入发送独立的 input:processing 事件（静默输入跳过）
+    // 长期目标标记在此刻按真实状态计算（紧邻命令执行），同时写进该输入的持久化消息
+    const goalMarks = new Map<string, GoalInputMark>();
     for (const item of inputs) {
+      const goal = goalInputMark(item.input, item.source, this.sessionId);
+      if (goal) goalMarks.set(item.inputId, goal);
       if (!item.silent) {
         const attachments = normalizedAttachments.get(item.inputId);
         this.emit('input:processing', {
@@ -299,6 +326,7 @@ export class SemaEngine {
           originalInput: item.originalInput,
           source: item.source ?? 'user',
           attachments: attachments && attachments.length > 0 ? attachments : undefined,
+          goal,
         })
       }
     }
@@ -306,6 +334,13 @@ export class SemaEngine {
     // 本轮是否真正进入 ReAct：系统命令轮（/compact、/clear）或输入全被 hook 拦截时为 false，
     // finally 里据此跳过 Stop hook 与下句预测（无模型回复不算一轮自然完成）
     let enteredReAct = false;
+    // 本轮是否以非中断异常结束（API 报错、压缩报错等）：目标置 paused(error)，不续轮
+    let turnError = false;
+    // 本轮是否为目标轮（起始轮 / 续轮）：插话轮、命令轮不计 round 与 idleRounds
+    let isGoalTurn = inputs.some(i => i.source === 'goal');
+    // 进 ReAct 前的历史长度，用于判断本轮 assistant 消息有无 tool_use（无进展止损）
+    let historyLenBefore = -1;
+    const goalBefore = this.runtime.getGoal();
 
     try {
       // 将每条用户输入保存到项目配置的 history（静默输入/自动来源输入跳过，避免污染上翻输入历史）
@@ -372,10 +407,23 @@ export class SemaEngine {
         }
       }
 
+      // /goal <文本> 在命令循环里把目标从非 running 置为 running（设定新目标）：本轮计为目标轮；
+      // running 中更新文本不改状态，按插话轮计
+      const goalAfterCommands = this.runtime.getGoal();
+      if (goalAfterCommands?.status === 'running' && goalBefore?.status !== 'running') {
+        isGoalTurn = true;
+      }
+
       if (perInput.length === 0) {
         return;
       }
       enteredReAct = true;
+
+      // 目标 running 时补上 complete_goal：工具列表在 startQuery 里早于命令处理算好，
+      // 本轮刚设定 / 恢复的目标靠这里追加（append-only，位置与 getAvailableTools 一致）
+      if (goalAfterCommands?.status === 'running' && !agentContext.tools.some(tool => tool.name === TOOL_NAME_COMPLETE_GOAL)) {
+        agentContext.tools = [...agentContext.tools, CompleteGoal as unknown as Tool];
+      }
 
       logInfo(`返回文件引用信息: ${JSON.stringify(allSupplementaryInfo, null, 2)}`)
       if (allSupplementaryInfo.length > 0) {
@@ -482,10 +530,13 @@ export class SemaEngine {
         msg.checkpointSeq = checkpointSeq
         // 非 user 来源写入持久化元数据，历史重放时可还原来源标签
         if (p.source && p.source !== 'user') msg.source = p.source
+        const goalMark = goalMarks.get(p.inputId)
+        if (goalMark) msg.goal = goalMark
         return msg
       })
 
       const messages: Message[] = [...messageHistory, ...userMessages]
+      historyLenBefore = messages.length
 
       // 进入 ReAct 前先把用户消息同步到内存并落盘：首轮 LLM 请求期间进程意外退出时，
       // 用户输入不至于丢失（恢复时末尾若是孤儿 tool_use 由 prepareMessagesForApi 兜底剔除）
@@ -503,6 +554,8 @@ export class SemaEngine {
     } catch (error) {
       if (isInterruptedException(error)) {
         logDebug('用户中断操作');
+      } else {
+        turnError = true;
       }
     } finally {
       // 延迟清空 AbortController，确保所有中断逻辑执行完毕
@@ -513,6 +566,17 @@ export class SemaEngine {
             this.runtime.currentAbortController = null;
           }
         }, 0);
+      }
+
+      // 长期目标收口：中断（含权限拒绝、dispose）→ paused；非中断异常 → paused(error)；
+      // 目标轮正常结束 → 记录本轮有无 tool_use。先于排队分支判定，避免有排队输入时跳过暂停
+      const aborted = agentContext.abortController.signal.aborted;
+      if (aborted) {
+        this.pauseGoal('paused');
+      } else if (turnError) {
+        this.pauseGoal('error');
+      } else if (isGoalTurn) {
+        this.noteGoalProgress(this.hadToolUseSince(historyLenBefore));
       }
 
       // 处理待处理输入队列
@@ -542,18 +606,135 @@ export class SemaEngine {
         // Stop hook：一轮处理自然完成转 idle 时触发；中断不触发，
         // 有排队输入接续时视为同一轮继续也不触发；
         // 未进入 ReAct 的轮次（系统命令轮/输入全被拦截）无模型回复，同样不触发
-        if (enteredReAct && !agentContext.abortController.signal.aborted) {
+        if (enteredReAct && !aborted) {
           fireStop(this.sessionId)
           // 后台异步预测用户下一句输入（quick 模型），不阻塞收尾；结果经 input:predict 事件发出
-          // 只在含真实用户输入的轮次触发：静默/自动来源（cron、后台任务通知等）结束时用户未必在看，不预测
+          // 只在含真实用户输入的轮次触发：静默/自动来源（cron、goal、后台任务通知等）结束时用户未必在看，不预测
           const hasUserInput = inputs.some(i => !i.silent && (i.source ?? 'user') === 'user')
           if (hasUserInput && getConfManager().getCoreConfig()?.enableInputPrediction) {
             predictNextInputInBackground(this.sessionId).catch(() => undefined)
           }
         }
         mainAgentState.updateState('idle');
+        // 长期目标续轮：本轮正常结束且目标仍 running 就自动开下一轮（命令轮、插话轮也续）
+        if (!aborted && !turnError) {
+          this.continueGoalIfRunning();
+        }
       }
     }
+  }
+
+  // ==================== 长期目标（/goal）自主循环 ====================
+  // 会话级接口（updateGoal / stopGoal / clearGoal / resumeGoal）同步改状态并立即发事件，不进输入队列；
+  // 设定目标只走用户输入 /goal <文本>（需要跑第一轮，天然要排队）
+
+  private emitGoalUpdate(goal: GoalState | null, reason: GoalUpdateData['reason']): void {
+    const data: GoalUpdateData = { goal, reason };
+    this.emit('goal:update', data);
+  }
+
+  /** 改目标文本：状态、轮数不变，下一轮 reminder 生效；无目标或空文本不做事 */
+  updateGoal(text: string): GoalState | null {
+    const goal = this.runtime.getGoal();
+    const trimmed = text.trim();
+    if (!goal || !trimmed) return goal;
+    const updated: GoalState = { ...goal, text: trimmed, updatedAt: Date.now() };
+    this.runtime.setGoal(updated);
+    this.emitGoalUpdate(updated, 'updated');
+    return updated;
+  }
+
+  /** 终止：running / paused / blocked → stopped，循环到本轮结束不再续，不中断当前轮；记录保留供展示 */
+  stopGoal(): GoalState | null {
+    const goal = this.runtime.getGoal();
+    if (!goal) return null;
+    if (goal.status === 'stopped' || goal.status === 'completed') return goal;
+    const stopped: GoalState = { ...goal, status: 'stopped', updatedAt: Date.now() };
+    this.runtime.setGoal(stopped);
+    this.emitGoalUpdate(stopped, 'stopped');
+    logInfo(`[goal] stopped at round ${stopped.round}/${stopped.maxRounds}`);
+    return stopped;
+  }
+
+  /** 删除目标记录（任何状态都可）；running 中删除等同终止，循环到本轮结束不再续 */
+  clearGoal(): void {
+    if (!this.runtime.getGoal()) return;
+    this.runtime.setGoal(null);
+    this.emitGoalUpdate(null, 'cleared');
+  }
+
+  /**
+   * 恢复 paused / blocked 目标：置 running、idleRounds 归零、因轮数上限暂停的 maxRounds 累加；
+   * 随即注入一条续轮输入（round 不加一）：会话空闲立即开跑，正在处理则排队到本轮之后。其他状态不做事
+   */
+  resumeGoal(): GoalState | null {
+    const goal = this.runtime.getGoal();
+    if (!goal) return null;
+    if (goal.status !== 'paused' && goal.status !== 'blocked') return goal;
+    const resumed: GoalState = {
+      ...goal,
+      status: 'running',
+      idleRounds: 0,
+      maxRounds: goal.round >= goal.maxRounds ? goal.maxRounds + GOAL_MAX_ROUNDS : goal.maxRounds,
+      updatedAt: Date.now(),
+    };
+    this.runtime.setGoal(resumed);
+    this.emitGoalUpdate(resumed, 'resumed');
+    logInfo(`[goal] resumed, round ${resumed.round}/${resumed.maxRounds}`);
+    this.processUserInput(buildGoalRoundPrompt(resumed), GOAL_ROUND_DISPLAY, false, undefined, 'goal');
+    return resumed;
+  }
+
+  /** 目标 running → paused 并按原因发事件；非 running 不动 */
+  private pauseGoal(reason: Extract<GoalUpdateData['reason'], 'paused' | 'error' | 'noProgress' | 'maxRounds' | 'mode'>): void {
+    const goal = this.runtime.getGoal();
+    if (goal?.status !== 'running') return;
+    const paused: GoalState = { ...goal, status: 'paused', updatedAt: Date.now() };
+    this.runtime.setGoal(paused);
+    this.emitGoalUpdate(paused, reason);
+    logInfo(`[goal] paused (${reason}), round ${paused.round}/${paused.maxRounds}`);
+  }
+
+  /** 本轮进 ReAct 后新增的 assistant 消息中是否出现过 tool_use；未进 ReAct 或历史被压缩（长度变短）时按有进展处理，不误判 */
+  private hadToolUseSince(historyLenBefore: number): boolean {
+    if (historyLenBefore < 0) return true;
+    const history = this.runtime.forAgent(MAIN_AGENT_ID).getMessageHistory();
+    if (history.length < historyLenBefore) return true;
+    return history.slice(historyLenBefore).some(msg =>
+      msg.type === 'assistant' && msg.message.content.some(block => block.type === 'tool_use')
+    );
+  }
+
+  /** 目标轮结束：无 tool_use 则 idleRounds+1，否则归零；达到上限的判定与暂停放在 continueGoalIfRunning */
+  private noteGoalProgress(hadToolUse: boolean): void {
+    const goal = this.runtime.getGoal();
+    if (goal?.status !== 'running') return;
+    const idleRounds = hadToolUse ? 0 : goal.idleRounds + 1;
+    if (idleRounds === goal.idleRounds) return;
+    this.runtime.setGoal({ ...goal, idleRounds, updatedAt: Date.now() });
+  }
+
+  /** 轮末续轮：依次判模式 / 无进展 / 轮数上限，都通过则 round+1 并以 source='goal' 注入下一轮输入 */
+  private continueGoalIfRunning(): void {
+    const goal = this.runtime.getGoal();
+    if (goal?.status !== 'running') return;
+    if (this.runtime.agentMode !== 'Agent') {
+      this.pauseGoal('mode');
+      return;
+    }
+    if (goal.idleRounds >= GOAL_MAX_IDLE_ROUNDS) {
+      this.pauseGoal('noProgress');
+      return;
+    }
+    if (goal.round >= goal.maxRounds) {
+      this.pauseGoal('maxRounds');
+      return;
+    }
+    const next: GoalState = { ...goal, round: goal.round + 1, updatedAt: Date.now() };
+    this.runtime.setGoal(next);
+    this.emitGoalUpdate(next, 'round');
+    logInfo(`[goal] continue, round ${next.round}/${next.maxRounds}`);
+    this.processUserInput(buildGoalRoundPrompt(next), GOAL_ROUND_DISPLAY, false, undefined, 'goal');
   }
 
   /**

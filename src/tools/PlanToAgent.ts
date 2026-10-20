@@ -40,6 +40,16 @@ export const PlanToAgent = {
     { plan_file_path }: z.infer<typeof toolParams>,
     agentContext: any,
   ) {
+    // 兜底：本工具仅 Plan 模式可见（getAvailableTools 按模式过滤，退出 Plan 时经 mode_changed 重建自动移除），
+    // 非 Plan 模式下即使被调用也拒绝
+    const agentMode = getStateManager().session(agentContext.sessionId).agentMode
+    if (agentMode !== 'Plan') {
+      return {
+        result: false,
+        message: 'plan_to_agent is only available in Plan mode; the session is currently in ' + agentMode + ' mode.',
+      }
+    }
+
     const fullFilePath = canonicalizeFilePath(plan_file_path)
 
     // 验证文件是否存在

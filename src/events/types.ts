@@ -2,6 +2,7 @@ import type { TodoItem } from '../types/todoTask';
 import type { PermissionLevel } from '../types';
 import type { InputImageAttachment, InputSource } from '../types/message';
 import type { HookSource } from '../types/hook';
+import type { GoalInputMark } from '../types/goal';
 
 export type { InputSource } from '../types/message';
 
@@ -125,6 +126,7 @@ export interface InputReceivedData {
   queueLength: number;        // 当前队列长度（入队后的长度）
   source?: InputSource;       // 输入来源，缺省 'user'；非 user 来源（如 'cron'）由系统自动发送，UI 按用户输入渲染并加来源标签
   attachments?: InputImageAttachment[]; // 仅 queued 时携带：原始图片附件（未规范化），供排队气泡回显缩略图；立即处理的输入由 input:processing 回吐
+  goal?: GoalInputMark;       // 长期目标标记：/goal <文本>（set / update，按接收时状态判）与自动续轮（round）；以 input:processing 为准
 }
 
 /**
@@ -138,6 +140,7 @@ export interface InputProcessingData {
   originalInput?: string;     // 原始输入内容
   attachments?: InputImageAttachment[]; // 该输入规范化后的图片附件（已过滤非法类型、已压缩），用于气泡回显
   source?: InputSource;       // 输入来源，缺省 'user'；非 user 来源（如 'cron'）由系统自动发送，UI 按用户输入渲染并加来源标签
+  goal?: GoalInputMark;       // 长期目标标记：set / update / round，UI 据此给气泡打标
 }
 
 // ==================== AI消息事件 ====================
@@ -547,6 +550,29 @@ export interface InputPredictData {
  * 说明: 定时任务列表发生变化时触发，UI层收到后重新加载任务列表
  */
 export interface CronUpdateData {}
+
+// ==================== 长期目标相关事件 ====================
+
+import type { GoalState } from '../types/goal';
+
+/**
+ * 长期目标状态更新事件
+ * 事件: `goal:update`
+ * 说明: /goal <文本> 输入、会话级接口（updateGoal / stopGoal / clearGoal / resumeGoal）、complete_goal 工具、轮末续轮/暂停时触发。
+ * - set/updated/round：设定 / 更新文本 / 自动续轮
+ * - completed/blocked：模型经 complete_goal 自报
+ * - stopped/cleared/resumed：接口触发（cleared 时 goal 为 null）
+ * - paused：用户中断或权限拒绝；error/noProgress/maxRounds/mode：系统置 paused 的各自原因（goal.status 均为 paused）
+ * - status：裸 /goal 的回显，非状态变化，宿主只弹提示不改卡片
+ */
+export interface GoalUpdateData {
+  goal: GoalState | null;
+  reason: 'set' | 'updated' | 'round'
+        | 'completed' | 'blocked'
+        | 'stopped' | 'cleared' | 'resumed'
+        | 'paused' | 'error' | 'noProgress' | 'maxRounds' | 'mode'
+        | 'status';
+}
 
 // ==================== mcp状态相关事件 ====================
 

@@ -5,6 +5,7 @@ import { Message, UserMsg, AiMessage, ToolControlSignal } from '../types/message
 import type { AgentMode } from '../types'
 import { generateRulesReminders, generateSkillsReminder, generatePlanReminders } from '../services/agents/genSystemReminder'
 import { generateDesignReminders } from '../services/agents/genDesignSystemReminder'
+import { buildGoalReminder } from '../prompt/goal'
 import { getStateManager } from '../manager/StateManager'
 
 // 用户中断消息常量
@@ -77,6 +78,12 @@ export async function buildAdditionalReminders(
   if (agentMode === 'Design' && !runtime.isDesignModeInfoSent()) {
     reminders.push(...generateDesignReminders())
     runtime.markDesignModeInfoSent()
+  }
+
+  // 长期目标 running 时每轮挂目标与规则（压缩后、插话轮都在，目标全文只放这里）
+  const goal = runtime.getGoal()
+  if (goal?.status === 'running') {
+    reminders.push({ type: 'text', text: buildGoalReminder(goal) })
   }
 
   return reminders

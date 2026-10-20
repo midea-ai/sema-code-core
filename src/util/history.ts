@@ -1,6 +1,7 @@
 import { Message } from '../types/message';
 import { TodoItem } from '../events/types';
 import { TodoTask } from '../types/todoTask';
+import { GoalState } from '../types/goal';
 import { logDebug, logInfo, logWarn } from './log';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -23,6 +24,7 @@ interface HistoryData {
   todos: TodoItem[];
   todoTasks?: TodoTask[];
   readFileTimestamps?: Record<string, number>;
+  goal?: GoalState;
 }
 
 /**
@@ -76,7 +78,7 @@ export async function loadHistory(sessionId?: string, projectPath?: string): Pro
       const todoTasks = historyData.todoTasks || [];
       const readFileTimestamps = historyData.readFileTimestamps || {};
       logInfo(`加载历史消息 ${messages.length} 条，todos ${todos.length} 项，todoTasks ${todoTasks.length} 项，readFileTimestamps ${Object.keys(readFileTimestamps).length} 项`);
-      return { messages, todos, todoTasks, readFileTimestamps };
+      return { messages, todos, todoTasks, readFileTimestamps, ...(historyData.goal && { goal: historyData.goal }) };
     } else {
       logInfo(`未找到历史文件: ${historyPath}，开始新会话`);
       return { messages: [], todos: [] };
@@ -289,7 +291,7 @@ export function deleteSessionHistory(sessionId: string, projectPath?: string): v
 /**
  * 保存历史消息和todos
  */
-export async function saveHistory(sessionId: string, messages: Message[], todos?: TodoItem[], projectPath?: string, readFileTimestamps?: Record<string, number>, todoTasks?: TodoTask[], noDate?: boolean): Promise<void> {
+export async function saveHistory(sessionId: string, messages: Message[], todos?: TodoItem[], projectPath?: string, readFileTimestamps?: Record<string, number>, todoTasks?: TodoTask[], noDate?: boolean, goal?: GoalState): Promise<void> {
   const historyDir = projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
   // 已有历史文件时写回原文件（旧日期文件跨天/跨零点继续沿用，不按今天日期另起新文件），
   // 不存在时才按 noDate 决定新文件命名格式
@@ -306,7 +308,8 @@ export async function saveHistory(sessionId: string, messages: Message[], todos?
       messages,
       todos: todos || [],
       ...(todoTasks && todoTasks.length > 0 && { todoTasks }),
-      ...(readFileTimestamps && Object.keys(readFileTimestamps).length > 0 && { readFileTimestamps })
+      ...(readFileTimestamps && Object.keys(readFileTimestamps).length > 0 && { readFileTimestamps }),
+      ...(goal && { goal })
     };
 
     fs.writeFileSync(historyPath, JSON.stringify(historyData, null, 2));

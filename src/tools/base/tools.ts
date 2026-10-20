@@ -31,6 +31,7 @@ import { ListCrons } from '../ListCrons'
 import { FetchUrl } from '../FetchUrl'
 import { LoadTools } from '../LoadTools'
 import { GenerateImage } from '../GenerateImage'
+import { CompleteGoal } from '../CompleteGoal'
 import { getMCPManager } from '../../services/mcp/MCPManager'
 import { getConfManager } from '../../manager/ConfManager'
 import { getStateManager } from '../../manager/StateManager'
@@ -50,6 +51,11 @@ export const SUBAGENT_EXCLUDED_TOOLS = new Set([
   TOOL_NAME_LIST_TODOS, TOOL_NAME_UPDATE_TODO,
   TOOL_NAME_LOAD_TOOLS,
 ])
+
+// 仅 Plan 模式可见的工具：由 core 在 getAvailableTools 里按会话模式注入，
+// 不走 toolSearchDefaultTools 白名单（配置里写了也忽略），也不进 load_tools 延迟池；
+// 退出 Plan（批准计划 / 切换模式）时经 mode_changed 重建工具列表自动移除，无需额外清理
+const PLAN_MODE_ONLY_TOOLS = new Set([TOOL_NAME_PLAN_TO_AGENT])
 
 
 // 将工具对象安全转换为 Tool 类型（各工具的字面量类型与 Tool 泛型不完全匹配）
@@ -147,7 +153,8 @@ export function getToolSearchDefaultNames(useTools?: string[] | null): string[] 
     if (!result.includes(name)) result.push(name)
   }
   for (const name of names) {
-    if (name === TOOL_NAME_LOAD_TOOLS || result.includes(name)) continue
+    // load_tools 与仅 Plan 模式可见的工具不受白名单控制，配置里写了也忽略
+    if (name === TOOL_NAME_LOAD_TOOLS || PLAN_MODE_ONLY_TOOLS.has(name) || result.includes(name)) continue
     if (name.startsWith('mcp__') && name.endsWith('*')) {
       if (!isValidMCPWildcard(name)) {
         logWarn(`toolSearchDefaultTools 通配不合法（须为 mcp__{server}__* 或 mcp__{server}__{prefix}*），已忽略: ${name}`)
@@ -168,18 +175,32 @@ export function getToolSearchDefaultNames(useTools?: string[] | null): string[] 
 }
 
 // 工具搜索模式：延迟池（未默认加载的内置可用工具 + MCP 工具），供 load_tools 加载
+// 仅 Plan 模式可见的工具不进延迟池（由 core 按模式注入，见 PLAN_MODE_ONLY_TOOLS）
 export function getDeferredTools(useTools?: string[] | null): Tool[] {
   if (useTools === undefined) {
     useTools = getConfManager().getCoreConfig()?.useTools
   }
   const defaultNames = new Set(getToolSearchDefaultNames(useTools))
   const all = [...getAvailableBuiltinTools(useTools), ...getMCPManager().getMCPTools()]
-  return all.filter(tool => !defaultNames.has(tool.name))
+  return all.filter(tool => !defaultNames.has(tool.name) && !PLAN_MODE_ONLY_TOOLS.has(tool.name))
+}
+
+function isPlanMode(sessionId: string): boolean {
+  return getStateManager().session(sessionId).agentMode === 'Plan'
+}
+
+// 长期目标 running 时把 complete_goal 追加到列表末尾（append-only，前缀缓存稳定）。
+// 不进 getBuiltinTools，故天然不出现在工具面板 / useTools 黑白名单 / 工具搜索延迟池 / 子代理工具集
+function appendGoalTool(tools: Tool[], sessionId?: string): Tool[] {
+  if (!sessionId) return tools
+  if (getStateManager().session(sessionId).getGoal()?.status !== 'running') return tools
+  return [...tools, asTool(CompleteGoal)]
 }
 
 // 获取可用内置工具 + MCP 工具
 // useTools 不传时回退到全局默认配置
 // opts.sessionId：工具搜索模式下用于读取会话已动态加载的工具；开关关闭或未传时走原路径
+// 传了 sessionId 时 PLAN_MODE_ONLY_TOOLS 按会话模式注入；子代理不传 sessionId，走 SUBAGENT_EXCLUDED_TOOLS
 export function getAvailableTools(useTools?: string[] | null, opts?: { sessionId?: string }): Tool[] {
   if (useTools === undefined) {
     useTools = getConfManager().getCoreConfig()?.useTools
@@ -189,16 +210,24 @@ export function getAvailableTools(useTools?: string[] | null, opts?: { sessionId
   const enableToolSearch = getConfManager().getCoreConfig()?.enableToolSearch ?? false
 
   if (!enableToolSearch || !opts?.sessionId) {
-    const tools: Tool[] = [...builtinTools, ...mcpTools]
+    let tools: Tool[] = [...builtinTools, ...mcpTools]
+    // 普通模式：非 Plan 模式移除仅 Plan 可见的工具
+    if (opts?.sessionId && !isPlanMode(opts.sessionId)) {
+      tools = tools.filter(tool => !PLAN_MODE_ONLY_TOOLS.has(tool.name))
+    }
     logInfo(`tools len: ${tools.length} (builtin: ${builtinTools.length}, mcp: ${mcpTools.length})`)
-    return tools
+    return appendGoalTool(tools, opts?.sessionId)
   }
 
-  // 工具搜索模式：[默认加载工具(白名单序)] + [load_tools] + [会话已加载工具(加载序)]
-  // 顺序 append-only，保证 LLM 前缀缓存稳定
+  // 工具搜索模式：[默认加载工具(白名单序)] + [Plan 模式注入工具] + [load_tools] + [会话已加载工具(加载序)]
+  // 顺序 append-only，保证 LLM 前缀缓存稳定；Plan 模式注入工具不属于白名单也不属于延迟池
   const byName = new Map<string, Tool>()
   builtinTools.forEach(tool => byName.set(tool.name, tool))
   mcpTools.forEach(tool => byName.set(tool.name, tool))
+  const planModeTools = isPlanMode(opts.sessionId)
+    ? builtinTools.filter(tool => PLAN_MODE_ONLY_TOOLS.has(tool.name))
+    : []
+  PLAN_MODE_ONLY_TOOLS.forEach(name => byName.delete(name))
 
   const defaultNames = getToolSearchDefaultNames(useTools)
   const defaultTools = defaultNames
@@ -207,7 +236,7 @@ export function getAvailableTools(useTools?: string[] | null, opts?: { sessionId
 
   // 白名单已覆盖全部可用工具：无延迟池，不注入搜索工具
   if (defaultTools.length === byName.size) {
-    return defaultTools
+    return appendGoalTool([...defaultTools, ...planModeTools], opts.sessionId)
   }
 
   const loadedNames = getStateManager().session(opts.sessionId).getLoadedToolNames()
@@ -216,9 +245,9 @@ export function getAvailableTools(useTools?: string[] | null, opts?: { sessionId
     .map(name => byName.get(name))
     .filter((tool): tool is Tool => !!tool)
 
-  const tools: Tool[] = [...defaultTools, asTool(LoadTools), ...loadedTools]
-  logInfo(`tools len: ${tools.length} (tool-search on, default: ${defaultTools.length}, loaded: ${loadedTools.length})`)
-  return tools
+  const tools: Tool[] = [...defaultTools, ...planModeTools, asTool(LoadTools), ...loadedTools]
+  logInfo(`tools len: ${tools.length} (tool-search on, default: ${defaultTools.length}, planMode: ${planModeTools.length}, loaded: ${loadedTools.length})`)
+  return appendGoalTool(tools, opts.sessionId)
 }
 
 

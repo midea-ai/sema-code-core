@@ -13,6 +13,11 @@ import { getAvailableTools } from '../../tools/base/tools';
 import { TOOL_NAME_SKILL } from '../../prompt/tool';
 import { generatePostCompactReminders } from '../agents/genSystemReminder';
 import { wrapCompactSummary } from '../../prompt/compact';
+import { GOAL_START_PROMPT, GOAL_UPDATE_PROMPT } from '../../prompt/goal';
+import { GOAL_MAX_ROUNDS } from '../../conf/config';
+import type { GoalState, GoalInputMark } from '../../types/goal';
+import type { InputSource } from '../../types/message';
+import type { GoalUpdateData } from '../../events/types';
 import { t } from '../../util/i18n';
 
 interface CustomCommandResult {
@@ -47,7 +52,66 @@ async function handleSystemCommand(input: string, sessionId: string): Promise<Sy
     return true;
   }
 
+  if (input === '/goal' || input.startsWith('/goal ')) {
+    return handleGoalCommand(input.slice('/goal'.length).trim(), sessionId);
+  }
+
   return false;
+}
+
+// ─── /goal 长期目标 ───────────────────────────────────────────────────────────
+// 用户输入只接受两种形态；终止 / 删除 / 恢复 / 改文本走会话级接口（SemaSession.stopGoal 等），不排队、立即生效
+// /goal            回显状态（reason status），不进 ReAct
+// /goal <文本>     目标非 running（含无目标）→ 设定新目标并跑第一轮；running → 只改文本（reason updated），
+//                  本轮以一句触发语进 ReAct 让模型按新目标继续，按插话轮计（不加 round）
+// 状态反馈不加 i18n 文案，统一经 goal:update 事件的 reason 交给宿主展示
+function handleGoalCommand(arg: string, sessionId: string): SystemCommandHandleResult {
+  const runtime = getStateManager().session(sessionId);
+  const emitGoal = (data: GoalUpdateData) => EventBus.getInstance().emit('goal:update', data, sessionId);
+  const goal = runtime.getGoal();
+
+  if (arg === '') {
+    emitGoal({ goal, reason: 'status' });
+    return true;
+  }
+
+  if (goal?.status === 'running') {
+    const updated: GoalState = { ...goal, text: arg, updatedAt: Date.now() };
+    runtime.setGoal(updated);
+    emitGoal({ goal: updated, reason: 'updated' });
+    return { processedText: GOAL_UPDATE_PROMPT, blocks: [{ type: 'text', text: GOAL_UPDATE_PROMPT }] };
+  }
+
+  const now = Date.now();
+  const created: GoalState = {
+    text: arg,
+    status: 'running',
+    round: 1,
+    maxRounds: GOAL_MAX_ROUNDS,
+    idleRounds: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+  runtime.setGoal(created);
+  emitGoal({ goal: created, reason: 'set' });
+  return { processedText: GOAL_START_PROMPT, blocks: [{ type: 'text', text: GOAL_START_PROMPT }] };
+}
+
+/**
+ * 计算一条输入的长期目标标记（挂到 input:received / input:processing 与持久化 UserMsg）。
+ * - source='goal' 的自动续轮输入 → round（轮数取当前目标）
+ * - /goal <文本> → 目标 running 时 update，否则 set（round 1）；裸 /goal 与其他输入无标记
+ * 按调用时刻的目标状态判定：input:received 在排队时是预判，input:processing 紧邻命令执行，以它为准
+ */
+export function goalInputMark(input: string, source: InputSource | undefined, sessionId: string): GoalInputMark | undefined {
+  const goal = getStateManager().session(sessionId).getGoal();
+  if (source === 'goal') {
+    return goal ? { action: 'round', round: goal.round, maxRounds: goal.maxRounds } : undefined;
+  }
+  if (!input.startsWith('/goal ') || input.slice('/goal '.length).trim() === '') return undefined;
+  return goal?.status === 'running'
+    ? { action: 'update', round: goal.round, maxRounds: goal.maxRounds }
+    : { action: 'set', round: 1, maxRounds: GOAL_MAX_ROUNDS };
 }
 
 async function handleClearCommand(sessionId: string): Promise<void> {
@@ -63,6 +127,8 @@ async function handleClearCommand(sessionId: string): Promise<void> {
   // 先清空 todos 和 readFileTimestamps，确保保存到文件时也是空的
   mainAgentState.updateTodosIntelligently([]);
   mainAgentState.setReadFileTimestamps({});
+  // 长期目标随 /clear 一并清除（clearAllState 不碰 goal，只在这里清）
+  runtime.setGoal(null);
 
   mainAgentState.setMessageHistory([]);
   mainAgentState.updateState('idle');

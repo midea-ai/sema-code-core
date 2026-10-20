@@ -21,8 +21,11 @@ export const TOOL_NAME_WRITE_FILE = 'write_file'
 export const TOOL_NAME_PATCH_FILE = 'patch_file'
 export const TOOL_NAME_LOAD_TOOLS = 'load_tools'
 export const TOOL_NAME_GENERATE_IMAGE = 'generate_image'
+// 不进 getBuiltinTools：仅目标 running 时按会话追加（见 tools.ts appendGoalTool）
+export const TOOL_NAME_COMPLETE_GOAL = 'complete_goal'
 
 // 工具搜索模式下默认加载的内置工具集（toolSearchDefaultTools 未配置时使用）
+// plan_to_agent 不在此列：仅 Plan 模式可见，由 core 按会话模式注入（见 tools.ts PLAN_MODE_ONLY_TOOLS）
 export const TOOL_SEARCH_DEFAULT_TOOLS = [
   TOOL_NAME_RUN_SHELL,
   TOOL_NAME_SEARCH_FILES,
@@ -33,5 +36,4 @@ export const TOOL_SEARCH_DEFAULT_TOOLS = [
   TOOL_NAME_SUB_AGENT,
   TOOL_NAME_SKILL,
   TOOL_NAME_PICK_OPTION,
-  TOOL_NAME_PLAN_TO_AGENT,
 ]

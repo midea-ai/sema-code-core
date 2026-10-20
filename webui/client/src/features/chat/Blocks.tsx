@@ -1,6 +1,6 @@
 import React, { memo, useState, useMemo, useRef, useLayoutEffect, useEffect } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Brain, Pencil, Search, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch, Images, ImagePlus, Plug } from 'lucide-react';
-import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, CronBlock, BranchOriginBlock } from '../../../../shared/types';
+import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, X, Undo2, Bot, Brain, Pencil, Search, Terminal, FileText, FileDiff, Wrench, AlertTriangle, Info, CircleDot, Globe, Clock, GitBranch, Images, ImagePlus, Plug, Target } from 'lucide-react';
+import type { Block, ToolBlock, PermissionBlock, NoticeBlock, FileChangesBlock, UserBlock, AssistantBlock, CronBlock, BranchOriginBlock, GoalInputMark } from '../../../../shared/types';
 import { CRON_TOOLS } from '../../../../shared/protocol';
 import { isAttachmentPath } from '../../../../shared/viz';
 import { Markdown } from './Markdown';
@@ -83,6 +83,13 @@ function BranchOrigin({ block }: { block: BranchOriginBlock }) {
 // 用户消息折叠高度：14px 字号 × 1.5 行高 × 8 行
 const USER_COLLAPSED_MAX = 68;
 
+/** 用户气泡上方的长期目标标签文案 */
+function goalMarkLabel(mark: GoalInputMark): string {
+  if (mark.action === 'set') return t('chat.sourceGoalSet');
+  if (mark.action === 'update') return t('chat.sourceGoalUpdate');
+  return t('chat.sourceGoalRound', { n: mark.round, max: mark.maxRounds });
+}
+
 function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   const textRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -116,6 +123,12 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
         {block.source === 'cron' && (
           <button onClick={() => useApp.getState().openCronTab(ctx.sessionId)} className="flex items-center gap-1 text-xs text-muted hover:text-fg hover:underline underline-offset-2" title={t('panel.cron')}>
             <Clock size={12} />{t('chat.sourceCron')}
+          </button>
+        )}
+        {/* 长期目标标记：设定 / 更新 / 自动续轮（续轮输入 source=goal，只显示此标签），点击打开右栏「目标」标签 */}
+        {block.goal && (
+          <button onClick={() => useApp.getState().openGoalTab(ctx.sessionId)} className="flex items-center gap-1 text-xs text-muted hover:text-fg hover:underline underline-offset-2" title={t('panel.goal')}>
+            <Target size={12} />{goalMarkLabel(block.goal)}
           </button>
         )}
         {block.attachments && block.attachments.length > 0 && (

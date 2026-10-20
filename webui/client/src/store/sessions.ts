@@ -2,11 +2,11 @@
 import { create } from 'zustand';
 import { api } from '../api/http';
 import { wsClient } from '../api/ws';
-import type { SessionSnapshot, SessionRecord, AgentMode, PermissionLevel, EventFrame } from '../../../shared/types';
+import type { SessionSnapshot, SessionRecord, AgentMode, PermissionLevel, EventFrame, GoalState, GoalUpdateReason } from '../../../shared/types';
 import { applyEvent, applyLocal, LocalAction } from '../../../shared/transcript';
 import { SERVER_EVENTS } from '../../../shared/protocol';
 import { useApp } from './app';
-import { t } from '../i18n';
+import { t, type I18nKey } from '../i18n';
 
 /** 草稿里的超长粘贴：path/preview 发送时拼进 input 模板；text 留一份供「在文本框中显示」展开回输入框（不落快照） */
 export interface DraftPaste { path: string; preview: string; text: string }
@@ -35,6 +35,9 @@ interface SessionsState {
   /** 快问面板提问：与主输入框输入「/quickchat 问题」同一条发送链路，仅代拼前缀、不动聊天草稿 */
   sendQuickchat(sessionId: string, question: string): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
+  /** 长期目标操作：不走输入队列、立即生效（设定目标仍是普通输入 /goal <文本>）；状态随 goal:update 事件回到快照 */
+  goalAction(sessionId: string, action: 'stop' | 'clear' | 'resume'): Promise<void>;
+  updateGoal(sessionId: string, text: string): Promise<void>;
   respondPermission(sessionId: string, toolId: string, toolName: string, selected: string): Promise<void>;
   respondPick(sessionId: string, blockId: string, agentId: string, answers: string | null): Promise<void>;
   respondPlanExit(sessionId: string, blockId: string, agentId: string, selected: string): Promise<void>;
@@ -123,6 +126,15 @@ export const useSessions = create<SessionsState>((set, get) => ({
     if (frame.event === 'session:error') {
       useApp.getState().toast(frame.data?.error?.message || t('chat.sessionError'), 'error');
     }
+    // 长期目标：只对用户无法自行解释的暂停弹 toast（系统因上限 / 无进展 / 非 Agent 模式在轮末延迟暂停），
+    // 用户自己中断（paused）和 API 报错（已有 session:error 提示）不弹；/goal 回显弹当前状态；其余只靠状态条随快照变化
+    if (frame.event === 'goal:update') {
+      const reason = frame.data?.reason as GoalUpdateReason | undefined;
+      const goal = frame.data?.goal as GoalState | null | undefined;
+      const toast = useApp.getState().toast;
+      if (reason === 'status') toast(goal ? t(`goal.status.${goal.status}` as I18nKey) : t('goal.none'), 'info');
+      else if (reason === 'noProgress' || reason === 'maxRounds' || reason === 'mode') toast(t(`goal.reason.${reason}` as I18nKey), 'warn');
+    }
   },
 
   local(sessionId, action) {
@@ -167,6 +179,11 @@ export const useSessions = create<SessionsState>((set, get) => ({
     await wsClient.request('session.processUserInput', sessionId, { input: `/quickchat ${question}` });
   },
   async interrupt(sessionId) { await wsClient.request('session.interrupt', sessionId, {}); },
+  async goalAction(sessionId, action) {
+    const map = { stop: 'session.stopGoal', clear: 'session.clearGoal', resume: 'session.resumeGoal' } as const;
+    await wsClient.request(map[action], sessionId, {});
+  },
+  async updateGoal(sessionId, text) { await wsClient.request('session.updateGoal', sessionId, { text }); },
   async respondPermission(sessionId, toolId, toolName, selected) {
     get().local(sessionId, { type: 'permission', toolId, selected });
     await wsClient.request('session.respondToToolPermission', sessionId, { response: { toolId, toolName, selected } });

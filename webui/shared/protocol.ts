@@ -16,7 +16,7 @@ export const SESSION_EVENTS = [
   'compact:exec', 'compact:micro',
   'conversation:usage', 'file:reference',
   'permissionLevel:update', 'quickchat:response',
-  'hook:notice',
+  'hook:notice', 'goal:update',
 ] as const;
 
 export const PROCESS_EVENTS = ['cron:update', 'mcp:server:status'] as const;
@@ -79,6 +79,12 @@ export const SESSION_ACTIONS = [
   'session.deleteCronTask',
   'session.enableCronTask',
   'session.disableCronTask',
+  // 长期目标：设定走 /goal <文本> 输入，以下不排队、立即生效
+  'session.getGoal',
+  'session.updateGoal',
+  'session.stopGoal',
+  'session.clearGoal',
+  'session.resumeGoal',
 ] as const;
 
 /** WS 可调用的 action（即 ws/handler 白名单）：前端 wsClient.request 以此约束，漏加白名单编译期即报错 */

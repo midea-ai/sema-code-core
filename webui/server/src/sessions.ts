@@ -231,8 +231,8 @@ export class SessionManager extends EventEmitter {
     if (event === 'topic:update' && data?.title) {
       this.registry.updateSession(sid, { title: String(data.title) });
       this.broadcastRegistry();
-    } else if (event === 'input:received' && data?.source === 'cron') {
-      // 定时任务触发：给所在 worker 续命（LRU/空闲判定用），但不更新会话 lastActiveAt（自动输入不算用户活跃）
+    } else if (event === 'input:received' && (data?.source === 'cron' || data?.source === 'goal')) {
+      // 定时任务 / 目标续轮触发：给所在 worker 续命（LRU/空闲判定用），但不更新会话 lastActiveAt（自动输入不算用户活跃）
       const rec = this.registry.getSession(sid);
       const w = rec ? this.pool.get(rec.workingDir) : undefined;
       if (w?.alive) w.lastUsed = Date.now();

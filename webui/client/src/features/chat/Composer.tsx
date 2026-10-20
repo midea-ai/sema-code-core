@@ -18,6 +18,7 @@ import { RefEditor, type EditorSegment, type RefEditorHandle } from './RefEditor
 import { FileRefChip, refPaths, refStatPath, splitFileRefs, type RefSegment } from './fileRefDisplay';
 import { primeStat, usePathStats } from './fileRefs';
 import { PasteChip, PASTE_CHIP_HEIGHT, PASTE_SAVE_FAILED, isLongPaste, makePastePreview } from './pasteAttachment';
+import { GoalBar } from './GoalBar';
 
 const MODES: AgentMode[] = ['Agent', 'Plan', 'Design'];
 const LEVELS = PERMISSION_LEVELS;
@@ -342,6 +343,8 @@ export function Composer({ sessionId, projectId, active = true }: { sessionId?: 
           </div>
         )}
         {pending > 0 && <div className="mb-1.5 text-xs text-warn px-1">{t('chat.waitingPermission')}</div>}
+        {/* 长期目标状态条：有目标即显示（含暂停 / 完成 / 中止，便于恢复或清除），压在输入框顶部后面 */}
+        {sessionId && snap?.goal && <GoalBar sessionId={sessionId} goal={snap.goal} />}
         <div
           onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
           onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}

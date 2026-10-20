@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Globe, Files, GitCompare, TerminalSquare, Bot, Brain, Clock, MessageCircleQuestion, X, Plus, ChevronLeft, ChevronRight, RotateCw, ExternalLink, PanelRight } from 'lucide-react';
+import { Globe, Files, GitCompare, TerminalSquare, Bot, Brain, Clock, MessageCircleQuestion, Target, X, Plus, ChevronLeft, ChevronRight, RotateCw, ExternalLink, PanelRight } from 'lucide-react';
 import { useApp, PanelTab } from '../../store/app';
 import { cn, Popover, MenuItem } from '../../common/ui';
 import { FileIcon } from '../../common/fileicon/FileIcon';
@@ -13,12 +13,13 @@ import { AgentTab } from './AgentTab';
 import { CronTab } from './CronTab';
 import { QuickchatTab } from './QuickchatTab';
 import { MemoryTab } from './MemoryTab';
+import { GoalTab } from './GoalTab';
 
 function TabIcon({ tab, size = 12, className }: { tab: PanelTab; size?: number; className?: string }) {
   // 文件标签已打开具体文件时用文件类型 logo，未选文件时仍用统一 Files 图标
   if (tab.type === 'files' && tab.path) return <FileIcon fileName={tab.path} size={size} className={className} />;
   if (tab.type === 'browser' && tab.icon) return <SiteFavicon url={tab.icon} size={size} className={className} />;
-  const Icon = tab.type === 'review' ? GitCompare : tab.type === 'files' ? Files : tab.type === 'terminal' ? TerminalSquare : tab.type === 'agent' ? Bot : tab.type === 'cron' ? Clock : tab.type === 'quickchat' ? MessageCircleQuestion : tab.type === 'memory' ? Brain : Globe;
+  const Icon = tab.type === 'review' ? GitCompare : tab.type === 'files' ? Files : tab.type === 'terminal' ? TerminalSquare : tab.type === 'agent' ? Bot : tab.type === 'cron' ? Clock : tab.type === 'quickchat' ? MessageCircleQuestion : tab.type === 'memory' ? Brain : tab.type === 'goal' ? Target : Globe;
   return <Icon size={size} className={className} />;
 }
 
@@ -122,6 +123,7 @@ export function RightPanel({ sessionId, width }: { sessionId: string; width: num
           : active?.type === 'cron' ? <CronTab key={active.id} sessionId={sessionId} tab={active} />
           : active?.type === 'quickchat' ? <QuickchatTab key={active.id} sessionId={sessionId} />
           : active?.type === 'memory' ? <MemoryTab key={active.id} sessionId={sessionId} tab={active} />
+          : active?.type === 'goal' ? <GoalTab key={active.id} sessionId={sessionId} />
           : active ? <BrowserTab key={active.id} sessionId={sessionId} tab={active} /> : (
             <div className="flex-1 flex flex-col items-center justify-center text-center text-sm text-muted p-6 gap-4">
               <div className="text-base font-medium text-fg">{t('panel.emptyTitle')}</div>
@@ -146,6 +148,7 @@ function tabLabel(tab: PanelTab) {
   if (tab.type === 'cron') return t('panel.cron');
   if (tab.type === 'quickchat') return t('panel.quickchat');
   if (tab.type === 'memory') return t('panel.memory');
+  if (tab.type === 'goal') return t('panel.goal');
   if (!tab.url) return t('panel.browser');
   try {
     const u = new URL(tab.url);

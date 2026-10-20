@@ -221,6 +221,10 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       if (Array.isArray(data?.projectInputHistory)) {
         snap.inputHistory = data.projectInputHistory.filter((x: unknown): x is string => typeof x === 'string' && !!x);
       }
+      // 长期目标：worker 在 ready 事件上补了 core 侧当前目标（已把 running 降为 paused）；
+      // 没带时沿用本地快照，但重开会话 core 不会自动续轮，本地的 running 也要降级
+      if (data && 'goal' in data) snap.goal = data.goal ?? null;
+      else if (snap.goal?.status === 'running') snap.goal = { ...snap.goal, status: 'paused' };
       // WebUI 侧有记录但 core 历史已过期（被上限清理）：提示将作为新对话继续
       if (!snap.historyLoaded && snap.blocks.some(b => b.kind === 'user')) {
         const last = snap.blocks[snap.blocks.length - 1];
@@ -277,6 +281,7 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
         ...(attachments ? { attachments } : {}),
         ...(pastes ? { pastes } : {}),
         ...(data?.source && data.source !== 'user' ? { source: data.source } : {}),
+        ...(data?.goal ? { goal: data.goal } : {}),
       });
       // 同步进历史输入（倒序前插，与最新一条相同则不重复），供输入框 ↑↓ 切换
       if (text && snap.inputHistory?.[0] !== text) {
@@ -290,7 +295,8 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       dropPendingUser(snap);
       const inputId = data?.inputId;
       const attachments = toAttachmentMetas(data?.attachments);
-      const src = data?.source && data.source !== 'user' ? { source: data.source } : {};
+      // 目标标记以 processing 为准（received 时是排队预判）
+      const src = { ...(data?.source && data.source !== 'user' ? { source: data.source } : {}), ...(data?.goal ? { goal: data.goal } : {}) };
       const idx = snap.blocks.findIndex(b => b.kind === 'user' && b.inputId === inputId);
       const cur = idx >= 0 ? snap.blocks[idx] as Extract<Block, { kind: 'user' }> : undefined;
       if (cur?.queued) {
@@ -500,7 +506,13 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       snap.turn = null;
       snap.streamingId = undefined;
       snap.predictedInput = undefined;
+      snap.goal = null;
       notice(snap, seq, 'cleared', 'info', '会话已清空');
+      break;
+
+    // 长期目标：所有 reason 都同步快照（status 回显也带完整对象）；不落消息流块，状态条按快照渲染，提示由前端按 reason 弹 toast
+    case 'goal:update':
+      snap.goal = data?.goal ?? null;
       break;
 
     case 'hook:notice': {

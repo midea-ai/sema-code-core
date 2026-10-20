@@ -59,7 +59,11 @@ for (const ev of PROCESS_EVENTS) {
 
 function bindSession(session: SemaSession) {
   for (const ev of SESSION_EVENTS) {
-    session.on(ev, (data: any) => send({ type: 'event', sessionId: session.sessionId, event: ev, data }));
+    session.on(ev, (data: any) => {
+      // session:ready 补上 core 侧当前长期目标（core 已在恢复历史时把 running 降为 paused），前端据此回填状态条
+      if (ev === 'session:ready') data = { ...data, goal: session.getGoal() };
+      send({ type: 'event', sessionId: session.sessionId, event: ev, data });
+    });
   }
 }
 
@@ -191,6 +195,11 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'session.getTaskList': return s.getTaskList();
     case 'session.stopTask': return s.stopTask(p.taskId);
     case 'session.stopAllTasks': return s.stopAllTasks();
+    case 'session.getGoal': return s.getGoal();
+    case 'session.updateGoal': return s.updateGoal(p.text);
+    case 'session.stopGoal': return s.stopGoal();
+    case 'session.clearGoal': s.clearGoal(); return true;
+    case 'session.resumeGoal': return s.resumeGoal();
     default:
       throw new Error(`unknown action: ${action}`);
   }

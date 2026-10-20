@@ -201,6 +201,36 @@ interface BlockBase {
   ts: number;
 }
 
+// ==================== 长期目标（/goal） ====================
+
+export type GoalStatus = 'running' | 'paused' | 'completed' | 'blocked' | 'stopped';
+
+/** 会话级长期目标，与 core GoalState 同构；状态变化经 goal:update 事件推送 */
+export interface GoalState {
+  text: string;
+  status: GoalStatus;
+  round: number;
+  maxRounds: number;
+  idleRounds: number;
+  summary?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 与目标相关的用户输入标记（input:received / input:processing 事件携带） */
+export interface GoalInputMark {
+  action: 'set' | 'update' | 'round';
+  round: number;
+  maxRounds: number;
+}
+
+export type GoalUpdateReason =
+  | 'set' | 'updated' | 'round'
+  | 'completed' | 'blocked'
+  | 'stopped' | 'cleared' | 'resumed'
+  | 'paused' | 'error' | 'noProgress' | 'maxRounds' | 'mode'
+  | 'status';
+
 export interface UserBlock extends BlockBase {
   kind: 'user';
   inputId?: string;
@@ -213,8 +243,10 @@ export interface UserBlock extends BlockBase {
   pending?: boolean;
   /** 乐观回显发送失败且用户已在输入新内容：保留气泡供复制，不覆盖草稿（仅存在于前端快照） */
   failed?: boolean;
-  /** 输入来源，缺省 user；cron=定时任务自动发送（气泡加标签） */
-  source?: 'user' | 'cron';
+  /** 输入来源，缺省 user；cron=定时任务自动发送，goal=长期目标自动续轮（气泡加标签） */
+  source?: 'user' | 'cron' | 'goal';
+  /** 长期目标标记：/goal <文本>（set / update）与自动续轮（round），气泡据此加标签 */
+  goal?: GoalInputMark;
   /** 本轮结束时间（state 回到 idle 时打上），用于展示耗时分隔 */
   doneTs?: number;
 }
@@ -441,6 +473,8 @@ export interface SessionSnapshot {
   inputHistory?: string[];
   /** 用户输入预测（input:predict）：输入框空闲时的 ghost text；undefined 表示无预测 */
   predictedInput?: string;
+  /** 长期目标（/goal）：session:ready 回填，goal:update 同步；null / 缺省表示无目标 */
+  goal?: GoalState | null;
 }
 
 /** quickchat 旁路问答一条记录 */

@@ -81,9 +81,4 @@
 
 ## MCP
 
-### 网络工具（network）
-
-| 名称 | id |
-|---|---|
-| 网页抓取 | fetch |
-| 浏览器自动化 | playwright |
+当前无内置 MCP（浏览器相关能力由浏览器控制提供）。往 `mcp/` 丢 `<id>.json`（card + server）即可新增，`card.category` 不在页面分类列表内的归入「其他」。

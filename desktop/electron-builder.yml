@@ -10,7 +10,7 @@ directories:
 
 # 第一版关掉 asar：worker 用 fork 起、node-pty 的 spawn-helper 与 ripgrep 二进制都要在真实文件系统上
 asar: false
-# node-pty 1.1.0 是 N-API 预编译，不需要按 Electron ABI 重编
+# node-pty 1.2.0-beta 是 N-API 预编译（含 linux-x64/arm64），不需要按 Electron ABI 重编
 npmRebuild: false
 # 只留界面支持的五种语言的 Chromium 语言包（mac 为 zh_CN.lproj，win/linux 为 zh-CN.pak，两种写法都要列），安装包约省 7MB
 electronLanguages: [en-US, zh-CN, zh_CN, de, fr, it]
@@ -30,8 +30,11 @@ afterPack: scripts/afterPack.js
 mac:
   category: public.app-category.developer-tools
   icon: assets/icon.png
-  # 不签名：afterPack 里做 ad-hoc 签名，Apple Silicon 才能启动；用户首次打开需在系统设置里「仍要打开」
-  identity: null
+  # 签名：钥匙串里有 Developer ID Application 证书时自动签名（hardenedRuntime 默认开，
+  # 用 electron-builder 内置 entitlements：allow-jit / allow-unsigned-executable-memory / disable-library-validation）。
+  # 没有证书时 electron-builder 跳过签名，afterPack 里做 ad-hoc 签名，Apple Silicon 才能启动；首次打开需「仍要打开」。
+  # 公证不在打包里做：上传 Apple 走 AWS S3，国内直连经常传不上去会把打包卡死；打完包在网络通畅时单独跑 npm run notarize
+  notarize: false
   target:
     - target: dmg
       arch: [arm64, x64]
@@ -56,8 +59,15 @@ nsis:
   allowToChangeInstallationDirectory: true
 
 linux:
-  icon: assets/icon-win.png
+  # 多尺寸目录：单张 png 只会放到 hicolor/1024x1024，Ubuntu 图标主题不扫该尺寸，应用列表显示默认齿轮；
+  # 由 icon-win.png 生成：for s in 32 48 64 128 256 512; do sips -z $s $s assets/icon-win.png --out assets/icons-linux/${s}x${s}.png; done
+  icon: assets/icons-linux
   category: Development
+  # deb 必须有 maintainer，electron-builder 默认取 package.json author.email，这里直接指定
+  maintainer: AIRC Sema Team
+  # .desktop 文件名与 StartupWMClass 取 package.json desktopName，和 Electron 的 app_id 一致，任务栏才能把窗口关联到图标
+  syncDesktopName: true
+  # 只打 deb：apt 安装进 /opt/SemaWork，带桌面图标与 semawork 命令，升级覆盖安装；AppImage 每次从文件启动且依赖 libfuse2，不出
   target:
-    - target: AppImage
+    - target: deb
       arch: [x64]

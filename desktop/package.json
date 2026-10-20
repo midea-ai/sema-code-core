@@ -2,9 +2,11 @@
   "name": "semawork-desktop",
   "version": "2.1.4",
   "private": true,
-  "description": "SemaWork 桌面版：Electron 壳，utility 子进程运行 webui/server（core worker 为其线程），不进入 sema-core npm 包",
+  "description": "SemaWork 桌面版",
   "author": "AIRC Sema Team",
+  "homepage": "https://github.com/midea-ai/sema-code-core",
   "main": "dist/main.js",
+  "desktopName": "semawork-desktop.desktop",
   "engines": {
     "node": ">=20.18.1"
   },
@@ -17,6 +19,7 @@
     "pack": "node esbuild.mjs && electron-builder --mac --arm64 --dir",
     "dist:mac": "node esbuild.mjs && electron-builder --mac",
     "dist:mac:arm64": "node esbuild.mjs && electron-builder --mac --arm64",
+    "notarize": "node scripts/notarize.mjs",
     "dist:win": "node esbuild.mjs && electron-builder --win",
     "dist:linux": "node esbuild.mjs && electron-builder --linux"
   },
@@ -24,7 +27,7 @@
     "@modelcontextprotocol/sdk": "^1.25.1",
     "cron-parser": "^5.5.0",
     "diff": "7.0.0",
-    "node-pty": "^1.1.0",
+    "node-pty": "1.2.0-beta.15",
     "sema-core": "^2.1.4",
     "ws": "^8.18.0",
     "zod": "^3.25.76"

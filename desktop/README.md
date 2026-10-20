@@ -34,17 +34,6 @@ cd webui && npm run build && cd ..
 cd desktop && npm run dev
 ```
 
-改了 core 代码：
-
-```bash
-npm run build && npm pack 
-cd desktop
-npm install ../sema-core-<版本>.tgz --no-save   # 不改 package.json 与 lock
-npm run dev
-```
-
-测完在 `desktop/` 执行 `rm -rf node_modules/sema-core && npm install` 还原为发布版。
-
 ## 打包
 
 ```bash
@@ -52,27 +41,31 @@ npm run pack            # 最快：只出 release/mac-arm64/SemaWork.app，不�
 npm run dist:mac:arm64  # 只打 Apple Silicon 的 dmg
 npm run dist:mac        # release/SemaWork-<版本>-mac-arm64.dmg 与 SemaWork-<版本>-mac-x64.dmg，只能在 macOS 上打
 npm run dist:win        # release/SemaWork-<版本>-win-x64.exe，macOS 上也能打
-npm run dist:linux      # release/SemaWork-<版本>-linux-x86_64.AppImage
+npm run dist:linux      # release/SemaWork-<版本>-linux-amd64.deb，macOS 上也能打
+npm run notarize        # 对 release/ 下已签名的 SemaWork.app 做 Apple 公证并重新压 dmg，可加 arm64 / x64 只处理一个架构
 ```
 
 安装包统一命名为 `SemaWork-<版本>-<平台>-<架构>.<扩展名>`，由 `electron-builder.yml` 顶层的 `artifactName` 控制。
 
-首次打包要下载对应架构的 Electron 二进制并缓存到 `~/Library/Caches/electron`，之后不再下载；压 dmg 每个架构约一两分钟。
+macOS 签名与公证：钥匙串里有 Developer ID Application 证书时 `dist:mac` 自动正式签名，没有证书时做 ad-hoc 签名。公证不在打包里做，打完包在网络通畅时单独 `npm run notarize`，需要环境变量 `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID`。
 
-ripgrep 随包分发：`scripts/afterPack.js` 按目标平台与架构取 `@vscode/ripgrep-<平台>-<架构>` 子包（打包机已装的直接用，其余经 `npm pack` 从 npm registry 拉取，缓存在 `node_modules/.cache/semawork-ripgrep`），把二进制放到产物的 `node_modules/@vscode/ripgrep/bin/rg(.exe)`，即 sema-core 查找内置 rg 的位置。用户机器 PATH 里有 rg 时优先用系统的。
-
-未签名，体验者首次打开：
+未签名 / 未公证的包，体验者首次打开：
 
 - macOS：提示「无法验证开发者」时到系统设置 → 隐私与安全性 → 仍要打开；或先执行 `xattr -cr /Applications/SemaWork.app`
 - Windows：SmartScreen 拦截时点「更多信息」→「仍要运行」
-- Linux：`chmod +x SemaWork-*.AppImage` 后直接运行
+- Linux：deb 经 apt 安装后直接从应用列表启动，无额外步骤
 
 数据与网页模式共用 `~/.sema/`，安装包不带模型配置，首次打开需在设置里配模型。
 
-设置 → 系统配置里的「运行任务时阻止系统睡眠」只在桌面版显示（缺省关闭）：有会话处理中、后台任务运行中或定时任务临近触发时按住系统不睡，屏幕照常熄灭；合盖与手动睡眠拦不住。网页模式与命令行没有这个能力，macOS 下可用 `caffeinate -i npm start` 代替。设计与验证见 [docs/prevent-sleep.md](docs/prevent-sleep.md)。
+## 备注
 
-## 当前范围
+- 首次打包要下载对应架构的 Electron 二进制并缓存到 `~/Library/Caches/electron`，之后不再下载；压 dmg 每个架构约一两分钟。
+- 公证上传 Apple 走 AWS S3，国内直连常传不上去，放在打包里会卡死打包，所以单独跑；notarytool 不读 `https_proxy`，传不上去时换手机热点或系统代理。
+- ad-hoc 签名由 `scripts/afterPack.js` 做，Apple Silicon 拒绝运行完全没有签名的二进制；钥匙串里有证书时跳过，交给 electron-builder 正式签名（hardened runtime）。
+- ripgrep 随包分发：`scripts/afterPack.js` 按目标平台与架构取 `@vscode/ripgrep-<平台>-<架构>` 子包（打包机已装的直接用，其余经 `npm pack` 从 npm registry 拉取，缓存在 `node_modules/.cache/semawork-ripgrep`），放到产物的 `node_modules/@vscode/ripgrep/bin/rg(.exe)`，即 sema-core 查找内置 rg 的位置。用户机器 PATH 里有 rg 时优先用系统的。
+- macOS 上打 deb 需要 GNU tar：electron-builder 自带的 linux-tools gtar 按 macOS 26 编译，macOS 15 及更早系统上跑不起来（日志 `fpm process failed` / `tar failed` / `Abort trap: 6 gtar`）。打包机做一次即可：
 
-- 双击运行、单实例、关窗口 macOS 隐藏（Dock 点击恢复）、退出前优雅关闭 worker 与终端
-- GUI 启动时从登录 shell 继承 PATH，Agent 才能找到 git / node
-- 不签名、无托盘、无自动更新；原生对话框 / 通知 / 拖拽路径等留待后续
+  ```bash
+  brew install gnu-tar
+  ln -sf /opt/homebrew/bin/gtar ~/Library/Caches/electron-builder/linux-tools-mac@*/*/bin/gtar
+  ```

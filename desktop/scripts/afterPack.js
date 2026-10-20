@@ -68,6 +68,22 @@ exports.default = async function afterPack(context) {
   installRipgrep(context, appDir);
 
   if (!isMac) return;
+  if (hasDeveloperIdIdentity()) {
+    console.log('  • 检测到 Developer ID 证书，跳过 ad-hoc 签名，交给 electron-builder 正式签名');
+    return;
+  }
   console.log(`  • ad-hoc codesign ${app}`);
   execFileSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
 };
+
+/** electron-builder 随后会用正式证书签名时（afterPack 在签名之前执行），不做 ad-hoc 签名，避免白做一遍 --deep */
+function hasDeveloperIdIdentity() {
+  if (process.env.CSC_LINK || process.env.CSC_NAME) return true;
+  if (process.env.CSC_IDENTITY_AUTO_DISCOVERY === 'false') return false;
+  try {
+    const out = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' });
+    return out.includes('Developer ID Application');
+  } catch {
+    return false;
+  }
+}

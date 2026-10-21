@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as readline from 'readline';
+import * as crypto from 'crypto';
 import { nowMillis, getDayTimeString, getTimeString } from './time';
 import { LLM_LOG_FILES_RETAIN_COUNT, TRACKS_FILES_RETAIN_COUNT, LLM_LOG_CLEANUP_INTERVAL, EVENT_LOG_FILES_RETAIN_COUNT, EVENT_LOG_CLEANUP_INTERVAL } from '../conf/config';
 import { getLLMLogsDir, getTracksDir, getEventDir } from './savePath';
@@ -43,6 +45,108 @@ const getLLMLogFilePath = (sessionId?: string): string => {
   return path.join(llmLogsDir, filename);
 };
 
+// ============================================================
+// 图片去重落盘：base64 按内容哈希存到 llm_logs/images/<hash>.<ext>，日志里只留占位
+// ============================================================
+
+const IMAGE_REF_RE = /<image hash=([0-9a-f]{40})/g;
+
+const getImagesDir = (): string => path.join(getLLMLogsDir(), 'images');
+
+/**
+ * 把一段 base64 图片存到 images 目录，返回日志占位
+ * 已存在则只刷新 mtime，让"被重新引用"的旧图片也进入清理时的 mtime 保护窗口
+ */
+const saveImage = (base64: string, mediaType?: string): string => {
+  const hash = crypto.createHash('sha1').update(base64).digest('hex');
+  const placeholder = `<image hash=${hash} size=${base64.length}>`;
+  try {
+    const ext = (mediaType || 'image/png').split('/')[1] || 'png';
+    const imagesDir = getImagesDir();
+    if (!fs.existsSync(imagesDir)) {
+      fs.mkdirSync(imagesDir, { recursive: true });
+    }
+    const imagePath = path.join(imagesDir, `${hash}.${ext}`);
+    if (fs.existsSync(imagePath)) {
+      const now = new Date();
+      fs.utimesSync(imagePath, now, now);
+    } else {
+      fs.writeFileSync(imagePath, Buffer.from(base64, 'base64'));
+    }
+  } catch (err) {
+    logError(`保存LLM日志图片失败: ${err}`);
+  }
+  return placeholder;
+};
+
+/**
+ * 返回一份 messages 里图片 base64 已换成占位的 body 副本，不修改原对象
+ */
+const externalizeImages = (body: any): any => {
+  if (!body || !Array.isArray(body.messages)) return body;
+  const messages = body.messages.map((msg: any) => {
+    if (!Array.isArray(msg?.content)) return msg;
+    const content = msg.content.map((block: any) => {
+      if (block?.type === 'image' && block.source?.type === 'base64' && typeof block.source.data === 'string') {
+        return { ...block, source: { ...block.source, data: saveImage(block.source.data, block.source.media_type) } };
+      }
+      if (block?.type === 'image_url' && typeof block.image_url?.url === 'string' && block.image_url.url.startsWith('data:')) {
+        const m = block.image_url.url.match(/^data:([^;]+);base64,(.*)$/s);
+        if (m) {
+          return { ...block, image_url: { ...block.image_url, url: saveImage(m[2], m[1]) } };
+        }
+      }
+      return block;
+    });
+    return { ...msg, content };
+  });
+  return { ...body, messages };
+};
+
+/**
+ * 删除 images 目录下没有被任何现存日志引用的图片
+ * 日志列表在归档后重新读取，归档期间新建的会话日志也会被扫到
+ * @param cleanupStart 本轮清理开始时间，在此之后写入或被重新引用（mtime 刷新）的图片不删
+ */
+const cleanupOrphanImages = async (cleanupStart: number): Promise<void> => {
+  try {
+    const imagesDir = getImagesDir();
+    if (!fs.existsSync(imagesDir)) return;
+
+    const llmLogsDir = getLLMLogsDir();
+    const logFiles = fs.readdirSync(llmLogsDir)
+      .filter(file => file.endsWith('.log'))
+      .map(file => path.join(llmLogsDir, file));
+
+    const referenced = new Set<string>();
+    for (const filePath of logFiles) {
+      const rl = readline.createInterface({
+        input: fs.createReadStream(filePath, { encoding: 'utf8' }),
+        crlfDelay: Infinity
+      });
+      for await (const line of rl) {
+        for (const m of line.matchAll(IMAGE_REF_RE)) {
+          referenced.add(m[1]);
+        }
+      }
+    }
+
+    for (const name of fs.readdirSync(imagesDir)) {
+      const hash = name.split('.')[0];
+      if (referenced.has(hash)) continue;
+      const imagePath = path.join(imagesDir, name);
+      try {
+        // 清理开始后写入或重新引用的图片，其日志行可能还没扫到，这轮先不删
+        if (fs.statSync(imagePath).mtimeMs >= cleanupStart) continue;
+        fs.unlinkSync(imagePath);
+      } catch (err) {
+      }
+    }
+  } catch (err) {
+    logError(`清理LLM日志图片出错: ${err}`);
+  }
+};
+
 /**
  * 记录LLM请求body到专门的日志文件
  * 格式: [HH:MM:SS]${body}
@@ -51,7 +155,7 @@ export const logLLMRequest = (body: any, sessionId?: string): void => {
   try {
     const timeStr = getTimeString(); // 使用时分秒格式
 
-    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+    const bodyStr = typeof body === 'string' ? body : JSON.stringify(externalizeImages(body));
     const logLine = `[${timeStr}]${bodyStr}`;
 
     const logFilePath = getLLMLogFilePath(sessionId);
@@ -63,7 +167,7 @@ export const logLLMRequest = (body: any, sessionId?: string): void => {
       lastLLMCleanupTime = nowTimestamp;
       // 异步执行清理，避免阻塞日志写入
       setImmediate(() => {
-        cleanupLLMLogFiles();
+        void cleanupLLMLogFiles();
       });
     }
   } catch (err) {
@@ -116,7 +220,7 @@ export const logLLMResponse = (assistantMessage: any, sessionId?: string): void 
       lastLLMCleanupTime = nowTimestamp;
       // 异步执行清理，避免阻塞日志写入
       setImmediate(() => {
-        cleanupLLMLogFiles();
+        void cleanupLLMLogFiles();
       });
     }
   } catch (err) {
@@ -125,89 +229,85 @@ export const logLLMResponse = (assistantMessage: any, sessionId?: string): void 
 };
 
 /**
- * 提取LLM日志中messages最长的请求及其后续响应
+ * 归档时把消息里的图片 base64 换成占位，只影响 tracks 归档文件，不影响 llm_logs 原文件
  */
-const extractLongestLLMConversation = (logContent: string): string => {
-  const lines = logContent.split('\n');
-  const parsedEntries: Array<{
-    timestamp: string;
-    data: any;
-    originalLine: string;
-    isRequest: boolean;
-    messagesLength?: number;
-  }> = [];
+const stripImageData = (messages: any[]): any[] => {
+  return messages.map((msg: any) => {
+    if (!Array.isArray(msg?.content)) return msg;
+    const content = msg.content.map((block: any) => {
+      if (block?.type === 'image' && typeof block.source?.data === 'string' && !block.source.data.startsWith('<image ')) {
+        return { ...block, source: { ...block.source, data: `<image ${block.source.data.length} bytes>` } };
+      }
+      if (block?.type === 'image_url' && typeof block.image_url?.url === 'string' && block.image_url.url.startsWith('data:')) {
+        return { ...block, image_url: { ...block.image_url, url: `<image ${block.image_url.url.length} bytes>` } };
+      }
+      return block;
+    });
+    return { ...msg, content };
+  });
+};
 
-  // 解析所有日志条目
-  for (const line of lines) {
+/**
+ * 流式逐行读取LLM日志，提取messages最长的请求及其后续响应
+ * 不整文件读入内存，避免超大文件撞上字符串长度上限
+ */
+const extractLongestLLMConversation = async (filePath: string): Promise<string> => {
+  let longestRequest: { timestamp: string; line: string } | null = null;
+  let maxLength = 0;
+  let nextResponseLine: string | null = null;
+
+  const rl = readline.createInterface({
+    input: fs.createReadStream(filePath, { encoding: 'utf8' }),
+    crlfDelay: Infinity
+  });
+
+  for await (const line of rl) {
     if (!line.trim()) continue;
 
     try {
       const match = line.match(/^\[(\d{2}:\d{2}:\d{2})\](.+)$/);
       if (!match) continue;
 
-      const timestamp = match[1];
-      const jsonStr = match[2];
-      const jsonData = JSON.parse(jsonStr);
-
+      const jsonData = JSON.parse(match[2]);
       const isRequest = !!jsonData.messages;
-      const messagesLength = isRequest ? jsonData.messages.length : undefined;
 
-      parsedEntries.push({
-        timestamp,
-        data: jsonData,
-        originalLine: line,
-        isRequest,
-        messagesLength
-      });
+      if (isRequest) {
+        if (jsonData.messages.length > maxLength) {
+          maxLength = jsonData.messages.length;
+          longestRequest = { timestamp: match[1], line: match[2] };
+          nextResponseLine = null;
+        }
+      } else if (longestRequest && nextResponseLine === null) {
+        nextResponseLine = line;
+      }
     } catch (err) {
       // 解析失败，跳过
       continue;
     }
   }
 
-  // 找到messages最长的请求
-  let longestRequest = null;
-  let maxLength = 0;
-
-  for (const entry of parsedEntries) {
-    if (entry.isRequest && entry.messagesLength! > maxLength) {
-        maxLength = entry.messagesLength!;
-        longestRequest = entry;
-      }
-    }
-
   if (!longestRequest) {
     return '';
-  }
-
-  // 找到该请求之后的第一个响应
-  const requestIndex = parsedEntries.indexOf(longestRequest);
-  let nextResponse = null;
-
-  for (let i = requestIndex + 1; i < parsedEntries.length; i++) {
-    if (!parsedEntries[i].isRequest) {
-      nextResponse = parsedEntries[i];
-      break;
-    }
   }
 
   // 构建结果
   const resultLines: string[] = [];
   const projectName = getProjectName();
 
-  // 处理请求：只保留model和messages字段，过滤系统消息
-  const filteredMessages = longestRequest.data.messages.filter((msg: any) => msg.role !== 'system');
+  // 处理请求：只保留model和messages字段，过滤系统消息，图片 base64 换占位
+  const requestData = JSON.parse(longestRequest.line);
+  const filteredMessages = stripImageData(requestData.messages.filter((msg: any) => msg.role !== 'system'));
   if (filteredMessages.length > 0) {
     const filteredRequest = {
-      model: longestRequest.data.model,
+      model: requestData.model,
       messages: filteredMessages
     };
     resultLines.push(`[${longestRequest.timestamp}][${projectName}]${JSON.stringify(filteredRequest)}`);
   }
 
   // 添加响应（如果存在）
-  if (nextResponse) {
-    resultLines.push(nextResponse.originalLine);
+  if (nextResponseLine) {
+    resultLines.push(nextResponseLine);
   }
 
   return resultLines.join('\n');
@@ -216,7 +316,7 @@ const extractLongestLLMConversation = (logContent: string): string => {
 /**
  * 将LLM日志文件归档到tracks目录
  */
-const archiveLLMLogFiles = (filesToArchive: Array<{name: string, path: string, mtime: Date}>): void => {
+const archiveLLMLogFiles = async (filesToArchive: Array<{name: string, path: string, mtime: Date}>): Promise<void> => {
   try {
     const tracksDir = getTracksDir();
 
@@ -227,11 +327,8 @@ const archiveLLMLogFiles = (filesToArchive: Array<{name: string, path: string, m
 
     for (const file of filesToArchive) {
       try {
-        // 读取原始文件内容
-        const originalContent = fs.readFileSync(file.path, 'utf8');
-
-        // 提取最长对话内容
-        const extractedContent = extractLongestLLMConversation(originalContent);
+        // 流式提取最长对话内容
+        const extractedContent = await extractLongestLLMConversation(file.path);
 
         // 如果提取后还有内容，则追加到tracks目录对应的日期文件
         if (extractedContent.trim()) {
@@ -296,12 +393,15 @@ const cleanupFiles = (dir: string, extension: string, maxFiles: number = 30): vo
  * 清理LLM日志文件，只保留最近指定数量的文件（按修改时间排序）
  * 被删除的文件会被归档到tracks目录
  */
-const cleanupLLMLogFiles = (): void => {
+const cleanupLLMLogFiles = async (): Promise<void> => {
   try {
     const llmLogsDir = getLLMLogsDir();
     if (!fs.existsSync(llmLogsDir)) {
       return;
     }
+
+    // 在读目录快照之前取时间，归档期间新写入的图片才能落在保护窗口内
+    const cleanupStart = Date.now();
 
     // 读取.log文件
     const files = fs.readdirSync(llmLogsDir)
@@ -317,8 +417,11 @@ const cleanupLLMLogFiles = (): void => {
     // 如果文件数量超过指定数量，归档多余的文件
     if (files.length > LLM_LOG_FILES_RETAIN_COUNT) {
       const filesToArchive = files.slice(LLM_LOG_FILES_RETAIN_COUNT);
-      archiveLLMLogFiles(filesToArchive);
+      await archiveLLMLogFiles(filesToArchive);
     }
+
+    // 归档后按现存日志的引用清理孤儿图片
+    await cleanupOrphanImages(cleanupStart);
   } catch (err) {
     logError(`清理LLM日志文件出错: ${err}`);
   }

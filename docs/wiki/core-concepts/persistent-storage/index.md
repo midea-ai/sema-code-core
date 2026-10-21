@@ -219,11 +219,22 @@ MCP 加载优先级：**插件 MCP < 用户级 < 项目级**，项目级配置�
   ],
   "todos": [],
   "todoTasks": [],
-  "readFileTimestamps": {}
+  "readFileTimestamps": {},
+  "goal": {
+    "text": "把测试覆盖率提到 80%",
+    "status": "paused",
+    "round": 3,
+    "maxRounds": 10,
+    "idleRounds": 0,
+    "createdAt": 1760000000000,
+    "updatedAt": 1760000500000
+  }
 }
 ```
 
 通过 `loadHistory(sessionId, projectPath)` 可恢复指定会话的历史。
+
+`goal` 为长期目标（`/goal`），无目标时不写。重开会话时 `running`（以及旧版本落盘的未知状态）降为 `paused`，不自动接续；与目标相关的用户消息上带 `goal` 标记（`set` / `update` / `round`），回滚时据此推导目标状态。
 
 **保存时自动去重 usage**：多个 assistant 消息只保留最后一条有实际 token 用量的消息的 usage 字段，其余消息剥离 usage 以节省空间。
 

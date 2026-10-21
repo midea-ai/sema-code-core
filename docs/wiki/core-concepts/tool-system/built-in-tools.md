@@ -31,6 +31,8 @@
 | `del_cron` | 定时任务删除 | 否 | 删除定时任务，支持并发 |
 | `list_crons` | 定时任务列表 | 是 | 列出定时任务，支持并发 |
 
+另有一个会话级追加工具 `complete_goal`（参数 `status: achieved | blocked`、`summary`），供模型宣告长期目标达成或受阻。它不在上表的内置工具集合里，只在目标 `running` 时按会话追加到工具列表末尾，不进工具面板、黑白名单和子代理工具集，详见 [Command 使用](wiki/getting-started/basic-usage/command-usage)。
+
 ## 能力分组
 
 ### 文件与代码操作

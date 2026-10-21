@@ -128,6 +128,20 @@ session.transferAllForegroundAgents(): string[]
 - `MAX_RUNNING_TASKS = 5` 按会话独立计算。
 - 任务结束后内存中的输出会释放；`watchTask()` 和 `peek_bg_job` 会从输出文件读取历史输出。
 
+## 长期目标
+
+设定目标只走用户输入 `processUserInput('/goal <目标>')`（需要跑第一轮，天然排队）；以下接口不进输入队列、立即生效，状态变化经 `goal:update` 事件推送：
+
+```javascript
+session.getGoal(): GoalState | null          // 读当前目标，开会话时回填
+session.updateGoal(text): GoalState | null   // 只改目标文本，状态与轮数不变
+session.pauseGoal(): GoalState | null        // running → paused，本轮结束不再续，可恢复
+session.resumeGoal(): GoalState | null       // paused / blocked → running，空闲立即续轮，处理中排到本轮之后
+session.clearGoal(): void                    // 删除目标记录，任何状态都可
+```
+
+`pauseGoal()` 不中断当前轮，要立刻停请同时调 `interrupt()`。目标随会话历史持久化，重开会话时 `running` 降为 `paused`。循环规则、事件原因与回滚 / 分支行为见 [Command 使用](wiki/getting-started/basic-usage/command-usage)。
+
 ## 关闭会话
 
 ```javascript

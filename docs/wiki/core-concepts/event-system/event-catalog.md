@@ -97,8 +97,9 @@
   originalInput?: string   // 原始输入内容
   queued: boolean          // 是否入队等待（true 表示当前正在处理中，输入已入队）
   queueLength: number      // 当前队列长度（入队后的长度）
-  source?: 'user' | 'cron' // 输入来源，缺省 'user'；'cron' 为定时任务自动发送，UI 按用户输入渲染并加来源标签
+  source?: 'user' | 'cron' | 'goal' // 输入来源，缺省 'user'；'cron' 为定时任务自动发送，'goal' 为长期目标自动续轮输入，UI 按用户输入渲染并加来源标签
   attachments?: InputImageAttachment[] // 仅 queued 时携带：原始图片附件，供排队气泡回显缩略图
+  goal?: GoalInputMark     // 长期目标标记：/goal <文本>（set / update，按接收时状态判）与自动续轮（round）；以 input:processing 为准
 }
 ```
 
@@ -112,9 +113,12 @@
   input: string            // 正在处理的输入内容
   originalInput?: string   // 原始输入内容
   attachments?: InputImageAttachment[] // 规范化后的图片附件（已过滤非法类型、已压缩），两条路径都回吐
-  source?: 'user' | 'cron' // 输入来源，含义同 input:received
+  source?: 'user' | 'cron' | 'goal' // 输入来源，含义同 input:received
+  goal?: GoalInputMark     // 长期目标标记：set / update / round，UI 据此给气泡打标
 }
 ```
+
+`GoalInputMark` 为 `{ action: 'set' | 'update' | 'round'; round: number; maxRounds: number }`，同样挂在持久化的用户消息上，UI 不用解析输入文本即可打标。
 
 ## AI 消息
 
@@ -559,6 +563,35 @@ hook 的提示通道：`systemMessage` 展示、超时/配置告警、输入被 
   title: string         // 标题内容
 }
 ```
+
+### `goal:update`
+
+长期目标（`/goal`）状态变化。由 `/goal <文本>` 输入、会话级接口（`updateGoal` / `pauseGoal` / `clearGoal` / `resumeGoal`）、`complete_goal` 工具、轮末续轮 / 暂停触发，状态反馈不带文案，宿主按 `reason` 展示。
+
+```typescript
+{
+  goal: GoalState | null  // 当前目标；reason 为 cleared 时为 null
+  reason: 'set' | 'updated' | 'round'                       // 设定 / 改文本 / 自动续轮
+        | 'completed' | 'blocked'                            // 模型经 complete_goal 自报
+        | 'cleared' | 'resumed'                              // 接口触发
+        | 'paused' | 'error' | 'noProgress' | 'maxRounds' | 'mode' // 置 paused 的各自原因
+        | 'status'                                           // 裸 /goal 的回显，非状态变化
+}
+
+interface GoalState {
+  text: string
+  status: 'running' | 'paused' | 'completed' | 'blocked'
+  round: number        // 起始轮为 1，仅自动续轮加一
+  maxRounds: number    // 初始 10，因上限暂停后 resume 时累加
+  idleRounds: number   // 连续无 tool_use 的目标轮数
+  summary?: string     // complete_goal 给出的总结
+  createdAt: number
+  updatedAt: number
+}
+```
+
+- `paused` 为用户主动暂停、中断或权限拒绝；`error` / `noProgress` / `maxRounds` / `mode` 为系统置 `paused` 的各自原因，此时 `goal.status` 均为 `paused`。
+- 重开会话不发此事件，宿主用 `session.getGoal()` 回填。回滚 / 分支导致目标变化时按结果发 `paused` 或 `cleared`。
 
 ### `mcp:server:status`
 

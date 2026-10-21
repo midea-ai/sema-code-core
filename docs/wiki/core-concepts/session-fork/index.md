@@ -153,8 +153,9 @@ const checkpointSeq = getCheckpointManager().beginTurn(this.sessionId);
 3. 计算 `forkSeq` 与 `truncated = history.slice(0, idx)`（移除该消息及其之后）。
 4. （仅 `restoreFiles`）`computeRestorePlan` → `applyRestore` 回滚文件，并刷新被回滚文件的读时间戳（避免触发"先重读"）。
 5. `truncateEditLog(forkSeq)` 丢弃被撤销轮次的快照记录。
-6. `setMessageHistory(truncated)` 并持久化（空历史时强制落盘覆盖）。
-7. 重发一次 `todos:update`（todos 不随回档回退，重发让 UI 面板同步）。
+6. 长期目标按截断后的历史推导：剩余历史没有目标标记则清除；有则轮数回到最后一个标记的轮数、状态置 `paused`、summary 丢弃，文本沿用当前值。先于历史落盘更新，有变化时在落盘后发 `goal:update`（`paused` / `cleared`）。
+7. `setMessageHistory(truncated)` 并持久化（空历史时强制落盘覆盖）。
+8. 重发一次 `todos:update`（todos 不随回档回退，重发让 UI 面板同步）。
 
 **回滚执行 `applyRestore`**：`existedBefore=false`（fork 后才新建）→ 删除文件（已被删则忽略 ENOENT）；`existedBefore=true` → `readBlob` 取回旧字节，递归建目录后 `writeFileSync` 字节级整文件还原。
 
@@ -247,6 +248,7 @@ sequenceDiagram
 - **回滚粒度是整文件**：不支持只回滚文件内某几行。
 - **快照仅覆盖三类写盘工具**：`WriteFile` / `PatchFile` / `EditNotebook`；通过 `RunShell` 执行脚本产生的文件改动**不在快照范围内**。
 - **todos 不回退**。
+- **长期目标跟历史走**：回滚到设定目标之前则目标清除；回滚到目标进行中的某轮则置 `paused` 且轮数回退，结局（`completed` / `blocked`）和 summary 不保留。
 - **二进制文件**能回滚（字节级），但预览不计增删行。
 
 ## 对外 API

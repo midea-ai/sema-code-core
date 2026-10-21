@@ -24,7 +24,7 @@ class SemaEngine {
 }
 ```
 
-`runtime` 来自 `getStateManager().session(sessionId)`，包含该会话的消息历史、Todos、输入队列、权限状态、当前中断控制器和 Agent 模式等状态。
+`runtime` 来自 `getStateManager().session(sessionId)`，包含该会话的消息历史、Todos、长期目标、输入队列、权限状态、当前中断控制器和 Agent 模式等状态。
 
 构造时会按 `sessionId` 注册通知回调：
 
@@ -55,9 +55,10 @@ async createSession(opts?: CreateSessionOptions): Promise<void>
 4. 构建并冻结系统提示快照 formatSystemPrompt()
 5. loadHistory(opts.sessionId, workingDir) 恢复历史
 6. 恢复主代理消息历史、Todos、TodoTasks、文件读取时间戳
-7. 读取项目输入历史与 token 使用量
-8. setImmediate 发送 session:ready
-9. 将主代理状态置为 idle
+7. 恢复长期目标：running 降为 paused，不发事件，宿主用 getGoal 回填
+8. 读取项目输入历史与 token 使用量
+9. setImmediate 发送 session:ready
+10. 将主代理状态置为 idle
 ```
 
 `session:ready` 事件数据：
@@ -205,6 +206,7 @@ dispose(): void
 | Plan 模式 | `plan:exit:request`, `plan:exit:response`, `plan:implement` |
 | 提问交互 | `pick:option:request`, `pick:option:response` |
 | 待办更新 | `todos:update` |
+| 长期目标 | `goal:update` |
 | Token 统计 | `conversation:usage` |
 | 上下文压缩 | `compact:exec` |
 | QuickChat | `quickchat:response` |

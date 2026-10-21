@@ -80,7 +80,7 @@ export class SemaSession {
   // 设定目标走用户输入 /goal <文本>；以下接口不进输入队列、立即生效，状态变化经 goal:update 事件推送
   getGoal = (): GoalState | null => getStateManager().session(this.sessionId).getGoal();
   updateGoal = (text: string): GoalState | null => this.engine.updateGoal(text);
-  stopGoal = (): GoalState | null => this.engine.stopGoal();
+  pauseGoal = (): GoalState | null => this.engine.pauseGoal();
   clearGoal = (): void => this.engine.clearGoal();
   resumeGoal = (): GoalState | null => this.engine.resumeGoal();
 

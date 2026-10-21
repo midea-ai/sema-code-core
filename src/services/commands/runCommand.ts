@@ -60,7 +60,7 @@ async function handleSystemCommand(input: string, sessionId: string): Promise<Sy
 }
 
 // ─── /goal 长期目标 ───────────────────────────────────────────────────────────
-// 用户输入只接受两种形态；终止 / 删除 / 恢复 / 改文本走会话级接口（SemaSession.stopGoal 等），不排队、立即生效
+// 用户输入只接受两种形态；暂停 / 删除 / 恢复 / 改文本走会话级接口（SemaSession.pauseGoal 等），不排队、立即生效
 // /goal            回显状态（reason status），不进 ReAct
 // /goal <文本>     目标非 running（含无目标）→ 设定新目标并跑第一轮；running → 只改文本（reason updated），
 //                  本轮以一句触发语进 ReAct 让模型按新目标继续，按插话轮计（不加 round）

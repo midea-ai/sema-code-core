@@ -153,11 +153,13 @@ export class SemaEngine {
     if (historyData.readFileTimestamps) {
       mainAgentState.setReadFileTimestamps(historyData.readFileTimestamps);
     }
-    // 长期目标恢复：重开会话时 running 降为 paused（循环不自动接续）；不发事件，宿主开会话时用 getGoal 回填
+    // 长期目标恢复：重开会话时 running 降为 paused（循环不自动接续）；不发事件，宿主开会话时用 getGoal 回填。
+    // 旧版本落盘的未知状态（如已删除的 stopped）同样归为 paused
     if (historyData.goal) {
-      const goal: GoalState = historyData.goal.status === 'running'
-        ? { ...historyData.goal, status: 'paused', updatedAt: Date.now() }
-        : historyData.goal;
+      const keepAsIs = historyData.goal.status === 'paused' || historyData.goal.status === 'completed' || historyData.goal.status === 'blocked';
+      const goal: GoalState = keepAsIs
+        ? historyData.goal
+        : { ...historyData.goal, status: 'paused', updatedAt: Date.now() };
       this.runtime.setGoal(goal);
     }
 
@@ -625,7 +627,7 @@ export class SemaEngine {
   }
 
   // ==================== 长期目标（/goal）自主循环 ====================
-  // 会话级接口（updateGoal / stopGoal / clearGoal / resumeGoal）同步改状态并立即发事件，不进输入队列；
+  // 会话级接口（updateGoal / pauseGoal / clearGoal / resumeGoal）同步改状态并立即发事件，不进输入队列；
   // 设定目标只走用户输入 /goal <文本>（需要跑第一轮，天然要排队）
 
   private emitGoalUpdate(goal: GoalState | null, reason: GoalUpdateData['reason']): void {
@@ -644,19 +646,21 @@ export class SemaEngine {
     return updated;
   }
 
-  /** 终止：running / paused / blocked → stopped，循环到本轮结束不再续，不中断当前轮；记录保留供展示 */
-  stopGoal(): GoalState | null {
+  /**
+   * 暂停：running → paused 并按原因发事件，循环到本轮结束不再续，不中断当前轮（要立刻停请同时 interrupt），可 resume。
+   * 用户主动暂停用默认原因 paused；中断、API 报错、无进展、轮数上限、模式不符由引擎内部按各自原因调用。非 running 原样返回
+   */
+  pauseGoal(reason: Extract<GoalUpdateData['reason'], 'paused' | 'error' | 'noProgress' | 'maxRounds' | 'mode'> = 'paused'): GoalState | null {
     const goal = this.runtime.getGoal();
-    if (!goal) return null;
-    if (goal.status === 'stopped' || goal.status === 'completed') return goal;
-    const stopped: GoalState = { ...goal, status: 'stopped', updatedAt: Date.now() };
-    this.runtime.setGoal(stopped);
-    this.emitGoalUpdate(stopped, 'stopped');
-    logInfo(`[goal] stopped at round ${stopped.round}/${stopped.maxRounds}`);
-    return stopped;
+    if (goal?.status !== 'running') return goal;
+    const paused: GoalState = { ...goal, status: 'paused', updatedAt: Date.now() };
+    this.runtime.setGoal(paused);
+    this.emitGoalUpdate(paused, reason);
+    logInfo(`[goal] paused (${reason}), round ${paused.round}/${paused.maxRounds}`);
+    return paused;
   }
 
-  /** 删除目标记录（任何状态都可）；running 中删除等同终止，循环到本轮结束不再续 */
+  /** 删除目标记录（任何状态都可）；running 中删除循环到本轮结束不再续 */
   clearGoal(): void {
     if (!this.runtime.getGoal()) return;
     this.runtime.setGoal(null);
@@ -685,14 +689,23 @@ export class SemaEngine {
     return resumed;
   }
 
-  /** 目标 running → paused 并按原因发事件；非 running 不动 */
-  private pauseGoal(reason: Extract<GoalUpdateData['reason'], 'paused' | 'error' | 'noProgress' | 'maxRounds' | 'mode'>): void {
+  /**
+   * 按截断后的历史推导目标（回滚 / 从中间分支用）：目标跟历史走，状态由剩下的用户消息标记决定。
+   * - 当前无目标：保持无（clearGoal 后文本已丢，不复活）
+   * - 剩余历史没有目标标记：设定消息已被撤掉 → null
+   * - 有标记：round 回到最后一个标记的轮数，状态一律 paused（结局在被撤掉的那段里），summary 丢弃，
+   *   idleRounds 归零，文本与 maxRounds 沿用当前值（update 标记不存旧文本，回滚时用户多半也要改文本）
+   */
+  private deriveGoalFromHistory(messages: Message[]): GoalState | null {
     const goal = this.runtime.getGoal();
-    if (goal?.status !== 'running') return;
-    const paused: GoalState = { ...goal, status: 'paused', updatedAt: Date.now() };
-    this.runtime.setGoal(paused);
-    this.emitGoalUpdate(paused, reason);
-    logInfo(`[goal] paused (${reason}), round ${paused.round}/${paused.maxRounds}`);
+    if (!goal) return null;
+    let lastMark: GoalInputMark | undefined;
+    for (const msg of messages) {
+      if (msg.type === 'user' && msg.goal) lastMark = msg.goal;
+    }
+    if (!lastMark) return null;
+    const { summary: _dropped, ...rest } = goal;
+    return { ...rest, status: 'paused', round: lastMark.round, idleRounds: 0, updatedAt: Date.now() };
   }
 
   /** 本轮进 ReAct 后新增的 assistant 消息中是否出现过 tool_use；未进 ReAct 或历史被压缩（长度变短）时按有进展处理，不误判 */
@@ -806,10 +819,17 @@ export class SemaEngine {
     // 2) 截断 editlog 到 forkSeq（被撤销的快照记录丢弃）
     checkpoint.truncateEditLog(this.sessionId, forkSeq);
 
-    // 3) 就地截断历史并持久化（同一会话同 id）
+    // 3) 长期目标跟历史走：先于历史落盘更新，让自动保存带上回滚后的目标；状态有变才发事件
+    const goalBefore = this.runtime.getGoal();
+    const goalAfter = this.deriveGoalFromHistory(truncated);
+    const goalChanged = !goalBefore !== !goalAfter
+      || (!!goalBefore && !!goalAfter && (goalBefore.status !== goalAfter.status || goalBefore.round !== goalAfter.round || goalBefore.summary !== goalAfter.summary));
+    if (goalChanged) this.runtime.setGoal(goalAfter);
+
+    // 4) 就地截断历史并持久化（同一会话同 id）
     mainAgentState.setMessageHistory(truncated); // 非空时自动保存
     if (truncated.length === 0) {
-      // 空历史不触发自动保存，强制落盘覆盖旧历史
+      // 空历史不触发自动保存，强制落盘覆盖旧历史（此时目标必为 null，不传）
       const workingDir = getConfManager().getCoreConfig()?.workingDir;
       await saveHistory(
         this.sessionId,
@@ -821,6 +841,7 @@ export class SemaEngine {
         this.runtime.getHistoryNoDate(),
       );
     }
+    if (goalChanged) this.emitGoalUpdate(goalAfter, goalAfter ? 'paused' : 'cleared');
 
     // 主动重发当前 todos：todos 不随回档回退，但 UI 的 todos 面板只吃 todos:update，
     // 这里重发一次让面板与回档后的会话重新同步
@@ -878,6 +899,13 @@ export class SemaEngine {
     const newSessionId = generateSessionId();
     const workingDir = getConfManager().getCoreConfig()?.workingDir;
 
+    // 长期目标：从中间分支按截断历史推导（同回滚）；全量复制时照抄当前目标（结局也在历史里，推导只会得到 paused），
+    // running 降为 paused 与重开会话一致。当前会话的目标不动
+    const currentGoal = this.runtime.getGoal();
+    const branchedGoal: GoalState | null = beforeMessageUuid !== undefined
+      ? this.deriveGoalFromHistory(branchedMessages)
+      : currentGoal?.status === 'running' ? { ...currentGoal, status: 'paused', updatedAt: Date.now() } : currentGoal;
+
     // 新会话历史落盘（带日期命名，与随机新会话一致）；
     // todos / readFileTimestamps 与 fork 行为一致不回退，直接复制当前值
     await saveHistory(
@@ -888,6 +916,7 @@ export class SemaEngine {
       this.runtime.getReadFileTimestamps(),
       this.runtime.listTodoTasks(MAIN_AGENT_ID),
       false,
+      branchedGoal ?? undefined,
     );
 
     // 复制截断后的 editlog 给新会话（blobs 共享无需复制）

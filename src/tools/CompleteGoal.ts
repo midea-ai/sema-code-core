@@ -20,7 +20,7 @@ const toolParams = z.strictObject({
 // 输出类型
 interface CompleteGoalOutput {
   applied: boolean           // false = 目标已不处于 running，未覆盖
-  status: GoalState['status']
+  status?: GoalState['status']   // 未覆盖且目标已被清除时无状态
 }
 
 // 本工具不进 getBuiltinTools：只在目标 running 时由 getAvailableTools / processQuery 按会话追加到工具列表末尾
@@ -48,7 +48,7 @@ export const CompleteGoal = {
     // 可并行调用：call 内再查一次状态，非 running（同回复里已被另一次调用改掉）直接返回不覆盖
     const goal = runtime.getGoal()
     if (goal?.status !== 'running') {
-      const data: CompleteGoalOutput = { applied: false, status: goal?.status ?? 'stopped' }
+      const data: CompleteGoalOutput = { applied: false, status: goal?.status }
       yield { type: 'result', data, resultForAssistant: this.genResultForAssistant(data) }
       return
     }
@@ -64,7 +64,7 @@ export const CompleteGoal = {
   },
   genResultForAssistant(output: CompleteGoalOutput) {
     if (!output.applied) {
-      return `The goal is no longer running (status: ${output.status}); nothing changed.`
+      return `The goal is no longer running (status: ${output.status ?? 'cleared'}); nothing changed.`
     }
     return output.status === 'completed'
       ? 'Goal marked as achieved. The autonomous loop ends after this turn.'

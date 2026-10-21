@@ -142,7 +142,7 @@ export class SessionRuntime {
   // 会话级系统提示快照：首次构建后冻结，整个会话不再变化
   private systemPromptContent: Array<{ type: 'text'; text: string }> | null = null;
 
-  // 长期目标（/goal）：随会话历史落盘；只由 /clear、/goal stop、/goal <文本> 清除或改写，clearAllState 不碰
+  // 长期目标（/goal）：随会话历史落盘；只由 /clear、clearGoal、/goal <文本> 清除或改写，clearAllState 不碰
   private goal: GoalState | null = null;
 
   constructor(public readonly sessionId: string) {}

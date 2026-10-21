@@ -93,7 +93,7 @@ argument-hint: <file-path>
 
 ### 长期目标 `/goal`
 
-设定目标后模型持续推进，每轮结束自动开下一轮，直到模型宣告达成或阻塞、到达轮次上限暂停等确认、被用户中断或终止。目标随会话持久化，重开会话时降为 `paused`，调 `resumeGoal()` 继续。
+设定目标后模型持续推进，每轮结束自动开下一轮，直到模型宣告达成或阻塞、到达轮次上限暂停等确认、被用户暂停或中断。目标随会话持久化，重开会话时降为 `paused`，调 `resumeGoal()` 继续。
 
 **循环规则**
 
@@ -103,22 +103,23 @@ argument-hint: <file-path>
 - 无进展止损：目标轮连续 3 轮没有任何工具调用则置 `paused`。
 - 轮末处于 Plan / Design 模式时不续轮，置 `paused`；Plan 模式下经 `plan_to_agent` 批准切回 Agent 的，正常续轮。
 
-**中断、终止与恢复**
+**暂停、中断与恢复**
 
 - 用户中断、权限拒绝、关闭会话、API 报错都把 `running` 置为 `paused`，不自动重试，可恢复。
-- `stopGoal()` 置 `stopped`，循环到本轮结束不再续，不中断当前轮，要立刻停请同时调 `interrupt()`；`stopped`、`completed` 不可恢复，需重新 `/goal <目标>`。
+- `pauseGoal()` 置 `paused`，循环到本轮结束不再续，不中断当前轮，要立刻停请同时调 `interrupt()`；`completed` 不可恢复，需重新 `/goal <目标>`。
 - 权限申请、`ask_form` 提问挂起时轮次未结束，不续轮，等用户响应即可。
-- 目标只由 `/clear`、`clearGoal()`、`/goal <目标>` 清除或改写；`/compact`、Fork、计划确认"清理上下文并开始"都不影响。
+- 目标只由 `/clear`、`clearGoal()`、`/goal <目标>` 清除或改写；`/compact`、计划确认"清理上下文并开始"都不影响。
+- 回滚与分支：目标跟历史走。回滚到设定目标之前的消息则目标清除；回滚到目标进行中的某轮，轮数回到该轮之前、状态置 `paused`、summary 丢弃，文本沿用当前值。从中间分支到新聊天按同样规则推导，从最新回复分支则照抄当前目标；当前会话的目标不受分支影响。
 
 **会话级接口**
 
-终止 / 删除 / 恢复 / 改文本不走用户输入（输入会排队），走 `SemaSession` 接口，立即生效并发 `goal:update`：
+暂停 / 删除 / 恢复 / 改文本不走用户输入（输入会排队），走 `SemaSession` 接口，立即生效并发 `goal:update`：
 
 | 接口 | 行为 | 返回 |
 |---|---|---|
 | `getGoal()` | 读当前目标，开会话时回填 | `GoalState \| null` |
 | `updateGoal(text)` | 改目标文本，状态与轮数不变，下一轮生效 | `GoalState \| null` |
-| `stopGoal()` | 置 `stopped`，记录保留 | `GoalState \| null` |
+| `pauseGoal()` | `running` → `paused`，本轮结束不再续，可恢复 | `GoalState \| null` |
 | `clearGoal()` | 删除目标记录 | `void` |
 | `resumeGoal()` | `paused` / `blocked` → `running`，空闲立即续轮，处理中排到本轮之后 | `GoalState \| null` |
 
@@ -131,13 +132,13 @@ interface GoalUpdateData {
   goal: GoalState | null
   reason: 'set' | 'updated' | 'round'
         | 'completed' | 'blocked'
-        | 'stopped' | 'cleared' | 'resumed'
+        | 'cleared' | 'resumed'
         | 'paused' | 'error' | 'noProgress' | 'maxRounds' | 'mode'
         | 'status'
 }
 ```
 
-- `paused` 为用户中断或权限拒绝；`error` / `noProgress` / `maxRounds` / `mode` 为系统置 `paused` 的各自原因，此时 `goal.status` 均为 `paused`。
+- `paused` 为用户主动暂停、中断或权限拒绝；`error` / `noProgress` / `maxRounds` / `mode` 为系统置 `paused` 的各自原因，此时 `goal.status` 均为 `paused`。
 - `status` 是裸 `/goal` 的回显，不是状态变化。
 
 与目标相关的输入在 `input:received` / `input:processing` 事件和持久化的用户消息上带 `goal` 标记，UI 据此给气泡打标，不用解析文本：

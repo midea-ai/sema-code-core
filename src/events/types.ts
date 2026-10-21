@@ -558,18 +558,18 @@ import type { GoalState } from '../types/goal';
 /**
  * 长期目标状态更新事件
  * 事件: `goal:update`
- * 说明: /goal <文本> 输入、会话级接口（updateGoal / stopGoal / clearGoal / resumeGoal）、complete_goal 工具、轮末续轮/暂停时触发。
+ * 说明: /goal <文本> 输入、会话级接口（updateGoal / pauseGoal / clearGoal / resumeGoal）、complete_goal 工具、轮末续轮/暂停时触发。
  * - set/updated/round：设定 / 更新文本 / 自动续轮
  * - completed/blocked：模型经 complete_goal 自报
- * - stopped/cleared/resumed：接口触发（cleared 时 goal 为 null）
- * - paused：用户中断或权限拒绝；error/noProgress/maxRounds/mode：系统置 paused 的各自原因（goal.status 均为 paused）
+ * - cleared/resumed：接口触发（cleared 时 goal 为 null）
+ * - paused：用户主动暂停、中断或权限拒绝；error/noProgress/maxRounds/mode：系统置 paused 的各自原因（goal.status 均为 paused）
  * - status：裸 /goal 的回显，非状态变化，宿主只弹提示不改卡片
  */
 export interface GoalUpdateData {
   goal: GoalState | null;
   reason: 'set' | 'updated' | 'round'
         | 'completed' | 'blocked'
-        | 'stopped' | 'cleared' | 'resumed'
+        | 'cleared' | 'resumed'
         | 'paused' | 'error' | 'noProgress' | 'maxRounds' | 'mode'
         | 'status';
 }

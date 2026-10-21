@@ -1,7 +1,7 @@
 // 会话级长期目标（/goal 命令）
-// running=自主循环中；paused=用户中断/系统止损/重开会话，可 resume；
-// completed/blocked=模型经 complete_goal 自报，blocked 可 resume；stopped=用户 /goal stop
-export type GoalStatus = 'running' | 'paused' | 'completed' | 'blocked' | 'stopped'
+// running=自主循环中；paused=用户暂停/中断、系统止损、重开会话，可 resume；
+// completed/blocked=模型经 complete_goal 自报，blocked 可 resume；不要了用 clearGoal 删除
+export type GoalStatus = 'running' | 'paused' | 'completed' | 'blocked'
 
 export interface GoalState {
   text: string

@@ -226,7 +226,6 @@ export const fr = {
   'file.viewPreview': "Voir l'aperçu",
   'file.truncated': 'Fichier trop volumineux ; seul le premier 1MB est affiché',
   'file.addToChat': 'Ajouter à la discussion',
-  'file.addedToChat': 'Ajouté à la zone de saisie',
   'file.copyPath': 'Copier le chemin',
   'file.copyAbsPath': 'Copier le chemin absolu',
   'file.copied': 'Copié',

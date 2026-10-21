@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FolderOpen, Pencil, ArrowDown, Copy, Check, ThumbsUp, ThumbsDown, GitBranch } from 'lucide-react';
+import { FolderOpen, Pencil, ArrowDown, Copy, Check, ThumbsUp, ThumbsDown, GitBranch, Target } from 'lucide-react';
 import type { Block, SessionSnapshot } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
 import { useApp } from '../../store/app';
@@ -118,9 +118,11 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
   const doRewind = async () => {
     if (!rewind) return;
     setRewind({ ...rewind, busy: true });
-    // 截断前先取出被回退的那条用户消息（文字 + 图片 + 长文粘贴），回退成功后整体放回输入框供修改重发
-    const src = useSessions.getState().snapshots[sessionId]?.blocks
+    // 截断前先取出被回退的那条用户消息（文字 + 图片 + 长文粘贴），回退成功后整体放回输入框供修改重发；
+    // 自动来源（定时任务 / 目标续轮）的气泡文本是固定触发语，不回填
+    const found = useSessions.getState().snapshots[sessionId]?.blocks
       .find(b => b.kind === 'user' && b.inputId === rewind.inputId);
+    const src = found?.kind === 'user' && found.source && found.source !== 'user' ? undefined : found;
     const srcText = src?.kind === 'user' ? src.text : '';
     // 图片：气泡里的 dataUrl 就是完整 base64，拆回草稿形状；没有 dataUrl 的历史图片无法还原，跳过
     const srcImages: Draft['images'] = src?.kind === 'user'
@@ -341,8 +343,11 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
 }) {
   const [expanded, setExpanded] = useState(false);
   const opener = turn.opener;
-  // 待办块不在 UI 展示，先剔除，避免它影响折叠/展开判断
-  const rest = (opener ? turn.blocks.slice(1) : turn.blocks).filter(b => b.kind !== 'todos');
+  // 本轮是否宣告目标达成：goal:update(completed) 落的 goal-achieved 块（不渲染，text 为 summary），由轮末操作行标记；受阻不标，状态条可见
+  const goalDone = turn.blocks.find(b => b.kind === 'notice' && b.noticeType === 'goal-achieved');
+  const goalAchieved = goalDone?.kind === 'notice' ? { summary: goalDone.text } : undefined;
+  // 待办块、目标达成块不在 UI 展示，先剔除，避免它们影响折叠/展开判断
+  const rest = (opener ? turn.blocks.slice(1) : turn.blocks).filter(b => b.kind !== 'todos' && b !== goalDone);
   const running = active && !!opener && !opener.doneTs;
 
   if (!opener) return <>{renderBlockList(rest, ctx)}</>;
@@ -402,7 +407,7 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
       {!running && lastText && <FinalActions text={lastText.text} ts={lastText.ts}
         onBranch={canBranch && onBranch ? () => onBranch(branchAnchor) : undefined}
         branchTitle={branchAnchor ? t('chat.branchHere') : undefined}
-        branching={branching} />}
+        branching={branching} goalAchieved={goalAchieved} />}
     </div>
   );
 }
@@ -415,9 +420,10 @@ function StatusLine({ text }: { text: string }) {
   );
 }
 
-/** 文字回答下方的操作行：复制 · 赞 · 踩，悬浮显示时间（chat 主流与快问面板共用） */
-export function FinalActions({ text, ts, className, onBranch, branchTitle, branching }: {
+/** 文字回答下方的操作行：复制 · 赞 · 踩 · 分支，之后是本轮目标达成标记（竖线分隔，常显，悬浮看 summary），悬浮显示时间（chat 主流与快问面板共用） */
+export function FinalActions({ text, ts, className, onBranch, branchTitle, branching, goalAchieved }: {
   text: string; ts?: number; className?: string; onBranch?: () => void; branchTitle?: string; branching?: boolean;
+  goalAchieved?: { summary?: string };
 }) {
   const { copied, copy } = useCopy();
   // 点赞/踩：仅前端本地状态，无后端处理
@@ -439,6 +445,14 @@ export function FinalActions({ text, ts, className, onBranch, branchTitle, branc
         <button onClick={onBranch} disabled={branching} className={cn(btn, branching && 'opacity-50 cursor-not-allowed')} title={branchTitle ?? t('chat.branch')}>
           <GitBranch size={13} />
         </button>
+      )}
+      {goalAchieved && (
+        <>
+          <span className="mx-1 h-3 w-px bg-border" />
+          <span className="inline-flex items-center gap-1" title={goalAchieved.summary || undefined}>
+            <Target size={12} />{t('chat.goalAchieved')}
+          </span>
+        </>
       )}
       {time && <span className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity">{time}</span>}
     </div>

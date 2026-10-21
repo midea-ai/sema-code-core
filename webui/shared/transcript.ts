@@ -510,9 +510,11 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       notice(snap, seq, 'cleared', 'info', '会话已清空');
       break;
 
-    // 长期目标：所有 reason 都同步快照（status 回显也带完整对象）；不落消息流块，状态条按快照渲染，提示由前端按 reason 弹 toast
+    // 长期目标：所有 reason 都同步快照（status 回显也带完整对象），状态条按快照渲染，提示由前端按 reason 弹 toast；
+    // 只有达成落一个不渲染的 goal-achieved 块到本轮，轮末操作行据此标「目标已达成」（text 为 summary），随快照持久化、随回滚一起撤掉
     case 'goal:update':
       snap.goal = data?.goal ?? null;
+      if (data?.reason === 'completed') notice(snap, seq, 'goal-achieved', 'info', String(data?.goal?.summary ?? ''));
       break;
 
     case 'hook:notice': {

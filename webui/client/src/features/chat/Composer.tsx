@@ -344,7 +344,8 @@ export function Composer({ sessionId, projectId, active = true }: { sessionId?: 
         )}
         {pending > 0 && <div className="mb-1.5 text-xs text-warn px-1">{t('chat.waitingPermission')}</div>}
         {/* 长期目标状态条：有目标即显示（含暂停 / 完成 / 中止，便于恢复或清除），压在输入框顶部后面 */}
-        {sessionId && snap?.goal && <GoalBar sessionId={sessionId} goal={snap.goal} />}
+        {/* 目标完成后状态条不再展示（无操作、无新信息），记录仍在右栏目标标签与 /goal 覆盖链路里 */}
+        {sessionId && snap?.goal && snap.goal.status !== 'completed' && <GoalBar sessionId={sessionId} goal={snap.goal} />}
         <div
           onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
           onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}

@@ -226,7 +226,6 @@ export const it = {
   'file.viewPreview': 'Visualizza anteprima',
   'file.truncated': 'File troppo grande; mostrato solo il primo 1MB',
   'file.addToChat': 'Aggiungi alla chat',
-  'file.addedToChat': 'Aggiunto alla casella di input',
   'file.copyPath': 'Copia percorso',
   'file.copyAbsPath': 'Copia percorso assoluto',
   'file.copied': 'Copiato',

@@ -82,7 +82,7 @@ export const SESSION_ACTIONS = [
   // 长期目标：设定走 /goal <文本> 输入，以下不排队、立即生效
   'session.getGoal',
   'session.updateGoal',
-  'session.stopGoal',
+  'session.pauseGoal',
   'session.clearGoal',
   'session.resumeGoal',
 ] as const;

@@ -221,7 +221,6 @@ export const de = {
   'file.viewPreview': 'Vorschau anzeigen',
   'file.truncated': 'Datei zu groß; nur die ersten 1MB werden angezeigt',
   'file.addToChat': 'Zum Chat hinzufügen',
-  'file.addedToChat': 'Zur Eingabe hinzugefügt',
   'file.copyPath': 'Pfad kopieren',
   'file.copyAbsPath': 'Absoluten Pfad kopieren',
   'file.copied': 'Kopiert',

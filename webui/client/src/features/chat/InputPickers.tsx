@@ -216,7 +216,7 @@ export function CommandPanel({ items, loading, selected, onSelect, onHover }: {
                 <div key={`${item.category}:${item.name}`} data-selected={i === selected}
                   onMouseDown={e => { e.preventDefault(); onSelect(item); }} onMouseEnter={() => onHover(i)}
                   className={cn('flex items-center gap-2 px-3 py-0.5 cursor-pointer', i === selected ? 'bg-black/[0.06]' : 'hover:bg-black/[0.04]')}>
-                  {d ? <SkillLabel display={d} className="shrink-0" /> : <>
+                  {d ? <SkillLabel display={d} className="shrink-0" panel /> : <>
                     <span className="text-muted">/</span>
                     <span className="shrink-0 font-medium">{item.name}</span>
                   </>}

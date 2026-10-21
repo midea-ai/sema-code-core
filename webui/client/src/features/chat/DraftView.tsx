@@ -51,7 +51,7 @@ export function DraftView({ projectId }: { projectId?: string }) {
         )}
       </div>
       {/* 输入框上方：浅灰底带 + 项目选择胶囊，底带与下方输入卡片相接（对齐参考效果） */}
-      <div className="shrink-0 px-4">
+      <div className="shrink-0 px-10">
         <div className="max-w-3xl mx-auto px-3">
           <div className="rounded-t-xl bg-black/[0.035] px-2.5 pt-2 pb-5 -mb-4 flex items-center gap-2">
             <ProjectPicker projectId={projectId} onChange={id => setView({ type: 'draft', projectId: id })} />

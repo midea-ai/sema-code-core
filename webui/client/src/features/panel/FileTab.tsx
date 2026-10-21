@@ -15,6 +15,7 @@ const IMAGE_ZOOMS = [25, 50, 100, 150, 200];
 const OFFICE_ZOOMS = [50, 75, 100, 125, 150, 200];
 import { useSessions } from '../../store/sessions';
 import { useFileSearch, formatFileRef } from '../chat/InputPickers';
+import { DRAFT_KEY } from '../chat/Composer';
 import { FileIcon } from '../../common/fileicon/FileIcon';
 import { usePanelWidth, ResizeHandle } from '../../common/Resizer';
 import { t } from '../../i18n';
@@ -468,10 +469,11 @@ function FileMenu({ sessionId, menu, onClose, onPick }: {
   // 菜单项统一走这里：先关菜单，异常统一 toast
   const run = (fn: () => void | Promise<void>) => { onClose(); Promise.resolve(fn()).catch((e: any) => useApp.getState().toast(e.message, 'error')); };
 
+  // 草稿页的作用域 id 是项目 id，输入框草稿统一存在 DRAFT_KEY 下；只有真实会话才按会话 id 存
   const addToChat = () => {
     const ref = formatFileRef(path);
-    useSessions.getState().setDraft(sessionId, d => ({ ...d, text: d.text.trim() ? `${d.text.replace(/\s+$/, '')} ${ref} ` : `${ref} ` }));
-    useApp.getState().toast(t('file.addedToChat'));
+    const isSession = useApp.getState().registry.sessions.some(x => x.id === sessionId);
+    useSessions.getState().setDraft(isSession ? sessionId : DRAFT_KEY, d => ({ ...d, text: d.text.trim() ? `${d.text.replace(/\s+$/, '')} ${ref} ` : `${ref} ` }));
   };
 
   const copyPath = async (abs: boolean) => {

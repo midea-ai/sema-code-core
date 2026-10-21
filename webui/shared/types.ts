@@ -203,7 +203,7 @@ interface BlockBase {
 
 // ==================== 长期目标（/goal） ====================
 
-export type GoalStatus = 'running' | 'paused' | 'completed' | 'blocked' | 'stopped';
+export type GoalStatus = 'running' | 'paused' | 'completed' | 'blocked';
 
 /** 会话级长期目标，与 core GoalState 同构；状态变化经 goal:update 事件推送 */
 export interface GoalState {
@@ -227,7 +227,7 @@ export interface GoalInputMark {
 export type GoalUpdateReason =
   | 'set' | 'updated' | 'round'
   | 'completed' | 'blocked'
-  | 'stopped' | 'cleared' | 'resumed'
+  | 'cleared' | 'resumed'
   | 'paused' | 'error' | 'noProgress' | 'maxRounds' | 'mode'
   | 'status';
 
@@ -342,6 +342,7 @@ export type NoticeType =
   | 'auto-permission'
   | 'cleared'
   | 'history-expired'
+  | 'goal-achieved'
   | 'info';
 
 export interface NoticeBlock extends BlockBase {

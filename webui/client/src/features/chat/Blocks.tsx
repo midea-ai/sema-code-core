@@ -47,7 +47,9 @@ export const BlockRenderer = memo(function BlockRenderer({ block, ctx, onToolOpe
     case 'todos': return null; // 待办信息不在 UI 展示
     case 'agent': return <AgentCard block={block} ctx={ctx} />;
     case 'branch-origin': return <BranchOrigin block={block} />;
-    case 'notice': return block.noticeType === 'plan-implement' ? <PlanImplementCard block={block} ctx={ctx} /> : <NoticeBar block={block} />;
+    case 'notice':
+      if (block.noticeType === 'goal-achieved') return null; // 由轮末操作行标记表示
+      return block.noticeType === 'plan-implement' ? <PlanImplementCard block={block} ctx={ctx} /> : <NoticeBar block={block} />;
     case 'file-changes': return <FileChangesCard block={block} ctx={ctx} />;
     case 'cron': return <CronCard block={block} ctx={ctx} />;
     default: return null;
@@ -115,22 +117,13 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
     const st = stat(refStatPath(s.path));
     return st?.exists ? <FileRefChip key={i} seg={{ ...s, isDirectory: st.isDir }} onOpen={sg => openFileRef(ctx.sessionId, sg.path, sg.line, sg.endLine)} /> : s.raw;
   });
-  // 展开后的长消息不吸顶：吸顶块比视口还高会把整段回复盖住（回复只能从底下滚过）
-  const sticky = !(overflowing && expanded);
+  // 目标自动续轮：文本是固定触发语，不渲染气泡本体，只留下方「目标第 n/m 轮」标签行（含悬浮回退），耗时分隔与各轮整体块不受影响
+  const goalRound = block.source === 'goal' && block.goal?.action === 'round';
+  // 展开后的长消息不吸顶：吸顶块比视口还高会把整段回复盖住（回复只能从底下滚过）；续轮标签行也不吸顶
+  const sticky = !(overflowing && expanded) && !goalRound;
   return (
     <div className={cn('group flex justify-end pt-3 pb-1 mb-2', sticky && 'user-sticky')}>
       <div className="max-w-[90%] flex flex-col items-end gap-1">
-        {block.source === 'cron' && (
-          <button onClick={() => useApp.getState().openCronTab(ctx.sessionId)} className="flex items-center gap-1 text-xs text-muted hover:text-fg hover:underline underline-offset-2" title={t('panel.cron')}>
-            <Clock size={12} />{t('chat.sourceCron')}
-          </button>
-        )}
-        {/* 长期目标标记：设定 / 更新 / 自动续轮（续轮输入 source=goal，只显示此标签），点击打开右栏「目标」标签 */}
-        {block.goal && (
-          <button onClick={() => useApp.getState().openGoalTab(ctx.sessionId)} className="flex items-center gap-1 text-xs text-muted hover:text-fg hover:underline underline-offset-2" title={t('panel.goal')}>
-            <Target size={12} />{goalMarkLabel(block.goal)}
-          </button>
-        )}
         {block.attachments && block.attachments.length > 0 && (
           <div className="flex gap-1.5 flex-wrap justify-end">
             {block.attachments.map((a, i) => a.dataUrl
@@ -141,7 +134,7 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
         {/* 粘贴块各占一行胶囊，点击在右栏打开转存文件（预览留在消息文本里，文件被退场清理后由右栏报文件不存在） */}
         {block.pastes?.map(p => <PastePill key={p.path} preview={p.preview} onOpen={() => openFileRef(ctx.sessionId, p.path)} />)}
         {/* 纯图片 / 纯粘贴附件输入（无文字、非排队）不渲染文字气泡，避免出现空块；排队时只显示「排队中」标签；乐观回显（pending）同排队淡显，不带标签 */}
-        {(block.text || block.queued) && (
+        {(block.text || block.queued) && !goalRound && (
           <div className={cn('rounded-2xl px-4 py-2 bg-panel', (block.queued || block.pending) && 'opacity-60')}>
             <div ref={textRef} className={cn('whitespace-pre-wrap break-words leading-chat', collapsed && 'overflow-hidden [mask-image:linear-gradient(to_bottom,#000_70%,transparent)]')} style={collapsed ? { maxHeight: USER_COLLAPSED_MAX } : undefined}>
               {/* 以映射技能开头的消息：`/<技能名>` 显示为图标 + 名字（排队中的气泡同样处理），复制仍是原文 */}
@@ -163,22 +156,42 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   );
 }
 
-/** 用户消息悬浮工具栏：时间 · 复制 · 回退 */
+/** 用户消息工具栏：时间 · 复制 · 回退（悬浮才显示），之后是来源标记（定时任务 / 长期目标，竖线分隔、常显，与回答操作行的目标达成标记同款） */
 function UserBubbleBar({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   const { copied, copy } = useCopy();
   const lang = useLang();
   const time = useMemo(() => fmtTime(block.ts), [block.ts, lang]);
   const btn = 'text-muted hover:text-fg inline-flex items-center p-0.5 rounded';
+  const mark = 'inline-flex items-center gap-1 text-muted hover:text-fg hover:underline underline-offset-2';
+  const hasMark = block.source === 'cron' || !!block.goal;
+  // 目标续轮没有气泡本体（固定触发语），不提供复制
+  const copyable = block.source !== 'goal';
   return (
-    <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1.5 text-[11px] text-muted">
-      <span>{time}</span>
-      <button className={btn} title={t(copied ? 'common.copied' : 'common.copy')} onClick={() => copy(block.text)}>
-        {copied ? <Check size={12} /> : <Copy size={12} />}
-      </button>
-      {/* 排队中的输入尚未进入 core 历史，无法作为回退锚点 */}
-      {block.inputId && !block.queued && ctx.onRewind && (
-        <button className={btn} title={t('chat.rewindHere')} onClick={() => ctx.onRewind!(block.inputId!)}>
-          <Undo2 size={12} />
+    <div className="flex items-center gap-1.5 text-[11px] text-muted">
+      <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1.5">
+        <span>{time}</span>
+        {copyable && (
+          <button className={btn} title={t(copied ? 'common.copied' : 'common.copy')} onClick={() => copy(block.text)}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+          </button>
+        )}
+        {/* 排队中的输入尚未进入 core 历史，无法作为回退锚点 */}
+        {block.inputId && !block.queued && ctx.onRewind && (
+          <button className={btn} title={t('chat.rewindHere')} onClick={() => ctx.onRewind!(block.inputId!)}>
+            <Undo2 size={12} />
+          </button>
+        )}
+        {hasMark && <span className="h-3 w-px bg-border" />}
+      </div>
+      {block.source === 'cron' && (
+        <button onClick={() => useApp.getState().openCronTab(ctx.sessionId)} className={mark} title={t('panel.cron')}>
+          <Clock size={12} />{t('chat.sourceCron')}
+        </button>
+      )}
+      {/* 长期目标标记：设定 / 更新 / 自动续轮（续轮输入 source=goal，只显示此标签），点击打开右栏「目标」标签 */}
+      {block.goal && (
+        <button onClick={() => useApp.getState().openGoalTab(ctx.sessionId)} className={mark} title={t('panel.goal')}>
+          <Target size={12} />{goalMarkLabel(block.goal)}
         </button>
       )}
     </div>

@@ -198,7 +198,7 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'session.stopAllTasks': return s.stopAllTasks();
     case 'session.getGoal': return s.getGoal();
     case 'session.updateGoal': return s.updateGoal(p.text);
-    case 'session.stopGoal': return s.stopGoal();
+    case 'session.pauseGoal': return s.pauseGoal();
     case 'session.clearGoal': s.clearGoal(); return true;
     case 'session.resumeGoal': return s.resumeGoal();
     default:

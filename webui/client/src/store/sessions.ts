@@ -36,7 +36,7 @@ interface SessionsState {
   sendQuickchat(sessionId: string, question: string): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
   /** 长期目标操作：不走输入队列、立即生效（设定目标仍是普通输入 /goal <文本>）；状态随 goal:update 事件回到快照 */
-  goalAction(sessionId: string, action: 'stop' | 'clear' | 'resume'): Promise<void>;
+  goalAction(sessionId: string, action: 'pause' | 'clear' | 'resume'): Promise<void>;
   updateGoal(sessionId: string, text: string): Promise<void>;
   respondPermission(sessionId: string, toolId: string, toolName: string, selected: string): Promise<void>;
   respondPick(sessionId: string, blockId: string, agentId: string, answers: string | null): Promise<void>;
@@ -127,12 +127,14 @@ export const useSessions = create<SessionsState>((set, get) => ({
       useApp.getState().toast(frame.data?.error?.message || t('chat.sessionError'), 'error');
     }
     // 长期目标：只对用户无法自行解释的暂停弹 toast（系统因上限 / 无进展 / 非 Agent 模式在轮末延迟暂停），
-    // 用户自己中断（paused）和 API 报错（已有 session:error 提示）不弹；/goal 回显弹当前状态；其余只靠状态条随快照变化
+    // 用户自己中断（paused）和 API 报错（已有 session:error 提示）不弹；/goal 回显弹当前状态；
+    // 完成时状态条直接消失，弹一次 info 作反馈；其余只靠状态条随快照变化
     if (frame.event === 'goal:update') {
       const reason = frame.data?.reason as GoalUpdateReason | undefined;
       const goal = frame.data?.goal as GoalState | null | undefined;
       const toast = useApp.getState().toast;
       if (reason === 'status') toast(goal ? t(`goal.status.${goal.status}` as I18nKey) : t('goal.none'), 'info');
+      else if (reason === 'completed') toast(t('goal.status.completed'), 'info');
       else if (reason === 'noProgress' || reason === 'maxRounds' || reason === 'mode') toast(t(`goal.reason.${reason}` as I18nKey), 'warn');
     }
   },
@@ -180,7 +182,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
   },
   async interrupt(sessionId) { await wsClient.request('session.interrupt', sessionId, {}); },
   async goalAction(sessionId, action) {
-    const map = { stop: 'session.stopGoal', clear: 'session.clearGoal', resume: 'session.resumeGoal' } as const;
+    const map = { pause: 'session.pauseGoal', clear: 'session.clearGoal', resume: 'session.resumeGoal' } as const;
     await wsClient.request(map[action], sessionId, {});
   },
   async updateGoal(sessionId, text) { await wsClient.request('session.updateGoal', sessionId, { text }); },

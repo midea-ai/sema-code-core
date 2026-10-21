@@ -35,7 +35,7 @@ import { deleteProjectHistory, deleteSessionHistory } from '../util/history';
 import { getEventBus } from '../events/EventSystem';
 import { ProcessEvent } from '../events/types';
 import { logInfo } from '../util/log';
-import { getShellRuntimeInfoAsync } from '../util/shell';
+import { getShellRuntimeInfoAsync, PersistentShell } from '../util/shell';
 
 /**
  * Sema 核心 API 类（进程级）
@@ -216,8 +216,9 @@ export class SemaCore {
     this.procListeners.forEach(({ event, fn }) => getEventBus().off(event, fn as any));
     this.procListeners = [];
 
-    // 关闭所有会话
+    // 关闭所有会话（会话 dispose 已各自关掉自己的 shell，这里兜底清掉没走会话 dispose 的残留）
     getSessionPool().disposeAll();
+    PersistentShell.disposeAll();
 
     // 使用统计：同步落盘并摘除监听（放在会话关闭之后，收尾期间的工具事件也能计入）
     getUsageStatsManager().dispose();

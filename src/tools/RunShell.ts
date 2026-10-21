@@ -248,7 +248,9 @@ export const RunShell = {
     }
 
     try {
-      const result = await PersistentShell.getInstance().exec(
+      // 拿一次实例贯穿本次执行：命令结束后不再 getInstance，否则会话已 dispose / shell 已死时会凭空再建一个 shell 泄漏
+      const shell = PersistentShell.getInstance(agentContext.sessionId)
+      const result = await shell.exec(
         command,
         abortController?.signal,
         effectiveTimeout,
@@ -279,7 +281,7 @@ export const RunShell = {
 
       // 持久 cwd 离开项目目录则切回项目根，并告知模型下一条命令的起点
       try {
-        if (await PersistentShell.getInstance().resetCwdIfOutside(readInitialCwd())) {
+        if (await shell.resetCwdIfOutside(readInitialCwd())) {
           stderr += `Shell cwd was reset to ${readInitialCwd()}` + EOL
         }
       } catch (error) {

@@ -13,6 +13,7 @@ import type { AgentMode, PermissionLevel, ModelUpdateData } from '../types';
 import type { InputImageAttachment } from '../types/message';
 import type { GoalState } from '../types/goal';
 import { logInfo } from '../util/log';
+import { PersistentShell } from '../util/shell';
 
 /**
  * 会话级 API
@@ -104,6 +105,7 @@ export class SemaSession {
     logInfo(`关闭会话: ${this.sessionId}`);
     this.engine.dispose();
     getTaskManager().disposeSession(this.sessionId);
+    PersistentShell.disposeSession(this.sessionId);
     getStateManager().removeSession(this.sessionId);
     getModelManager().clearSessionModelOverride(this.sessionId);
     getCheckpointManager().forgetSession(this.sessionId);

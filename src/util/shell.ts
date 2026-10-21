@@ -483,6 +483,10 @@ export class PersistentShell {
   private cwdFileBashPath: string             // Bash格式的当前工作目录文件路径
   private _exitCachedStdout: string = ''      // shell退出时缓存的stdout（防竞态）
   private _exitCachedStderr: string = ''      // shell退出时缓存的stderr（防竞态）
+  private deadHandled: boolean = false        // exit / error 可能先后到达，善后只做一次
+  private deathReason: string = ''            // spawn 失败或管道断开的原因，回给调用方
+  private spawnFailed: boolean = false        // 子进程没起来（可执行文件或 cwd 不可用）：下次重建不沿用本实例的 cwd
+  private idleTimer: ReturnType<typeof setTimeout> | null = null  // 空闲回收定时器
 
   constructor(cwd: string) {
     // 检测可用的Shell
@@ -513,26 +517,21 @@ export class PersistentShell {
       if (code) {
         logError(`Shell exited with code ${code} and signal ${signal}`)
       }
-      // 在删除文件前缓存内容，防止与 exec_() 的 readOutput() 产生竞态条件
-      try {
-        this._exitCachedStdout = fs.existsSync(this.stdoutFile) ? smartDecode(fs.readFileSync(this.stdoutFile)) : ''
-        this._exitCachedStderr = fs.existsSync(this.stderrFile) ? filterCygwinNoise(smartDecode(fs.readFileSync(this.stderrFile))) : ''
-      } catch {
-        this._exitCachedStdout = ''
-        this._exitCachedStderr = ''
-      }
-      // 清理临时文件
-      for (const file of [
-        this.statusFile,
-        this.stdoutFile,
-        this.stderrFile,
-        this.cwdFile,
-      ]) {
-        if (fs.existsSync(file)) {
-          fs.unlinkSync(file)
-        }
-      }
-      this.isAlive = false
+      this.onShellDead()
+    })
+    // spawn 失败（可执行文件或 cwd 不存在等）由异步 error 事件上报，此时不会再有 exit 事件；
+    // 向已死进程的 stdin 写入也是异步 error。两处不挂监听就会升级为未捕获异常，直接结束整个 core 进程/线程
+    this.shell.on('error', (err) => {
+      logError(`Shell process error: ${err.message}`)
+      this.deathReason ||= err.message
+      // 本次不重试：这条命令按失败返回并告知模型，下一条命令由 getInstance 从初始目录重建
+      if (this.shell.pid === undefined) this.spawnFailed = true
+      this.onShellDead()
+    })
+    this.shell.stdin?.on('error', (err) => {
+      logError(`Shell stdin error: ${err.message}`)
+      this.deathReason ||= err.message
+      this.onShellDead()
     })
 
     // 生成随机ID用于临时文件
@@ -569,26 +568,84 @@ export class PersistentShell {
 
       logInfo(`${this.shellType} Shell 初始化完成，跳过 bashrc 加载`)
     }
+
+    // 建出来就计时：没跑过命令的 shell 也能被空闲回收，不依赖首条命令结束才挂定时器
+    this.scheduleIdleClose()
   }
 
-  // 单例实例
-  private static instance: PersistentShell | null = null
+  /** shell 不可用（退出 / spawn 失败 / 管道断开）的善后：缓存输出、清临时文件、标记死亡。只执行一次；事件回调里不能再抛 */
+  private onShellDead(): void {
+    if (this.deadHandled) return
+    this.deadHandled = true
+    // 在删除文件前缓存内容，防止与 exec_() 的 readOutput() 产生竞态条件
+    try {
+      this._exitCachedStdout = fs.existsSync(this.stdoutFile) ? smartDecode(fs.readFileSync(this.stdoutFile)) : ''
+      this._exitCachedStderr = fs.existsSync(this.stderrFile) ? filterCygwinNoise(smartDecode(fs.readFileSync(this.stderrFile))) : ''
+    } catch {
+      this._exitCachedStdout = ''
+      this._exitCachedStderr = ''
+    }
+    // 清理临时文件
+    for (const file of [this.statusFile, this.stdoutFile, this.stderrFile, this.cwdFile]) {
+      try {
+        if (file && fs.existsSync(file)) fs.unlinkSync(file)
+      } catch { /* Windows 下可能被占用，留给下次启动清理 */ }
+    }
+    this.isAlive = false
+  }
 
-  // 重启Shell实例
-  static restart() {
-    if (PersistentShell.instance) {
-      PersistentShell.instance.close()
-      PersistentShell.instance = null
+  // ==================== 会话级实例 ====================
+  // 每个会话一个 shell：cd / export 等状态不跨会话串台，命令队列互不阻塞，取消只杀本会话的 shell。
+  // 子代理的 agentContext.sessionId 与所属会话相同，和父会话共用一个 shell
+  private static instances = new Map<string, PersistentShell>()
+
+  /** 命令跑完后闲置超过该时长就关掉子进程；记录保留 cwd，下次 getInstance 按原 cwd 重建，模型无感知 */
+  private static readonly IDLE_CLOSE_MS = 10 * 60 * 1000
+
+  // 获取会话的 shell，不存在或已死则（重）建
+  static getInstance(sessionId: string): PersistentShell {
+    const prev = PersistentShell.instances.get(sessionId)
+    if (!prev || !prev.isAlive) {
+      // 重建沿用上一个 shell 跟踪到的 cwd（含空闲回收、超时接管后的重建）。上一个若是 spawn 失败死的（目录已删 / bash 瞬时不可用），
+      // 那条命令已按失败返回并告知模型起点回到初始目录，这里兑现：不沿用其 cwd。不做目录存在性探测，避免静默换目录
+      const cwd = prev && !prev.spawnFailed ? prev.cwd : readInitialCwd()
+      PersistentShell.instances.set(sessionId, new PersistentShell(cwd))
+    }
+    return PersistentShell.instances.get(sessionId)!
+  }
+
+  // 会话关闭：关掉该会话的 shell 并丢弃记录
+  static disposeSession(sessionId: string): void {
+    const inst = PersistentShell.instances.get(sessionId)
+    if (!inst) return
+    PersistentShell.instances.delete(sessionId)
+    inst.close()
+  }
+
+  // 进程级 dispose：关掉所有会话的 shell
+  static disposeAll(): void {
+    for (const sessionId of Array.from(PersistentShell.instances.keys())) {
+      PersistentShell.disposeSession(sessionId)
     }
   }
 
-  // 获取单例实例
-  static getInstance(): PersistentShell {
-    if (!PersistentShell.instance || !PersistentShell.instance.isAlive) {
-      const cwd = PersistentShell.instance?.cwd || readInitialCwd()
-      PersistentShell.instance = new PersistentShell(cwd)
+  private clearIdleTimer(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer)
+      this.idleTimer = null
     }
-    return PersistentShell.instance
+  }
+
+  // 队列空了才计时；定时器 unref，不拖住进程退出
+  private scheduleIdleClose(): void {
+    this.clearIdleTimer()
+    if (!this.isAlive || this.isExecuting || this.commandQueue.length > 0) return
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null
+      if (this.isExecuting || this.commandQueue.length > 0) return
+      this.close()
+    }, PersistentShell.IDLE_CLOSE_MS)
+    this.idleTimer.unref?.()
   }
 
   // 杀死子进程
@@ -643,6 +700,7 @@ export class PersistentShell {
      */
     if (this.isExecuting || this.commandQueue.length === 0) return
 
+    this.clearIdleTimer()
     this.isExecuting = true
     const { command, abortSignal, timeout, onChunk, onTimeout, resolve, reject } =
       this.commandQueue.shift()!
@@ -666,8 +724,9 @@ export class PersistentShell {
       if (abortSignal) {
         abortSignal.removeEventListener('abort', killChildren)
       }
-      // 处理队列中的下一个命令
+      // 处理队列中的下一个命令；队列空了则起空闲回收计时
       this.processQueue()
+      this.scheduleIdleClose()
     }
   }
 
@@ -840,6 +899,12 @@ export class PersistentShell {
             // 命令被外部中断（如用户取消）
             const { stdout, stderr } = readOutput()
             finish({ stdout, stderr, code: SIGTERM_CODE, interrupted: true })
+          } else if (!this.isAlive) {
+            // shell 已不可用（spawn 失败 / 崩溃 / 管道断开）：不等超时，带原因返回；下一条命令由 getInstance 重建 shell
+            const { stdout, stderr } = readOutput()
+            const reason = this.deathReason ? `: ${this.deathReason}` : ''
+            const next = this.spawnFailed ? `; next command starts from ${readInitialCwd()}` : ''
+            finish({ stdout, stderr: (stderr ? stderr + '\n' : '') + `(shell exited${reason}${next})`, code: 1, interrupted: false })
           } else if (elapsed >= maxTimeout) {
             if (onTimeout) {
               // 超时接管：将旧 shell 及临时文件交给 TaskManager，新命令创建新 shell
@@ -857,8 +922,8 @@ export class PersistentShell {
                 shellProcess: this.shell,
                 partialOutput: stdout,
               })
-              // 重置单例，后续命令自动创建新 shell
-              PersistentShell.instance = null
+              // 旧进程归 TaskManager 所有：标记本实例不可用（close / 空闲回收不再碰它），后续命令由 getInstance 按本实例的 cwd 重建
+              this.isAlive = false
               // code=-1 为后台接管标记，Bash.ts 检测此值
               finish({ stdout: '', stderr: '', code: -1, interrupted: false })
             } else {
@@ -1053,6 +1118,11 @@ export class PersistentShell {
     if (this.shellType === 'cmd' || this.shellType === 'powershell') {
       return false
     }
+    // shell 已死（命令被中断 / 会话已关闭 / 超时接管）：cwd 文件已清、进程不可写，没有可复位的对象。
+    // 被中断的命令不会写 cwd 文件，记录里的 cwd 仍是命令前的目录，下次重建不会落到项目外
+    if (!this.isAlive) {
+      return false
+    }
 
     // 统一在 shell 路径形式下比较（msys: /c/foo，wsl: /mnt/c/foo）
     let current = this.pwd()
@@ -1076,10 +1146,13 @@ export class PersistentShell {
     return true
   }
 
-  // 关闭Shell
+  // 关闭Shell。已死 / 已被接管的实例不再碰其进程；先同步标记不可用，exit 事件异步到达前 getInstance 不会再返回本实例
   close(): void {
-    this.shell!.stdin!.end()
-    this.shell.kill()
+    this.clearIdleTimer()
+    if (!this.isAlive) return
+    this.isAlive = false
+    try { this.shell.stdin?.end() } catch { /* 管道已断 */ }
+    try { this.shell.kill() } catch { /* 进程已不在 */ }
   }
 }
 

@@ -231,7 +231,8 @@ export class WorkerPool extends EventEmitter {
     });
     // 进程：send() 写入已关闭的通道等场景会异步 emit error；线程：未捕获异常先 emit error 再 exit。无监听时都会升级为 uncaughtException
     backend.on('error', (err: any) => {
-      logErr('pool', `worker id=${backend.id} 错误 dir=${workingDir}:`, err?.message || err);
+      // 传 Error 对象本身：errlog 会记堆栈，线程未捕获异常的堆栈随 error 事件原样带过来
+      logErr('pool', `worker id=${backend.id} 错误 dir=${workingDir}:`, err);
       this.rejectPending(backend.id, err instanceof Error ? err : new Error(String(err)));
     });
     backend.on('exit', (code: number | null) => {

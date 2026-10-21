@@ -16,6 +16,7 @@ import { isMainThread, parentPort, threadId, workerData } from 'worker_threads';
 import type { SemaCore as SemaCoreType, SemaSession } from 'sema-core';
 import { SESSION_EVENTS, PROCESS_EVENTS } from '../../../shared/protocol';
 import type { CommandsInfo } from '../../../shared/types';
+import { logErr } from '../errlog';
 
 const IN_THREAD = !isMainThread && !!parentPort;
 const send = (msg: any) => {
@@ -234,3 +235,19 @@ if (IN_THREAD) {
 }
 
 send({ type: 'ready', pid: process.pid, threadId: IN_THREAD ? threadId : undefined, workingDir });
+
+// 运行期兜底（ready 之后才装：启动阶段的同步异常仍按原样结束 worker，让 pool 的 ready 失败）：
+// core 内漏掉的异步异常（子进程 error 事件无监听、未处理的 rejection 等）在线程 / 进程里都会直接结束 worker（code 1），
+// 这里改为只记 error.log 不退出。同一条错误 60 秒内只记第一次，循环触发时不刷屏；stdout/stderr 被 pool 丢弃，只能直接写文件
+const recentErrors = new Map<string, number>();
+function trap(kind: string, err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  const key = `${kind}:${msg.split('\n', 1)[0].slice(0, 160)}`;
+  const now = Date.now();
+  if (now - (recentErrors.get(key) || 0) < 60_000) return;
+  if (recentErrors.size > 200) recentErrors.clear();
+  recentErrors.set(key, now);
+  logErr('worker', `${kind} dir=${workingDir}:`, err);
+}
+process.on('uncaughtException', (err) => trap('uncaughtException', err));
+process.on('unhandledRejection', (reason) => trap('unhandledRejection', reason));

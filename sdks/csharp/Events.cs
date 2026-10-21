@@ -366,6 +366,29 @@ public record TopicUpdateData
     [JsonPropertyName("title")] public string? Title { get; init; }
 }
 
+/// <summary>
+/// goal:update 的原因（≙ core GoalUpdateData.reason）：
+/// set/updated/round=设定 / 改文本 / 自动续轮；completed/blocked=模型自报；
+/// cleared/resumed=接口触发（cleared 时 Goal 为 null）；paused=用户暂停、中断或权限拒绝；
+/// error/noProgress/maxRounds/mode=系统置 paused 的各自原因；status=裸 /goal 的回显，非状态变化。
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum GoalUpdateReason
+{
+    set, updated, round,
+    completed, blocked,
+    cleared, resumed,
+    paused, error, noProgress, maxRounds, mode,
+    status
+}
+
+/// <summary>goal:update 事件数据（≙ core GoalUpdateData）；Reason 为 cleared 时 Goal 为 null。</summary>
+public record GoalUpdateData
+{
+    [JsonPropertyName("goal")] public GoalState? Goal { get; init; }
+    [JsonPropertyName("reason")] public GoalUpdateReason? Reason { get; init; }
+}
+
 public record Usage
 {
     [JsonPropertyName("useTokens")] public long UseTokens { get; init; }

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from .types import (
         AdapterType, AgentConfig, AgentMode, ApiTestParams, ApiTestResult, BranchResult,
         CommandConfig, CreateSessionOptions, CronTask, DesignSkillInfo, DesignSystemInfo,
-        FetchModelsParams, FetchModelsResult, ForkOptions, ForkPreview, ForkResult,
+        FetchModelsParams, FetchModelsResult, ForkOptions, ForkPreview, ForkResult, GoalState,
         HooksInfo, ImageModelConfig, ImageModelProfile, InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
         MCPServerInfo, MemoryConfig, ModelConfig, ModelProfile, ModelUpdateData, PermissionLevel,
         RuleConfig, SemaCoreConfig, SkillConfig, TaskConfig, TaskListItem, ToolInfo, UsageStatsData,
@@ -462,6 +462,28 @@ class SemaSession:
     async def transfer_all_foreground_agents(self) -> "List[str]":
         ack = _parse(await self._call("transferAllForegroundAgents", None))
         return (ack or {}).get("taskIds", [])
+
+    # ── 长期目标（/goal）────────────────────────────────────────────────
+    # 设定目标只走 process_user_input("/goal <文本>")；以下接口不进输入队列、立即生效，状态变化经 goal:update 事件推送
+
+    async def get_goal(self) -> "Optional[GoalState]":
+        return _parse(await self._call("getGoal", None))
+
+    async def update_goal(self, text: str) -> "Optional[GoalState]":
+        """只改目标文本，状态、轮数不变；无目标或空文本不做事。"""
+        return _parse(await self._call("updateGoal", {"text": text}))
+
+    async def pause_goal(self) -> "Optional[GoalState]":
+        """running → paused，循环到本轮结束不再续（要立刻停请同时 interrupt）；非 running 原样返回。"""
+        return _parse(await self._call("pauseGoal", None))
+
+    async def resume_goal(self) -> "Optional[GoalState]":
+        """paused / blocked → running 并注入一轮续轮输入（会话空闲立即开跑，处理中则排队）；其他状态原样返回。"""
+        return _parse(await self._call("resumeGoal", None))
+
+    async def clear_goal(self) -> None:
+        """删除目标记录（任何状态都可）；running 中删除循环到本轮结束不再续。"""
+        await self._call("clearGoal", None)
 
     def watch_task(self, task_id: str, on_delta: Callable[[str], Any]) -> Registration:
         """订阅任务增量（task:watch:delta 合成事件）；unregister 时发 unwatchTask。"""

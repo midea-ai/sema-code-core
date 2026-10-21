@@ -84,7 +84,12 @@
     "getTaskList": { "level": "session", "payload": [], "ack": "value" },
     "stopTask": { "level": "session", "payload": ["taskId"], "ack": "value" },
     "watchTask": { "level": "session", "payload": ["taskId"], "ack": "value", "note": "增量以会话级合成事件 task:watch:delta 上行" },
-    "unwatchTask": { "level": "session", "payload": ["taskId"], "ack": "value" }
+    "unwatchTask": { "level": "session", "payload": ["taskId"], "ack": "value" },
+    "getGoal": { "level": "session", "payload": [], "ack": "value", "note": "ack 回 GoalState | null" },
+    "updateGoal": { "level": "session", "payload": ["text"], "ack": "value", "note": "只改目标文本，不改状态；ack 回 GoalState | null。设定目标走 processUserInput 的 /goal <文本>" },
+    "pauseGoal": { "level": "session", "payload": [], "ack": "value", "note": "running → paused，循环到本轮结束不再续；ack 回 GoalState | null" },
+    "resumeGoal": { "level": "session", "payload": [], "ack": "value", "note": "paused / blocked → running；ack 回 GoalState | null" },
+    "clearGoal": { "level": "session", "payload": [], "ack": "delivery" }
   },
   "events": {
     "session": [
@@ -95,7 +100,7 @@
       "tool:permission:request", "tool:permission:auto",
       "tool:execution:complete", "tool:execution:chunk", "tool:execution:error",
       "task:agent:start", "task:agent:end", "task:start", "task:end", "task:transfer",
-      "todos:update", "topic:update",
+      "todos:update", "topic:update", "goal:update",
       "pick:option:request", "plan:exit:request", "plan:implement",
       "compact:exec",
       "conversation:usage", "file:reference",

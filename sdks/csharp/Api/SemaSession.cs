@@ -124,6 +124,29 @@ public sealed class SemaSession
     public async Task<List<string>> TransferAllForegroundAgents()
         => Json.ToList<string>(SemaJson.Get(await Req("transferAllForegroundAgents", null).ConfigureAwait(false), "taskIds"));
 
+    // ── 长期目标（/goal）────────────────────────────────────────────────
+    // 设定目标只走 ProcessUserInput("/goal <文本>")；以下接口不进输入队列、立即生效，状态变化经 goal:update 事件推送
+
+    /// <summary>当前长期目标；无目标返回 null。</summary>
+    public async Task<GoalState?> GetGoal()
+        => Json.To<GoalState>(await Req("getGoal", null).ConfigureAwait(false));
+
+    /// <summary>只改目标文本，状态、轮数不变；无目标或空文本不做事。返回更新后的目标，无目标返回 null。</summary>
+    public async Task<GoalState?> UpdateGoal(string text)
+        => Json.To<GoalState>(await Req("updateGoal", Json.Obj(("text", text))).ConfigureAwait(false));
+
+    /// <summary>running → paused，循环到本轮结束不再续（要立刻停请同时 <see cref="Interrupt"/>）；非 running 原样返回，无目标返回 null。</summary>
+    public async Task<GoalState?> PauseGoal()
+        => Json.To<GoalState>(await Req("pauseGoal", null).ConfigureAwait(false));
+
+    /// <summary>paused / blocked → running 并注入一轮续轮输入（会话空闲立即开跑，处理中则排队）；其他状态原样返回，无目标返回 null。</summary>
+    public async Task<GoalState?> ResumeGoal()
+        => Json.To<GoalState>(await Req("resumeGoal", null).ConfigureAwait(false));
+
+    /// <summary>删除目标记录（任何状态都可）；running 中删除循环到本轮结束不再续。</summary>
+    public Task ClearGoal()
+        => VoidCall("clearGoal", null);
+
     /// <summary>开始流式观察任务输出；注销返回的 Registration 会停止观察并退订事件。</summary>
     public Registration WatchTask(string taskId, Action<string> onDelta)
     {

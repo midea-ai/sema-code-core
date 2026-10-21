@@ -167,6 +167,34 @@ public final class SemaSession {
         return GSON.fromJson(SemaJson.get(req("transferAllForegroundAgents", null), "taskIds"), LIST_STRING);
     }
 
+    // ── 长期目标（/goal）────────────────────────────────────────────────
+    // 设定目标只走 processUserInput("/goal <文本>")；以下接口不进输入队列、立即生效，状态变化经 goal:update 事件推送
+
+    /** 当前长期目标；无目标返回 null。 */
+    public GoalState getGoal() {
+        return call("getGoal", null, GoalState.class);
+    }
+
+    /** 只改目标文本，状态、轮数不变；无目标或空文本不做事。返回更新后的目标，无目标返回 null。 */
+    public GoalState updateGoal(String text) {
+        return call("updateGoal", Json.obj("text", text), GoalState.class);
+    }
+
+    /** running → paused，循环到本轮结束不再续（要立刻停请同时 {@link #interrupt}）；非 running 原样返回，无目标返回 null。 */
+    public GoalState pauseGoal() {
+        return call("pauseGoal", null, GoalState.class);
+    }
+
+    /** paused / blocked → running 并注入一轮续轮输入（会话空闲立即开跑，处理中则排队）；其他状态原样返回，无目标返回 null。 */
+    public GoalState resumeGoal() {
+        return call("resumeGoal", null, GoalState.class);
+    }
+
+    /** 删除目标记录（任何状态都可）；running 中删除循环到本轮结束不再续。 */
+    public void clearGoal() {
+        send("clearGoal", null);
+    }
+
     /** 开始流式观察任务输出；关闭返回的 Registration 会停止观察并退订事件。 */
     public Registration watchTask(String taskId, Consumer<String> onDelta) {
         Objects.requireNonNull(taskId);

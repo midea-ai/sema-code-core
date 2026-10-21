@@ -512,6 +512,24 @@ class TodoTask(TypedDict):
     progressText: NotRequired[str]
 
 
+# ==================== 长期目标（/goal；getGoal 返回值与 goal:update 事件载荷）====================
+
+# running=自主循环中；paused=用户暂停/中断、系统止损、重开会话，可 resume；
+# completed/blocked=模型自报，blocked 可 resume；不要了用 clear_goal 删除
+GoalStatus = Literal["running", "paused", "completed", "blocked"]
+
+
+class GoalState(TypedDict):
+    text: str
+    status: GoalStatus
+    round: int              # 起始轮为 1，仅自动续轮加一
+    maxRounds: int          # 因上限暂停后 resume 时累加
+    idleRounds: int         # 连续无 tool_use 的目标轮数
+    summary: NotRequired[str]   # 模型自报完成 / 受阻时给出的总结
+    createdAt: int
+    updatedAt: int
+
+
 # ==================== 输入附件（processUserInput 参数）====================
 
 class InputImageAttachment(TypedDict):

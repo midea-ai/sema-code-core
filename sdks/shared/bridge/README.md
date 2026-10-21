@@ -99,6 +99,11 @@ service SemaBridge {
 | `updatePermissionLevel`    | 切换权限档位，`{ level }`                               |
 | `switchModel`              | 切换本会话主模型，`{ modelName }`；仅本会话生效、不落盘，其他会话与全局指针不受影响；`ack` 回会话视角 `ModelUpdateData`；生效主模型确有变化时才下发会话级 `model:update` |
 | `getModelData`             | 获取本会话视角模型信息：`modelName`/`taskConfig.main` 为会话生效值，`modelList`/`taskConfig.quick` 沿用全局 |
+| `getGoal`                  | 读取长期目标，`ack` 回 `GoalState \| null`；设定目标只走 `processUserInput` 的 `/goal <文本>` |
+| `updateGoal`               | 只改目标文本，`{ text }`；状态、轮数不变，`ack` 回 `GoalState \| null` |
+| `pauseGoal`                | running → paused，循环到本轮结束不再续（要立刻停请同时 `interrupt`）；`ack` 回 `GoalState \| null` |
+| `resumeGoal`               | paused / blocked → running 并注入一轮续轮输入；`ack` 回 `GoalState \| null` |
+| `clearGoal`                | 删除目标记录（任何状态都可），无返回值 |
 
 ### 典型调用流程
 
@@ -141,6 +146,7 @@ init  ─▶  addModel  ─▶  applyTaskModel  ─▶  createSession
 | `task:end`                 | 后台任务结束        |
 | `todos:update`             | 待办事项更新        |
 | `topic:update`             | 会话主题更新        |
+| `goal:update`              | 长期目标状态变化（`{ goal, reason }`，`cleared` 时 `goal` 为 null） |
 | `pick:option:request`      | AI 发起选项询问     |
 | `plan:exit:request`        | AI 请求退出计划模式  |
 | `permissionLevel:update`   | 权限档位变更        |

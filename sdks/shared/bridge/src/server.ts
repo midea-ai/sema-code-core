@@ -212,6 +212,14 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         // 全部前台 agent 转后台（会话级）；ack 回转过去的 taskId 列表。
         case 'transferAllForegroundAgents': ack(id, { taskIds: (requireSession(sessionId, action) as any).transferAllForegroundAgents() }); return;
 
+        // 长期目标（/goal，会话级）：不进输入队列、立即生效，状态变化经会话级 goal:update 事件下发；
+        // ack 回 core 原值 GoalState | null（null 序列化为 'null'，各端解析为空）。设定目标只走 processUserInput 的 /goal <文本>。
+        case 'getGoal':    ack(id, (requireSession(sessionId, action) as any).getGoal()); return;
+        case 'updateGoal': ack(id, (requireSession(sessionId, action) as any).updateGoal(payload.text)); return;
+        case 'pauseGoal':  ack(id, (requireSession(sessionId, action) as any).pauseGoal()); return;
+        case 'resumeGoal': ack(id, (requireSession(sessionId, action) as any).resumeGoal()); return;
+        case 'clearGoal':  (requireSession(sessionId, action) as any).clearGoal(); break;
+
         // ── 配置页 SemaCore 方法（进程级，无需 session_id）──────────
         // 均为 sema-core 原始方法名，桥透明转发；ack 回原始返回值，UI 侧的翻译在 config-controller。
         // 参数映射对齐 semaProcessWrapper 的公开签名。

@@ -12,7 +12,7 @@ export const SESSION_EVENTS = [
   'tool:permission:request', 'tool:permission:auto',
   'tool:execution:complete', 'tool:execution:chunk', 'tool:execution:error',
   'task:agent:start', 'task:agent:end', 'task:start', 'task:end', 'task:transfer',
-  'todos:update', 'topic:update',
+  'todos:update', 'topic:update', 'goal:update',
   'pick:option:request', 'plan:exit:request', 'plan:implement',
   'compact:exec',
   'conversation:usage', 'file:reference',

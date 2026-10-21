@@ -15,6 +15,7 @@ from .types import (
     AppSessionState,
     CronTaskStatus,
     FileReferenceInfo,
+    GoalState,
     HookScope,
     InputImageAttachment,
     MCPServerInfo,
@@ -202,6 +203,23 @@ class PermissionLevelUpdateData(TypedDict):
 class TopicUpdateData(TypedDict):
     isNewTopic: bool
     title: str
+
+
+# goal:update 的原因：set/updated/round=设定 / 改文本 / 自动续轮；completed/blocked=模型自报；
+# cleared/resumed=接口触发（cleared 时 goal 为 None）；paused=用户暂停、中断或权限拒绝；
+# error/noProgress/maxRounds/mode=系统置 paused 的各自原因；status=裸 /goal 的回显，非状态变化
+GoalUpdateReason = Literal[
+    "set", "updated", "round",
+    "completed", "blocked",
+    "cleared", "resumed",
+    "paused", "error", "noProgress", "maxRounds", "mode",
+    "status",
+]
+
+
+class GoalUpdateData(TypedDict):
+    goal: Optional[GoalState]
+    reason: GoalUpdateReason
 
 
 class ConversationUsageData(TypedDict):

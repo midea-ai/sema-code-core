@@ -62,6 +62,10 @@ public enum SystemPromptMode { append, replace, replaceAll }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TodoTaskStatus { pending, in_progress, completed }
 
+/// <summary>长期目标状态（≙ core GoalStatus）：running=自主循环中；paused=用户暂停/中断、系统止损、重开会话，可 resume；completed/blocked=模型自报，blocked 可 resume。</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum GoalStatus { running, paused, completed, blocked }
+
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ToolStatus { enable, disable }
 
@@ -630,6 +634,23 @@ public record TodoTask
     [JsonPropertyName("createdAt")] public long CreatedAt { get; init; }
     [JsonPropertyName("updatedAt")] public long UpdatedAt { get; init; }
     [JsonPropertyName("progressText")] public string? ProgressText { get; init; }
+}
+
+/// <summary>
+/// 长期目标（/goal）状态（≙ core GoalState）：GetGoal 返回值与 goal:update 事件载荷。
+/// Round 起始为 1、仅自动续轮加一；MaxRounds 因上限暂停后 resume 时累加；IdleRounds 为连续无 tool_use 的目标轮数；
+/// Summary 为模型自报完成 / 受阻时给出的总结。
+/// </summary>
+public record GoalState
+{
+    [JsonPropertyName("text")] public string? Text { get; init; }
+    [JsonPropertyName("status")] public GoalStatus? Status { get; init; }
+    [JsonPropertyName("round")] public int Round { get; init; }
+    [JsonPropertyName("maxRounds")] public int MaxRounds { get; init; }
+    [JsonPropertyName("idleRounds")] public int IdleRounds { get; init; }
+    [JsonPropertyName("summary")] public string? Summary { get; init; }
+    [JsonPropertyName("createdAt")] public long CreatedAt { get; init; }
+    [JsonPropertyName("updatedAt")] public long UpdatedAt { get; init; }
 }
 
 public record ToolInfo

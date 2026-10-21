@@ -243,6 +243,18 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `transferAgentToBackground` | `transfer_agent_to_background` | `transferAgentToBackground` | `TransferAgentToBackground` | `taskId: string`(必填) | — |
 | `transferAllForegroundAgents` | `transfer_all_foreground_agents` | `transferAllForegroundAgents` | `TransferAllForegroundAgents` | — | — |
 
+### 长期目标(/goal)
+
+设定目标只走 `processUserInput("/goal <文本>")`(需要跑第一轮,天然排队);以下接口不进输入队列、立即生效,状态变化经 `goal:update` 事件推送。四个返回值接口均返回 `GoalState | null`(无目标为 null)。
+
+| sema-core | Python | Java | C# | 参数 | 差异点备注 |
+| --- | --- | --- | --- | --- | --- |
+| `getGoal` | `get_goal` | `getGoal` | `GetGoal` | — | — |
+| `updateGoal` | `update_goal` | `updateGoal` | `UpdateGoal` | `text: string`(必填) | 只改文本,状态、轮数不变;无目标或空文本不做事 |
+| `pauseGoal` | `pause_goal` | `pauseGoal` | `PauseGoal` | — | running → paused,循环到本轮结束不再续、不中断当前轮(要立刻停请同时 `interrupt`);非 running 原样返回 |
+| `resumeGoal` | `resume_goal` | `resumeGoal` | `ResumeGoal` | — | paused / blocked → running 并注入一轮续轮输入(会话空闲立即开跑,处理中则排队);其他状态原样返回 |
+| `clearGoal` | `clear_goal` | `clearGoal` | `ClearGoal` | — | 删除目标记录(任何状态都可),无返回值;running 中删除循环到本轮结束不再续 |
+
 ### 资源管理
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
@@ -291,6 +303,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `todos:update` | `TodosUpdateData` | 待办列表更新(Task 工具执行后) |
 | **其它状态与统计** | | |
 | `topic:update` | `TopicUpdateData` | 会话话题标题更新 |
+| `goal:update` | `GoalUpdateData` | 长期目标状态变化(`{ goal, reason }`):`set`/`updated`/`round` 设定 / 改文本 / 自动续轮;`completed`/`blocked` 模型自报;`cleared`/`resumed` 接口触发(`cleared` 时 `goal` 为 null);`paused`/`error`/`noProgress`/`maxRounds`/`mode` 置 paused 的各自原因;`status` 为裸 `/goal` 回显,非状态变化 |
 | `compact:exec` | `CompactExecData` | 上下文压缩统计 |
 | `compact:micro` | `CompactMicroData` | Micro 压缩统计(旧工具结果替换为占位符;历史未被摘要替换,UI 不应据此隐藏 transcript) |
 | `conversation:usage` | `ConversationUsageData` | token 用量 |
@@ -352,6 +365,7 @@ UsageStatsData, UsageDayData, UsageTotals, UsageTokens       // 使用统计:总
 UsageModelStat, UsageToolStat, UsageSkillStat                // 使用统计:按模型 / 工具 / skill 的聚合项
 TaskListItem                                                 // 后台任务列表项
 TodoItem, TodoTask, TodoTaskStatus                           // 待办:精简项 / 完整任务 / 状态
+GoalState, GoalStatus                                        // 长期目标(/goal):状态对象 / 状态枚举
 CreateSessionOptions, CreateSessionResult                    // 会话创建:选项 / 结果
 ForkOptions, ForkPreview, ForkResult, ForkFileChange, ForkFileEffect  // 会话 Fork/撤销:选项/预览/结果/文件改动/改动类型
 InputImageAttachment                                         // 图片附件(processUserInput)
@@ -374,6 +388,7 @@ ThinkingChunkData, TextChunkData, MessageCompleteData        // AI 消息:思考
 ToolPermissionRequestData, ToolPermissionAutoData, ToolPermissionResponse  // 工具权限:请求 / 自动放行 / 应答
 ToolExecutionCompleteData, ToolExecutionChunkData, ToolExecutionErrorData   // 工具执行:完成 / 中间态 / 错误
 TodosUpdateData, PermissionLevelUpdateData, TopicUpdateData  // 待办更新 / 档位更新 / 主题更新
+GoalUpdateData, GoalUpdateReason                             // 长期目标更新:载荷 / 原因枚举
 Usage, ConversationUsageData, CompactExecData, CompactMicroData  // 用量 / 对话用量 / 压缩统计 / micro 压缩统计
 FileReferenceData                                           // 文件引用
 PickOptionQuestion, PickOptionRequestData, PickOptionResponseData  // 问答:题型(判别联合) / 请求 / 应答

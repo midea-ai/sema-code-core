@@ -1,6 +1,6 @@
 {
   "name": "sema-code-ui",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "description": "SemaWork 命令行启动器：sema-ui 一条命令在浏览器打开基于 sema-core 的本地 Web 界面",
   "author": "AIRC Sema Team",
   "license": "MIT",
@@ -37,7 +37,7 @@
     "cron-parser": "^5.5.0",
     "diff": "7.0.0",
     "node-pty": "1.2.0-beta.15",
-    "sema-core": "^2.1.4",
+    "sema-core": "^2.1.5",
     "ws": "^8.18.0",
     "zod": "^3.25.76"
   },

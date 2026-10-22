@@ -5,10 +5,10 @@ description: "Research a question across many web pages in the user's own Chrome
 
 # Deep research
 
-## Prerequisites
+## 0. Check browser control before any tool call
 
-- This skill searches and reads only through the browser control tools (mcp__chrome__ prefix). Check the tool list, or the tool index in tool search mode, before anything else.
-- If no such tool exists, browser control is off. Tell the user: open Settings > Integrations and turn on Browser control, install the "Sema Browser Control" extension from https://chromewebstore.google.com/detail/pjofgjgagohldpbcnkgnfjeehealejie, keep Chrome open, then ask again. Then end the turn. Do not research from memory and do not use fetch_url instead.
+- This skill searches and reads only through the browser control tools (mcp__chrome__ prefix). Before calling any tool, creating any folder or asking any question, look for them: either mcp__chrome__ tools in your tool list, or a "chrome" server in the load_tools description. This is a read of what you already see, not a tool call.
+- If they are absent, browser control is off. Reply with one sentence in the user's language and end the turn: turn on Browser control in Settings and install the [browser extension](https://chromewebstore.google.com/detail/pjofgjgagohldpbcnkgnfjeehealejie), then send the question again. Render the link as markdown link text, never as a bare URL. Do not research from memory, do not use fetch_url instead, and do not run any step below.
 
 ## Your role
 

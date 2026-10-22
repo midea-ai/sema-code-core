@@ -269,7 +269,12 @@ export function Composer({ sessionId, projectId, active = true }: { sessionId?: 
     const list = snap ? snap.inputHistory : draftHistory;
     if (!list?.length) return false;
     const caret = taRef.current?.getCaret() ?? draft.text.length;
-    const apply = (text: string) => { pendingCaret.current = text.length; setDraft(draftKey, d => ({ ...d, text })); };
+    // 历史里存的是 trim 过的文本：整条只有 `/<命令或技能名>` 时补一个尾随空格，否则编辑器不会把它换成标签（标签要求名后跟空格）
+    const apply = (raw: string) => {
+      const sk = matchSkillPrefix(raw);
+      const text = sk && raw.length === sk.prefixLen && !/\s$/.test(raw) ? raw + ' ' : raw;
+      pendingCaret.current = text.length; setDraft(draftKey, d => ({ ...d, text }));
+    };
     if (key === 'ArrowUp') {
       if (draft.text.slice(0, caret).includes('\n')) return false;
       const next = histIdx.current === null ? 0 : histIdx.current + 1;

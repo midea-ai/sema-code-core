@@ -164,8 +164,9 @@ function UserBubbleBar({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   const btn = 'text-muted hover:text-fg inline-flex items-center p-0.5 rounded';
   const mark = 'inline-flex items-center gap-1 text-muted hover:text-fg hover:underline underline-offset-2';
   const hasMark = block.source === 'cron' || !!block.goal;
-  // 目标续轮没有气泡本体（固定触发语），不提供复制
+  // 目标续轮没有气泡本体（固定触发语），不提供复制，也不作为回退锚点（回退到一个自动触发的轮次没有意义）
   const copyable = block.source !== 'goal';
+  const goalRound = block.source === 'goal' && block.goal?.action === 'round';
   return (
     <div className="flex items-center gap-1.5 text-[11px] text-muted">
       <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1.5">
@@ -176,7 +177,7 @@ function UserBubbleBar({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
           </button>
         )}
         {/* 排队中的输入尚未进入 core 历史，无法作为回退锚点 */}
-        {block.inputId && !block.queued && ctx.onRewind && (
+        {block.inputId && !block.queued && !goalRound && ctx.onRewind && (
           <button className={btn} title={t('chat.rewindHere')} onClick={() => ctx.onRewind!(block.inputId!)}>
             <Undo2 size={12} />
           </button>
@@ -667,18 +668,23 @@ function NoticeBar({ block }: { block: NoticeBlock }) {
   const subtle = block.noticeType === 'compact-micro';
   const Icon = block.level === 'error' ? X : block.level === 'warn' ? AlertTriangle : Info;
   const [open, setOpen] = useState(false);
-  // 报错块的叉可点击关掉：只是本组件状态，ChatView 按 sessionId 重建，切回会话后按快照重新渲染
+  // 所有提示条都能点叉关掉：只是本组件状态，ChatView 按 sessionId 重建，切回会话后按快照重新渲染
   const [hidden, setHidden] = useState(false);
   // 模型自动放行提示不展示（工具行本身已足够）
   if (block.noticeType === 'auto-permission') return null;
   if (hidden) return null;
   if (subtle) return <div className="my-1 text-[11px] text-muted/80 pl-1">· {block.text}{block.detail ? ` (${block.detail})` : ''}</div>;
+  const closeBtn = (
+    <button onClick={() => setHidden(true)} title={t('common.close')} aria-label={t('common.close')}
+      className={cn('mt-0.5 shrink-0 rounded text-muted hover:text-fg', block.level === 'error' ? 'hover:bg-danger/20' : block.level === 'warn' ? 'hover:bg-warn/20' : 'hover:bg-panel')}>
+      <X size={13} />
+    </button>
+  );
   return (
     <div className={cn('my-2 rounded-md border px-3 py-1.5 text-xs flex items-start gap-2',
       block.level === 'error' ? 'border-danger/40 bg-danger/10 text-fg' : block.level === 'warn' ? 'border-warn/40 bg-warn/10' : 'border-border bg-white text-muted')}>
-      {block.level === 'error'
-        ? <button onClick={() => setHidden(true)} title={t('common.close')} aria-label={t('common.close')} className="mt-0.5 shrink-0 rounded text-muted hover:text-fg hover:bg-danger/20"><Icon size={13} /></button>
-        : <Icon size={13} className="mt-0.5 shrink-0" />}
+      {/* error 级别图标本身就是叉，直接作关闭按钮；warn/info 在级别图标前加一个叉 */}
+      {block.level === 'error' ? closeBtn : <>{closeBtn}<Icon size={13} className="mt-0.5 shrink-0" /></>}
       <div className="flex-1 min-w-0">
         <div className="whitespace-pre-wrap break-words">{block.text}</div>
         {block.detail && (

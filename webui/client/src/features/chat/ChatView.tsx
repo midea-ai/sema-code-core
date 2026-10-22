@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { FolderOpen, Pencil, ArrowDown, Copy, Check, ThumbsUp, ThumbsDown, GitBranch, Target } from 'lucide-react';
 import type { Block, SessionSnapshot } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
@@ -190,23 +190,34 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
   };
 
   // 轮次列表整体 memo：隐藏实例因 registry / 语言等外部变化重渲染时不重算整棵块树（lang 作依赖保证切语言时刷新文案）
-  const turnEls = useMemo(() => turns.map((turn, i) => {
-    // 分支锚点：中间轮次取下一轮用户输入的 inputId（历史截到它之前）；
-    // 下一轮开头是合成块（plan-implement）或无 inputId 时截不出干净边界，不提供分支。
-    // 最后一轮不带锚点 = 全量分支。
-    const last = i === turns.length - 1;
-    const nextOpener = last ? undefined : turns[i + 1]?.opener;
-    const anchor = nextOpener?.kind === 'user' ? nextOpener.inputId : undefined;
-    return (
-      <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx}
-        active={snap?.state === 'processing' && i === runningIdx}
-        awaitingTs={i === runningIdx ? awaitingTs : undefined}
-        canBranch={canBranchNow && (last || !!anchor)}
-        branchAnchor={anchor}
-        branching={branching}
-        onBranch={branchToNewChat} />
-    );
-  }), [turns, ctx, snap?.state, runningIdx, awaitingTs, canBranchNow, branching, branchToNewChat, lang]);
+  const turnEls = useMemo(() => {
+    // 吸顶范围：用户气泡 position: sticky 只在父容器内吸附。目标自动续轮的开头是不吸顶的标签行，
+    // 若每轮各自成容器，滚到续轮区域时上一条真实输入就被释放了；因此一条真实输入及其后连续的续轮共用一个容器，
+    // 真实输入的气泡一直吸到最后一个续轮结束（TurnGroup 自身的包裹是 display: contents，不构成吸顶边界）
+    const scopes: ReactElement[][] = [];
+    turns.forEach((turn, i) => {
+      // 分支锚点：中间轮次取下一轮用户输入的 inputId（历史截到它之前）；
+      // 下一轮开头是合成块（plan-implement）或无 inputId 时截不出干净边界，不提供分支。
+      // 最后一轮不带锚点 = 全量分支。
+      const last = i === turns.length - 1;
+      const nextOpener = last ? undefined : turns[i + 1]?.opener;
+      const anchor = nextOpener?.kind === 'user' ? nextOpener.inputId : undefined;
+      const el = (
+        <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx}
+          active={snap?.state === 'processing' && i === runningIdx}
+          awaitingTs={i === runningIdx ? awaitingTs : undefined}
+          canBranch={canBranchNow && (last || !!anchor)}
+          branchAnchor={anchor}
+          branching={branching}
+          onBranch={branchToNewChat} />
+      );
+      const o = turn.opener;
+      const goalRound = o?.kind === 'user' && o.source === 'goal' && o.goal?.action === 'round';
+      if (goalRound && scopes.length) scopes[scopes.length - 1].push(el);
+      else scopes.push([el]);
+    });
+    return scopes.map(els => <div key={els[0].key}>{els}</div>);
+  }, [turns, ctx, snap?.state, runningIdx, awaitingTs, canBranchNow, branching, branchToNewChat, lang]);
 
   if (!record) return <div className="flex-1 flex items-center justify-center text-muted">{t('chat.sessionNotFound')}</div>;
 
@@ -385,7 +396,8 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
   }
 
   return (
-    <div>
+    // display: contents：吸顶边界由 ChatView 里的外层容器决定（一条真实输入 + 其后的目标续轮共用一个），这里不构成边界
+    <div className="contents">
       <BlockRenderer block={opener} ctx={ctx} />
       {!queued && (running ? started : (hasWork || collapsible)) && (
         <TurnDivider start={opener.ts} end={opener.doneTs ?? (running ? undefined : (rest[rest.length - 1]?.ts ?? opener.ts))} active={running} pausedAt={running ? awaitingTs : undefined} pausedMs={waitedMsIn(rest)} collapsible={collapsible} expanded={expanded} onToggle={() => setExpanded(v => !v)} />

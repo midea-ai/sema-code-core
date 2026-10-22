@@ -3,7 +3,7 @@
  * 只影响显示，发给 core 的文本仍是 `/<斜杠名> ...`。要增删映射只需改 SKILL_DISPLAY / COMMAND_DISPLAY。
  * 技能名直接写英文（办公软件名各语言通用）；命令名与所有描述走 i18n，只写 zh / en，其他语言兜底英文。
  */
-import { ChartColumn, ChevronsDownUp, Chrome, Eraser, MessageCircleQuestion, Puzzle, Target, Telescope, type LucideIcon } from 'lucide-react';
+import { ChartColumn, Chrome, Database, Eraser, MessageCircleQuestion, Puzzle, Target, Telescope, type LucideIcon } from 'lucide-react';
 import { FileIcon } from '../../common/fileicon/FileIcon';
 import { FILE_LABEL_ICON } from './fileRefDisplay';
 import { cn } from '../../common/ui';
@@ -38,7 +38,7 @@ const COMMAND_PANEL_COLOR = '#454545';
 /** key = 内置命令名（与 InputPickers 的 BUILTIN_COMMANDS 一致）；不写 color：输入框/气泡里走强调色（与 @ 文件芯片一致） */
 export const COMMAND_DISPLAY: Record<string, SkillDisplay> = {
   'clear':     { icon: Eraser,                nameKey: 'chat.commands.clear.name',     descKey: 'chat.commands.clear' },
-  'compact':   { icon: ChevronsDownUp,        nameKey: 'chat.commands.compact.name',   descKey: 'chat.commands.compact' },
+  'compact':   { icon: Database,              nameKey: 'chat.commands.compact.name',   descKey: 'chat.commands.compact' },
   'quickchat': { icon: MessageCircleQuestion, nameKey: 'chat.commands.quickchat.name', descKey: 'chat.commands.quickchat' },
   'goal':      { icon: Target,                nameKey: 'chat.commands.goal.name',      descKey: 'chat.commands.goal' },
 };

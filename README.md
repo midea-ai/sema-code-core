@@ -14,6 +14,7 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/midea-ai/sema-code-core)
 [![npm version](https://img.shields.io/npm/v/sema-core?style=flat-square)](https://www.npmjs.com/package/sema-core)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square)](https://midea-ai.github.io/sema-code-core)
+[![DOI](https://img.shields.io/badge/DOI-10.1145%2F3837729.3840503-0085CA?style=flat-square)](https://doi.org/10.1145/3837729.3840503)
 [![arXiv](https://img.shields.io/badge/arXiv-2604.11045-b31b1b?style=flat-square)](https://arxiv.org/abs/2604.11045)
 
 [中文](./README_CN.md) | **English**
@@ -101,6 +102,25 @@ npm pack
 ```
 
 Non-Node projects can integrate via the [multi-language SDKs](./sdks/README.md) (Java / Python / C#).
+
+## 📝 Citation
+
+If you use Sema Core in your research, please cite our [SPLASH '26 paper](https://doi.org/10.1145/3837729.3840503):
+
+```bibtex
+@inproceedings{wang2026semacore,
+  title     = {Sema Core: An Open, Embeddable AI Coding Agent Runtime for the IDE and Beyond},
+  author    = {Wang, Huacan and Zhou, Jie and Zhu, Ningyan and Zhang, Shuo and Tu, Yanlun and Chen, Feiyu and Wu, Jiarou and Zhou, Ziyue and Chen, Ge and Liu, Chen and Chen, Wangyi and Mou, Xiaofeng and Xu, Yi},
+  booktitle = {Companion Proceedings of the 2026 ACM SIGPLAN International Conference on Systems, Programming, Languages, and Applications: Software for Humanity},
+  series    = {SPLASH '26},
+  publisher = {ACM},
+  year      = {2026},
+  pages     = {220--225},
+  doi       = {10.1145/3837729.3840503},
+  eprint    = {2604.11045},
+  archivePrefix = {arXiv}
+}
+```
 
 ## 📜 License
 

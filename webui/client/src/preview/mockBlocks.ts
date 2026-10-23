@@ -405,15 +405,15 @@ $$P_{\\text{Bash}}(c) = \\text{allow} \\iff \\begin{cases} \\text{head}(c) \\in 
   ],
 
   TaskEndCompleted: [
-    { ...base(), kind: 'notice', level: 'info', noticeType: 'info', text: '后台任务结束（completed）：Bash "ls -la /tmp" completed' },
+    { ...base(), kind: 'notice', level: 'info', noticeType: 'bg-task', taskStatus: 'completed', text: 'Background shell command completed (exit code 0)' },
   ],
 
   TaskEndFailed: [
-    { ...base(), kind: 'notice', level: 'warn', noticeType: 'info', text: '后台任务结束（failed）：Agent "Analyze codebase and generate a detailed repor..." failed' },
+    { ...base(), kind: 'notice', level: 'warn', noticeType: 'bg-task', taskStatus: 'failed', text: 'Agent "Analyze codebase and generate a detailed repor..." failed' },
   ],
 
   TaskEndKilled: [
-    { ...base(), kind: 'notice', level: 'info', noticeType: 'info', text: '后台任务结束（killed）：Agent "Refactor all API endpoints to use new schema" killed' },
+    { ...base(), kind: 'notice', level: 'info', noticeType: 'bg-task', taskStatus: 'killed', text: 'Agent "Refactor all API endpoints to use new schema" killed' },
   ],
 
   Agent: [

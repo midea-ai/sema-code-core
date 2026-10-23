@@ -49,6 +49,7 @@ export const BlockRenderer = memo(function BlockRenderer({ block, ctx, onToolOpe
     case 'branch-origin': return <BranchOrigin block={block} />;
     case 'notice':
       if (block.noticeType === 'goal-achieved') return null; // 由轮末操作行标记表示
+      if (block.noticeType === 'bg-task') return <BgTaskRow block={block} />;
       return block.noticeType === 'plan-implement' ? <PlanImplementCard block={block} ctx={ctx} /> : <NoticeBar block={block} />;
     case 'file-changes': return <FileChangesCard block={block} ctx={ctx} />;
     case 'cron': return <CronCard block={block} ctx={ctx} />;
@@ -456,17 +457,17 @@ function ToolCard({ block, ctx, onOpenChange }: { block: ToolBlock; ctx: BlockCt
 }
 
 /** 连续的 view_file 读图片合并为一行「已查看 x 张图片」，展开显示缩略图（与输入气泡同规格，点击放大） */
-function ImageReadCard({ blocks, ctx }: { blocks: ToolBlock[]; ctx: BlockCtx }) {
+function ImageReadCard({ blocks, ctx, onOpenChange }: { blocks: ToolBlock[]; ctx: BlockCtx; onOpenChange?: (open: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
   const running = blocks.some(b => b.status === 'running');
   const paths = blocks.map(b => filePathOf(b, workingDir)).filter((p): p is string => !!p);
   return (
     <div className="my-0.5 text-[13px] text-dim">
-      <button onClick={() => setOpen(v => !v)} className="flex items-center gap-2 py-0.5 text-left cursor-pointer hover:text-fg">
+      <button onClick={() => { setOpen(!open); onOpenChange?.(!open); }} className="group flex items-center gap-2 py-0.5 text-left cursor-pointer hover:text-fg">
         {running ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : <Images size={14} className="shrink-0" />}
         <span>{running ? t('card.viewingImages') : t('card.viewedImages', { n: paths.length })}</span>
-        <Caret open={open} />
+        <Caret open={open} className={cn(!open && 'opacity-0 group-hover:opacity-100')} />
       </button>
       {open && (
         <div className="pl-6 py-1 flex gap-2 flex-wrap">
@@ -483,7 +484,7 @@ function ImageReadCard({ blocks, ctx }: { blocks: ToolBlock[]; ctx: BlockCtx }) 
 
 const EDIT_TOOLS = new Set(['write_file', 'patch_file', 'edit_notebook']);
 
-/** view_file 读图片文件的工具块：单独走「已查看 x 张图片」卡片，不进普通工具行/工具组 */
+/** view_file 读图片文件的工具块：与生成图片一样并入工具组，组内合并为「已查看 x 张图片」卡片 */
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp)$/i;
 function isImageReadBlock(b: Block): b is ToolBlock {
   return b.kind === 'tool' && b.toolName === 'view_file'
@@ -496,26 +497,34 @@ function isHiddenTool(b: Block): boolean {
     || (CRON_TOOLS.has(b.toolName) && b.status === 'done'));
 }
 
-/** 可并入工具组的块：工具本身（读图片除外；生成图片与终端一样并入组）、已放行的权限卡（本就不渲染）、自动放行提示 */
+/** 可并入工具组的块：工具本身（读图片、生成图片与终端一样并入组）、已放行的权限卡（本就不渲染）、自动放行提示、后台任务结束行 */
 export function isToolGroupable(b: Block): boolean {
-  if (b.kind === 'tool') return !isImageReadBlock(b);
+  if (b.kind === 'tool') return true;
   if (b.kind === 'assistant') return !b.text; // 纯思考块不渲染，不打断分组
   if (b.kind === 'permission') return !!b.resolved && b.resolved !== 'refuse' && b.resolved !== '__interrupted';
-  if (b.kind === 'notice') return b.noticeType === 'auto-permission';
+  if (b.kind === 'notice') return b.noticeType === 'auto-permission' || b.noticeType === 'bg-task';
   return false;
+}
+
+/** 后台任务结束：与工具行同款的一行（图标 + 状态 + 摘要），失败用红叉；可并入工具组，不计入组头统计 */
+function BgTaskRow({ block }: { block: NoticeBlock }) {
+  const failed = block.taskStatus === 'failed';
+  const label = failed ? t('card.bgTaskFailed') : block.taskStatus === 'killed' ? t('card.bgTaskKilled') : t('card.bgTaskDone');
+  return (
+    <div className="my-0.5 text-[13px] text-dim">
+      <div className="w-full flex items-center gap-2 py-0.5" title={block.text}>
+        {failed ? <X size={14} className="text-danger shrink-0" /> : <Clock size={14} className="shrink-0" />}
+        <span className={cn('shrink-0', failed && 'text-danger')}>{label}</span>
+        <span className="truncate">{block.text}</span>
+      </div>
+    </div>
+  );
 }
 
 /** 渲染块列表：单工具直接展示，连续多个可见工具合并为可折叠组；live=运行中（组头显示最后一个工具的摘要） */
 export function renderBlockList(blocks: Block[], ctx: BlockCtx, live = false) {
   const out: React.ReactNode[] = [];
   for (let i = 0; i < blocks.length;) {
-    // 连续的读图片块合并为一张「已查看 x 张图片」卡片
-    if (isImageReadBlock(blocks[i])) {
-      let j = i;
-      while (j < blocks.length && isImageReadBlock(blocks[j])) j++;
-      out.push(<ImageReadCard key={blocks[i].id} blocks={blocks.slice(i, j) as ToolBlock[]} ctx={ctx} />);
-      i = j; continue;
-    }
     if (!isToolGroupable(blocks[i])) { out.push(<BlockRenderer key={blocks[i].id} block={blocks[i]} ctx={ctx} />); i++; continue; }
     let j = i;
     while (j < blocks.length && isToolGroupable(blocks[j])) j++;
@@ -530,41 +539,76 @@ export function renderBlockList(blocks: Block[], ctx: BlockCtx, live = false) {
   return out;
 }
 
-/** 工具组展开后的行列表：连续的生成图片块（可并发）合并为一张卡片，其余逐块渲染；
- * 只吞到最后一个生成块为止，夹在中间的不可见过程块（纯思考、已放行的权限卡、自动放行提示）不打断合并 */
+/** MCP 工具块所属的 server 名（mcp__<server>__<tool>），非 MCP 返回 null */
+function mcpServerOf(b: Block): string | null {
+  if (b.kind !== 'tool' || !b.toolName.startsWith('mcp__')) return null;
+  return b.toolName.split('__')[1] || null;
+}
+
+/** 连续多次调用同一 MCP server 合并为一行「调用了 {server} {n} 次」（只计总次数，成败看展开后的逐条工具行）；运行中显示当前这条的工具名 */
+function McpBatchRow({ blocks, ctx, onOpenChange }: { blocks: ToolBlock[]; ctx: BlockCtx; onOpenChange?: (open: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  const running = blocks.find(b => b.status === 'running');
+  const server = mcpServerOf(blocks[0]) || '';
+  return (
+    <div className="my-0.5 text-[13px] text-dim">
+      <button onClick={() => { setOpen(!open); onOpenChange?.(!open); }} className="group max-w-full flex items-center gap-2 py-0.5 text-left cursor-pointer hover:text-fg">
+        {running ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : <Plug size={14} className="shrink-0" />}
+        <span className="shrink-0">{t('card.mcpBatch', { server, n: blocks.length })}</span>
+        {running && <span className="truncate text-xs">{toolDisplayName(running.toolName)}</span>}
+        <Caret open={open} className={cn(!open && 'opacity-0 group-hover:opacity-100')} />
+      </button>
+      {open && <div className="pl-6">{blocks.map(b => <BlockRenderer key={b.id} block={b} ctx={ctx} />)}</div>}
+    </div>
+  );
+}
+
+/** 工具组展开后的行列表：连续的生成图片块（可并发）合并为一张卡片，连续的读图片块合并为「已查看 x 张图片」，
+ * 连续的同一 MCP server 调用（两条起）合并为一行，其余逐块渲染；
+ * 只吞到最后一个同类块为止，夹在中间的不可见过程块（纯思考、已放行的权限卡、自动放行提示、已由独立卡片展示的工具）不打断合并 */
 function renderGroupRows(blocks: Block[], ctx: BlockCtx, live?: boolean, onToolOpenChange?: (open: boolean) => void) {
   const out: React.ReactNode[] = [];
-  const isInvisible = (b: Block) => b.kind !== 'tool' && isToolGroupable(b);
+  const isInvisible = (b: Block) => (b.kind !== 'tool' && isToolGroupable(b)) || isHiddenTool(b);
   for (let i = 0; i < blocks.length;) {
-    if (!isGenImageBlock(blocks[i])) { out.push(<BlockRenderer key={blocks[i].id} block={blocks[i]} ctx={ctx} onToolOpenChange={onToolOpenChange} />); i++; continue; }
+    const head = blocks[i];
+    const server = mcpServerOf(head);
+    const same = isGenImageBlock(head) ? isGenImageBlock : isImageReadBlock(head) ? isImageReadBlock : server ? (b: Block) => mcpServerOf(b) === server : null;
+    if (!same) { out.push(<BlockRenderer key={head.id} block={head} ctx={ctx} onToolOpenChange={onToolOpenChange} />); i++; continue; }
     const run: ToolBlock[] = [];
     let end = i;
     for (let j = i; j < blocks.length; j++) {
       const b = blocks[j];
-      if (isGenImageBlock(b)) { run.push(b as ToolBlock); end = j + 1; }
+      if (same(b)) { run.push(b as ToolBlock); end = j + 1; }
       else if (!isInvisible(b)) break;
     }
-    out.push(<GenImageCard key={blocks[i].id} blocks={run} ctx={ctx} live={live} onOpenChange={onToolOpenChange} />);
+    if (server && run.length === 1) { out.push(<BlockRenderer key={head.id} block={head} ctx={ctx} onToolOpenChange={onToolOpenChange} />); i++; continue; }
+    out.push(same === isGenImageBlock
+      ? <GenImageCard key={head.id} blocks={run} ctx={ctx} live={live} onOpenChange={onToolOpenChange} />
+      : server ? <McpBatchRow key={head.id} blocks={run} ctx={ctx} onOpenChange={onToolOpenChange} />
+      : <ImageReadCard key={head.id} blocks={run} ctx={ctx} onOpenChange={onToolOpenChange} />);
     i = end;
   }
   return out;
 }
 
-/** 单工具省略组头；多工具 live 时组头显示最后一项摘要，结束后为类别文案。单工具已展开时，新增工具后保持展开 */
+/** 单工具、全是读图片（已合并为一张卡片）、全是同一 MCP server 调用（已合并为一行）时省略组头；
+ * 多工具 live 时组头显示最后一项摘要，结束后为类别文案。单工具已展开时，新增工具后保持展开 */
 function ToolGroup({ blocks, ctx, live }: { blocks: Block[]; ctx: BlockCtx; live?: boolean }) {
   const tools = blocks.filter((b): b is ToolBlock => b.kind === 'tool' && !isHiddenTool(b));
-  const single = tools.length === 1;
+  const hasImage = tools.some(isImageReadBlock);
+  const firstServer = mcpServerOf(tools[0]);
+  const single = tools.length === 1 || tools.every(b => isImageReadBlock(b)) || (!!firstServer && tools.every(b => mcpServerOf(b) === firstServer));
   const hasEdit = tools.some(b => EDIT_TOOLS.has(b.toolName));
   const hasShell = tools.some(b => b.toolName === 'run_shell');
-  const hasRead = tools.some(b => b.toolName === 'view_file' || b.toolName === 'search_files' || b.toolName === 'search_content');
+  const hasRead = tools.some(b => (b.toolName === 'view_file' && !isImageReadBlock(b)) || b.toolName === 'search_files' || b.toolName === 'search_content');
   const hasGen = tools.some(isGenImageBlock);
   // 多工具默认折叠；单工具的详情状态用于后续成组时保持展开
   const [manual, setManual] = useState<boolean | null>(null);
   const open = manual ?? false;
   const last = tools[tools.length - 1];
   const workingDir = useApp(s => s.registry.sessions.find(x => x.id === ctx.sessionId)?.workingDir || '');
-  const label = [hasEdit && t('card.groupEdited'), hasShell && t('card.groupRan'), hasRead && t('card.groupRead'), hasGen && t('tool.genImage.done')].filter(Boolean).join(' ') || t('card.groupTools');
-  const Icon = live ? toolIcon(last.toolName, filePathOf(last, workingDir)) : hasEdit ? Pencil : hasShell ? Terminal : hasRead ? Search : hasGen ? ImagePlus : Wrench;
+  const label = [hasEdit && t('card.groupEdited'), hasShell && t('card.groupRan'), hasRead && t('card.groupRead'), hasGen && t('tool.genImage.done'), hasImage && t('card.groupViewedImages')].filter(Boolean).join(' ') || t('card.groupTools');
+  const Icon = live ? toolIcon(last.toolName, filePathOf(last, workingDir)) : hasEdit ? Pencil : hasShell ? Terminal : hasRead ? Search : hasGen ? ImagePlus : hasImage ? Images : Wrench;
   return (
     <div className="my-1.5 text-[13px]">
       {!single && <button onClick={() => setManual(!open)} className="group w-full flex items-center gap-2 py-0.5 text-left text-dim hover:text-fg">

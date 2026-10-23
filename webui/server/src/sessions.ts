@@ -117,6 +117,13 @@ export class SessionManager extends EventEmitter {
     if (snapshot.blocks.some(b => b.kind === 'user' && b.queued)) {
       snapshot.blocks = snapshot.blocks.filter(b => !(b.kind === 'user' && b.queued));
     }
+    // 归一化旧快照：旧版把后台任务结束写成 info 提示条「后台任务结束（status）：summary」，转成可并入工具组的 bg-task 行
+    const legacyBg = /^后台任务结束（(completed|failed|killed)）：/;
+    snapshot.blocks = snapshot.blocks.map(b => {
+      if (b.kind !== 'notice' || b.noticeType !== 'info') return b;
+      const m = legacyBg.exec(b.text);
+      return m ? { ...b, noticeType: 'bg-task' as const, taskStatus: m[1] as 'completed' | 'failed' | 'killed', text: b.text.slice(m[0].length) } : b;
+    });
     // 服务端重启后：上次若停在 processing，标为中断
     if (snapshot.state === 'processing') {
       applyEvent(snapshot, 'session:interrupted', { agentId: 'main', content: '服务已重启，本轮已中断' }, snapshot.seq + 1);

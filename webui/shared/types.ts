@@ -343,6 +343,7 @@ export type NoticeType =
   | 'cleared'
   | 'history-expired'
   | 'goal-achieved'
+  | 'bg-task'
   | 'info';
 
 export interface NoticeBlock extends BlockBase {
@@ -351,6 +352,8 @@ export interface NoticeBlock extends BlockBase {
   noticeType: NoticeType;
   text: string;
   detail?: string;
+  /** 仅 noticeType==='bg-task' 使用：后台任务结束状态，text 为任务摘要 */
+  taskStatus?: 'completed' | 'failed' | 'killed';
   /** 仅 noticeType==='plan-implement' 使用：作为轮次开头时的结束时间（state 回到 idle 时打上），用于展示耗时分隔 */
   doneTs?: number;
 }

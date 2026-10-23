@@ -1,6 +1,6 @@
 /** generate_image 工具的展示：过程里的工具行（GenImageCard）与结论下方的图片面板（GenImageGallery） */
 import { useEffect, useState } from 'react';
-import { Download, ImageOff, ImagePlus, PanelRight } from 'lucide-react';
+import { Download, ImagePlus, PanelRight } from 'lucide-react';
 import type { Block, ToolBlock } from '../../../../shared/types';
 import type { BlockCtx } from './Blocks';
 import { ImagePreview, ImageThumb, downloadImage } from './ImagePreview';
@@ -61,10 +61,10 @@ export function GenImageCard({ blocks, ctx, live, onOpenChange }: { blocks: Tool
   // 文件名看展开后的缩略图标签，提示词看正文
   return (
     <div className="my-0.5 text-[13px] text-dim">
-      <button onClick={() => expandable && setManual(!open)} className={cn('max-w-full flex items-center gap-2 py-0.5 text-left', expandable ? 'cursor-pointer hover:text-fg' : 'cursor-default')}>
+      <button onClick={() => expandable && setManual(!open)} className={cn('group max-w-full flex items-center gap-2 py-0.5 text-left', expandable ? 'cursor-pointer hover:text-fg' : 'cursor-default')}>
         {running ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : <ImagePlus size={14} className="shrink-0" />}
         <span className="shrink-0">{running ? t('tool.genImage.running') : interrupted ? t('tool.genImage.interrupted') : images.length > 1 ? t('tool.genImage.doneN', { n: images.length }) : t('tool.genImage.done')}</span>
-        {expandable && <Caret open={open} />}
+        {expandable && <Caret open={open} className={cn(!open && 'opacity-0 group-hover:opacity-100')} />}
       </button>
       {open && expandable && (
         <div className="pl-6 py-1 flex gap-2 flex-wrap">
@@ -96,7 +96,8 @@ function hasAlpha(el: HTMLImageElement): boolean {
   } catch { return false; }
 }
 
-/** 结论下方的图片面板：本轮生成的图全量展示（正文里的 ![]() 本地图由 Markdown 渲染成文件链接，不会重复出图）。
+/** 结论下方的图片面板：本轮生成且文件仍存在的图展示（正文里的 ![]() 本地图由 Markdown 渲染成文件链接，不会重复出图）。
+ * 加载失败（文件已删）的图从大图和缩略图列里剔除，一张不剩时整个面板不渲染；缺失记录仍可在过程里的「已生成 x 张图片」行看到。
  * 左侧大图（点击放大，悬浮可在右栏打开 / 下载；透明背景的 png 悬浮时垫灰白方格），右侧一列缩略图切换；只有一张时不显示缩略图列 */
 export function GenImageGallery({ sessionId, images }: { sessionId: string; images: GenImage[] }) {
   const openFileTab = useApp(s => s.openFileTab);
@@ -104,7 +105,7 @@ export function GenImageGallery({ sessionId, images }: { sessionId: string; imag
   const [preview, setPreview] = useState(false);
   const [failed, setFailed] = useState<Record<string, true>>({});
   const [alpha, setAlpha] = useState<Record<string, boolean>>({});
-  const shown = images;
+  const shown = images.filter(img => !failed[img.filePath]);
   const idx = Math.min(sel, Math.max(shown.length - 1, 0));
   const cur = shown[idx] as GenImage | undefined;
   const src = cur ? rawFileUrl(sessionId, cur.filePath) : '';
@@ -127,17 +128,9 @@ export function GenImageGallery({ sessionId, images }: { sessionId: string; imag
   return (
     <div className={cn('my-3 max-w-full flex items-start', multi && 'pr-[80px]')}>
       <div className="relative min-w-0 group/main">
-        {failed[cur.filePath] ? (
-          <div title={cur.filePath} className="py-2 text-muted flex flex-col items-start gap-1">
-            <ImageOff size={20} />
-            <span className="text-xs max-w-full truncate">{baseName(cur.filePath)}</span>
-            <span className="text-xs opacity-70">{t('image.missing')}</span>
-          </div>
-        ) : (
-          <img key={cur.filePath} src={src} alt="" title={cur.filePath}
-            onClick={() => setPreview(true)} onError={() => setFailed(f => ({ ...f, [cur.filePath]: true }))}
-            className={cn('max-h-80 max-w-full rounded-md cursor-zoom-in select-none', alpha[cur.filePath] && 'hover:bg-checker')} />
-        )}
+        <img key={cur.filePath} src={src} alt="" title={cur.filePath}
+          onClick={() => setPreview(true)} onError={() => setFailed(f => ({ ...f, [cur.filePath]: true }))}
+          className={cn('max-h-80 max-w-full rounded-md cursor-zoom-in select-none', alpha[cur.filePath] && 'hover:bg-checker')} />
         <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/main:opacity-100 transition-opacity">
           <Tip content={t('md.openImage')}><button onClick={() => openFileTab(sessionId, cur.filePath)} className={btn}><PanelRight size={14} /></button></Tip>
           <Tip content={t('common.download')}><button onClick={() => downloadImage(src)} className={btn}><Download size={14} /></button></Tip>
@@ -150,9 +143,7 @@ export function GenImageGallery({ sessionId, images }: { sessionId: string; imag
             {shown.map((img, i) => (
               <button key={img.filePath} onClick={() => setSel(i)} title={img.filePath}
                 className={cn('h-[72px] w-[72px] shrink-0 rounded-lg overflow-hidden border-2 bg-bg', i === idx ? 'border-accent' : 'border-transparent hover:border-border')}>
-                {failed[img.filePath]
-                  ? <div className="h-full w-full flex items-center justify-center text-muted"><ImageOff size={16} /></div>
-                  : <img src={rawFileUrl(sessionId, img.filePath)} alt="" onError={() => setFailed(f => ({ ...f, [img.filePath]: true }))} className="h-full w-full object-cover" />}
+                <img src={rawFileUrl(sessionId, img.filePath)} alt="" onError={() => setFailed(f => ({ ...f, [img.filePath]: true }))} className="h-full w-full object-cover" />
               </button>
             ))}
           </div>

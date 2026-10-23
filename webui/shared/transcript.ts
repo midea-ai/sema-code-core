@@ -419,9 +419,12 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
     case 'task:transfer':
       // 启动/转后台不提示：工具行已显示该命令，只保留结束通知
       break;
-    case 'task:end':
-      notice(snap, seq, 'info', data?.status === 'failed' ? 'warn' : 'info', `后台任务结束（${data?.status}）：${data?.summary || ''}`);
+    case 'task:end': {
+      // 渲染成工具行同款的一行并可并入工具组，文案由前端按 taskStatus 翻译
+      const taskStatus = data?.status === 'failed' ? 'failed' : data?.status === 'killed' ? 'killed' : 'completed';
+      pushBlock(snap, { kind: 'notice', id: `notice:${seq}`, ts: Date.now(), noticeType: 'bg-task', level: taskStatus === 'failed' ? 'warn' : 'info', text: String(data?.summary || ''), taskStatus });
       break;
+    }
 
     case 'todos:update': {
       const todos = Array.isArray(data) ? data : [];

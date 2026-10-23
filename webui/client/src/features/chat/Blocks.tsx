@@ -426,7 +426,7 @@ function ToolCard({ block, ctx, onOpenChange }: { block: ToolBlock; ctx: BlockCt
   return (
     <div className="my-0.5 text-[13px] text-dim">
       {/* 整行灰色；读取文件：点文件名在右侧栏打开（读图片行可展开缩略图）；搜索：不可点击；其余点击展开详情 */}
-      <div onClick={() => expandable && setOpen(v => !v)} className={cn('w-full flex items-center gap-2 py-0.5 text-left', expandable && 'cursor-pointer')} title={expandable && !isRead ? block.title : undefined}>
+      <div onClick={() => expandable && setOpen(v => !v)} className={cn('w-full flex items-center gap-2 py-0.5 text-left', expandable && 'group cursor-pointer hover:text-fg')} title={expandable && !isRead ? block.title : undefined}>
         {block.status === 'running' ? <Spinner className="h-3.5 w-3.5 shrink-0" /> : block.status === 'error' ? <X size={14} className="text-danger shrink-0" /> : <Icon size={14} className="shrink-0" />}
         {isSearch ? <span className={cn('truncate', block.status === 'error' && 'text-danger')}>{searchLabel(block)}</span> : <span className={cn('shrink-0', block.status === 'error' && 'text-danger')}>{toolVerb(block, diff)}</span>}
         {isSearch || isGeneric ? null : filePath
@@ -434,6 +434,7 @@ function ToolCard({ block, ctx, onOpenChange }: { block: ToolBlock; ctx: BlockCt
           : <span className="truncate">{isShell ? (block.summary || block.title) : block.title}</span>}
         {block.summary && !isShell && !isEdit && !isRead && !isSearch && !isGeneric && !isSkill && <span className="text-xs truncate max-w-[40%]">{block.summary}</span>}
         {isEdit && diff && <DiffStat patch={diff.patch} />}
+        {expandable && <Caret open={open} className={cn(!open && 'opacity-0 group-hover:opacity-100')} />}
       </div>
       {open && expandable && (
         <div className="pl-6 py-1">

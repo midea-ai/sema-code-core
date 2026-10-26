@@ -100,10 +100,13 @@ export const en = {
   'plugin.marketplaceNameMissing': 'Cannot read the marketplace name. Make sure marketplace.json exists',
   'plugin.dirNotFound': 'Directory not found: {dir}',
   'plugin.marketplaceNotFound': 'Marketplace not found: {name}',
-  'plugin.marketplaceNotGithub': 'Marketplace [{name}] is not a GitHub source and cannot be updated',
+  'plugin.fetchMarketplaceFailed': 'Failed to download marketplace.json [{url}]: {reason}',
+  'plugin.relativeSourceInUrlMarket': 'Plugin [{plugin}] uses a relative source, but this URL marketplace has no resolvable repository',
   'plugin.marketplaceUnreadable': 'Cannot read marketplace info: {name}',
   'plugin.notInMarketplace': 'Plugin [{plugin}] not found in marketplace [{name}]',
   'plugin.gitClonePluginFailed': 'git clone of plugin failed [{url}]: {stderr}',
+  'plugin.subdirNotFound': 'Subdirectory [{path}] not found in repository [{url}]',
+  'plugin.unsupportedSource': 'Unsupported source type for plugin [{plugin}]: {type}',
 
   // ---- Agent / Command 管理 ----
   'agent.addMissingFields': 'Failed to add agent: missing required field name, prompt or description',

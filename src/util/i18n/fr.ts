@@ -100,10 +100,13 @@ export const fr = {
   'plugin.marketplaceNameMissing': 'Impossible de lire le nom de la marketplace. Vérifiez que marketplace.json existe',
   'plugin.dirNotFound': 'Répertoire introuvable : {dir}',
   'plugin.marketplaceNotFound': 'Marketplace introuvable : {name}',
-  'plugin.marketplaceNotGithub': "La marketplace [{name}] n'est pas une source GitHub et ne peut pas être mise à jour",
+  'plugin.fetchMarketplaceFailed': 'Échec du téléchargement de marketplace.json [{url}] : {reason}',
+  'plugin.relativeSourceInUrlMarket': "Le plugin [{plugin}] utilise une source relative, mais cette marketplace URL n'a pas de dépôt résolvable",
   'plugin.marketplaceUnreadable': 'Impossible de lire les informations de la marketplace : {name}',
   'plugin.notInMarketplace': 'Plugin [{plugin}] introuvable dans la marketplace [{name}]',
   'plugin.gitClonePluginFailed': 'Échec de git clone du plugin [{url}] : {stderr}',
+  'plugin.subdirNotFound': 'Sous-répertoire [{path}] introuvable dans le dépôt [{url}]',
+  'plugin.unsupportedSource': 'Type de source non pris en charge pour le plugin [{plugin}] : {type}',
 
   // ---- Agent / Command 管理 ----
   'agent.addMissingFields': "Impossible d'ajouter l'agent : champ obligatoire name, prompt ou description manquant",

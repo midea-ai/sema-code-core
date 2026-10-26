@@ -98,10 +98,13 @@ export const zh = {
   'plugin.marketplaceNameMissing': '无法获取市场名称，请确认 marketplace.json 存在',
   'plugin.dirNotFound': '目录不存在: {dir}',
   'plugin.marketplaceNotFound': '市场不存在: {name}',
-  'plugin.marketplaceNotGithub': '市场 [{name}] 不是 github 来源，无法更新',
+  'plugin.fetchMarketplaceFailed': '下载 marketplace.json 失败 [{url}]: {reason}',
+  'plugin.relativeSourceInUrlMarket': '插件 [{plugin}] 使用相对路径 source，而该市场为 URL 来源且无法推导出仓库地址，无法安装',
   'plugin.marketplaceUnreadable': '无法读取市场信息: {name}',
   'plugin.notInMarketplace': '插件 [{plugin}] 不存在于市场 [{name}]',
   'plugin.gitClonePluginFailed': 'git clone 插件失败 [{url}]: {stderr}',
+  'plugin.subdirNotFound': '仓库 [{url}] 中不存在子目录 [{path}]',
+  'plugin.unsupportedSource': '插件 [{plugin}] 的 source 类型不支持: {type}',
 
   // ---- Agent / Command 管理 ----
   'agent.addMissingFields': '添加 Agent 失败: 缺少必需字段 name、prompt 或 description',

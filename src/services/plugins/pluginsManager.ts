@@ -18,7 +18,10 @@ import type {
   PluginScopeKind,
   GithubSource,
   DirectorySource,
+  UrlMarketSource,
+  KnownMarketplace,
   PluginUrlSource,
+  PluginGitSubdirSource,
   KnownMarketplaces,
   InstalledPluginEntry,
   InstalledPlugins,
@@ -230,11 +233,102 @@ class PluginsManager {
    */
   private async gitCloneMarketplace(repo: string, targetDir: string): Promise<void> {
     const { code, stderr } = await execFileSafely(
-      'git', ['clone', `https://github.com/${repo}.git`, targetDir]
+      'git', ['clone', '--depth', '1', `https://github.com/${repo}.git`, targetDir]
     )
     if (code !== 0) {
       throw new Error(t('plugin.gitCloneFailed', { repo, stderr }))
     }
+  }
+
+  /**
+   * 浅克隆仓库中的某个子目录到 targetDir（稀疏检出，只下载该子目录的文件）
+   * 旧版 git 不支持 --sparse 时退回普通浅克隆
+   */
+  private async gitCloneSubdir(url: string, subdir: string, ref: string | undefined, targetDir: string): Promise<void> {
+    const refArgs = ref ? ['--branch', ref] : []
+    const sparse = await execFileSafely(
+      'git', ['clone', '--depth', '1', '--filter=blob:none', '--sparse', ...refArgs, url, targetDir]
+    )
+    if (sparse.code === 0) {
+      const set = await execFileSafely('git', ['-C', targetDir, 'sparse-checkout', 'set', subdir])
+      if (set.code === 0) return
+      logWarn(`sparse-checkout 失败，退回普通浅克隆: ${set.stderr}`)
+    } else {
+      logWarn(`稀疏克隆失败，退回普通浅克隆: ${sparse.stderr}`)
+    }
+    await this.removeDir(targetDir).catch(() => {})
+    const { code, stderr } = await execFileSafely('git', ['clone', '--depth', '1', ...refArgs, url, targetDir])
+    if (code !== 0) throw new Error(t('plugin.gitClonePluginFailed', { url, stderr }))
+  }
+
+  /**
+   * 下载 marketplace.json 内容
+   */
+  private async fetchMarketplaceJson(url: string): Promise<MarketplaceJson> {
+    let response: Response
+    try {
+      response = await globalThis.fetch(url, {
+        headers: { 'User-Agent': 'sema-code-core/1.0 plugins' },
+        signal: AbortSignal.timeout(30_000)
+      })
+    } catch (error) {
+      throw new Error(t('plugin.fetchMarketplaceFailed', { url, reason: String(error) }))
+    }
+    if (!response.ok) {
+      throw new Error(t('plugin.fetchMarketplaceFailed', { url, reason: `HTTP ${response.status}` }))
+    }
+    const text = await response.text()
+    try {
+      return JSON.parse(text) as MarketplaceJson
+    } catch (error) {
+      throw new Error(t('plugin.fetchMarketplaceFailed', { url, reason: `invalid JSON: ${error}` }))
+    }
+  }
+
+  /**
+   * 从 GitHub 文件地址推导仓库信息，用于 url 市场中相对路径插件的回退克隆
+   * 支持 raw.githubusercontent.com/<owner>/<repo>/<ref>/<path> 与 github.com/<owner>/<repo>/(blob|raw)/<ref>/<path>
+   * 相对路径以市场根目录为基准；marketplace.json 约定放在 .claude-plugin 下，此时根目录是其上一级
+   */
+  private parseGithubFileUrl(fileUrl: string): { repoUrl: string; ref: string; baseDir: string } | null {
+    let u: URL
+    try { u = new URL(fileUrl) } catch { return null }
+    const parts = u.pathname.split('/').filter(Boolean)
+    let owner: string, repo: string, rest: string[]
+    if (u.hostname === 'raw.githubusercontent.com' && parts.length >= 4) {
+      [owner, repo] = parts
+      rest = parts.slice(2)
+    } else if (u.hostname === 'github.com' && parts.length >= 5 && (parts[2] === 'blob' || parts[2] === 'raw')) {
+      [owner, repo] = parts
+      rest = parts.slice(3)
+    } else {
+      return null
+    }
+    // raw 地址可能是 refs/heads/<branch>/<path> 形式
+    let ref: string
+    if (rest[0] === 'refs' && rest.length >= 4) {
+      ref = rest[2]
+      rest = rest.slice(3)
+    } else {
+      ref = rest[0]
+      rest = rest.slice(1)
+    }
+    rest.pop() // 去掉文件名
+    if (rest[rest.length - 1] === '.claude-plugin') rest.pop()
+    return {
+      repoUrl: `https://github.com/${owner}/${repo}.git`,
+      ref,
+      baseDir: rest.join('/')
+    }
+  }
+
+  /**
+   * 把 marketplace.json 写入市场目录（url 来源的市场目录只有这一个文件）
+   */
+  private async writeMarketplaceJson(installLocation: string, marketplaceJson: MarketplaceJson): Promise<void> {
+    const dir = path.join(installLocation, '.claude-plugin')
+    await fsPromises.mkdir(dir, { recursive: true })
+    await fsPromises.writeFile(path.join(dir, 'marketplace.json'), JSON.stringify(marketplaceJson, null, 2), 'utf8')
   }
 
   /**
@@ -280,6 +374,69 @@ class PluginsManager {
    * 2. 插件目录下 plugin.json 的 version 字段
    * 3. 默认 '1.0.0'
    */
+  /**
+   * 解析插件源目录
+   * - 字符串：相对市场目录的路径
+   * - url：git clone 整个仓库到临时目录
+   * - git-subdir：市场目录下已有该子目录则直接用（本地 directory 市场），否则浅克隆后取子目录
+   * 返回的 tmpPluginDir 非空时由调用方负责清理
+   */
+  private async resolvePluginSource(
+    pluginDef: MarketplacePluginDef,
+    marketplace: KnownMarketplace
+  ): Promise<{ pluginSourcePath: string; tmpPluginDir: string | null }> {
+    const marketplaceLocation = marketplace.installLocation
+    let source = pluginDef.source
+
+    // url 市场本地没有仓库代码，相对路径插件按市场地址推导出仓库后转成 git-subdir
+    if (typeof source === 'string' && marketplace.source.source === 'url') {
+      const parsed = this.parseGithubFileUrl((marketplace.source as UrlMarketSource).url)
+      if (!parsed) {
+        throw new Error(t('plugin.relativeSourceInUrlMarket', { plugin: pluginDef.name }))
+      }
+      const subPath = path.posix.normalize(path.posix.join(parsed.baseDir, source))
+      source = { source: 'git-subdir', url: parsed.repoUrl, path: subPath, ref: parsed.ref }
+    }
+
+    if (typeof source === 'string') {
+      return { pluginSourcePath: path.resolve(marketplaceLocation, source), tmpPluginDir: null }
+    }
+
+    if (source?.source === 'url') {
+      const urlSource = source as PluginUrlSource
+      const tmpPluginDir = path.join(this.cacheDir, `_tmp_plugin_${Date.now()}`)
+      logInfo(`克隆插件源: ${urlSource.url} -> ${tmpPluginDir}`)
+      const { code, stderr } = await execFileSafely('git', ['clone', urlSource.url, tmpPluginDir])
+      if (code !== 0) throw new Error(t('plugin.gitClonePluginFailed', { url: urlSource.url, stderr }))
+      return { pluginSourcePath: tmpPluginDir, tmpPluginDir }
+    }
+
+    if (source?.source === 'git-subdir') {
+      const subdirSource = source as PluginGitSubdirSource
+      const localPath = path.resolve(marketplaceLocation, subdirSource.path)
+      if (fs.existsSync(localPath)) {
+        logInfo(`插件源使用市场本地子目录: ${localPath}`)
+        return { pluginSourcePath: localPath, tmpPluginDir: null }
+      }
+      const tmpPluginDir = path.join(this.cacheDir, `_tmp_plugin_${Date.now()}`)
+      logInfo(`克隆插件源: ${subdirSource.url}#${subdirSource.ref || ''} [${subdirSource.path}] -> ${tmpPluginDir}`)
+      try {
+        await this.gitCloneSubdir(subdirSource.url, subdirSource.path, subdirSource.ref, tmpPluginDir)
+      } catch (error) {
+        await this.removeDir(tmpPluginDir).catch(() => {})
+        throw error
+      }
+      const pluginSourcePath = path.resolve(tmpPluginDir, subdirSource.path)
+      if (!fs.existsSync(pluginSourcePath)) {
+        await this.removeDir(tmpPluginDir).catch(() => {})
+        throw new Error(t('plugin.subdirNotFound', { url: subdirSource.url, path: subdirSource.path }))
+      }
+      return { pluginSourcePath, tmpPluginDir }
+    }
+
+    throw new Error(t('plugin.unsupportedSource', { plugin: pluginDef.name, type: String((source as any)?.source) }))
+  }
+
   private async getPluginVersion(pluginDef: MarketplacePluginDef, pluginSourcePath: string): Promise<string> {
     if (pluginDef.version) return pluginDef.version
 
@@ -320,7 +477,16 @@ class PluginsManager {
   /**
    * 增加市场（git 方式）
    */
-  async addMarketplaceFromGit(repo: string): Promise<MarketplacePluginsInfo> {
+  async addMarketplaceFromGit(input: string): Promise<MarketplacePluginsInfo> {
+    const value = input.trim()
+    // 输入形态：owner/repo 或 github.com/owner/repo 克隆整个仓库；其它 http(s) 地址视为 marketplace.json 文件，只下载该文件
+    let repo = value
+    if (/^https?:\/\//i.test(value)) {
+      const githubRepo = value.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/i)
+      if (!githubRepo) return this.addMarketplaceFromUrl(value)
+      repo = `${githubRepo[1]}/${githubRepo[2]}`
+    }
+
     logInfo(`添加 GitHub 市场: ${repo}`)
 
     const tmpDir = path.join(this.marketplacesDir, `_tmp_${Date.now()}`)
@@ -386,7 +552,37 @@ class PluginsManager {
   }
 
   /**
-   * 更新市场（仅 github 来源）
+   * 增加市场（marketplace.json 地址方式，由 addMarketplaceFromGit 按输入形态分流进来）
+   * 只下载这一个文件，不克隆仓库；插件安装时按插件 source 单独拉取
+   */
+  private async addMarketplaceFromUrl(url: string): Promise<MarketplacePluginsInfo> {
+    logInfo(`添加 URL 市场: ${url}`)
+
+    const marketplaceJson = await this.fetchMarketplaceJson(url)
+    if (!marketplaceJson?.name) {
+      throw new Error(t('plugin.marketplaceNameMissing'))
+    }
+
+    const marketplaceName = marketplaceJson.name
+    const installLocation = path.join(this.marketplacesDir, marketplaceName)
+    await this.removeDir(installLocation)
+    await this.writeMarketplaceJson(installLocation, marketplaceJson)
+
+    const known = await this.readKnownMarketplaces()
+    known[marketplaceName] = {
+      source: { source: 'url', url },
+      installLocation,
+      lastUpdated: new Date().toISOString()
+    }
+    await this.writeKnownMarketplaces(known)
+
+    logInfo(`市场 [${marketplaceName}] 添加成功 (url): ${installLocation}`)
+
+    return this.refreshMarketplacePluginsInfo()
+  }
+
+  /**
+   * 更新市场（github 来源 git pull，url 来源重新下载；directory 来源直接读本地目录，只刷新）
    */
   async updateMarketplace(marketplaceName: string): Promise<MarketplacePluginsInfo> {
     logInfo(`更新市场: ${marketplaceName}`)
@@ -394,11 +590,13 @@ class PluginsManager {
     const known = await this.readKnownMarketplaces()
     const marketplace = known[marketplaceName]
     if (!marketplace) throw new Error(t('plugin.marketplaceNotFound', { name: marketplaceName }))
-    if (marketplace.source.source !== 'github') {
-      throw new Error(t('plugin.marketplaceNotGithub', { name: marketplaceName }))
-    }
 
-    await this.gitPullMarketplace(marketplace.installLocation)
+    if (marketplace.source.source === 'github') {
+      await this.gitPullMarketplace(marketplace.installLocation)
+    } else if (marketplace.source.source === 'url') {
+      const marketplaceJson = await this.fetchMarketplaceJson((marketplace.source as UrlMarketSource).url)
+      await this.writeMarketplaceJson(marketplace.installLocation, marketplaceJson)
+    }
 
     marketplace.lastUpdated = new Date().toISOString()
     await this.writeKnownMarketplaces(known)
@@ -422,8 +620,8 @@ class PluginsManager {
       return this.getMarketplacePluginsInfo()
     }
 
-    // 1. 删除 git 克隆的目录（directory 来源不删除原始目录）
-    if (marketplace.source.source === 'github') {
+    // 1. 删除 git 克隆 / url 下载的目录（directory 来源不删除原始目录）
+    if (marketplace.source.source === 'github' || marketplace.source.source === 'url') {
       await this.removeDir(marketplace.installLocation)
       logInfo(`已删除市场目录: ${marketplace.installLocation}`)
     }
@@ -481,20 +679,8 @@ class PluginsManager {
     const pluginDef = marketplaceJson.plugins.find(p => p.name === pluginName)
     if (!pluginDef) throw new Error(t('plugin.notInMarketplace', { plugin: pluginName, name: marketplaceName }))
 
-    // 解析插件源路径，url 来源需要先 git clone
-    let pluginSourcePath: string
-    let tmpPluginDir: string | null = null
-
-    if (typeof pluginDef.source === 'object' && pluginDef.source.source === 'url') {
-      const urlSource = pluginDef.source as PluginUrlSource
-      tmpPluginDir = path.join(this.cacheDir, `_tmp_plugin_${Date.now()}`)
-      logInfo(`克隆插件源: ${urlSource.url} -> ${tmpPluginDir}`)
-      const { code, stderr } = await execFileSafely('git', ['clone', urlSource.url, tmpPluginDir])
-      if (code !== 0) throw new Error(t('plugin.gitClonePluginFailed', { url: urlSource.url, stderr }))
-      pluginSourcePath = tmpPluginDir
-    } else {
-      pluginSourcePath = path.resolve(marketplace.installLocation, pluginDef.source as string)
-    }
+    // 解析插件源路径，url / git-subdir 来源可能需要先 git clone 到临时目录
+    const { pluginSourcePath, tmpPluginDir } = await this.resolvePluginSource(pluginDef, marketplace)
 
     try {
       const version = await this.getPluginVersion(pluginDef, pluginSourcePath)
@@ -721,6 +907,8 @@ class PluginsManager {
       }
       if (marketplaceInfo.source.source === 'github') {
         sourceObj.repo = (marketplaceInfo.source as GithubSource).repo
+      } else if (marketplaceInfo.source.source === 'url') {
+        sourceObj.url = (marketplaceInfo.source as UrlMarketSource).url
       } else {
         sourceObj.path = (marketplaceInfo.source as DirectorySource).path
       }

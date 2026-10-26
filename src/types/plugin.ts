@@ -10,7 +10,13 @@ export interface DirectorySource {
   path: string
 }
 
-export type PluginMarketSource = GithubSource | DirectorySource
+/** 市场来源为 marketplace.json 的 http(s) 地址，本地只保存这一个文件 */
+export interface UrlMarketSource {
+  source: 'url'
+  url: string
+}
+
+export type PluginMarketSource = GithubSource | DirectorySource | UrlMarketSource
 
 /** marketplace.json 中插件 source 为 url 时的结构 */
 export interface PluginUrlSource {
@@ -18,8 +24,16 @@ export interface PluginUrlSource {
   url: string
 }
 
-/** marketplace.json 中插件 source 字段类型：相对路径字符串 或 url 对象 */
-export type PluginSourceKind = string | PluginUrlSource
+/** marketplace.json 中插件 source 为 git-subdir 时的结构：取 git 仓库中的某个子目录 */
+export interface PluginGitSubdirSource {
+  source: 'git-subdir'
+  url: string
+  path: string
+  ref?: string
+}
+
+/** marketplace.json 中插件 source 字段类型：相对路径字符串 / url 对象 / git-subdir 对象 */
+export type PluginSourceKind = string | PluginUrlSource | PluginGitSubdirSource
 
 /** plugin.json 的结构 */
 export interface PluginJson {
@@ -64,7 +78,7 @@ export interface MarketplacePluginDef {
   description: string
   version?: string        // 直接在 marketplace.json 中指定版本
   author?: { name: string; [key: string]: any }
-  source: PluginSourceKind    // 相对路径字符串 或 { source: 'url', url: '...' }
+  source: PluginSourceKind    // 相对路径字符串 / { source: 'url', url } / { source: 'git-subdir', url, path, ref }
 }
 
 export interface MarketplaceJson {
@@ -101,6 +115,7 @@ export interface MarketplaceInfoResult {
     source: string
     repo?: string   // github 时有值
     path?: string   // directory 时有值
+    url?: string    // url 时有值
   }
   lastUpdated: string
   available: Array<{ name: string; description: string; author: string }>

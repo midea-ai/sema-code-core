@@ -12,6 +12,7 @@ import { GenImageGallery, genImagesIn } from './GenImage';
 import { VizEmbed } from './VizEmbed';
 import { isVizPath } from '../../../../shared/viz';
 import { Composer } from './Composer';
+import { TurnNav, turnNavItem, MIN_TURNS, type TurnNavItem } from './TurnNav';
 import { Button, Caret, DiffNums, Modal, Spinner, useDialog, useCopy, cn } from '../../common/ui';
 import { usePausableElapsed } from '../../common/useElapsed';
 import { t, useLang } from '../../i18n';
@@ -150,6 +151,16 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
 
   const ctx = useMemo(() => ({ sessionId, onRewind }), [sessionId, onRewind]);
   const turns = useMemo(() => groupTurns(snap?.blocks || []), [snap?.blocks]);
+  // 左缘轮次指示条的条目与「轮次下标 → 条目下标」映射（排队 / 乐观回显的输入与无开头块的前置组不算，映射为 -1）
+  const nav = useMemo(() => {
+    const items: TurnNavItem[] = [], idx: number[] = [];
+    for (const turn of turns) {
+      const it = turnNavItem(turn);
+      idx.push(it ? items.length : -1);
+      if (it) items.push(it);
+    }
+    return { items, idx };
+  }, [turns, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   // 正在运行的一轮：最后一个非排队的轮次开头（用户消息，或计划实施后的合成开头）所在组
   const runningIdx = useMemo(() => {
     for (let i = turns.length - 1; i >= 0; i--) {
@@ -213,11 +224,14 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
       );
       const o = turn.opener;
       const goalRound = o?.kind === 'user' && o.source === 'goal' && o.goal?.action === 'round';
-      if (goalRound && scopes.length) scopes[scopes.length - 1].push(el);
-      else scopes.push([el]);
+      // 轮次指示条的零高定位标记：TurnGroup 是 display: contents 没有盒子可量，标记放在轮前（吸顶容器内，不影响吸顶）
+      const marker = nav.idx[i] >= 0 ? <div key={`nav:${turn.blocks[0].id}`} data-turn={nav.idx[i]} className="h-0" /> : null;
+      const els = marker ? [marker, el] : [el];
+      if (goalRound && scopes.length) scopes[scopes.length - 1].push(...els);
+      else scopes.push(els);
     });
     return scopes.map(els => <div key={els[0].key}>{els}</div>);
-  }, [turns, ctx, snap?.state, runningIdx, awaitingTs, canBranchNow, branching, branchToNewChat, lang]);
+  }, [turns, nav, ctx, snap?.state, runningIdx, awaitingTs, canBranchNow, branching, branchToNewChat, lang]);
 
   if (!record) return <div className="flex-1 flex items-center justify-center text-muted">{t('chat.sessionNotFound')}</div>;
 
@@ -257,6 +271,8 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
           {turnEls}
         </div>
       </div>
+      {/* 左缘轮次指示条：输入轮数够多时才显示，悬停单条短横线弹出该轮小面板，点击跳到该轮用户输入 */}
+      {nav.items.length >= MIN_TURNS && <TurnNav listRef={listRef} items={nav.items} />}
       {/* 回到底部：内容超出一屏且离底时悬浮显示；运行中图标换成三点动画表示进行中。
           z-20 压过用户气泡（.user-sticky 的 z-index: 10，未吸顶时同样生效） */}
       {overflow && !stick && (
@@ -312,7 +328,7 @@ function isTurnOpener(b: Block): b is TurnOpener {
 }
 
 /** 一轮对话：以轮次开头块为界切分（会话开头无开头块的前置块单独成组） */
-interface Turn { blocks: Block[]; opener?: TurnOpener }
+export interface Turn { blocks: Block[]; opener?: TurnOpener }
 
 function groupTurns(blocks: Block[]): Turn[] {
   const turns: Turn[] = [];

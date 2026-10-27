@@ -10,8 +10,7 @@ import type { WsAction } from '../../../shared/protocol';
 import { useApp } from '../store/app';
 import { useSessions } from '../store/sessions';
 import { wsClient } from '../api/ws';
-import { primeStat } from '../features/chat/fileRefs';
-import { PREVIEW_MODE, PREVIEW_EXISTING_FILES, getPreviewSnapshot, MOCK_FORK_PREVIEW } from './mockBlocks';
+import { PREVIEW_MODE, getPreviewSnapshot, MOCK_FORK_PREVIEW } from './mockBlocks';
 
 export const PREVIEW_SESSION_ID = '__preview__';
 export const isPreviewSession = (id?: string) => id === PREVIEW_SESSION_ID;
@@ -37,12 +36,6 @@ function installPreview() {
     loadSnapshot: async id => { if (!isPreviewSession(id)) return sessions.loadSnapshot(id); },
     warm: id => { if (!isPreviewSession(id)) sessions.warm(id); },
   });
-
-  // 1b) 文件引用 stat：预览会话请求服务端必失败（全部按不存在），把 mock 里引用的文件预置为存在，文件链接/芯片才能渲染出来
-  for (const f of PREVIEW_EXISTING_FILES) {
-    const abs = f.path.startsWith('/') ? f.path : `${PREVIEW_WORKING_DIR}/${f.path}`;
-    primeStat(PREVIEW_SESSION_ID, f.path, { exists: true, isDir: false, inside: !f.path.startsWith('/'), image: !!f.image, abs });
-  }
 
   // 2) WS 请求：预览会话的动作短路（不发给服务端），本地乐观更新仍生效（应答权限/提问/计划卡片可点）
   const origRequest = wsClient.request.bind(wsClient);

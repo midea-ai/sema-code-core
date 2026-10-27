@@ -55,7 +55,7 @@ export const it = {
   'draft.pickProject': 'Seleziona progetto',
   'draft.searchProject': 'Cerca progetti…',
   'draft.noMatch': 'Nessun progetto corrispondente',
-  'draft.projectHint': 'Si lavorerà nella cartella del progetto "{name}"; la sessione viene creata dopo l’invio del primo messaggio.',
+  'draft.projectHint': 'Si lavorerà nella cartella del progetto "{name}". Descrivi cosa vuoi fare. L’agente leggerà e scriverà file ed eseguirà comandi in quella cartella.',
   'chat.historyExpired': 'Cronologia scaduta; si prosegue come nuova conversazione',
   'chat.queued': 'In coda',
   'chat.scrollBottom': 'Torna in fondo',

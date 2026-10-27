@@ -55,7 +55,7 @@ export const de = {
   'draft.pickProject': 'Projekt auswählen',
   'draft.searchProject': 'Projekte suchen…',
   'draft.noMatch': 'Keine passenden Projekte',
-  'draft.projectHint': 'Arbeitet im Ordner des Projekts "{name}"; die Sitzung wird nach dem Senden der ersten Nachricht erstellt.',
+  'draft.projectHint': 'Arbeitet im Ordner des Projekts "{name}". Beschreibe, was du tun möchtest. Der Agent liest und schreibt Dateien und führt Befehle in diesem Ordner aus.',
   'chat.historyExpired': 'Verlauf abgelaufen; wird als neue Unterhaltung fortgesetzt',
   'chat.queued': 'In Warteschlange',
   'chat.scrollBottom': 'Nach unten scrollen',

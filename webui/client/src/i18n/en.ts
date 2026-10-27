@@ -57,7 +57,7 @@ export const en = {
   'draft.pickProject': 'Select project',
   'draft.searchProject': 'Search projects…',
   'draft.noMatch': 'No matching projects',
-  'draft.projectHint': 'Will work in the folder of project "{name}"; the session is created after you send the first message.',
+  'draft.projectHint': 'Will work in the folder of project "{name}". Describe what you want to do. The agent will read and write files and run commands in that folder.',
   'chat.historyExpired': 'History expired; continuing as a new conversation',
   'chat.queued': 'Queued',
   'chat.scrollBottom': 'Scroll to bottom',

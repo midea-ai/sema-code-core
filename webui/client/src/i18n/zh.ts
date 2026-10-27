@@ -54,7 +54,7 @@ export const zh = {
   'draft.pickProject': '选择项目',
   'draft.searchProject': '搜索项目…',
   'draft.noMatch': '没有匹配的项目',
-  'draft.projectHint': '将在项目「{name}」目录中工作；发送第一条消息后才会创建会话。',
+  'draft.projectHint': '将在项目「{name}」目录中工作。描述你想做的事情，Agent 会在该目录里读写文件、执行命令。',
   'chat.historyExpired': '历史已过期，将作为新对话继续',
   'chat.queued': '排队中',
   'chat.scrollBottom': '回到底部',

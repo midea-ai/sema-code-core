@@ -52,7 +52,7 @@ export const fr = {
   'draft.pickProject': 'Sélectionner un projet',
   'draft.searchProject': 'Rechercher des projets…',
   'draft.noMatch': 'Aucun projet correspondant',
-  'draft.projectHint': "Travaillera dans le dossier du projet « {name} » ; la session est créée à l'envoi du premier message.",
+  'draft.projectHint': "Travaillera dans le dossier du projet « {name} ». Décrivez ce que vous voulez faire. L'agent lira et écrira des fichiers et exécutera des commandes dans ce dossier.",
   'chat.historyExpired': 'Historique expiré ; poursuite dans une nouvelle conversation',
   'chat.queued': "En file d'attente",
   'chat.scrollBottom': 'Aller en bas',

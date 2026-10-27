@@ -21,7 +21,8 @@ const rehypePlugins: any[] = [[rehypeKatex, { throwOnError: false, strict: 'igno
 // 默认 urlTransform 白名单不含 file:，会把 file:// 链接的 href 清空；这里放行 file://（Anchor 里在右栏浏览器打开）。
 // Windows 盘符路径（D:\x 或 D:/x）会被默认清洗当成 "d:" 协议清空，导致 [a](D:\x\a.py) 落到无 href 的裸 <a>，不走文件引用识别，这里一并放行。
 // 注意此时 href 已经过 hast 的 normalizeUri，反斜杠被编码成 %5C，所以要同时匹配 \ / %5C 三种形态（Anchor 里 decodeURIComponent 会还原）
-const urlTransform = (url: string) => (/^file:\/\//i.test(url) || /^[a-zA-Z]:(?:[\\/]|%5C)/i.test(url) ? url : defaultUrlTransform(url));
+// 不含斜杠的「文件名.扩展名:行号」（README.md:1-10）同样会被当成 "readme.md" 协议清空，冒号前是扩展名、冒号后只有行号的放行
+const urlTransform = (url: string) => (/^file:\/\//i.test(url) || /^[a-zA-Z]:(?:[\\/]|%5C)/i.test(url) || /\.[a-zA-Z0-9]{1,8}:\d+(?:[-~]\d+)?$/.test(url) ? url : defaultUrlTransform(url));
 
 /** 围栏代码块内的 code 不做文件识别 */
 const InPre = createContext(false);
@@ -122,7 +123,7 @@ function Anchor({ href, children }: any) {
   try { decoded = decodeURIComponent(href); } catch { /* keep */ }
   if (isLocalHref(decoded)) {
     const p = decoded.replace(/#.*$/, '');
-    if (sessionId && isPathCandidate(p)) {
+    if (sessionId && isPathCandidate(p, true)) {
       const ref = parsePathRef(p);
       const s = stat(ref.path);
       if (s?.exists && !s.isDir) return <FileRef path={ref.path} line={ref.line} endLine={ref.endLine} label={children} />;

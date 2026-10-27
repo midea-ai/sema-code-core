@@ -11,14 +11,16 @@ export interface PathStat { exists: boolean; isDir: boolean; inside: boolean; im
 const MAX_CANDIDATES = 60;
 // 路径形态：可选盘符/~/./../ 前缀 + 若干段，段内允许任意语言字母数字（\p{L}\p{N}，含中文）及 _ - . @ +；可带 :12 / :12-20 行号
 const PATH_RE = /^(?:[a-zA-Z]:[\\/]|~[\\/]|\.{1,2}[\\/]|[\\/])?[\p{L}\p{N}_@.\-+]+(?:[\\/][\p{L}\p{N}_@.\-+]+)*[\\/]?(?::\d+(?:[-~]\d+)?)?$/u;
+// 链接 href 的宽松形态：目标由 [text](...) 括号显式界定，%20 解码后的空格与括号不构成歧义，段内额外允许空格 ( ) [ ]（首尾不能是空格）
+const LINK_PATH_RE = /^(?:[a-zA-Z]:[\\/]|~[\\/]|\.{1,2}[\\/]|[\\/])?[\p{L}\p{N}_@.\-+()[\]]+(?: [\p{L}\p{N}_@.\-+()[\]]+)*(?:[\\/][\p{L}\p{N}_@.\-+()[\]]+(?: [\p{L}\p{N}_@.\-+()[\]]+)*)*[\\/]?(?::\d+(?:[-~]\d+)?)?$/u;
 
-/** 是否像文件路径：必须含 / 或 .，排除 URL、含空白、版本号、纯数字、过长文本 */
-export function isPathCandidate(s: string): boolean {
+/** 是否像文件路径：必须含 / 或 .，排除 URL、含空白、版本号、纯数字、过长文本；fromLink=true（markdown 链接/图片的 href）放行空格 */
+export function isPathCandidate(s: string, fromLink = false): boolean {
   if (!s || s.length < 2 || s.length > 300) return false;
-  if (s.includes('://') || /\s/.test(s)) return false;
+  if (s.includes('://') || (fromLink ? /[\t\n\r]/ : /\s/).test(s)) return false;
   if (!/[\\/.]/.test(s)) return false;
   if (/^\d+(\.\d+)+$/.test(s) || /^\.+$/.test(s)) return false;
-  if (!PATH_RE.test(s)) return false;
+  if (!(fromLink ? LINK_PATH_RE : PATH_RE).test(s)) return false;
   // 像 "a.b" 这种单个点且两侧都很短的表达式（obj.prop）：要求扩展名形态或含分隔符
   if (!/[\\/]/.test(s) && !/\.[a-zA-Z0-9]{1,8}(:\d|$)/.test(s)) return false;
   return true;
@@ -39,10 +41,11 @@ export function rawFileUrl(sessionId: string, path: string): string {
   return `/api/sessions/${sessionId}/raw?path=${encodeURIComponent(path)}&token=${encodeURIComponent(getToken())}`;
 }
 
-/** href 是否为本地路径（无 scheme、非锚点、非 mailto） */
+/** href 是否为本地路径（无 scheme、非锚点、非 mailto）；
+ * 盘符路径 D:\x 和「文件名.扩展名:行号」（README.md:1-10，冒号前是扩展名、冒号后只有行号）不算 scheme */
 export function isLocalHref(href: string): boolean {
   if (!href || href.startsWith('#')) return false;
-  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href) && !/^[a-zA-Z]:[\\/]/.test(href)) return false;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href) && !/^[a-zA-Z]:[\\/]/.test(href) && !/\.[a-zA-Z0-9]{1,8}:\d+(?:[-~]\d+)?$/.test(href)) return false;
   return true;
 }
 
@@ -51,11 +54,12 @@ export function extractCandidates(text: string): string[] {
   const out = new Set<string>();
   const src = text.replace(/```[\s\S]*?```/g, '');
   for (const m of src.matchAll(/`([^`\n]+)`/g)) { if (isPathCandidate(m[1].trim())) out.add(parsePathRef(m[1].trim()).path); }
-  for (const m of src.matchAll(/!?\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+  // href 允许一层成对括号（CommonMark 链接目标规则，如 notes%20(draft).md），否则在文件名里的 ) 处截断，候选路径残缺永远 stat 不到
+  for (const m of src.matchAll(/!?\[[^\]\n]*\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"]*")?\)/g)) {
     let href = m[1];
     try { href = decodeURIComponent(href); } catch { /* keep */ }
     href = href.replace(/#.*$/, '');
-    if (isLocalHref(href) && isPathCandidate(href)) out.add(parsePathRef(href).path);
+    if (isLocalHref(href) && isPathCandidate(href, true)) out.add(parsePathRef(href).path);
   }
   return [...out].slice(0, MAX_CANDIDATES);
 }

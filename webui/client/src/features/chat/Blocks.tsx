@@ -124,7 +124,8 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   const sticky = !(overflowing && expanded) && !goalRound;
   return (
     <div className={cn('group flex justify-end pt-3 pb-1 mb-2', sticky && 'user-sticky')}>
-      <div className="max-w-[90%] flex flex-col items-end gap-1">
+      {/* min-w-0：超长无空格串（编码路径/URL）的 min-content 比容器还宽时不许撑破列宽向左溢出，配合下方 overflow-wrap:anywhere 在词中断行 */}
+      <div className="max-w-[90%] min-w-0 flex flex-col items-end gap-1">
         {block.attachments && block.attachments.length > 0 && (
           <div className="flex gap-1.5 flex-wrap justify-end">
             {block.attachments.map((a, i) => a.dataUrl
@@ -137,7 +138,7 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
         {/* 纯图片 / 纯粘贴附件输入（无文字、非排队）不渲染文字气泡，避免出现空块；排队时只显示「排队中」标签；乐观回显（pending）同排队淡显，不带标签 */}
         {(block.text || block.queued) && !goalRound && (
           <div className={cn('rounded-2xl px-4 py-2 bg-panel', (block.queued || block.pending) && 'opacity-60')}>
-            <div ref={textRef} className={cn('whitespace-pre-wrap break-words leading-chat', collapsed && 'overflow-hidden [mask-image:linear-gradient(to_bottom,#000_70%,transparent)]')} style={collapsed ? { maxHeight: USER_COLLAPSED_MAX } : undefined}>
+            <div ref={textRef} className={cn('whitespace-pre-wrap [overflow-wrap:anywhere] leading-chat', collapsed && 'overflow-hidden [mask-image:linear-gradient(to_bottom,#000_70%,transparent)]')} style={collapsed ? { maxHeight: USER_COLLAPSED_MAX } : undefined}>
               {/* 以映射技能开头的消息：`/<技能名>` 显示为图标 + 名字（排队中的气泡同样处理），复制仍是原文 */}
               {skill && <SkillLabel display={skill.display} className="mr-1.5" />}{body}
               {block.queued && <span className="ml-2 text-xs text-muted">{t('chat.queued')}</span>}
@@ -417,10 +418,11 @@ function ToolCard({ block, ctx, onOpenChange }: { block: ToolBlock; ctx: BlockCt
   const Icon = toolIcon(block.toolName, filePath);
   const openFileRef = useApp(s => s.openFileRef);
   /** view_file 读图片文件：行为改为可展开，展开区显示缩略图（点击放大预览） */
-  const isImageRead = isRead && !!filePath && /\.(png|jpe?g|gif|webp)$/i.test(filePath);
+  const isImageRead = isRead && block.status !== 'error' && !!filePath && /\.(png|jpe?g|gif|webp)$/i.test(filePath);
   /** fetch_url 被中断：只留「抓取已中断 + URL」一行，不展开进度行和中断提示 */
   const isFetchInterrupted = block.toolName === 'fetch_url' && block.status === 'done' && !!block.interrupted;
-  const expandable = !isSearch && !isAgentCall && !isSkill && !isFetchInterrupted && (!isRead || isImageRead);
+  /** 失败一律可展开看报错（搜索/子代理/技能/读文件成功时不展开，失败时错误原文只在展开区） */
+  const expandable = block.status === 'error' || (!isSearch && !isAgentCall && !isSkill && !isFetchInterrupted && (!isRead || isImageRead));
   useEffect(() => { onOpenChange?.(open && expandable); }, [open, expandable, onOpenChange]);
 
   return (
@@ -485,10 +487,10 @@ function ImageReadCard({ blocks, ctx, onOpenChange }: { blocks: ToolBlock[]; ctx
 
 const EDIT_TOOLS = new Set(['write_file', 'patch_file', 'edit_notebook']);
 
-/** view_file 读图片文件的工具块：与生成图片一样并入工具组，组内合并为「已查看 x 张图片」卡片 */
+/** view_file 读图片文件的工具块：与生成图片一样并入工具组，组内合并为「已查看 x 张图片」卡片；读取失败的不合并，走普通工具行展示报错 */
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp)$/i;
 function isImageReadBlock(b: Block): b is ToolBlock {
-  return b.kind === 'tool' && b.toolName === 'view_file'
+  return b.kind === 'tool' && b.toolName === 'view_file' && b.status !== 'error'
     && IMAGE_EXT_RE.test(String(b.title || b.input?.file_path || '').replace(/:\d+(-\d+)?$/, ''));
 }
 

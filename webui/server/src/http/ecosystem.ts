@@ -30,7 +30,7 @@ const userSkillDir = (id: string) => path.join(semaRoot(), 'skills', id);
 const userMcpFile = () => path.join(semaRoot(), '.mcp.json');
 const userSettingsFile = () => path.join(semaRoot(), 'settings.json');
 
-/** defaultInstall = 服务端启动时自动装到用户级（见 installDefaultSkills），仅对 skill 生效 */
+/** defaultInstall = 服务端启动时自动装到用户级、升级后首次启动按安装包覆盖（见 syncDefaultSkills），仅对 skill 生效 */
 interface Card { name?: string; description?: string; category?: string; order?: number; defaultInstall?: boolean }
 /**
  * 远程技能来源：GitHub 仓库 + ref + 仓库内子目录。
@@ -298,22 +298,29 @@ export async function installResource(id: string, overwrite: boolean): Promise<t
 }
 
 /**
- * 默认安装：清单 card.defaultInstall 的技能里挑出未处理过的，装到用户级。
- * 用户级已有同名目录视为已处理（不覆盖）；下载失败的不计入，下次启动重试。
- * 返回本轮处理完的 id，由调用方记入 settings.defaultSkillsInstalled（用户之后卸载也不再重装）。
+ * 默认安装 / 升级同步：清单 card.defaultInstall 的技能。
+ *   - 未处理过的 id：用户级没有同名目录就装（有则视为已处理，不覆盖）；下载失败的不计入，下次启动重试。
+ *   - upgraded（升级后首次启动）：用户级已有目录的一律按安装包覆盖（用户卸载过的不重装）。
+ * 返回 handled = 本轮处理完的新 id（调用方记入 settings.defaultSkillsInstalled，用户之后卸载也不再重装），
+ * failed = 失败个数（升级同步有失败则调用方不落版本号，下次启动重试）。
  */
-export async function installDefaultSkills(handled: string[]): Promise<string[]> {
-  const pending = scanResources().filter((r): r is SkillRes => r.kind === 'skill' && !!r.card.defaultInstall && !handled.includes(r.id));
-  const done = await Promise.all(pending.map(async r => {
+export async function syncDefaultSkills(handled: string[], upgraded: boolean): Promise<{ handled: string[]; failed: number }> {
+  const all = scanResources().filter((r): r is SkillRes => r.kind === 'skill' && !!r.card.defaultInstall);
+  let failed = 0;
+  const done = await Promise.all(all.map(async r => {
+    const exists = fs.existsSync(userSkillDir(r.id));
+    const isNew = !handled.includes(r.id);
     try {
-      if (!fs.existsSync(userSkillDir(r.id))) await installResource(r.id, false);
-      return r.id;
+      if (isNew && !exists) await installResource(r.id, false);
+      else if (upgraded && exists) await installResource(r.id, true);
+      return isNew ? r.id : null;
     } catch (e: any) {
-      logErr('eco', `默认技能 ${r.id} 安装失败:`, e?.message || e);
+      failed++;
+      logErr('eco', `默认技能 ${r.id} ${exists ? '升级' : '安装'}失败:`, e?.message || e);
       return null;
     }
   }));
-  return done.filter((x): x is string => !!x);
+  return { handled: done.filter((x): x is string => !!x), failed };
 }
 
 export function uninstallResource(id: string): true {

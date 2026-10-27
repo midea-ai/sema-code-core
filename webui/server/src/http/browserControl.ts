@@ -56,31 +56,58 @@ export class BrowserControl {
     return task;
   }
 
+  /**
+   * 升级后首次启动的同步：开关已开时，用户级已有的 chrome-use skill 目录与 chrome MCP 配置按安装包重写
+   * （目录 rm 后整拷，MCP 走 core.addMCPServer 的添加即更新语义）。没开过、或用户已删的不补，等开启时再装。
+   * 与开/关动作同一条链串行化；失败抛错由调用方决定是否落版本号。
+   */
+  syncInstalled(): Promise<void> {
+    const run = () => this.sync();
+    const task = this.chain.then(run, run);
+    this.chain = task.catch(() => undefined);
+    return task;
+  }
+
   private core(action: string, payload: any = {}): Promise<any> {
     return this.sm.dispatch(action, undefined, payload);
+  }
+
+  private copySkill(src: string) {
+    const dest = userSkillDir();
+    fs.rmSync(dest, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.cpSync(path.join(src, 'skills', SKILL_NAME), dest, { recursive: true });
+  }
+
+  private async addMcpFromTemplate(src: string) {
+    const template = JSON.parse(fs.readFileSync(path.join(src, '.mcp.json'), 'utf8'));
+    const entry = template?.mcpServers?.[MCP_NAME];
+    if (!entry) throw new Error(`.mcp.json 缺少 mcpServers.${MCP_NAME}`);
+    await this.core('core.addMCPServer', { config: { ...entry, name: MCP_NAME, scope: 'user' } });
   }
 
   private async enable(): Promise<boolean> {
     const src = sourceDir();
     // 1. 用户级 skill 目录没有就整目录拷贝
-    const dest = userSkillDir();
-    if (!fs.existsSync(path.join(dest, 'SKILL.md'))) {
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.cpSync(path.join(src, 'skills', SKILL_NAME), dest, { recursive: true });
-    }
+    if (!fs.existsSync(path.join(userSkillDir(), 'SKILL.md'))) this.copySkill(src);
     // 2. 让 core 重新扫描 skills，把新目录加载进缓存
     await this.core('core.getSkillsInfo', { refresh: true });
     // 3. 用户级没有 chrome MCP 就按模板添加
     const servers: any[] = await this.core('core.getMCPServerInfo');
-    if (!findUserMcp(servers)) {
-      const template = JSON.parse(fs.readFileSync(path.join(src, '.mcp.json'), 'utf8'));
-      const entry = template?.mcpServers?.[MCP_NAME];
-      if (!entry) throw new Error(`.mcp.json 缺少 mcpServers.${MCP_NAME}`);
-      await this.core('core.addMCPServer', { config: { ...entry, name: MCP_NAME, scope: 'user' } });
-    }
+    if (!findUserMcp(servers)) await this.addMcpFromTemplate(src);
     // 4. 三步全部完成后才落配置键
     this.sm.registry.setBrowserControl(true);
     return true;
+  }
+
+  private async sync(): Promise<void> {
+    const src = sourceDir();
+    if (fs.existsSync(path.join(userSkillDir(), 'SKILL.md'))) {
+      this.copySkill(src);
+      await this.core('core.getSkillsInfo', { refresh: true });
+    }
+    const servers: any[] = await this.core('core.getMCPServerInfo');
+    if (findUserMcp(servers)) await this.addMcpFromTemplate(src);
   }
 
   private async disable(): Promise<boolean> {

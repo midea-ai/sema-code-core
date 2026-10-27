@@ -139,8 +139,9 @@ export class RegistryStore {
     // enableBrowserControl 只允许由 setBrowserControl 在装/删动作成功后写入，通用保存一律忽略，避免键与实际 skill/MCP 状态脱节
     const safePatch = { ...patch };
     delete safePatch.enableBrowserControl;
-    // defaultSkillsInstalled 同理，只由 addDefaultSkillsInstalled 追加
+    // defaultSkillsInstalled / builtinResourcesVersion 同理，只由 addDefaultSkillsInstalled / setBuiltinResourcesVersion 写入
     delete safePatch.defaultSkillsInstalled;
+    delete safePatch.builtinResourcesVersion;
     this.settings = {
       ...this.settings, ...safePatch,
       coreConfig: { ...this.settings.coreConfig, ...(patch.coreConfig || {}), ...FIXED_CORE_CONFIG },
@@ -164,6 +165,12 @@ export class RegistryStore {
   /** 默认技能已处理列表的唯一写入口（启动时默认安装完成后追加） */
   addDefaultSkillsInstalled(ids: string[]) {
     this.settings.defaultSkillsInstalled = [...new Set([...(this.settings.defaultSkillsInstalled || []), ...ids])];
+    writeJsonAtomic(SETTINGS_FILE, this.settings);
+  }
+
+  /** 内置资源同步版本的唯一写入口（启动时升级同步全部成功后写入） */
+  setBuiltinResourcesVersion(version: string) {
+    this.settings.builtinResourcesVersion = version;
     writeJsonAtomic(SETTINGS_FILE, this.settings);
   }
 

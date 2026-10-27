@@ -83,6 +83,8 @@ export interface WebUISettings {
   enableBrowserControl?: boolean;
   /** 已处理过的默认安装技能 id（清单 card.defaultInstall）：只由服务端启动时的默认安装追加，PUT /api/settings 忽略该键；记过的 id 用户卸载后不再重装 */
   defaultSkillsInstalled?: string[];
+  /** 上次同步内置资源时的 webui 版本：启动时与当前版本不等即视为升级后首次启动，把 defaultInstall 技能与浏览器控制的 skill/MCP 按安装包覆盖到用户级；只由服务端写入，PUT /api/settings 忽略该键 */
+  builtinResourcesVersion?: string;
 }
 
 /** GET/POST /api/browser-control：enabled 即 settings.enableBrowserControl */

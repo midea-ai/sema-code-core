@@ -26,6 +26,8 @@ const common = {
   packages: 'external', // electron / sema-core / node-pty / ws 等运行时从 node_modules 加载（worker-entry 例外，见下）
   sourcemap: true,
   logLevel: 'info',
+  // server 源码里的 __WEBUI_VERSION__：升级后首次启动同步内置技能与浏览器控制资源用，与 webui/server/esbuild.mjs 对齐
+  define: { __WEBUI_VERSION__: JSON.stringify(requireFromDesktop('./package.json').version) },
 };
 
 await build({ ...common, entryPoints: ['src/main.ts'], outfile: 'dist/main.js' });

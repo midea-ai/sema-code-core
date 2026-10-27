@@ -14,7 +14,7 @@ import { readFileInDir, listDir, resolvePath, statPaths, rawFileInDir } from '..
 import { savePastedText, removePastedText } from '../files/attachments';
 import { listOpenWithApps, appIconPath } from '../files/apps';
 import { gitDiffList, gitDiffFile, gitRepoCheck } from '../files/gitDiff';
-import { listCatalog, installResource, installDefaultSkills, uninstallResource, listInstalled, toggleInstalled, removeInstalled, updateMcpConfig, updateMcpUseTools, userSkillsRoot, readUserMcp } from './ecosystem';
+import { listCatalog, installResource, syncDefaultSkills, uninstallResource, listInstalled, toggleInstalled, removeInstalled, updateMcpConfig, updateMcpUseTools, userSkillsRoot, readUserMcp } from './ecosystem';
 import { listMcpTools } from './mcpTools';
 import { BrowserControl, browserControlState } from './browserControl';
 
@@ -399,12 +399,6 @@ export class Router {
     // skill 装/卸/删后广播全部 worker 清缓存重扫；mcp 写操作后广播刷新连接（仅重连有变动的 server）。均不阻塞响应
     const refreshSkills = () => { void sm.dispatch('core.refreshSkills', undefined, {}).catch(() => null); };
     const refreshMcp = () => { void sm.dispatch('core.refreshMCPServerInfo', undefined, {}).catch(() => null); };
-    // 默认安装：清单标了 defaultInstall 的技能首次启动后台装到用户级，处理过的 id 记入 settings，用户卸载后不再重装
-    void installDefaultSkills(reg.getSettings().defaultSkillsInstalled || []).then(ids => {
-      if (!ids.length) return;
-      reg.addDefaultSkillsInstalled(ids);
-      refreshSkills();
-    }).catch(() => null);
     this.add('POST', '/api/eco/install', async (_r, _s, _p, body) => {
       const id = String(body?.id || '');
       const r = await installResource(id, !!body?.overwrite);
@@ -463,6 +457,19 @@ export class Router {
       mapMcpStatus(await sm.dispatch('core.getMCPServerInfo', undefined, {})));
     // 浏览器控制开关：配置 worker 里装/删 skill 与 MCP，全部成功才落 enableBrowserControl；失败键保持原值，错误信息随响应返回
     const browserControl = new BrowserControl(sm);
+    // 内置资源同步（后台，不阻塞启动）：
+    //   - 默认安装：清单标了 defaultInstall 的技能首次启动装到用户级，处理过的 id 记入 settings，用户卸载后不再重装
+    //   - 升级后首次启动（settings 记的版本 ≠ 当前构建版本）：用户级已有的默认技能、已开启的浏览器控制 skill/MCP 一律按安装包覆盖，
+    //     全部成功才记下当前版本；同一版本内后续启动只比一次字符串，不再碰用户级目录
+    void (async () => {
+      const upgraded = reg.getSettings().builtinResourcesVersion !== __WEBUI_VERSION__;
+      const r = await syncDefaultSkills(reg.getSettings().defaultSkillsInstalled || [], upgraded);
+      if (r.handled.length) reg.addDefaultSkillsInstalled(r.handled);
+      let browserOk = true;
+      if (upgraded && reg.getSettings().enableBrowserControl) browserOk = await browserControl.syncInstalled().then(() => true, () => false);
+      if (r.handled.length || upgraded) { refreshSkills(); refreshMcp(); }
+      if (upgraded && !r.failed && browserOk) reg.setBuiltinResourcesVersion(__WEBUI_VERSION__);
+    })().catch(() => null);
     this.add('GET', '/api/browser-control', () => browserControlState(!!reg.getSettings().enableBrowserControl));
     this.add('POST', '/api/browser-control', async (_r, _s, _p, body) => {
       const enabled = await browserControl.setEnabled(!!body?.enabled);

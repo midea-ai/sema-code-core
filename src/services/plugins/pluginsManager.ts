@@ -857,6 +857,7 @@ class PluginsManager {
   ): Promise<{ marketplaces: MarketplaceInfoResult[], plugins: PluginInfoResult[] }> {
     const marketplacesResult: MarketplaceInfoResult[] = []
     const pluginsResult: PluginInfoResult[] = []
+    const cwd = readInitialCwd()
 
     for (const [marketplaceName, marketplaceInfo] of Object.entries(known)) {
       const marketplaceJson = await this.readMarketplaceJson(marketplaceInfo.installLocation)
@@ -873,7 +874,10 @@ class PluginsManager {
           })
 
           const pluginKey = `${pluginDef.name}@${marketplaceName}`
-          const installEntries = installed.plugins[pluginKey]
+          // project/local 范围的安装记录只对其 projectPath 对应的项目可见，否则在其他项目会因 settings 无该 key 而被兜底判为启用
+          const installEntries = installed.plugins[pluginKey]?.filter(
+            entry => entry.scope === 'user' || entry.projectPath === cwd
+          )
 
           if (installEntries?.length) {
             installedInMarket.push(pluginDef.name)

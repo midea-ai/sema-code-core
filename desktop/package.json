@@ -1,6 +1,6 @@
 {
   "name": "semawork-desktop",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "private": true,
   "description": "SemaWork 桌面版",
   "author": "AIRC Sema Team",
@@ -28,7 +28,7 @@
     "cron-parser": "^5.5.0",
     "diff": "7.0.0",
     "node-pty": "1.2.0-beta.15",
-    "sema-core": "^2.1.5",
+    "sema-core": "^2.1.6",
     "ws": "^8.18.0",
     "zod": "^3.25.76"
   },

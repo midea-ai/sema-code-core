@@ -8,6 +8,7 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { SessionManager } from '../sessions';
+import { logErr } from '../errlog';
 import { SEMA_DOCS_ROOT, WEBUI_HOME, removeEmptyDateParent } from '../registry/registry';
 import { searchFiles } from '../files/search';
 import { readFileInDir, listDir, resolvePath, statPaths, rawFileInDir } from '../files/read';
@@ -466,10 +467,12 @@ export class Router {
       const r = await syncDefaultSkills(reg.getSettings().defaultSkillsInstalled || [], upgraded);
       if (r.handled.length) reg.addDefaultSkillsInstalled(r.handled);
       let browserOk = true;
-      if (upgraded && reg.getSettings().enableBrowserControl) browserOk = await browserControl.syncInstalled().then(() => true, () => false);
+      if (upgraded && reg.getSettings().enableBrowserControl) {
+        browserOk = await browserControl.syncInstalled().then(() => true, (e: any) => { logErr('builtin-sync', '浏览器控制资源升级同步失败:', e?.message || e); return false; });
+      }
       if (r.handled.length || upgraded) { refreshSkills(); refreshMcp(); }
       if (upgraded && !r.failed && browserOk) reg.setBuiltinResourcesVersion(__WEBUI_VERSION__);
-    })().catch(() => null);
+    })().catch((e: any) => logErr('builtin-sync', '内置资源同步异常:', e?.message || e));
     this.add('GET', '/api/browser-control', () => browserControlState(!!reg.getSettings().enableBrowserControl));
     this.add('POST', '/api/browser-control', async (_r, _s, _p, body) => {
       const enabled = await browserControl.setEnabled(!!body?.enabled);

@@ -6,9 +6,12 @@
 import { build } from 'esbuild';
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// 版本号构建时注入：服务端用它判断"升级后首次启动"，同步内置技能与浏览器控制资源到用户级（server/esbuild.mjs、desktop/esbuild.mjs 同样注入）
+const { version } = createRequire(import.meta.url)('./package.json');
 const SERVER_SRC = path.join(here, '..', 'server', 'src');
 const CLIENT_DIST = path.join(here, '..', 'client', 'dist');
 
@@ -25,6 +28,7 @@ const common = {
   packages: 'external',
   sourcemap: false,
   logLevel: 'info',
+  define: { __WEBUI_VERSION__: JSON.stringify(version) },
 };
 
 fs.rmSync(path.join(here, 'dist'), { recursive: true, force: true });

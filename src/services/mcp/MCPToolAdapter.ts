@@ -9,6 +9,22 @@ import { MCPClient } from './MCPClient'
 import { MCPToolDefinition, MCPToolResult } from '../../types/mcp'
 import { normalizeImage, ImageTooLargeError } from '../../util/imageCompress'
 import { logWarn } from '../../util/log'
+import { TOOL_INTERRUPT_MSG } from '../../util/message'
+import { MAIN_AGENT_ID } from '../../manager/StateManager'
+import { getEventBus } from '../../events/EventSystem'
+import type { ToolExecutionChunkData } from '../../events/types'
+import { getTimeTag } from '../../util/time'
+
+// MCP 调用超过该时长仍未返回才向宿主报「运行中」（chunk 事件），短调用保持现状不发 chunk
+const SLOW_CALL_NOTICE_MS = 3000
+
+/** 工具入参的单行展示（chunk / complete / permission 共用，保证同一调用的标题一致） */
+function formatInputTitle(input?: Record<string, unknown>): string {
+  if (!input) return ''
+  return Object.entries(input)
+    .map(([k, v]) => `${k}: ${typeof v === 'string' ? `"${v}"` : String(v)}`)
+    .join(', ')
+}
 
 /**
  * 将 MCP 工具转换为 SemaCore Tool 接口
@@ -32,20 +48,50 @@ export function createMCPToolAdapter(
     // 但这里刻意按「用户自装即信任」处理为非破坏性，否则 auto 模式下等同于全部转人工
     isDestructive: () => toolDef.annotations?.destructiveHint === true && toolDef.annotations?.readOnlyHint !== true,
 
-    async *call(input: z.infer<typeof toolParams>) {
+    // 中断在 call 内部消化为 interrupted 结果（与 generate_image 一致），宿主收到的是带 interrupted 的 complete 而非 error
+    supportsInterrupt: () => true,
 
-      const result = await normalizeMCPImages(await client.callTool(toolDef.name, input))
+    async *call(input: z.infer<typeof toolParams>, agentContext: any) {
+      const signal: AbortSignal | undefined = agentContext?.abortController?.signal
+
+      // 慢调用提示：超过 SLOW_CALL_NOTICE_MS 仍未返回才发 chunk 让宿主把工具行标成运行中。
+      // 三条终止路径（正常/isError → complete|error、异常或 SDK 超时 → error、中断 → complete+interrupted）
+      // 都会收口，宿主不会卡在运行中；调用结束前先 clearTimeout，所以不会在 complete 之后再发 chunk
+      const noticeTimer = agentContext?.agentId === MAIN_AGENT_ID
+        ? setTimeout(() => {
+            const chunkData: ToolExecutionChunkData = {
+              agentId: agentContext.agentId,
+              toolId: agentContext.currentToolUseID || '',
+              toolName: tool.name,
+              title: formatInputTitle(input),
+              summary: '',
+              content: `${getTimeTag()}Calling ${serverName}/${toolDef.name}...\n`,
+            }
+            getEventBus().emit('tool:execution:chunk', chunkData, agentContext.sessionId)
+          }, SLOW_CALL_NOTICE_MS)
+        : undefined
+
+      let result: MCPToolResult
+      try {
+        result = await normalizeMCPImages(await client.callTool(toolDef.name, input, signal))
+      } catch (error) {
+        // 用户中断：信号已传给 SDK，本地立即以 abort 拒绝，按正常结果返回；非中断的失败照常抛出
+        if (!signal?.aborted) throw error
+        result = { content: [], interrupted: true }
+      } finally {
+        if (noticeTimer) clearTimeout(noticeTimer)
+      }
 
       yield {
         type: 'result' as const,
         data: result,
-        resultForAssistant: buildMCPResultForAssistant(result),
+        resultForAssistant: result.interrupted ? TOOL_INTERRUPT_MSG : buildMCPResultForAssistant(result),
         isError: result.isError === true,
       }
     },
 
     genResultForAssistant(output: MCPToolResult): Anthropic.ToolResultBlockParam['content'] {
-      return buildMCPResultForAssistant(output)
+      return output.interrupted ? TOOL_INTERRUPT_MSG : buildMCPResultForAssistant(output)
     },
 
     getDisplayTitle(_input?: z.infer<typeof toolParams>): string {
@@ -53,33 +99,16 @@ export function createMCPToolAdapter(
     },
 
     genToolResultMessage(output: MCPToolResult, input?: z.infer<typeof toolParams>) {
-      const isError = output.isError === true
-      const inputStr = input
-        ? Object.entries(input)
-            .map(([k, v]) => {
-              const valueStr = typeof v === 'string' ? `"${v}"` : String(v)
-              return `${k}: ${valueStr}`
-            })
-            .join(', ')
-        : ''
       return {
-        title: inputStr,
+        title: formatInputTitle(input),
         summary: '',
-        content: formatMCPResultText(output)
+        content: output.interrupted ? 'Tool use interrupted by user' : formatMCPResultText(output)
       }
     },
 
     genToolPermission(input?: z.infer<typeof toolParams>) {
-      const inputStr = input
-        ? Object.entries(input)
-            .map(([k, v]) => {
-              const valueStr = typeof v === 'string' ? `"${v}"` : String(v)
-              return `${k}: ${valueStr}`
-            })
-            .join(', ')
-        : ''
       return {
-        title: inputStr || `MCP: ${toolDef.name}`,
+        title: formatInputTitle(input) || `MCP: ${toolDef.name}`,
         content: toolDef.description || `MCP Tool: ${toolDef.name} from ${serverName}`
       }
     }

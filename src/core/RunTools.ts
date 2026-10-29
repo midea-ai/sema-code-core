@@ -135,26 +135,11 @@ export async function* runToolUse(
       agentContext,
       assistantMessage,
     )) {
-      // 工具执行期间
-      if (abortController.signal.aborted) {
-        // 如果是因为用户点击"拒绝"导致的中断，消息已由 checkPermissionsAndCallTool 正确生成
-        // 直接 yield 原消息（包含 REJECT_MSG），不需要覆盖
-        const abortReason = (abortController.signal as any).reason
-        if (abortReason === 'refuse') {
-          yield message
-          return
-        }
-        // 工具支持中断（如 Bash），已在内部处理中断并返回部分结果，保留该结果
-        if (tool.supportsInterrupt?.()) {
-          yield message
-          return
-        }
-        // 工具不支持中断（如 Edit），返回取消消息
-        yield buildUserMsg([{ type: 'tool_result', content: CANCEL_MSG, is_error: true, tool_use_id: toolUse.id }])
-        return
-      }
-
-      yield message // 生成消息
+      // 走到这里说明工具已真正跑完并产出结果（权限被拒/取消的消息也已在内部生成），即使期间收到中断也原样交给模型：
+      // 副作用已经发生，complete 事件已发给宿主，若改成取消消息会让模型误以为没执行而重做；
+      // 中断只体现为 Conversation 在最后一个工具结果后追加的 TOOL_INTERRUPT_MSG。
+      // 取消消息只用于尚未开始执行的工具（见本函数开头与 checkPermissionsAndCallTool 的权限前检查）
+      yield message
     }
   } catch (e) {
     logError(e) // 记录错误

@@ -130,6 +130,7 @@ export interface MCPToolResult {
     mimeType?: string
   }>
   isError?: boolean
+  interrupted?: boolean  // 调用途中被用户中断，content 为空；RunTools 据此在 complete 事件上标 interrupted
 }
 
 /**

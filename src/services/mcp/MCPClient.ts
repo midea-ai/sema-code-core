@@ -147,16 +147,19 @@ export class MCPClient {
 
   /**
    * 调用 MCP 工具
+   * signal：用户中断信号。SDK 收到后本地立即以 abort 拒绝本次调用，并向 server 发 notifications/cancelled；
+   * server 是否真的停止取决于其实现，不停的话迟到的结果会被 SDK 丢弃
    */
-  async callTool(toolName: string, args: Record<string, unknown>): Promise<MCPToolResult> {
+  async callTool(toolName: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<MCPToolResult> {
     if (this._status !== 'connected') {
       throw new Error(t('mcp.notConnected', { name: this.config.name }))
     }
 
-    const result = await this.client.callTool({
-      name: toolName,
-      arguments: args
-    })
+    const result = await this.client.callTool(
+      { name: toolName, arguments: args },
+      undefined,
+      signal ? { signal } : undefined,
+    )
 
     return {
       content: result.content as MCPToolResult['content'],

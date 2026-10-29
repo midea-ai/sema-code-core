@@ -215,7 +215,7 @@ AutoRun 档位下，工具动作经快速模型判定为 `safe` 而**自动放�
 
 ### `tool:execution:chunk`
 
-工具执行期间，工具结果的中间态推送。结构与 `tool:execution:complete` 相同，`content` 仅包含本次新增的 delta。
+工具执行期间，工具结果的中间态推送。结构与 `tool:execution:complete` 相同，`content` 仅包含本次新增的 delta。MCP 工具调用超过 3 秒未返回时也会发一次该事件作为运行中提示。
 
 ```typescript
 {

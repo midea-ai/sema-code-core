@@ -8,7 +8,7 @@
 - 收集并分发 thinking、text、tool_use 响应块
 - 决定并执行工具调用（并发或串行）
 - 将工具结果反馈给 LLM，递归继续对话
-- 处理 4 个中断检查点
+- 处理 3 个中断检查点（加一个前置检查）
 - 自动压缩超长上下文（仅主代理）
 - 上下文重建（Plan ↔ Agent 模式切换）
 - 注入处理中收到的用户消息（inject 队列）
@@ -113,7 +113,7 @@ const canRunConcurrently = toolUseMessages.every(msg => {
 
 ## 中断机制
 
-执行过程中设有 4 个检查点。`AbortController.signal.aborted` 在不同位置触发不同的善后逻辑：
+执行过程中设有 3 个检查点（另有一个前置检查）。`AbortController.signal.aborted` 在不同位置触发不同的善后逻辑：
 
 ```mermaid
 sequenceDiagram
@@ -128,7 +128,6 @@ sequenceDiagram
     loop 每个工具
         Note over T: 检查点3：单个工具开始前
         T->>T: 权限检查 & 执行工具
-        Note over T: 检查点4：工具执行期间
     end
     T-->>C: 返回工具结果
     Note over C: 检查点2：所有工具完成后<br/>递归查询前
@@ -140,8 +139,9 @@ sequenceDiagram
 | 0（前置）| `queryLLM` 抛出 | 若 aborted：追加 `INTERRUPT_MESSAGE` 并 finalize；否则仅保存原历史并 `flushHistory()` 后抛出 |
 | 1 | AI 响应完成、工具执行前 | emit `session:interrupted`，把 `INTERRUPT_MESSAGE` 作为用户消息追加到历史并 finalize |
 | 2 | 所有工具完成、递归查询前 | emit `session:interrupted`，向最后一条工具结果追加 `INTERRUPT_MESSAGE_FOR_TOOL_USE` 文本，发送 `conversation:usage`，finalize |
-| 3 | 单个工具开始前 | RunTools 内部返回取消消息（`CANCEL_MESSAGE`） |
-| 4 | 工具执行期间 | 拒绝原因为 `refuse` 时保留原消息，否则返回取消消息 |
+| 3 | 单个工具开始前（含权限等待期间） | RunTools 内部返回取消消息（`CANCEL_MESSAGE`） |
+
+工具一旦开始执行，RunTools 不再因中断改写其结果：已跑完的工具（含权限被拒生成的消息）原样交给模型，否则模型会误以为未执行而重做。中断只体现为检查点 2 追加的中断文本；声明 `supportsInterrupt()` 的工具（run_shell、fetch_url、MCP 工具等）会在内部消化中断信号，以部分或空结果正常结束，并在 `tool:execution:complete` 上带 `interrupted` 标记。
 
 调用 `session.interrupt()` 后，会在最近的检查点中止执行，并触发当前会话的 `session:interrupted` 事件。后续是否继续消费该会话输入队列或置 `idle`，由 `SemaEngine.processQuery.finally` 决定。
 

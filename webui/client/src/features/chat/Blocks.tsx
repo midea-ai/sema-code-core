@@ -286,7 +286,7 @@ function verbState(status: ToolBlock['status']) {
   return status === 'running' ? 'running' as const : status === 'error' ? 'error' as const : 'done' as const;
 }
 
-/** 支持中断的工具（core 侧 supportsInterrupt 的四个）中断后的标题；其余工具不会带 interrupted */
+/** 内置支持中断的工具（core 侧 supportsInterrupt）中断后的标题；MCP 工具也支持中断，走兜底的 tool.call.interrupted；其余工具不会带 interrupted */
 const INTERRUPTED_VERB: Record<string, I18nKey> = {
   run_shell: 'tool.shell.interrupted',
   fetch_url: 'tool.fetch.interrupted',
@@ -297,7 +297,8 @@ const INTERRUPTED_VERB: Record<string, I18nKey> = {
 /** 工具行动词：按状态三态区分（正在运行 / 已运行 / 运行出错），失败不用「已」；中断以部分结果正常结束，单独一套「已中断」文案 */
 function toolVerb(block: ToolBlock, diff: { type: 'diff' | 'new' } | null): string {
   const n = block.toolName;
-  if (block.interrupted && block.status === 'done' && INTERRUPTED_VERB[n]) return t(INTERRUPTED_VERB[n]);
+  const interrupted = !!block.interrupted && block.status === 'done';
+  if (interrupted && INTERRUPTED_VERB[n]) return t(INTERRUPTED_VERB[n]);
   const st = verbState(block.status);
   const pick = (kind: 'shell' | 'create' | 'edit' | 'read' | 'search' | 'fetch' | 'agent' | 'skill' | 'ask' | 'bgPeek' | 'bgStop' | 'genImage') => t(`tool.${kind}.${st}` as const);
   if (n === 'run_shell') return pick('shell');
@@ -312,7 +313,7 @@ function toolVerb(block: ToolBlock, diff: { type: 'diff' | 'new' } | null): stri
   if (n === 'peek_bg_job') return pick('bgPeek');
   if (n === 'stop_bg_job') return pick('bgStop');
   if (n === GEN_IMAGE_TOOL) return pick('genImage');
-  return t(`tool.call.${st}` as const, { name: toolDisplayName(n) });
+  return t(interrupted ? 'tool.call.interrupted' : `tool.call.${st}` as const, { name: toolDisplayName(n) });
 }
 
 const FILE_TOOLS = new Set(['view_file', 'write_file', 'patch_file', 'edit_notebook']);

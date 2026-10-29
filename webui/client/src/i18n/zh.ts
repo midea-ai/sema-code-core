@@ -538,6 +538,7 @@ export const zh = {
   'tool.call.running': '正在调用 {name}',
   'tool.call.done': '已调用 {name}',
   'tool.call.error': '调用 {name} 失败',
+  'tool.call.interrupted': '调用已中断 {name}',
   'tool.genImage.running': '正在生成图片',
   'tool.genImage.done': '已生成图片',
   'tool.genImage.error': '生成图片失败',

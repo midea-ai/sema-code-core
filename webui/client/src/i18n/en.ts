@@ -540,6 +540,7 @@ export const en = {
   'tool.call.running': 'Calling {name}',
   'tool.call.done': 'Called {name}',
   'tool.call.error': 'Failed to call {name}',
+  'tool.call.interrupted': 'Call interrupted {name}',
   'tool.genImage.running': 'Generating image',
   'tool.genImage.done': 'Generated image',
   'tool.genImage.error': 'Image generation failed',

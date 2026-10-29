@@ -201,6 +201,11 @@ MCP 工具在 Sema 中以 `mcp__[serverName]_[toolName]` 格式引用：
 
 在对话中直接使用 `mcp__filesystem_read_file` 即可调用该工具。
 
+### 调用期间的中断与运行中提示
+
+- MCP 工具支持用户中断：中断信号会透传给 MCP SDK，本地立即结束本次调用并向服务器发送取消通知；服务器是否真正停止取决于其实现，迟到的结果会被丢弃。中断后以空结果正常收尾，`tool:execution:complete` 事件带 `interrupted: true`。
+- 调用超过 3 秒仍未返回时，会发一次 `tool:execution:chunk` 事件，宿主可据此把该工具行标为运行中；短调用不发。
+
 ## 实时事件监听
 
 服务器状态变化时会触发 `mcp:server:status` 事件：
@@ -263,7 +268,7 @@ sema.on('mcp:server:status', (info) => {
 
 `.mcp.json` 条目的 `command`、`args`、`env`、`url`、`headers` 支持两类变量，加载时展开：
 
-- `${VAR}` / `${VAR:-默认值}`：进程环境变量，未定义且无默认值时原样保留。
+- `${VAR}` / `${VAR:-默认值}`：环境变量，取值顺序为 进程环境 < 用户级 settings.json 的 `env` < 项目级 `env`，未定义且无默认值时原样保留。修改 settings 的 `env` 后需重启服务生效。
 - `${SEMA_PLUGIN_ROOT}`：该 `.mcp.json` 所属根目录。插件自带的配置展开为插件安装目录，`<project>/.sema/.mcp.json` 展开为项目根。按通用插件格式编写的现成插件，其根目录变量同样会被识别，无需改动。
 
 ```json

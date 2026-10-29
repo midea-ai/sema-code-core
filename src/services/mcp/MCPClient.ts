@@ -19,6 +19,13 @@ import { readInitialCwd } from '../../util/cwd'
 
 type McpTransport = StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport
 
+/** server 进度通知（notifications/progress 的 params，去掉 progressToken） */
+export interface MCPProgress {
+  progress: number
+  total?: number
+  message?: string
+}
+
 export class MCPClient {
   private client: Client
   private transport: McpTransport | null = null
@@ -145,12 +152,20 @@ export class MCPClient {
     }
   }
 
+  /** 单次工具调用的空闲超时 (ms)：这么久没有响应也没有进度通知才超时；每收到一次进度重新计时，不设总上限（持续报进度的任务止损靠用户中断） */
+  private static readonly CALL_IDLE_TIMEOUT = 120000
+
   /**
    * 调用 MCP 工具
    * signal：用户中断信号。SDK 收到后本地立即以 abort 拒绝本次调用，并向 server 发 notifications/cancelled；
    * server 是否真的停止取决于其实现，不停的话迟到的结果会被 SDK 丢弃
+   * onprogress：server 发来的 notifications/progress。传了回调 SDK 才会在请求里带 progressToken，server 才会发
    */
-  async callTool(toolName: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<MCPToolResult> {
+  async callTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    opts?: { signal?: AbortSignal; onprogress?: (progress: MCPProgress) => void },
+  ): Promise<MCPToolResult> {
     if (this._status !== 'connected') {
       throw new Error(t('mcp.notConnected', { name: this.config.name }))
     }
@@ -158,7 +173,12 @@ export class MCPClient {
     const result = await this.client.callTool(
       { name: toolName, arguments: args },
       undefined,
-      signal ? { signal } : undefined,
+      {
+        signal: opts?.signal,
+        onprogress: opts?.onprogress,
+        timeout: MCPClient.CALL_IDLE_TIMEOUT,
+        resetTimeoutOnProgress: true,
+      },
     )
 
     return {

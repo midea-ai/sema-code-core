@@ -191,20 +191,23 @@ interface MCPToolDefinition {
 
 ## 工具命名规则
 
-MCP 工具在 Sema 中以 `mcp__[serverName]_[toolName]` 格式引用：
+MCP 工具在 Sema 中以 `mcp__{server}__{tool}` 格式引用（server 名中的冒号转为下划线）：
 
 ```
 服务器名：filesystem
 工具名：  read_file
-引用名：  mcp__filesystem_read_file
+引用名：  mcp__filesystem__read_file
+
+插件来源：plugin:my-plugin:search → mcp__plugin_my-plugin_search__{tool}
 ```
 
-在对话中直接使用 `mcp__filesystem_read_file` 即可调用该工具。
+在对话中直接使用 `mcp__filesystem__read_file` 即可调用该工具。
 
 ### 调用期间的中断与运行中提示
 
 - MCP 工具支持用户中断：中断信号会透传给 MCP SDK，本地立即结束本次调用并向服务器发送取消通知；服务器是否真正停止取决于其实现，迟到的结果会被丢弃。中断后以空结果正常收尾，`tool:execution:complete` 事件带 `interrupted: true`。
-- 调用超过 3 秒仍未返回时，会发一次 `tool:execution:chunk` 事件，宿主可据此把该工具行标为运行中；短调用不发。
+- 服务器发来的进度通知（`notifications/progress`）逐条转为 `tool:execution:chunk` 事件，内容为服务器的 `message`，没有则为 `progress/total`。调用超过 3 秒仍未返回且没收到过进度时，补发一条自建的运行中提示；短调用不发。
+- 单次调用空闲 2 分钟（无响应也无进度）即超时，每收到一次进度重新计时；不设总时长上限，持续报进度的任务靠用户中断止损。
 
 ## 实时事件监听
 

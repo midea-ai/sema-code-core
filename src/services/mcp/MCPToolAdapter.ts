@@ -5,7 +5,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { Tool } from '../../tools/base/Tool'
-import { MCPClient } from './MCPClient'
+import { MCPClient, MCPProgress } from './MCPClient'
 import { MCPToolDefinition, MCPToolResult } from '../../types/mcp'
 import { normalizeImage, ImageTooLargeError } from '../../util/imageCompress'
 import { logWarn } from '../../util/log'
@@ -15,7 +15,7 @@ import { getEventBus } from '../../events/EventSystem'
 import type { ToolExecutionChunkData } from '../../events/types'
 import { getTimeTag } from '../../util/time'
 
-// MCP 调用超过该时长仍未返回才向宿主报「运行中」（chunk 事件），短调用保持现状不发 chunk
+// MCP 调用超过该时长仍未返回、且 server 没报过进度，才自建一条「运行中」chunk；短调用与自报进度的调用不发
 const SLOW_CALL_NOTICE_MS = 3000
 
 /** 工具入参的单行展示（chunk / complete / permission 共用，保证同一调用的标题一致） */
@@ -54,31 +54,48 @@ export function createMCPToolAdapter(
     async *call(input: z.infer<typeof toolParams>, agentContext: any) {
       const signal: AbortSignal | undefined = agentContext?.abortController?.signal
 
-      // 慢调用提示：超过 SLOW_CALL_NOTICE_MS 仍未返回才发 chunk 让宿主把工具行标成运行中。
+      // 运行中提示只发给主代理（子代理的工具行宿主不展示）。两条来源：
+      // - server 的 notifications/progress：收到即发 chunk，内容用 server 的 message，没有就用 progress/total
+      // - 自建提示：超过 SLOW_CALL_NOTICE_MS 仍无返回也无进度才发一条，当作首条进度；server 已先报过进度就不发
       // 三条终止路径（正常/isError → complete|error、异常或 SDK 超时 → error、中断 → complete+interrupted）
-      // 都会收口，宿主不会卡在运行中；调用结束前先 clearTimeout，所以不会在 complete 之后再发 chunk
-      const noticeTimer = agentContext?.agentId === MAIN_AGENT_ID
-        ? setTimeout(() => {
+      // 都会收口，宿主不会卡在运行中；调用结束后 finished 置位，迟到的进度不再发 chunk
+      const emitChunk = agentContext?.agentId === MAIN_AGENT_ID
+        ? (text: string) => {
             const chunkData: ToolExecutionChunkData = {
               agentId: agentContext.agentId,
               toolId: agentContext.currentToolUseID || '',
               toolName: tool.name,
               title: formatInputTitle(input),
               summary: '',
-              content: `${getTimeTag()}Calling ${serverName}/${toolDef.name}...\n`,
+              content: `${getTimeTag()}${text}\n`,
             }
             getEventBus().emit('tool:execution:chunk', chunkData, agentContext.sessionId)
+          }
+        : undefined
+      let finished = false
+      let progressSeen = false
+      const onprogress = emitChunk
+        ? (p: MCPProgress) => {
+            if (finished) return
+            progressSeen = true
+            emitChunk(p.message || (p.total !== undefined ? `${p.progress}/${p.total}` : String(p.progress)))
+          }
+        : undefined
+      const noticeTimer = emitChunk
+        ? setTimeout(() => {
+            if (!progressSeen) emitChunk(`Calling ${serverName}/${toolDef.name}...`)
           }, SLOW_CALL_NOTICE_MS)
         : undefined
 
       let result: MCPToolResult
       try {
-        result = await normalizeMCPImages(await client.callTool(toolDef.name, input, signal))
+        result = await normalizeMCPImages(await client.callTool(toolDef.name, input, { signal, onprogress }))
       } catch (error) {
         // 用户中断：信号已传给 SDK，本地立即以 abort 拒绝，按正常结果返回；非中断的失败照常抛出
         if (!signal?.aborted) throw error
         result = { content: [], interrupted: true }
       } finally {
+        finished = true
         if (noticeTimer) clearTimeout(noticeTimer)
       }
 

@@ -120,7 +120,7 @@ Downloading a repository does not install an MCP server. It is installed by addi
 }
 \`\`\`
 
-- \`transport\` is \`stdio\`, \`sse\` or \`http\`. \`command\`, \`args\`, \`env\`, \`url\` and \`headers\` support \`\${VAR}\` and \`\${VAR:-default}\` expansion from environment variables.
+- \`transport\` is \`stdio\`, \`sse\` or \`http\`. \`command\`, \`args\`, \`env\`, \`url\` and \`headers\` support \`\${VAR}\` and \`\${VAR:-default}\` expansion from environment variables and the \`env\` field of settings.json.
 - A \`stdio\` entry runs a command on the user's machine in every session, which is why its exact \`command\` and \`args\` are shown before writing (step 4).
 - Verify: the file parses as JSON, and for \`stdio\` look the command up on PATH (\`command -v\`, or \`where\` on Windows). Skip the lookup for \`node\`, \`npx\` and \`npm\` — Sema itself runs on Node, so they are always there; it matters for \`uvx\`, \`docker\` or a standalone binary. That is a lookup, not a launch — a stdio server blocks and never exits. A command that is not found does not undo the install: keep the entry and name the missing command in the final line of the report. \`uvx\` ships with \`uv\`, not with Python — when it is missing, that line gives the install command (\`brew install uv\` on macOS, \`pip install uv\` elsewhere), not advice to install Python.
 - Whether it connects is visible in the host application's MCP page after a new session starts.

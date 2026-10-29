@@ -4,7 +4,7 @@
  * 分层：用户级 ~/.sema/settings.json < 项目级 <project>/.sema/settings.json
  */
 export interface SemaSettings {
-  /** 注入到终端执行/后台任务/hooks 子进程的环境变量，项目级覆盖用户级；修改后重启 sema 生效 */
+  /** 注入到终端执行/后台任务/hooks 子进程的环境变量，并参与 .mcp.json 的 ${VAR} 展开；项目级覆盖用户级；修改后重启 sema 生效 */
   env?: Record<string, string>
   /** 禁用的 MCP Server 名称列表（用户级 + 项目级取并集生效） */
   disabledMcpServers?: string[]

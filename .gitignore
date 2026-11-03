@@ -39,6 +39,7 @@ test/
 .claude/
 .venv/
 my-app
+memory-service
 
 test-chrome/
 sdks/java/.settings/

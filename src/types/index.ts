@@ -41,6 +41,9 @@ export interface SemaCoreConfig {
   disableTopicDetection?: boolean;   // 是否禁用话题检测，默认 否
   enableInputPrediction?: boolean;   // 是否开启用户输入预测（一轮结束后用 quick 模型预测用户下一句，事件 input:predict），默认 否
   disableBackgroundTasks?: boolean;  // 是否禁止后台任务（Bash后台/Agent后台/超时转后台），默认 否
+  disableMemory?: boolean;           // 是否关闭内置记忆，默认 否；为 true 时系统提示词不拼记忆使用说明、首轮不注入 MEMORY.md、
+                                     // 不加载 .sema/memory 目录、记忆文件的编辑豁免失效（记忆改由外部服务经 hook/MCP 提供）；
+                                     // core 级配置，仅构造时生效，不支持动态更新
   enableToolSearch?: boolean;        // 是否开启工具搜索（延迟加载），默认 否；开启后仅默认工具集进入 LLM tools，
                                      // 其余内置工具与 MCP 工具通过 load_tools 按名加载；
                                      // 运行时更新于下一次用户输入生效，切换后的首次请求前缀缓存会整体失效一次

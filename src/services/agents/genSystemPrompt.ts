@@ -1,7 +1,7 @@
 import { getGitStatus } from '../../util/git'
 import { getEnv } from '../../util/env'
 import { getConfManager } from '../../manager/ConfManager'
-import { getMemoryManager } from '../memory/memManager'
+import { getMemoryManager, isMemoryDisabled } from '../memory/memManager'
 import { DEFINE_SYSTEM_PROMPT } from '../../prompt/define'
 import { AUTO_MEMORY_PROMPT } from '../../prompt/memory'
 import {
@@ -51,8 +51,8 @@ async function buildPromptBlocks(options: PromptBuildOptions): Promise<TextBlock
  * 主代理系统提示
  */
 export async function formatSystemPrompt(): Promise<TextBlock[]> {
-  const memoryDir = getMemoryManager().getActiveMemoryDir()
-  const memoryPrompt = AUTO_MEMORY_PROMPT(memoryDir)
+  // disableMemory：不拼内置记忆使用说明（记忆改由外部服务经 hook/MCP 提供）
+  const sections = isMemoryDisabled() ? [] : [AUTO_MEMORY_PROMPT(getMemoryManager().getActiveMemoryDir())]
 
   const { prefixPrompt, corePrompt, full } = resolveMainPrompt()
   // replaceAll：系统提示词仅为用户配置的 systemPrompt，不附加 memory/env/gitStatus
@@ -62,7 +62,7 @@ export async function formatSystemPrompt(): Promise<TextBlock[]> {
   return buildPromptBlocks({
     prefixPrompt,
     corePrompt,
-    sections: [memoryPrompt],
+    sections,
   })
 }
 

@@ -81,6 +81,7 @@ class SemaCoreConfig(TypedDict, total=False):
     agentMode: AgentMode
     disableTopicDetection: bool
     disableBackgroundTasks: bool
+    disableMemory: bool  # 关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效），仅构造时生效
     enableToolSearch: bool
     toolSearchDefaultTools: Optional[List[str]]
     maxSessions: int

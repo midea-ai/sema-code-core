@@ -515,6 +515,8 @@ public record SemaCoreConfig
     [JsonPropertyName("agentMode")] public AgentMode? AgentMode { get; init; }
     [JsonPropertyName("disableTopicDetection")] public bool? DisableTopicDetection { get; init; }
     [JsonPropertyName("disableBackgroundTasks")] public bool? DisableBackgroundTasks { get; init; }
+    /// <summary>关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效）。仅构造时生效。</summary>
+    [JsonPropertyName("disableMemory")] public bool? DisableMemory { get; init; }
     [JsonPropertyName("enableToolSearch")] public bool? EnableToolSearch { get; init; }
     [JsonPropertyName("toolSearchDefaultTools")] public List<string>? ToolSearchDefaultTools { get; init; }
     [JsonPropertyName("maxSessions")] public long? MaxSessions { get; init; }

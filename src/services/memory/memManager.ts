@@ -11,8 +11,22 @@ import * as path from 'path'
 import { logDebug, logError, logInfo } from '../../util/log'
 import { readInitialCwd } from '../../util/cwd'
 import { MemoryConfig } from '../../types/memory'
+import { getConfManager } from '../../manager/ConfManager'
 
 const MEMORY_FILE_NAME = 'MEMORY.md'
+
+/**
+ * 内置记忆是否被 disableMemory 关闭。关闭时：不读记忆目录、getMemoryInfo 返回 null、
+ * getMemoryDescription 返回空串（首轮不注入 MEMORY.md）、isMemoryFile 返回 false（编辑豁免失效）；
+ * 系统提示词的记忆段由 genSystemPrompt 按此开关跳过
+ */
+export function isMemoryDisabled(): boolean {
+  try {
+    return !!getConfManager().getCoreConfig()?.disableMemory
+  } catch {
+    return false
+  }
+}
 
 /**
  * Memory 管理器类 - 单例模式
@@ -26,6 +40,12 @@ class MemoryManager {
   constructor() {
     const cwd = readInitialCwd()
     this.semaProjectMemoryDir = path.join(cwd, '.sema', 'memory')
+
+    // 关闭开关时不读盘
+    if (isMemoryDisabled()) {
+      this.memoryInfoCache = null
+      return
+    }
 
     // 后台静默加载 memory 信息
     this.loadingPromise = this.loadAndCacheMemory()
@@ -113,6 +133,7 @@ class MemoryManager {
    * @param refresh 是否强制刷新（重新加载后替换缓存）
    */
   async getMemoryInfo(refresh?: boolean): Promise<MemoryConfig | null> {
+    if (isMemoryDisabled()) return null
     if (refresh) return this.loadAndCacheMemory()
     if (this.memoryInfoCache !== undefined) return this.memoryInfoCache
     if (this.loadingPromise) return this.loadingPromise
@@ -128,6 +149,7 @@ class MemoryManager {
    * 记忆内容已注入系统提示，编辑工具对这类文件跳过"编辑前必须已读"校验
    */
   isMemoryFile(fullFilePath: string): boolean {
+    if (isMemoryDisabled()) return false
     if (!fullFilePath.endsWith('.md')) return false
     const rel = path.relative(this.semaProjectMemoryDir, fullFilePath)
     return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
@@ -138,6 +160,7 @@ class MemoryManager {
    * 缓存未就绪时返回空字符串
    */
   getMemoryDescription(): string {
+    if (isMemoryDisabled()) return ''
     const memory = this.memoryInfoCache
     if (!memory || !memory.prompt) return ''
     const filePath = memory.FilePath ?? ''

@@ -155,7 +155,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getMemoryInfo` | `get_memory_info` | `getMemoryInfo` | `GetMemoryInfo` | `refresh: boolean` | — |
+| `await getMemoryInfo` | `get_memory_info` | `getMemoryInfo` | `GetMemoryInfo` | `refresh: boolean` | 构造配置 `disableMemory` 开启时恒返回 null/None |
 
 ### Rule 管理
 
@@ -377,6 +377,8 @@ MAIN_AGENT_ID                                                // 常量:主代理
 > `defaultCoreConfig`(含超大默认 systemPrompt)与 `TOOL_NAME_*` 常量暂未纳入 SDK,如需再议。
 >
 > `systemPromptMode`:`'append'`(默认,配置的 systemPrompt 叠加在内置提示词前)| `'replace'`(替换内置系统提示词,memory/env 上下文仍附加)| `'replaceAll'`(完全替换,系统提示词仅为 systemPrompt,不附加 memory/env/gitStatus,turn-level reminder 也不注入 MEMORY.md);replace/replaceAll 未配 systemPrompt 时回落 append。仅构造时生效,不支持动态更新。
+>
+> `disableMemory`:关闭内置记忆(系统提示词不拼记忆使用说明、首轮不注入 MEMORY.md、不读 `.sema/memory`、记忆文件编辑豁免失效),记忆改由外部服务经 hook/MCP 提供。仅构造时生效,不支持动态更新。
 
 ### 事件数据 `sema-core/event`
 

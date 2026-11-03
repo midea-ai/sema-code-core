@@ -23,6 +23,7 @@ import {
 import { generatePostCompactReminders } from '../services/agents/genSystemReminder'
 import { TOOL_NAME_SKILL } from '../prompt/tool'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
+import { markCompactSummary } from './transcript'
 
 const defaultCompactDependencies = {
   queryLLM,
@@ -835,8 +836,8 @@ export async function autoCompact(
       userMsgSurvived = compactedUserMsg !== null && survivedUuids.has(compactedUserMsg.uuid)
     }
 
-    // 压缩后重新注入被压掉的 skill 原文与 skills/rules reminder（原注入随历史被摘要替换而丢失）
-    const reminders = await generatePostCompactReminders(options.hasSkillTool ?? false, compactedSkills)
+    // 压缩后重新注入被压掉的 skill 原文与 skills/rules reminder，并重触发 SessionStart hook（原注入随历史被摘要替换而丢失）
+    const reminders = await generatePostCompactReminders(options.hasSkillTool ?? false, compactedSkills, sessionId, abortController.signal)
 
     const instruction = compactedUserMsg && !userMsgSurvived ? extractUserInstructionText(compactedUserMsg) : ''
     const instructionBlocks: Anthropic.ContentBlockParam[] = instruction
@@ -851,6 +852,7 @@ export async function autoCompact(
         { type: 'text', text: wrapCompactSummary(compactResult.summary) },
         ...instructionBlocks,
       ])]
+      markCompactSummary(compactedMessages[0])
     } else {
       // 截断兜底：前置拼进首条截断通知 user 消息，不新增消息
       const extraBlocks = [...reminders, ...instructionBlocks]

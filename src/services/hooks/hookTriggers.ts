@@ -12,6 +12,7 @@ import { toGenericToolName } from '../../prompt/toolAliases'
 import { LoadedHookEntry } from '../../types/hook'
 import { readInitialCwd } from '../../util/cwd'
 import { logInfo, logWarn } from '../../util/log'
+import { getStateManager } from '../../manager/StateManager'
 import { getHooksManager } from './hooksManager'
 import { t } from '../../util/i18n'
 import {
@@ -203,19 +204,28 @@ async function runToolEventHooks(
 
 // ==================== 8 个事件入口 ====================
 
+// SessionStart 触发来源：startup 会话初始化；compact 上下文压缩后重触发（hook 注入的上下文随历史被摘要替换，需补回）
+export type SessionStartSource = 'startup' | 'compact'
+
 /**
- * SessionStart：engine session 初始化成功后触发；不可阻断
- * @returns 注入模型上下文的 additionalContext，无则 null
+ * SessionStart：engine session 初始化成功后触发（source=startup），上下文压缩后再触发一次（source=compact）；不可阻断。
+ * SessionStart 不是工具类事件，matcher 不参与匹配，每次都跑全部条目，hook 脚本按载荷里的 source 区分
+ * @returns 注入模型上下文的 additionalContext，无则 null；被 signal 中断时为 null
  */
-export async function fireSessionStart(sessionId: string): Promise<string | null> {
+export async function fireSessionStart(
+  sessionId: string,
+  source: SessionStartSource = 'startup',
+  signal?: AbortSignal,
+): Promise<string | null> {
   return safeRun(null as string | null, async () => {
     const manager = getHooksManager()
     await manager.ready()
     const entries = manager.getMatchedEntries('SessionStart')
     if (entries.length === 0) return null
 
-    const payload = { ...buildCommonPayload('SessionStart', sessionId, MAIN_AGENT), source: 'startup' }
-    const aggregate = await runEventHooks('SessionStart', sessionId, payload, entries)
+    const payload = { ...buildCommonPayload('SessionStart', sessionId, MAIN_AGENT), source }
+    const aggregate = await runEventHooks('SessionStart', sessionId, payload, entries, signal)
+    if (signal?.aborted) return null
     return aggregate.additionalContext.length > 0 ? aggregate.additionalContext.join('\n\n') : null
   })
 }
@@ -355,8 +365,88 @@ export function fireStop(sessionId: string): void {
     if (entries.length === 0) return null
 
     // stop_hook_active 对齐通用 hooks 字段形状（无续驱恒为 false），方便脚本跨端复用
-    const payload = { ...buildCommonPayload('Stop', sessionId, MAIN_AGENT), stop_hook_active: false }
+    const payload = {
+      ...buildCommonPayload('Stop', sessionId, MAIN_AGENT),
+      transcript_path: transcriptPath(sessionId),
+      stop_hook_active: false,
+    }
     await runEventHooks('Stop', sessionId, payload, entries)
+    return null
+  })
+}
+
+/**
+ * 会话记录（JSONL）路径：Stop / PreCompact / SubagentStart / SubagentStop 任一配置了 hook 即开始写入，
+ * 所以这四个事件触发时路径对应的文件已在写。取路径不触碰文件
+ */
+function transcriptPath(sessionId: string, agentId?: string): string {
+  return getStateManager().session(sessionId).getTranscriptPath(agentId)
+}
+
+/**
+ * PreCompact：全量压缩（手动 /compact 或自动）前触发，同步等待 hook 跑完再压缩，
+ * 脚本可在历史改写前读完 transcript。不可阻断，输出忽略；微压缩（原地改写）不触发
+ */
+export async function firePreCompact(
+  sessionId: string,
+  trigger: 'manual' | 'auto',
+  customInstructions: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await safeRun<void>(undefined, async () => {
+    const manager = getHooksManager()
+    await manager.ready()
+    const entries = manager.getMatchedEntries('PreCompact')
+    if (entries.length === 0) return
+
+    const payload = {
+      ...buildCommonPayload('PreCompact', sessionId, MAIN_AGENT),
+      transcript_path: transcriptPath(sessionId),
+      trigger,
+      custom_instructions: customInstructions,
+    }
+    await runEventHooks('PreCompact', sessionId, payload, entries, signal)
+  })
+}
+
+/**
+ * SubagentStart：子代理 ReAct 启动前触发，同步等待（脚本可按 agent_id 建状态）。不可阻断，输出忽略
+ */
+export async function fireSubagentStart(sessionId: string, agentId: string, agentType: string): Promise<void> {
+  await safeRun<void>(undefined, async () => {
+    const manager = getHooksManager()
+    await manager.ready()
+    const entries = manager.getMatchedEntries('SubagentStart')
+    if (entries.length === 0) return
+
+    const payload = {
+      ...buildCommonPayload('SubagentStart', sessionId, agentId),
+      transcript_path: transcriptPath(sessionId),
+      agent_type: agentType,
+    }
+    await runEventHooks('SubagentStart', sessionId, payload, entries)
+  })
+}
+
+/**
+ * SubagentStop：子代理 ReAct 结束（完成或失败）后、状态清理前触发，与 Stop 一样 fire-and-forget，
+ * 中断的子代理不触发。不可阻断，输出忽略。agent_transcript_path 为该子代理自己的会话记录
+ */
+export function fireSubagentStop(sessionId: string, agentId: string, agentType: string): void {
+  void safeRun(null, async () => {
+    const manager = getHooksManager()
+    await manager.ready()
+    const entries = manager.getMatchedEntries('SubagentStop')
+    if (entries.length === 0) return null
+
+    const payload = {
+      ...buildCommonPayload('SubagentStop', sessionId, agentId),
+      transcript_path: transcriptPath(sessionId),
+      agent_transcript_path: transcriptPath(sessionId, agentId),
+      agent_type: agentType,
+      stop_hook_active: false,
+    }
+    await runEventHooks('SubagentStop', sessionId, payload, entries)
     return null
   })
 }

@@ -10,6 +10,7 @@ import { PLAN_MODE_SYSTEM_REMINDER_PROMPT } from '../../prompt/plan'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../../prompt/define'
 import { SKILL_CONTEXT_NOTICE } from '../../prompt/compact'
 import { getSkillsManager } from '../skills/skillsManager'
+import { fireSessionStart } from '../hooks/hookTriggers'
 import { logError } from '../../util/log'
 
 export async function generateSkillsReminder(): Promise<Anthropic.ContentBlockParam[]> {
@@ -55,12 +56,15 @@ ${REMINDER_SYS_CLOSE}`
 
 /**
  * 压缩后注入的 reminder 块，顺序：被压掉的 skill 原文（仅作上下文，不受 hasSkillTool 门控）、
- * skill 列表（仅当会话有 skill 工具，与 handleControlSignalRebuild 同口径）、rules（始终）。
+ * skill 列表（仅当会话有 skill 工具，与 handleControlSignalRebuild 同口径）、rules（始终）、
+ * SessionStart hook 重触发的上下文（传了 sessionId 时，source=compact，包装与首轮一致）。
  * 压缩成功后历史已被摘要替换、不可逆，任何一段生成失败只降级不抛出。
  */
 export async function generatePostCompactReminders(
   hasSkillTool: boolean,
   compactedSkills: Array<{ name: string; text: string }> = [],
+  sessionId?: string,
+  signal?: AbortSignal,
 ): Promise<Anthropic.ContentBlockParam[]> {
   const reminders: Anthropic.ContentBlockParam[] = []
 
@@ -98,6 +102,22 @@ export async function generatePostCompactReminders(
     reminders.push(...generateRulesReminders())
   } catch (error) {
     logError(`[Compact] Failed to generate rules reminder after compact: ${error}`)
+  }
+
+  // 压缩后重触发 SessionStart（source=compact）：hook 注入的上下文原本随历史被摘要替换，按首轮同样方式补回；
+  // 未配置 hook 时 fireSessionStart 零开销早退
+  if (sessionId) {
+    try {
+      const hookCtx = await fireSessionStart(sessionId, 'compact', signal)
+      if (hookCtx) {
+        reminders.push({
+          type: 'text' as const,
+          text: `${REMINDER_SYS_OPEN}\nSessionStart hook context:\n${hookCtx}\n${REMINDER_SYS_CLOSE}`,
+        })
+      }
+    } catch (error) {
+      logError(`[Compact] Failed to re-fire SessionStart hook after compact: ${error}`)
+    }
   }
 
   return reminders

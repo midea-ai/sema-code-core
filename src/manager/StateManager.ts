@@ -19,6 +19,7 @@ import { getEventBus } from '../events/EventSystem';
 import { StateUpdateData, AppSessionState, TodoItem, PermissionLevelUpdateData } from '../events/types';
 import { logInfo } from '../util/log';
 import { saveHistory } from '../util/history';
+import { TranscriptWriter } from '../util/transcript';
 import { Message, InputImageAttachment, InputSource } from '../types/message';
 import { getConfManager } from './ConfManager';
 import { TodoTask, TodoTaskStatus } from '../types/todoTask';
@@ -145,7 +146,12 @@ export class SessionRuntime {
   // 长期目标（/goal）：随会话历史落盘；只由 /clear、clearGoal、/goal <文本> 清除或改写，clearAllState 不碰
   private goal: GoalState | null = null;
 
-  constructor(public readonly sessionId: string) {}
+  // 会话记录（只写不读的追加式 JSONL，供 hook 脚本读取；门控与懒创建在 writer 内处理）
+  private readonly transcript: TranscriptWriter;
+
+  constructor(public readonly sessionId: string) {
+    this.transcript = new TranscriptWriter(sessionId);
+  }
 
   getGoal(): GoalState | null {
     return this.goal;
@@ -166,6 +172,13 @@ export class SessionRuntime {
     if (!skipAutoSave && agentId === MAIN_AGENT_ID && messages.length > 0) {
       this.saveSessionHistory();
     }
+    // 会话记录追加（主/子代理共用此入口）。放在历史落盘之后：首个 .json 已存在时主干名跟它走
+    this.transcript.sync(agentId, messages, getConfManager().getCoreConfig()?.workingDir, this.historyNoDate);
+  }
+
+  /** 本会话 transcript（JSONL）路径，可选子代理；文件不一定已创建 */
+  getTranscriptPath(agentId: string = MAIN_AGENT_ID): string {
+    return this.transcript.getPath(getConfManager().getCoreConfig()?.workingDir, this.historyNoDate, agentId);
   }
 
   getMessageHistory(agentId: string = MAIN_AGENT_ID): Message[] {
@@ -608,6 +621,7 @@ export class SessionRuntime {
       this.todoTasksMap.delete(agentId);
       this.fileLineEndingsMap.delete(agentId);
       this.agentLoadedToolNamesMap.delete(agentId);
+      this.transcript.dropAgent(agentId);
       logInfo(`[${agentId}] 所有隔离状态已清理`);
     }
   }

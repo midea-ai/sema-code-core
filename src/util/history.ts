@@ -90,6 +90,14 @@ export async function loadHistory(sessionId?: string, projectPath?: string): Pro
 }
 
 /**
+ * 会话记录文件（<主干>.jsonl / <主干>.agent-<agentId>.jsonl）是否属于指定历史主干。
+ * transcript 退场跟随历史 JSON：删某个 .json 时顺带删同主干的全部 .jsonl；数量上限只数 .json
+ */
+function isTranscriptOf(file: string, stem: string): boolean {
+  return file === `${stem}.jsonl` || (file.startsWith(`${stem}.agent-`) && file.endsWith('.jsonl'));
+}
+
+/**
  * 清理指定项目目录下的旧历史文件，只保留最新的指定数量
  */
 function cleanupProjectHistoryFiles(projectHistoryDir: string): void {
@@ -117,11 +125,15 @@ function cleanupProjectHistoryFiles(projectHistoryDir: string): void {
     const filesToDelete = filesWithStats.slice(PER_PROJECT_HISTORY_LENGTH_LIMIT);
 
     for (const file of filesToDelete) {
-      try {
-        fs.unlinkSync(file.path);
-        logDebug(`删除旧历史文件: ${file.name}`);
-      } catch (deleteError) {
-        logWarn(`删除历史文件失败 ${file.name}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`);
+      const stem = file.name.slice(0, -'.json'.length);
+      const targets = [file.name, ...files.filter(name => isTranscriptOf(name, stem))];
+      for (const name of targets) {
+        try {
+          fs.unlinkSync(path.join(projectHistoryDir, name));
+          logDebug(`删除旧历史文件: ${name}`);
+        } catch (deleteError) {
+          logWarn(`删除历史文件失败 ${name}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`);
+        }
       }
     }
 
@@ -259,7 +271,8 @@ export function deleteProjectHistory(projectPath?: string): void {
 }
 
 /**
- * 删除单个会话的历史文件（无日期 会话id.json 与任意日期 日期_会话id.json 全部清理）。
+ * 删除单个会话的历史文件（无日期 会话id.json 与任意日期 日期_会话id.json 全部清理），
+ * 连同同主干的会话记录（.jsonl 与子代理 .agent-*.jsonl）。
  * 供外部（如 webui 项目内会话退场）主动清理使用。
  */
 export function deleteSessionHistory(sessionId: string, projectPath?: string): void {
@@ -268,9 +281,10 @@ export function deleteSessionHistory(sessionId: string, projectPath?: string): v
   const historyDir = getProjectHistoryDir(target);
   try {
     if (fs.existsSync(historyDir)) {
+      const isSessionFile = (name: string) => name === `${sessionId}.json` || isTranscriptOf(name, sessionId);
       const targets = fs.readdirSync(historyDir).filter(file =>
-        file === `${sessionId}.json` ||
-        (/^\d{4}-\d{2}-\d{2}_/.test(file) && file.slice(11) === `${sessionId}.json`)
+        isSessionFile(file) ||
+        (/^\d{4}-\d{2}-\d{2}_/.test(file) && isSessionFile(file.slice(11)))
       );
       for (const file of targets) {
         try {

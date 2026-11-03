@@ -13,6 +13,8 @@ import { getAvailableTools } from '../../tools/base/tools';
 import { TOOL_NAME_SKILL } from '../../prompt/tool';
 import { generatePostCompactReminders } from '../agents/genSystemReminder';
 import { wrapCompactSummary } from '../../prompt/compact';
+import { markCompactSummary } from '../../util/transcript';
+import { firePreCompact } from '../hooks/hookTriggers';
 import { GOAL_START_PROMPT, GOAL_UPDATE_PROMPT } from '../../prompt/goal';
 import { GOAL_MAX_ROUNDS } from '../../conf/config';
 import type { GoalState, GoalInputMark } from '../../types/goal';
@@ -167,6 +169,9 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
   try {
     logDebug(`开始手动压缩，当前消息数: ${messages.length}`);
 
+    // PreCompact hook：同步等待跑完再压缩（脚本需在历史改写前读完 transcript）
+    await firePreCompact(sessionId, 'manual', customInstructions ?? '', runtime.currentAbortController.signal);
+
     const result = await compactMessages(messages, runtime.currentAbortController, sessionId, {
       allowTruncationFallback: false,
       customInstructions,
@@ -201,12 +206,17 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
     // 手动压缩替换全部历史，被压区间即完整消息列表，无需幸存过滤
     const hasSkillTool = getAvailableTools(undefined, { sessionId })
       .some(tool => tool.name === TOOL_NAME_SKILL);
-    const reminders = await generatePostCompactReminders(hasSkillTool, collectSkillActivations(messages));
+    const reminders = await generatePostCompactReminders(
+      hasSkillTool,
+      collectSkillActivations(messages),
+      sessionId,
+      runtime.currentAbortController?.signal,
+    );
 
     // reminder 前置，摘要带续接包装（来源说明 + 直接续做指示）
-    mainAgentState.setMessageHistory([
-      buildUserMsg([...reminders, { type: 'text', text: wrapCompactSummary(result.summary) }]),
-    ]);
+    const summaryMessage = buildUserMsg([...reminders, { type: 'text', text: wrapCompactSummary(result.summary) }]);
+    markCompactSummary(summaryMessage);
+    mainAgentState.setMessageHistory([summaryMessage]);
 
     logDebug('压缩完成，已替换为 local-command 格式消息历史');
   } catch (error) {

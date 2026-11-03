@@ -9,6 +9,7 @@ import {
 } from '../util/message'
 import { logWarn, logInfo } from '../util/log'
 import { needsAutoCompact, autoCompact, applyMicroCompact } from '../util/compact'
+import { firePreCompact } from '../services/hooks/hookTriggers'
 import { MessageCompleteData } from '../events/types'
 import { getTokens } from '../util/tokens'
 import { REQ_INTERRUPT_MSG, TOOL_INTERRUPT_MSG } from '../util/message'
@@ -68,6 +69,9 @@ export async function* ReAct(
     messages = micro.messages
 
     if (micro.needFullCompact) {
+      // PreCompact hook：同步等待跑完再压缩（脚本需在历史改写前读完 transcript）；微压缩是原地改写，不触发
+      await firePreCompact(sessionId, 'auto', '', abortController.signal)
+
       // 不清后台任务：保留区仍含最近工具轮次，摘要也会记录任务状态，任务 ID 可继续查询
       const compactResult = await autoCompact(messages, abortController, sessionId, {
         hasSkillTool: tools.some(tool => tool.name === TOOL_NAME_SKILL),

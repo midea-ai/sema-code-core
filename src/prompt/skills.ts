@@ -142,7 +142,8 @@ Hooks run shell commands automatically on lifecycle events, without asking each 
 }
 \`\`\`
 
-- Events: \`SessionStart\`, \`UserPromptSubmit\`, \`PreToolUse\`, \`PostToolUse\`, \`PostToolUseFailure\`, \`PermissionRequest\`, \`Stop\`, \`SessionEnd\`. \`matcher\` only applies to the four tool events; omit it elsewhere.
+- Events: \`SessionStart\`, \`UserPromptSubmit\`, \`PreToolUse\`, \`PostToolUse\`, \`PostToolUseFailure\`, \`PermissionRequest\`, \`Stop\`, \`SessionEnd\`, \`PreCompact\`, \`SubagentStart\`, \`SubagentStop\`. \`matcher\` only applies to the four tool events; omit it elsewhere.
+- \`Stop\`, \`PreCompact\`, \`SubagentStart\` and \`SubagentStop\` receive \`transcript_path\`: an append-only JSONL of the conversation (one message per line); \`SubagentStop\` also receives \`agent_transcript_path\`. Scripts should track their own line cursor.
 - \`type\` must be \`command\`. \`timeout\` is in seconds, at most 60 (120 for \`PermissionRequest\`). Entries containing an \`if\` field are skipped.
 - The working directory is the project root. A project-level hook may reference its script relative to the project root; a user-level hook runs in every project, so it must use an absolute path. Keep scripts next to \`hooks.json\`.
 - Hooks bundled inside a plugin are activated by enabling that plugin. Do not copy them out.

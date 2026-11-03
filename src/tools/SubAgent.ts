@@ -22,6 +22,7 @@ import { generateRulesReminders } from '../services/agents/genSystemReminder'
 import { getTaskManager } from '../manager/TaskManager'
 import { getConfManager } from '../manager/ConfManager'
 import { TOOL_NAME_SUB_AGENT } from '../prompt/tool'
+import { fireSubagentStart, fireSubagentStop } from '../services/hooks/hookTriggers'
 
 const TOOL_NAME = TOOL_NAME_SUB_AGENT
 
@@ -130,6 +131,7 @@ export const SubAgent = {
           }
           const bgResultMessages: any[] = []
           try {
+            await fireSubagentStart(sessionId, taskId, agentConfig.name)
             for await (const message of ReAct([userMessage], systemPromptContent, bgContext)) {
               bgResultMessages.push(message)
             }
@@ -162,6 +164,8 @@ export const SubAgent = {
             } satisfies TaskAgentEndData, sessionId)
             throw error
           } finally {
+            // SubagentStop 在清状态前触发（transcript 已写完）；中断不触发，与 Stop 一致
+            if (!bgAbortController.signal.aborted) fireSubagentStop(sessionId, taskId, agentConfig.name)
             runtime.forAgent(taskId).clearAllState()
           }
         }, agentConfig.name)
@@ -226,6 +230,7 @@ export const SubAgent = {
 
       const executionPromise = (async () => {
         try {
+          await fireSubagentStart(sessionId, taskId, agentConfig.name)
           for await (const message of ReAct([userMessage], systemPromptContent, subagentContext)) {
             resultMessages.push(message)
           }
@@ -263,6 +268,8 @@ export const SubAgent = {
 
           throw error
         } finally {
+          // SubagentStop 在清状态前触发（transcript 已写完）；中断不触发，与 Stop 一致
+          if (!subAbortController.signal.aborted) fireSubagentStop(sessionId, taskId, agentConfig.name)
           runtime.forAgent(taskId).clearAllState()
           runtime.removeForegroundAgent(taskId)
         }

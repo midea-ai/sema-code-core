@@ -2,10 +2,10 @@
  * Hook 相关类型定义
  *
  * 事件名、stdin payload、输出协议与业界通用 hooks 格式一致（详见 test/hook.md）。
- * 基础功能支持 8 个事件，配置文件为 ~/.sema/hooks/hooks.json 与 <workingDir>/.sema/hooks/hooks.json。
+ * 支持 11 个事件，配置文件为 ~/.sema/hooks/hooks.json 与 <workingDir>/.sema/hooks/hooks.json。
  */
 
-// 基础功能支持的 hook 事件
+// 支持的 hook 事件
 export const HOOK_EVENTS = [
   'SessionStart',
   'UserPromptSubmit',
@@ -15,6 +15,9 @@ export const HOOK_EVENTS = [
   'PermissionRequest',
   'Stop',
   'SessionEnd',
+  'PreCompact',
+  'SubagentStart',
+  'SubagentStop',
 ] as const
 
 export type HookEventName = (typeof HOOK_EVENTS)[number]

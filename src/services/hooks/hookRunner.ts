@@ -23,8 +23,8 @@ const KILL_GRACE_MS = 2000
 const SETTLE_GRACE_MS = 2000
 
 // 不可阻断的事件（exit 2 / decision block 降级为 pass 并打 blockIgnored 标）。
-// Stop 暂不支持续驱（block stop 强迫模型继续），只作观察型埋点
-const NON_BLOCKABLE_EVENTS = new Set(['SessionStart', 'SessionEnd', 'Stop'])
+// Stop / SubagentStop 暂不支持续驱（block 强迫模型继续），PreCompact / SubagentStart 也只作观察型埋点
+const NON_BLOCKABLE_EVENTS = new Set(['SessionStart', 'SessionEnd', 'Stop', 'PreCompact', 'SubagentStart', 'SubagentStop'])
 
 /**
  * 终止 hook 进程。POSIX 下 hook 以独立进程组运行（spawn detached），

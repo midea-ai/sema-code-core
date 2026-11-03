@@ -71,7 +71,7 @@ hook 的工作目录是项目根而非插件目录，插件引用自带脚本时
 
 | 事件 | 触发点 | 能力 |
 |------|--------|------|
-| `SessionStart` | 会话初始化成功后 | 注入（stdout / `additionalContext` 进模型上下文，首轮消费一次） |
+| `SessionStart` | 会话初始化成功后（`source=startup`）；上下文压缩后再触发一次（`source=compact`） | 注入（stdout / `additionalContext` 进模型上下文，首轮消费一次；压缩后重触发的结果随压缩后的 reminder 一起补回） |
 | `UserPromptSubmit` | 用户输入进入处理前 | 门禁（exit 2 丢弃本次输入）+ 注入；静默输入（后台/定时任务通知)不触发 |
 | `PreToolUse` | 工具执行前 | 门禁（`deny` 拦截工具并回给模型；`allow` 跳过权限询问直接执行） |
 | `PostToolUse` | 工具执行成功后 | 注入（`additionalContext` 与 exit 2 的 stderr 回灌模型） |
@@ -79,8 +79,11 @@ hook 的工作目录是项目根而非插件目录，插件引用自带脚本时
 | `PermissionRequest` | 权限系统即将询问用户前 | 门禁（`allow` 等价用户同意、不落永久授权；`deny` 拒绝单个动作、不中断 turn） |
 | `Stop` | 一轮处理自然完成转 idle 时 | 仅观察（完成通知、审计日志）；中断与排队接续的轮次不触发 |
 | `SessionEnd` | 会话关闭时 | 仅观察，fire-and-forget |
+| `PreCompact` | 全量压缩（手动 `/compact` 或自动）前 | 仅观察；同步等待 hook 跑完再压缩，脚本可在历史改写前读完会话记录。微压缩（原地改写旧工具结果）不触发 |
+| `SubagentStart` | 子 agent 启动前 | 仅观察；同步等待 |
+| `SubagentStop` | 子 agent 完成或失败后、状态清理前 | 仅观察，fire-and-forget；中断的子 agent 不触发 |
 
-子 agent（task）内的工具调用同样触发工具类事件，payload 以 `agent_id` 区分主/子。`SessionStart` / `SessionEnd` / `Stop` 不可阻断，block 输出被忽略（`Stop` 额外发告警提示配置未生效）。
+子 agent（task）内的工具调用同样触发工具类事件，payload 以 `agent_id` 区分主/子。`SessionStart` / `SessionEnd` / `Stop` / `PreCompact` / `SubagentStart` / `SubagentStop` 不可阻断，block 输出被忽略并发告警提示配置未生效。
 
 ## 输入（stdin payload）
 
@@ -92,11 +95,31 @@ hook 的工作目录是项目根而非插件目录，插件引用自带脚本时
 | `tool_name`（通用工具名，如 `Bash` / `Edit`）、`sema_tool_name`（内置名）、`tool_input` | 四个工具类事件 |
 | `tool_response` | `PostToolUse` |
 | `error` | `PostToolUseFailure` |
-| `source`（固定 `startup`） | `SessionStart` |
+| `source`（`startup` 会话启动 / `compact` 压缩后重触发；SessionStart 不参与 matcher 匹配，脚本按此字段区分） | `SessionStart` |
 | `reason`（固定 `dispose`） | `SessionEnd` |
-| `stop_hook_active`（恒 `false`） | `Stop` |
+| `stop_hook_active`（恒 `false`） | `Stop`、`SubagentStop` |
+| `transcript_path`（会话记录路径，见下节） | `Stop`、`PreCompact`、`SubagentStart`、`SubagentStop` |
+| `trigger`（`manual` / `auto`）、`custom_instructions`（自动压缩为空串） | `PreCompact` |
+| `agent_type` | `SubagentStart`、`SubagentStop` |
+| `agent_transcript_path`（子 agent 自己的会话记录路径） | `SubagentStop` |
 
 工具名映射举例：`run_shell` → `Bash`、`patch_file` → `Edit`、`view_file` → `Read`；MCP 工具保持 `mcp__server__tool` 原名。
+
+## 会话记录（transcript）
+
+只供 hook 脚本读取的追加式 JSONL，core 只写不读，会话恢复仍走历史 JSON。`Stop` / `PreCompact` / `SubagentStart` / `SubagentStop` 任一配置了 hook 才写，没配的用户零开销。
+
+- 路径：与历史 JSON 同目录、同主干名，扩展名 `.jsonl`，如 `~/.sema/history/<项目目录名>/2026-11-03_<会话id>.jsonl`；子 agent 为 `<主干>.agent-<agent_id>.jsonl`。
+- 每行一条消息，字段 `type`（`user` / `assistant`）、`uuid`、`parentUuid`（上一行的 uuid，首行 `null`）、`timestamp`、`sessionId`、`cwd`、`message`（`user` 为 `{role, content}`，`assistant` 为完整 API 响应对象）。图片块替换为 `[image omitted]` 占位文本。
+- 只追加不回改，行数只增不减：压缩时只追加一行摘要消息（带 `isCompactSummary: true`），之前的行不动；脚本可按行数记游标做增量读取。
+- 首次需要时创建并用当时的完整历史补种；恢复的会话已有文件则继续追加。
+- 不随会话结束删除，删历史 JSON（单会话删除、按数量清理）时顺带删同主干的 `.jsonl`。
+
+```jsonl
+{"type":"user","uuid":"u1","parentUuid":null,"timestamp":"2026-11-03T08:00:00.000Z","sessionId":"s1","cwd":"/proj","message":{"role":"user","content":"以后用 pnpm"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-11-03T08:00:03.000Z","sessionId":"s1","cwd":"/proj","message":{"id":"msg_x","type":"message","role":"assistant","model":"...","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"pnpm i"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"u2","parentUuid":"a1","timestamp":"2026-11-03T08:00:04.000Z","sessionId":"s1","cwd":"/proj","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"..."}]}}
+```
 
 ## 输出协议
 
@@ -311,6 +334,44 @@ require('fs').appendFileSync('/tmp/sema_session_end.log', new Date().toISOString
 ```
 
 正常关闭会话时触发。对模型调用零影响（会话已结束），仅产生文件副作用；fire-and-forget，宿主进程随即退出时可能截断（best-effort）。
+
+### PreCompact —— 压缩前归档会话记录
+
+```json
+{ "hooks": { "PreCompact": [ { "hooks": [{ "type": "command", "command": "node .sema/hooks/pre-compact.js", "timeout": 30 }] } ] } }
+```
+
+```js
+// pre-compact.js：压缩前把会话记录整份备份
+const fs = require('fs');
+const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+fs.copyFileSync(input.transcript_path, `${input.transcript_path}.${input.trigger}.${Date.now()}.bak`);
+```
+
+压缩只会在会话记录里追加一行摘要，但脚本若想保留"压缩那一刻"的完整快照，在这里做。hook 跑完才开始压缩。
+
+### SubagentStart / SubagentStop —— 子 agent 审计
+
+```json
+{ "hooks": {
+  "SubagentStart": [ { "hooks": [{ "type": "command", "command": "node .sema/hooks/subagent.js" }] } ],
+  "SubagentStop":  [ { "hooks": [{ "type": "command", "command": "node .sema/hooks/subagent.js" }] } ]
+} }
+```
+
+```js
+// subagent.js：按 agent_id 记录子 agent 的启停，结束时统计它的轮数
+const fs = require('fs');
+const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+let line = `${new Date().toISOString()} ${input.hook_event_name} ${input.agent_type} ${input.agent_id}`;
+if (input.hook_event_name === 'SubagentStop') {
+  const lines = fs.readFileSync(input.agent_transcript_path, 'utf8').split('\n').filter(Boolean);
+  line += ` messages=${lines.length}`;
+}
+fs.appendFileSync('/tmp/sema_subagent.log', line + '\n');
+```
+
+两个事件都是纯观察。`SubagentStart` 同步等待，适合先建状态；`SubagentStop` 与 `Stop` 一样 fire-and-forget，子 agent 的会话记录此时已写完，结束后文件保留。
 
 ## 查询与事件
 

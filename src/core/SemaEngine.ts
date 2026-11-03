@@ -472,7 +472,7 @@ export class SemaEngine {
         hasSkillTool
       )
 
-      // SessionStart hook 的 additionalContext：仅首轮消费一次（compact/fork 后不重复注入）。
+      // SessionStart hook 的 additionalContext：仅首轮消费一次（fork 后不重复注入；compact 后由压缩路径重触发 source=compact 补回）。
       // 与中断信号 race：hook 卡住时用户中断可立即打断等待；中断获胜则不消费 promise，留待下一轮注入
       if (this.sessionStartHookPromise) {
         const abortSignal = agentContext.abortController.signal

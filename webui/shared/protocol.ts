@@ -52,10 +52,15 @@ export const CORE_ACTIONS = [
 ] as const;
 
 /** 项目级（project.*）action：按 projectId 路由到项目目录的 worker（草稿页预热 / 项目级清单）；
- * draft.warm：未选项目的草稿页预热独立会话备用 worker，首条消息免冷启动 */
+ * draft.warm：未选项目的草稿页预热独立会话备用 worker，首条消息免冷启动；
+ * project.getExtensionsInfo / toggleSkill / toggleMcp：右栏「扩展」标签在项目草稿页的变体（面板按 projectId 开），与 session.* 同义 */
 export const PROJECT_ACTIONS = [
   'project.warm',
   'project.getCommandsInfo',
+  'project.getExtensionsInfo',
+  'project.toggleSkill',
+  'project.toggleMcp',
+  'project.updateMcpUseTools',
   'draft.warm',
 ] as const;
 
@@ -76,6 +81,11 @@ export const SESSION_ACTIONS = [
   'session.getCommandsInfo',
   'session.getCronTasks',
   'session.getMemoryInfo',
+  // 右栏「扩展」标签：该会话目录 core 生效的规则 / 记忆 / 技能 / MCP / Hooks 汇总，技能与 MCP 可启停
+  'session.getExtensionsInfo',
+  'session.toggleSkill',
+  'session.toggleMcp',
+  'session.updateMcpUseTools',
   'session.deleteCronTask',
   'session.enableCronTask',
   'session.disableCronTask',

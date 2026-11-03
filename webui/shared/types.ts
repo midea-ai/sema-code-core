@@ -75,6 +75,9 @@ export interface WebUISettings {
   };
   defaultAgentMode: AgentMode;
   defaultPermissionLevel: PermissionLevel;
+  /** 停用的内置工具名（黑名单，全局生效；空 = 全部可用）。不放进 coreConfig：core 的 updateCoreConfig 不认该键，
+   * 改由 worker 启动时并入构造参数、运行时经 core.updateDisabledTools 广播到全部 worker */
+  disabledTools?: string[] | null;
   /** core worker 进程硬上限（配置 worker 不计入）；缺省 8，服务端 clamp 到 [2,16] */
   maxWorkers?: number;
   /** 运行任务时阻止系统睡眠（仅桌面版生效）：off 关闭（缺省）/ ac 仅接电源时 / always 始终 */
@@ -135,6 +138,37 @@ export interface EcoMcpTool { name: string; description?: string }
 /** 已安装 MCP 的实时连接状态（来自配置 worker 里 core 的常驻连接）；tools 仅在 core 已拿到 capabilities 时有值；
  *  filePath 为 core 拼好的 "路径:起始行-结束行" 定位串（找不到范围时为纯路径） */
 export interface EcoMcpStatus { id: string; connectStatus: 'disconnected' | 'connecting' | 'connected' | 'error'; error?: string; filePath?: string; tools?: EcoMcpTool[] }
+
+/** 右栏「扩展」标签：该会话目录 worker 里 core 实际生效的规则 / 记忆 / 技能 / MCP / Hooks（项目级 + 用户级 + 插件，各标层级） */
+/** 规则：core 只返回生效的一份（项目级 AGENTS.md 覆盖用户级） */
+export interface ExtRule { locate: 'user' | 'project'; filePath: string; prompt: string }
+export interface ExtMemory { prompt: string; FilePath?: string; refFilePath?: string[] }
+/** 技能：不含内置；enabled 为用户级 + 项目级 disabledSkills 并集后的结果 */
+export interface ExtSkill { name: string; description: string; locate: 'user' | 'project' | 'plugin'; filePath?: string; enabled: boolean }
+/** MCP：filePath 同 EcoMcpStatus 的定位串；useTools null = 全部工具可用 */
+export interface ExtMcp {
+  name: string; scope: 'local' | 'project' | 'user' | 'plugin'; summary: string; enabled: boolean;
+  connectStatus: EcoMcpStatus['connectStatus']; error?: string; filePath?: string; tools?: EcoMcpTool[]; useTools?: string[] | null;
+}
+/** Hook 条目：filePath 为所属配置文件的 "路径:起始行-结束行"（事件块粒度），旧版 core 无此字段 */
+export interface ExtHook {
+  event: string; source: 'user' | 'project' | 'plugin'; pluginName?: string; matcher?: string; command: string; timeout?: number;
+  status: 'ok' | 'skipped' | 'invalid'; statusReason?: string; filePath?: string;
+}
+export interface ExtHooks {
+  entries: ExtHook[];
+  parseErrors: Array<{ source: string; pluginName?: string; message: string }>;
+  userConfigPath: string; projectConfigPath: string; userConfigExists: boolean; projectConfigExists: boolean;
+}
+/** 内置工具（core 当前环境可用的）：enabled 按 settings.disabledTools 黑名单 */
+export interface ExtTool { name: string; description: string; enabled: boolean }
+/** 子代理：含内置；只读无开关（core 对子代理只有增删）；tools '*' 为全部工具；model 'quick' 以外都按主模型 */
+export interface ExtAgent { name: string; description: string; locate: 'user' | 'project' | 'plugin' | 'builtin'; filePath?: string; model?: string; tools: string[] | '*' }
+/** 斜杠命令：只读无开关（core 对命令只有增删）；argumentHint 已拼成一行 */
+export interface ExtCommand { name: string; description: string; argumentHint?: string; locate: 'user' | 'project' | 'plugin'; filePath?: string }
+export interface ExtensionsInfo {
+  rule: ExtRule | null; memory: ExtMemory | null; skills: ExtSkill[]; commands: ExtCommand[]; agents: ExtAgent[]; builtinTools: ExtTool[]; mcp: ExtMcp[]; hooks: ExtHooks;
+}
 
 // ==================== 消息块 ====================
 

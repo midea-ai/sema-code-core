@@ -335,30 +335,38 @@ function InstalledTab({ initial }: { initial: { kind: 'skill' | 'mcp'; id: strin
       .catch(e => setMcpTools(prev => ({ ...prev, [id]: { tools: prev[id]?.tools, error: e.message } })));
   };
 
-  const toggleMcpExpand = (id: string) => {
+  /** 展开/收起 MCP 行；已停用的服务展开只显示「已停用」，不做短连探测（与右栏扩展标签一致） */
+  const toggleMcpExpand = (item: EcoInstalledMcp) => {
+    const id = item.id;
     const opening = !expandedMcp.has(id);
     setExpandedMcp(prev => {
       const next = new Set(prev);
       opening ? next.add(id) : next.delete(id);
       return next;
     });
-    if (opening && !mcpTools[id]?.tools && !mcpTools[id]?.loading) loadTools(id);
+    if (opening && item.enabled && !mcpTools[id]?.tools && !mcpTools[id]?.loading) loadTools(id);
   };
 
-  /** MCP 行状态点：停用直接灰点；否则优先本地探测动作（loading/error），其次 core 实时连接状态，最后探测结果兜底 */
+  /** MCP 行状态点：停用直接灰点；否则优先本地探测动作（loading/error），其次 core 实时连接状态，最后探测结果兜底。
+   *  需要用户等待或处理的状态（连接中/探测中/失败）在点后面补一个短文字，稳定态只留点；完整说明都在悬浮提示里 */
   const mcpStatus = (item: EcoInstalledMcp) => {
     const st = mcpTools[item.id];
     const lv = mcpLive[item.id];
-    const [color, tip, pulse] = !item.enabled ? ['#9ca3af', t('eco.connDisabled'), false]
-      : st?.loading ? ['#f59e0b', t('eco.probeLoading'), true]
-      : st?.error ? ['#ef4444', t('eco.probeFailed', { error: st.error }), false]
-      : lv?.connectStatus === 'connected' ? ['#10b981', t('eco.connOk'), false]
-      : lv?.connectStatus === 'connecting' ? ['#f59e0b', t('eco.connConnecting'), true]
-      : lv?.connectStatus === 'error' ? ['#ef4444', t('eco.connFailed', { error: lv.error || '' }), false]
-      : st?.tools ? ['#10b981', t('eco.probeOk'), false]
-      : lv ? ['#9ca3af', t('eco.connIdle'), false]
-      : ['#9ca3af', t('eco.probeIdle'), false];
-    return <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', pulse && 'animate-pulse')} style={{ backgroundColor: color as string }} title={tip as string} />;
+    const [color, tip, pulse, label] = !item.enabled ? ['#9ca3af', t('eco.connDisabled'), false, '']
+      : st?.loading ? ['#f59e0b', t('eco.probeLoading'), true, t('eco.probeLoading')]
+      : st?.error ? ['#ef4444', t('eco.probeFailed', { error: st.error }), false, t('ext.connFailed')]
+      : lv?.connectStatus === 'connected' ? ['#10b981', t('eco.connOk'), false, '']
+      : lv?.connectStatus === 'connecting' ? ['#f59e0b', t('eco.connConnecting'), true, t('eco.connConnecting')]
+      : lv?.connectStatus === 'error' ? ['#ef4444', t('eco.connFailed', { error: lv.error || '' }), false, t('ext.connFailed')]
+      : st?.tools ? ['#10b981', t('eco.probeOk'), false, '']
+      : lv ? ['#9ca3af', t('eco.connIdle'), false, '']
+      : ['#9ca3af', t('eco.probeIdle'), false, ''];
+    return (
+      <span className="inline-flex items-center gap-1.5 shrink-0" title={tip as string}>
+        <span className={cn('w-1.5 h-1.5 rounded-full', pulse && 'animate-pulse')} style={{ backgroundColor: color as string }} />
+        {label && <span className={cn('text-[11px]', color === '#ef4444' ? 'text-danger' : 'text-muted')}>{label}</span>}
+      </span>
+    );
   };
 
   /** 探测成功后描述前的启用工具数：[5 Tools]；停用不显示 */
@@ -422,10 +430,10 @@ function InstalledTab({ initial }: { initial: { kind: 'skill' | 'mcp'; id: strin
                     <InstalledRow name={item.name} title={item.title} description={item.description}
                       active={expandedMcp.has(item.id)}
                       expanded={expandedMcp.has(item.id)} status={mcpStatus(item)} descPrefix={mcpToolCount(item)}
-                      onClick={() => toggleMcpExpand(item.id)}
+                      onClick={() => toggleMcpExpand(item)}
                       menu={[
-                        // 刷新：强制重连探测工具列表；面板没展开时顺带展开，让结果可见
-                        { label: t('eco.toolsRefresh'), onClick: () => { setExpandedMcp(prev => new Set(prev).add(item.id)); loadTools(item.id, true); } },
+                        // 刷新：强制重连探测工具列表；面板没展开时顺带展开，让结果可见。已停用的服务不探测，不给这一项
+                        ...(item.enabled ? [{ label: t('eco.toolsRefresh'), onClick: () => { setExpandedMcp(prev => new Set(prev).add(item.id)); loadTools(item.id, true); } }] : []),
                         // 打开配置文件并定位到该 server 的行范围；core 未上报 filePath（如状态还没拉到）时不展示
                         ...(mcpLive[item.id]?.filePath ? [{ label: t('eco.openFile'), onClick: () => openMcpFile(item) }] : []),
                         { label: t('eco.edit'), onClick: () => setEditingMcp(item) },
@@ -433,11 +441,22 @@ function InstalledTab({ initial }: { initial: { kind: 'skill' | 'mcp'; id: strin
                       ]}
                       toggle={<Toggle checked={item.enabled} disabled={mcpBusy.has(item.id)} onChange={v => run(async () => {
                         setMcpBusy(prev => new Set(prev).add(item.id));
+                        // 乐观翻转 enabled（与右栏扩展标签一致）：enable 要等 core 连完才返回，期间 enabled 若仍为 false，
+                        // 状态点会一直停在灰色「已停用」直接跳成已连接，看不到「连接中」；失败时重拉回滚
+                        setData(d => d ? { ...d, mcp: d.mcp.map(m => m.id === item.id ? { ...m, enabled: v } : m) } : d);
+                        if (v) setMcpLive(prev => ({ ...prev, [item.id]: { ...prev[item.id], connectStatus: 'connecting', error: undefined } }));
                         try {
                           // 响应即权威状态：core 断/连完成才返回（enable 冷启动会等几秒），直接替换本地状态
                           const status = await api<EcoMcpStatus[]>('POST', '/api/eco/installed/toggle', { kind: 'mcp', id: item.id, enabled: v });
                           applyLiveStatus(status, item.id);
-                          setExpandedMcp(prev => { const next = new Set(prev); next.delete(item.id); return next; });
+                          // 展开状态保持不变（与右栏扩展标签一致）：停用时面板自己显示「已停用」；
+                          // 启用后 core 连接成功会随响应带回工具列表，没带回（如连接失败）且面板正展开时补一次探测，避免停在"加载中"
+                          if (v && expandedMcp.has(item.id) && !status.find(s => s.id === item.id)?.tools?.length) loadTools(item.id);
+                        } catch (e) {
+                          // 回滚乐观状态：列表与连接状态都以服务端为准，再把错误交给 run 弹 toast
+                          await refresh().catch(() => undefined);
+                          loadLiveStatus();
+                          throw e;
                         } finally {
                           setMcpBusy(prev => { const next = new Set(prev); next.delete(item.id); return next; });
                         }
@@ -572,6 +591,15 @@ function McpToolsPanel({ item, state, onRefresh, onToggle }: {
   const totalPages = Math.max(1, Math.ceil((tools?.length || 0) / TOOLS_PAGE_SIZE));
   const curPage = Math.min(page, totalPages);
   const pagedTools = (tools || []).slice((curPage - 1) * TOOLS_PAGE_SIZE, curPage * TOOLS_PAGE_SIZE);
+  // 已停用：不展示工具列表（即使还有旧的探测缓存），与右栏扩展标签一致
+  if (!item.enabled) {
+    return (
+      <div className="px-2 pt-1 pb-3">
+        <div className="text-xs font-semibold text-muted tracking-wide mb-1">{t('eco.toolsTitle')}</div>
+        <div className="py-1.5 text-xs text-muted">{t('eco.connDisabled')}</div>
+      </div>
+    );
+  }
   return (
     <div className="px-2 pt-1 pb-3">
       <div className="flex items-center gap-2 mb-1">

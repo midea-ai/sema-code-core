@@ -79,7 +79,8 @@ export class SessionManager extends EventEmitter {
       entryPath,
       maxWorkers: () => registry.getSettings().maxWorkers ?? 8,
       exemptDirs: new Set([CONFIG_WORKSPACE]),
-      getCoreConfig: () => registry.getSettings().coreConfig,
+      // 内置工具黑名单存在 settings 顶层（不进 coreConfig），拉起 worker 时并入构造参数，core 换算成 useTools 白名单
+      getCoreConfig: () => { const s = registry.getSettings(); return { ...s.coreConfig, disabledTools: s.disabledTools ?? null }; },
       isSessionBusy: (sid) => {
         const rt = this.runtimes.get(sid);
         return !!rt && (rt.snapshot.state === 'processing' || pendingBlocks(rt.snapshot).length > 0);
@@ -349,6 +350,16 @@ export class SessionManager extends EventEmitter {
     void this.configWorker().catch(() => undefined);
   }
 
+  /**
+   * 扩展标签启停 MCP 后同步其他存活 worker：用户级 server 的禁用写在用户级 settings 全局生效，
+   * 其他 worker 里的常驻连接要跟着断/连（refresh 仅重连有变动的 server）；发起的 worker 已由 core 处理完，跳过
+   */
+  private refreshMcpElsewhere(except: WorkerHandle) {
+    for (const w of this.pool.list()) {
+      if (w.alive && w !== except) void this.pool.request(w, 'core.refreshMCPServerInfo', undefined, {}).catch(() => null);
+    }
+  }
+
   // ==================== 独立会话备用 worker ====================
 
   /**
@@ -395,8 +406,8 @@ export class SessionManager extends EventEmitter {
 
   async dispatch(action: string, sid: string | undefined, payload: any): Promise<any> {
     if (action.startsWith('core.')) {
-      if (action === 'core.updateCoreConfig' || action === 'core.refreshSkills' || action === 'core.refreshMCPServerInfo') {
-        // 广播到全部存活 worker（core 配置 / skill 列表 / MCP 连接均为进程内状态）；持久化由 http 层落盘
+      if (action === 'core.updateCoreConfig' || action === 'core.updateDisabledTools' || action === 'core.refreshSkills' || action === 'core.refreshMCPServerInfo') {
+        // 广播到全部存活 worker（core 配置 / 内置工具黑名单 / skill 列表 / MCP 连接均为进程内状态）；持久化由 http 层落盘
         await Promise.all(this.pool.list().filter(w => w.alive).map(w => this.pool.request(w, action, undefined, payload).catch(() => null)));
         return true;
       }
@@ -419,7 +430,8 @@ export class SessionManager extends EventEmitter {
     // ---------- 项目级：按 projectId 路由到项目目录 worker ----------
     // project.warm：草稿页选中项目即拉起 worker（core 初始化会预载插件并联动加载 skills），
     // 首条消息免冷启动，也避免 skills 未加载完的时序窗口；失败静默（发消息时会走正式报错路径）
-    if (action === 'project.warm' || action === 'project.getCommandsInfo') {
+    // 其余 project.*（扩展标签在项目草稿页的变体）改名为 ext.* 交给 worker，与 session.* 变体同一处理
+    if (action.startsWith('project.')) {
       const proj = this.registry.getProject(String(payload?.projectId || ''));
       if (!proj) throw new Error(`项目不存在: ${payload?.projectId}`);
       const w = await this.pool.acquire(proj.workingDir);
@@ -428,7 +440,10 @@ export class SessionManager extends EventEmitter {
         void this.pool.request(w, 'core.getCommandsInfo', undefined, {}).catch(() => null);
         return true;
       }
-      return this.pool.request(w, 'core.getCommandsInfo', undefined, {});
+      if (action === 'project.getCommandsInfo') return this.pool.request(w, 'core.getCommandsInfo', undefined, {});
+      const result = await this.pool.request(w, action.replace('project.', 'ext.'), undefined, payload);
+      if (action === 'project.toggleMcp' || action === 'project.updateMcpUseTools') this.refreshMcpElsewhere(w);
+      return result;
     }
 
     if (!sid) throw new Error('缺少 sessionId');
@@ -469,6 +484,7 @@ export class SessionManager extends EventEmitter {
 
     const w = await this.ensureLive(sid);
     const result = await this.pool.request(w, action, sid, payload);
+    if (action === 'session.toggleMcp' || action === 'session.updateMcpUseTools') this.refreshMcpElsewhere(w);
     if (action === 'session.interrupt') {
       await this.pool.request(w, 'session.stopAllTasks', sid, {}).catch(() => null);
     }

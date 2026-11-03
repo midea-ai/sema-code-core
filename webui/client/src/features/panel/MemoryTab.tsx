@@ -3,13 +3,13 @@ import { Brain, FileText, RotateCw } from 'lucide-react';
 import { useApp, PanelTab } from '../../store/app';
 import { wsClient } from '../../api/ws';
 import { Markdown } from '../chat/Markdown';
-import { Spinner } from '../../common/ui';
+import { Spinner, cn } from '../../common/ui';
 import { t } from '../../i18n';
 
 const MEMORY_DIR = '.sema/memory';
 
 /** core.getMemoryInfo 返回：MEMORY.md 主 prompt + 目录下其他 .md 关联文件（绝对路径） */
-interface MemoryConfig { prompt: string; from?: string; FilePath?: string; refFilePath?: string[] }
+export interface MemoryConfig { prompt: string; from?: string; FilePath?: string; refFilePath?: string[] }
 
 interface MemoryEntry { title: string; file: string; hook: string }
 
@@ -30,6 +30,51 @@ function parseIndex(prompt: string): { entries: MemoryEntry[]; leftover: string 
   return { entries, leftover: rest.join('\n').trim() };
 }
 
+/** 索引未提及的关联文件（标题即文件名），保证目录里的记忆一个不漏 */
+const extraFiles = (memory: MemoryConfig, entries: MemoryEntry[]) => {
+  const named = new Set(entries.map(e => fileName(e.file)));
+  return (memory.refFilePath || []).filter(fp => !named.has(fileName(fp)));
+};
+
+/** 记忆条目数（索引条目 + 未提及的关联文件 + 兜底 Markdown 算 1 条）：扩展标签的分组计数用 */
+export function memoryEntryCount(memory: MemoryConfig): number {
+  const { entries, leftover } = parseIndex(memory.prompt || '');
+  return entries.length + extraFiles(memory, entries).length + (leftover ? 1 : 0);
+}
+
+/** 记忆条目列表（索引条目 + 索引未提及的关联文件 + 兜底 Markdown）：记忆标签与扩展标签共用，调用方保证 memory.prompt 非空。
+ * compact：紧凑列表行（无独立边框，由调用方的分隔线容器区分），摘要单行截断 */
+export function MemoryEntries({ sessionId, memory, compact }: { sessionId: string; memory: MemoryConfig; compact?: boolean }) {
+  const openFileTab = useApp(s => s.openFileTab);
+  const { entries, leftover } = useMemo(() => parseIndex(memory.prompt || ''), [memory.prompt]);
+  const extras = useMemo(() => extraFiles(memory, entries), [entries, memory.refFilePath]);
+
+  /** 索引里的链接是相对 .sema/memory/ 的文件名，拼回可打开的路径 */
+  const openEntry = (file: string) => openFileTab(sessionId, /^(\/|[a-zA-Z]:[\\/])/.test(file) ? file : `${MEMORY_DIR}/${file.replace(/^\.\//, '')}`);
+  const row = compact ? 'group py-1.5 cursor-pointer' : 'rounded-lg border border-border px-3 py-2 cursor-pointer hover:bg-black/[0.02] hover:border-black/15';
+
+  return (
+    <>
+      {entries.map(e => (
+        <div key={e.file + e.title} onClick={() => openEntry(e.file)} className={row}>
+          <div className={cn('text-[13px] font-medium text-fg truncate', compact && 'group-hover:underline')} title={e.file}>{e.title}</div>
+          {e.hook && <div className={cn('text-xs text-muted', compact ? 'truncate' : 'mt-0.5 break-words')} title={compact ? e.hook : undefined}>{e.hook}</div>}
+        </div>
+      ))}
+      {extras.map(fp => (
+        <div key={fp} onClick={() => openFileTab(sessionId, fp)} className={row}>
+          <div className={cn('text-[13px] font-medium text-fg truncate', compact && 'group-hover:underline')} title={fp}>{fileName(fp)}</div>
+        </div>
+      ))}
+      {leftover && (
+        <div className={compact ? 'py-1.5 text-[13px]' : 'rounded-lg border border-border px-3 py-2 text-[13px]'}>
+          <Markdown text={leftover} sessionId={sessionId} renderImages />
+        </div>
+      )}
+    </>
+  );
+}
+
 /** 「记忆」标签：经 core.getMemoryInfo 展示当前项目实际加载的记忆（MEMORY.md 为空/缺失时 core 不加载，如实显示空态） */
 export function MemoryTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }) {
   const openFileTab = useApp(s => s.openFileTab);
@@ -47,16 +92,6 @@ export function MemoryTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
   };
   // focusSeq：每次从记忆卡片打开都会变化，触发重拉
   useEffect(() => { void load(); }, [sessionId, tab.focusSeq]);
-
-  const { entries, leftover } = useMemo(() => parseIndex(memory?.prompt || ''), [memory?.prompt]);
-  // 索引里没提到的关联文件也列出来（标题即文件名），保证目录里的记忆一个不漏
-  const extras = useMemo(() => {
-    const named = new Set(entries.map(e => fileName(e.file)));
-    return (memory?.refFilePath || []).filter(fp => !named.has(fileName(fp)));
-  }, [entries, memory?.refFilePath]);
-
-  /** 索引里的链接是相对 .sema/memory/ 的文件名，拼回可打开的路径 */
-  const openEntry = (file: string) => openFileTab(sessionId, /^(\/|[a-zA-Z]:[\\/])/.test(file) ? file : `${MEMORY_DIR}/${file.replace(/^\.\//, '')}`);
 
   return (
     <>
@@ -82,24 +117,7 @@ export function MemoryTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
             <div className="max-w-xs text-xs">{t('memory.emptyHint')}</div>
           </div>
         ) : (
-          <>
-            {entries.map(e => (
-              <div key={e.file + e.title} onClick={() => openEntry(e.file)} className="rounded-lg border border-border px-3 py-2 cursor-pointer hover:bg-black/[0.02] hover:border-black/15">
-                <div className="text-[13px] font-medium text-fg truncate" title={e.file}>{e.title}</div>
-                {e.hook && <div className="text-xs text-muted mt-0.5 break-words">{e.hook}</div>}
-              </div>
-            ))}
-            {extras.map(fp => (
-              <div key={fp} onClick={() => openFileTab(sessionId, fp)} className="rounded-lg border border-border px-3 py-2 cursor-pointer hover:bg-black/[0.02] hover:border-black/15">
-                <div className="text-[13px] font-medium text-fg truncate" title={fp}>{fileName(fp)}</div>
-              </div>
-            ))}
-            {leftover && (
-              <div className="rounded-lg border border-border px-3 py-2 text-[13px]">
-                <Markdown text={leftover} sessionId={sessionId} renderImages />
-              </div>
-            )}
-          </>
+          <MemoryEntries sessionId={sessionId} memory={memory} />
         )}
       </div>
     </>

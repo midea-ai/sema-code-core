@@ -42,6 +42,7 @@ function installPreview() {
   wsClient.request = ((action: WsAction, sessionId?: string, payload?: any, timeoutMs?: number) => {
     if (!isPreviewSession(sessionId)) return origRequest(action, sessionId, payload, timeoutMs);
     if (action === 'session.getCommandsInfo') return Promise.resolve({ commands: [], skills: [], agents: [] });
+    if (action === 'session.getExtensionsInfo') return Promise.resolve({ rule: null, memory: null, skills: [], commands: [], agents: [], builtinTools: [], mcp: [], hooks: { entries: [], parseErrors: [], userConfigPath: '', projectConfigPath: '', userConfigExists: false, projectConfigExists: false } });
     if (action === 'session.getForkPreview') return Promise.resolve(MOCK_FORK_PREVIEW);
     if (action === 'session.fork') return Promise.resolve({ ok: false, error: '预览模式不支持回退' });
     if (action === 'session.processUserInput') {

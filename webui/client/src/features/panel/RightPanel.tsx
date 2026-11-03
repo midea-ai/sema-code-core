@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Globe, Files, GitCompare, TerminalSquare, Bot, Brain, Clock, MessageCircleQuestion, Target, X, Plus, ChevronLeft, ChevronRight, RotateCw, ExternalLink, PanelRight } from 'lucide-react';
+import { Globe, Files, GitCompare, TerminalSquare, Bot, Brain, Clock, MessageCircleQuestion, Target, Puzzle, X, Plus, ChevronLeft, ChevronRight, RotateCw, ExternalLink, PanelRight } from 'lucide-react';
 import { useApp, PanelTab } from '../../store/app';
 import { cn, Popover, MenuItem } from '../../common/ui';
 import { FileIcon } from '../../common/fileicon/FileIcon';
@@ -14,12 +14,13 @@ import { CronTab } from './CronTab';
 import { QuickchatTab } from './QuickchatTab';
 import { MemoryTab } from './MemoryTab';
 import { GoalTab } from './GoalTab';
+import { ExtensionsTab } from './ExtensionsTab';
 
 function TabIcon({ tab, size = 12, className }: { tab: PanelTab; size?: number; className?: string }) {
   // 文件标签已打开具体文件时用文件类型 logo，未选文件时仍用统一 Files 图标
   if (tab.type === 'files' && tab.path) return <FileIcon fileName={tab.path} size={size} className={className} />;
   if (tab.type === 'browser' && tab.icon) return <SiteFavicon url={tab.icon} size={size} className={className} />;
-  const Icon = tab.type === 'review' ? GitCompare : tab.type === 'files' ? Files : tab.type === 'terminal' ? TerminalSquare : tab.type === 'agent' ? Bot : tab.type === 'cron' ? Clock : tab.type === 'quickchat' ? MessageCircleQuestion : tab.type === 'memory' ? Brain : tab.type === 'goal' ? Target : Globe;
+  const Icon = tab.type === 'review' ? GitCompare : tab.type === 'files' ? Files : tab.type === 'terminal' ? TerminalSquare : tab.type === 'agent' ? Bot : tab.type === 'cron' ? Clock : tab.type === 'quickchat' ? MessageCircleQuestion : tab.type === 'memory' ? Brain : tab.type === 'goal' ? Target : tab.type === 'extensions' ? Puzzle : Globe;
   return <Icon size={size} className={className} />;
 }
 
@@ -40,11 +41,16 @@ export function RightPanel({ sessionId, width }: { sessionId: string; width: num
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
 
-  const addTab = (type: 'browser' | 'files' | 'terminal') => updatePanel(sessionId, p => {
-    const id = `${type[0]}${Date.now()}`;
-    const tab: PanelTab = type === 'files' ? { id, type, path: '', history: [], index: -1 } : { id, type, history: [], index: -1 };
-    return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
-  });
+  const openExtensionsTab = useApp(s => s.openExtensionsTab);
+  const addTab = (type: 'browser' | 'files' | 'terminal' | 'extensions') => {
+    // 扩展标签每会话只开一个：已有则激活并静默重拉
+    if (type === 'extensions') return openExtensionsTab(sessionId);
+    updatePanel(sessionId, p => {
+      const id = `${type[0]}${Date.now()}`;
+      const tab: PanelTab = type === 'files' ? { id, type, path: '', history: [], index: -1 } : { id, type, history: [], index: -1 };
+      return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
+    });
+  };
   const closeTab = (id: string) => updatePanel(sessionId, p => {
     const closing = p.tabs.find(t => t.id === id);
     if (closing?.termId) api('DELETE', `/api/terminals/${closing.termId}`).catch(() => undefined);
@@ -70,6 +76,7 @@ export function RightPanel({ sessionId, width }: { sessionId: string; width: num
       <MenuItem onClick={() => { setMenu(null); addTab('terminal'); }}><span className="inline-flex items-center gap-2"><TerminalSquare size={14} />{t('panel.terminal')}</span></MenuItem>
       <MenuItem onClick={() => { setMenu(null); addTab('browser'); }}><span className="inline-flex items-center gap-2"><Globe size={14} />{t('panel.browser')}</span></MenuItem>
       <MenuItem onClick={() => { setMenu(null); addTab('files'); }}><span className="inline-flex items-center gap-2"><Files size={14} />{t('panel.files')}</span></MenuItem>
+      <MenuItem onClick={() => { setMenu(null); addTab('extensions'); }}><span className="inline-flex items-center gap-2"><Puzzle size={14} />{t('panel.extensions')}</span></MenuItem>
     </Popover>
   );
 
@@ -124,13 +131,15 @@ export function RightPanel({ sessionId, width }: { sessionId: string; width: num
           : active?.type === 'quickchat' ? <QuickchatTab key={active.id} sessionId={sessionId} />
           : active?.type === 'memory' ? <MemoryTab key={active.id} sessionId={sessionId} tab={active} />
           : active?.type === 'goal' ? <GoalTab key={active.id} sessionId={sessionId} />
+          : active?.type === 'extensions' ? <ExtensionsTab key={active.id} sessionId={sessionId} tab={active} />
           : active ? <BrowserTab key={active.id} sessionId={sessionId} tab={active} /> : (
             <div className="flex-1 flex flex-col items-center justify-center text-center text-sm text-muted p-6 gap-4">
               <div className="text-base font-medium text-fg">{t('panel.emptyTitle')}</div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap justify-center gap-2">
                 <button onClick={() => addTab('terminal')} className="h-8 px-3 inline-flex items-center gap-1.5 rounded-md border border-border hover:bg-black/[0.05] text-fg text-xs"><TerminalSquare size={13} />{t('panel.terminal')}</button>
                 <button onClick={() => addTab('browser')} className="h-8 px-3 inline-flex items-center gap-1.5 rounded-md border border-border hover:bg-black/[0.05] text-fg text-xs"><Globe size={13} />{t('panel.browser')}</button>
                 <button onClick={() => addTab('files')} className="h-8 px-3 inline-flex items-center gap-1.5 rounded-md border border-border hover:bg-black/[0.05] text-fg text-xs"><Files size={13} />{t('panel.files')}</button>
+                <button onClick={() => addTab('extensions')} className="h-8 px-3 inline-flex items-center gap-1.5 rounded-md border border-border hover:bg-black/[0.05] text-fg text-xs"><Puzzle size={13} />{t('panel.extensions')}</button>
               </div>
               <div className="max-w-xs text-xs">{t('panel.emptyHint')}</div>
             </div>
@@ -149,6 +158,7 @@ function tabLabel(tab: PanelTab) {
   if (tab.type === 'quickchat') return t('panel.quickchat');
   if (tab.type === 'memory') return t('panel.memory');
   if (tab.type === 'goal') return t('panel.goal');
+  if (tab.type === 'extensions') return t('panel.extensions');
   if (!tab.url) return t('panel.browser');
   try {
     const u = new URL(tab.url);

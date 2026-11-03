@@ -15,7 +15,7 @@ import fs from 'fs';
 import { isMainThread, parentPort, threadId, workerData } from 'worker_threads';
 import type { SemaCore as SemaCoreType, SemaSession } from 'sema-core';
 import { SESSION_EVENTS, PROCESS_EVENTS } from '../../../shared/protocol';
-import type { CommandsInfo } from '../../../shared/types';
+import type { CommandsInfo, ExtensionsInfo, ExtSkill, ExtCommand, ExtAgent, ExtMcp, ExtTool } from '../../../shared/types';
 import { logErr } from '../errlog';
 
 const IN_THREAD = !isMainThread && !!parentPort;
@@ -94,6 +94,76 @@ async function getCommandsInfo(): Promise<CommandsInfo> {
   };
 }
 
+/** 扩展标签的技能行：内置技能不列（无文件、不可开关）；enabled 为 core 按两层 settings 并集算出的 status */
+const mapSkills = (list: any[]): ExtSkill[] => (list || [])
+  .filter(s => s.locate === 'user' || s.locate === 'project' || s.locate === 'plugin')
+  .map(s => ({ name: s.name, description: s.description || '', locate: s.locate, filePath: s.filePath, enabled: s.status !== false }));
+
+/** 扩展标签的命令行：argumentHint 数组拼成一行 */
+const mapCommands = (list: any[]): ExtCommand[] => (list || []).map(c => ({
+  name: c.name, description: c.description || '', locate: c.locate || 'user', filePath: c.filePath,
+  argumentHint: Array.isArray(c.argumentHint) ? c.argumentHint.join(' ') : c.argumentHint || undefined,
+}));
+
+/** 扩展标签的子代理行：内置的也列（标内置，无文件不可跳）；tools 非数组一律视为全部 */
+const mapAgents = (list: any[]): ExtAgent[] => (list || []).map(a => ({
+  name: a.name, description: a.description || '', locate: a.locate || 'user', filePath: a.filePath, model: a.model,
+  tools: Array.isArray(a.tools) ? a.tools : '*',
+}));
+
+/** 扩展标签的 MCP 行：summary 为 stdio 命令行 / 远程 url；tools 仅在 core 已拿到 capabilities 时有值 */
+const mapMcp = (list: any[]): ExtMcp[] => (list || []).map(i => ({
+  name: i.config?.name,
+  scope: i.config?.scope || i.scope || 'user',
+  summary: i.config?.url ? String(i.config.url) : [i.config?.command, ...(Array.isArray(i.config?.args) ? i.config.args : [])].filter(Boolean).join(' '),
+  enabled: i.status !== false,
+  connectStatus: i.connectStatus || 'disconnected',
+  error: i.error,
+  filePath: i.filePath,
+  tools: i.capabilities?.tools ? i.capabilities.tools.map((t: any) => ({ name: t.name, description: t.description })) : undefined,
+  useTools: i.config?.useTools ?? null,
+}));
+
+/**
+ * 「扩展」标签：当前目录 core 实际生效的规则 / 记忆 / 技能 / 命令 / 子代理 / MCP / Hooks。
+ * refresh：全部重扫（MCP 先按配置重连有变动的 server）；否则技能 / 命令 / 子代理 / hooks / MCP 走缓存，
+ * 规则与记忆固定重读文件（小文件且常被本轮对话改动）
+ */
+async function getExtensionsInfo(refresh: boolean): Promise<ExtensionsInfo> {
+  if (refresh) await core.refreshMCPServerInfo().catch(() => undefined);
+  const [rule, memory, skills, commands, agents, mcp, hooks] = await Promise.all([
+    core.getRuleInfo(true).catch(() => null),
+    core.getMemoryInfo(true).catch(() => null),
+    core.getSkillsInfo(true, refresh).catch(() => []),
+    core.getCommandsInfo(true, refresh).catch(() => []),
+    core.getAgentsInfo(true, refresh).catch(() => []),
+    core.getMCPServerInfo().catch(() => []),
+    core.getHooksInfo(refresh).catch(() => null),
+  ]);
+  // 内置工具：当前环境可用的（如 generate_image 需配图像模型），状态按 coreConfig 的白名单（由 disabledTools 黑名单换算）
+  const builtinTools: ExtTool[] = (core.getToolInfos() || []).map(tl => ({ name: tl.name, description: tl.description || '', enabled: tl.status !== 'disable' }));
+  return {
+    rule: rule?.filePath ? { locate: rule.locate === 'user' ? 'user' : 'project', filePath: rule.filePath, prompt: rule.prompt } : null,
+    memory: memory ? { prompt: memory.prompt, FilePath: memory.FilePath, refFilePath: memory.refFilePath } : null,
+    skills: mapSkills(skills),
+    commands: mapCommands(commands),
+    agents: mapAgents(agents),
+    builtinTools,
+    mcp: mapMcp(mcp),
+    hooks: {
+      entries: Object.entries(hooks?.events || {}).flatMap(([event, list]) => (list || []).map(h => ({
+        event, source: h.source, pluginName: h.pluginName, matcher: h.matcher, command: h.command, timeout: h.timeout,
+        status: h.status, statusReason: h.statusReason, filePath: h.filePath,
+      }))),
+      parseErrors: hooks?.parseErrors || [],
+      userConfigPath: hooks?.userConfigPath || '',
+      projectConfigPath: hooks?.projectConfigPath || '',
+      userConfigExists: !!hooks?.userConfigExists,
+      projectConfigExists: !!hooks?.projectConfigExists,
+    },
+  };
+}
+
 async function handle(action: string, sessionId: string | undefined, payload: any): Promise<any> {
   const p = payload || {};
   // ---------- 进程级 ----------
@@ -128,6 +198,8 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'core.removeMCPServer': return core.removeMCPServer(p.name);
     case 'core.getModelAdapter': return core.getModelAdapter(p.provider, p.modelName, p.baseURL) ?? null;
     case 'core.updateCoreConfig': core.updateCoreConfig(p.config); return true;
+    // 内置工具黑名单（settings.disabledTools）：PUT /api/settings 落盘后广播到全部 worker，core 内部换算成 useTools 白名单
+    case 'core.updateDisabledTools': core.updateDisabledTools(p.toolNames ?? null); return true;
     case 'core.deleteProjectHistory': core.deleteProjectHistory(p.projectPath); return true;
     case 'core.deleteSessionHistory': core.deleteSessionHistory(p.sessionId, p.projectPath); return true;
     // 使用统计：读时先落盘本 worker 的内存增量再聚合全部文件；其他 worker 最近 10 秒内的增量要等其自行落盘
@@ -141,6 +213,17 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'session.getCronTasks': return core.getCronTasks();
     // 记忆同为项目级（<workingDir>/.sema/memory）：由该目录的 worker 回答，refresh 清缓存重新加载
     case 'session.getMemoryInfo': return core.getMemoryInfo(p.refresh);
+    // 「扩展」标签（项目作用域）：session.* 由该会话目录的 worker 回答；ext.* 是 project.* 变体（项目草稿页）经 server 改名后的形态
+    case 'ext.getExtensionsInfo':
+    case 'session.getExtensionsInfo': return getExtensionsInfo(!!p.refresh);
+    // 启停写入哪层 settings 由 core 按所在层决定：项目级项写项目级，用户级 / 插件项写用户级（全局生效）；返回最新列表作权威状态
+    case 'ext.toggleSkill':
+    case 'session.toggleSkill': return mapSkills(await (p.enabled ? core.enableSkill(p.name) : core.disableSkill(p.name)));
+    case 'ext.toggleMcp':
+    case 'session.toggleMcp': return mapMcp(await (p.enabled ? core.enableMCPServer(p.name) : core.disableMCPServer(p.name)));
+    // 单工具开关：toolNames null = 全部可用；写入层同启停
+    case 'ext.updateMcpUseTools':
+    case 'session.updateMcpUseTools': return mapMcp(await core.updateMCPUseTools(p.name, p.toolNames ?? null));
     case 'session.deleteCronTask': return core.deleteCronTask(p.id);
     case 'session.enableCronTask': return core.enableCronTask(p.id);
     case 'session.disableCronTask': return core.disableCronTask(p.id);

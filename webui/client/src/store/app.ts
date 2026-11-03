@@ -27,7 +27,7 @@ export type View =
 export interface ModelData { modelName: string; modelList: string[]; taskConfig: { main: string; quick: string; image?: string }; imageModelList?: string[] }
 
 export interface PanelTab {
-  id: string; type: 'browser' | 'files' | 'review' | 'terminal' | 'agent' | 'cron' | 'quickchat' | 'memory' | 'goal'; url?: string; title?: string; history: string[]; index: number;
+  id: string; type: 'browser' | 'files' | 'review' | 'terminal' | 'agent' | 'cron' | 'quickchat' | 'memory' | 'goal' | 'extensions'; url?: string; title?: string; history: string[]; index: number;
   /** browser：页面声明的图标地址（服务端解析），导航时清空 */
   icon?: string;
   /** review：定位到的 file-changes 块 id（空=最新一轮）；agent：子代理块 id */
@@ -110,6 +110,8 @@ interface AppState {
   openGoalTab(sessionId: string): void;
   /** 打开/复用本会话唯一的「记忆」标签（.sema/memory/ 记忆文件），每次打开触发刷新 */
   openMemoryTab(sessionId: string): void;
+  /** 打开/复用本会话唯一的「扩展」标签（规则 / 记忆 / 技能 / MCP / Hooks 汇总），每次打开触发静默重拉 */
+  openExtensionsTab(sessionId: string): void;
   revealFile(sessionId: string, relPath: string): Promise<void>;
   /** 用系统默认程序打开；app 为 macOS 应用 bundle 路径时用指定应用打开 */
   openFileExternal(sessionId: string, relPath: string, app?: string): Promise<void>;
@@ -392,6 +394,18 @@ export const useApp = create<AppState>((set, get) => ({
         return { ...p, collapsed: false, tabs: p.tabs.map(t => t.id === tab.id ? tab : t), activeId: tab.id };
       }
       const tab: PanelTab = { id: `m${Date.now()}`, type: 'memory', history: [], index: -1 };
+      return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
+    });
+  },
+  openExtensionsTab(sessionId) {
+    get().updatePanel(sessionId, p => {
+      const exist = p.tabs.find(t => t.type === 'extensions');
+      if (exist) {
+        // focusSeq 变化触发扩展标签静默重拉（外部改过文件后再点一次即可）
+        const tab = { ...exist, focusSeq: Date.now() };
+        return { ...p, collapsed: false, tabs: p.tabs.map(t => t.id === tab.id ? tab : t), activeId: tab.id };
+      }
+      const tab: PanelTab = { id: `x${Date.now()}`, type: 'extensions', history: [], index: -1 };
       return { ...p, collapsed: false, tabs: [...p.tabs, tab], activeId: tab.id };
     });
   },

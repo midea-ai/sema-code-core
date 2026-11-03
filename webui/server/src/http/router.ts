@@ -192,8 +192,12 @@ export class Router {
     this.add('GET', '/api/registry', () => reg.snapshot());
     this.add('GET', '/api/settings', () => reg.getSettings());
     this.add('PUT', '/api/settings', async (_r, _s, _p, body) => {
+      // 内置工具黑名单只接受字符串数组，其余视为清空
+      if (body?.disabledTools !== undefined) body.disabledTools = Array.isArray(body.disabledTools) ? body.disabledTools.filter((x: unknown) => typeof x === 'string') : null;
       const s = reg.updateSettings(body || {});
       if (body?.coreConfig) await sm.dispatch('core.updateCoreConfig', undefined, { config: s.coreConfig });
+      // 内置工具黑名单不在 coreConfig 里（core 的 updateCoreConfig 不认该键），单独广播到全部 worker
+      if (body?.disabledTools !== undefined) await sm.dispatch('core.updateDisabledTools', undefined, { toolNames: s.disabledTools ?? null });
       return s;
     });
 

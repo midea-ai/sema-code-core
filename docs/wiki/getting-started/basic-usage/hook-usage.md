@@ -87,6 +87,8 @@ hook 的工作目录是项目根而非插件目录，插件引用自带脚本时
 
 ## 输入（stdin payload）
 
+hook 子进程的工作目录是项目根，环境变量 `SEMA_PROJECT_DIR` 指向同一路径（与 payload 的 `cwd` 一致）。按通用 hooks 格式编写的现成命令，其项目目录变量同样会被识别，无需改动即可使用。
+
 公共字段：`session_id`、`cwd`、`hook_event_name`、`agent_id`。事件专属字段：
 
 | 字段 | 提供事件 |
@@ -138,7 +140,7 @@ JSON 字段（exit 0 时）：
 | `decision: "block"` + `reason` | 阻断当前动作（语义同 exit 2） |
 | `systemMessage` | 经 `hook:notice` 事件展示给用户，不进模型上下文 |
 | `hookSpecificOutput.permissionDecision` | `allow` / `deny` / `ask`，仅 `PreToolUse` / `PermissionRequest` |
-| `hookSpecificOutput.additionalContext` | 注入模型上下文（上限 10k 字符，超出截断） |
+| `hookSpecificOutput.additionalContext` | 注入模型上下文（上限 20k 字符，超出截断） |
 
 改写类能力（`updatedInput`）、全停指令（`continue` / `stopReason`）、`Stop` 续驱（block 阻止 turn 结束）不支持。
 

@@ -12,11 +12,12 @@ import { getShellForSpawn, killProcess } from '../../util/process'
 import { IS_WIN } from '../../util/platform'
 import { HookExecResult, HookOutcome } from '../../types/hook'
 import { getEffectiveEnv } from '../settings/settingsLoader'
+import { projectDirEnv } from '../../prompt/toolAliases'
 
 // 单流输出上限 1MB
 const MAX_STREAM_BYTES = 1024 * 1024
 // additionalContext 长度上限（超出截断并记 warning）
-export const MAX_ADDITIONAL_CONTEXT_CHARS = 10_000
+export const MAX_ADDITIONAL_CONTEXT_CHARS = 20_000
 // SIGTERM 后升级 SIGKILL 的宽限期
 const KILL_GRACE_MS = 2000
 // SIGKILL 后强制 settle 的期限（不依赖 close/exit 事件到达，保证 Promise 有界结束）
@@ -101,10 +102,12 @@ export function executeHookCommand(
     const onAbort = () => beginTermination()
 
     const { bin, args } = getShellForSpawn()
+    const projectDir = readInitialCwd()
     try {
       proc = spawn(bin, [...args, command], {
-        cwd: readInitialCwd(),
-        env: getEffectiveEnv(),
+        cwd: projectDir,
+        // 项目目录变量（SEMA_PROJECT_DIR 及兼容别名）固定指向项目根，覆盖 settings env 里的同名项
+        env: { ...getEffectiveEnv(), ...projectDirEnv(projectDir) },
         stdio: ['pipe', 'pipe', 'pipe'],
         // POSIX 下 detached 使 hook 独占进程组，便于整组终止；
         // 子进程不会随宿主退出自动回收，与非 detached 行为一致（SessionEnd 本为尽力而为）
@@ -244,7 +247,7 @@ export function parseHookOutput(event: string, exec: HookExecResult): HookOutcom
 }
 
 /**
- * additionalContext 截断（上限 10k 字符）
+ * additionalContext 截断（上限 20k 字符）
  */
 export function truncateContext(text: string): string {
   if (text.length <= MAX_ADDITIONAL_CONTEXT_CHARS) return text

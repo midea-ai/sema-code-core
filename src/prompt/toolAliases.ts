@@ -1,5 +1,5 @@
 /**
- * 外部产品兼容别名映射（工具名、插件根目录变量）
+ * 外部产品兼容别名映射（工具名、插件根目录变量、项目目录变量）
  *
  * 用于兼容其他代码助手（如 Claude Code、Codex、Cursor、OpenHands、Cline、Windsurf、Trae）的工具名，加载自定义 agent 时把
  * 别名规范化为内置工具名。仅覆盖语义对齐度高的搜索、文件读写 和 终端
@@ -186,4 +186,19 @@ export function expandPluginRoot(text: string, root: string): string {
     out = out.split('${' + name + '}').join(root)
   }
   return out
+}
+
+// ==================== 项目目录变量别名 ====================
+
+// 规范变量名：hook 子进程环境里指向项目根（与子进程工作目录、payload 的 cwd 同值）
+export const PROJECT_DIR_VAR = 'SEMA_PROJECT_DIR'
+
+// 其他代码助手给 hook 注入的"项目目录"变量名，注入时与规范名同值，按其规范编写的 hook 命令无需改动
+const PROJECT_DIR_VAR_ALIASES = ['CLAUDE_PROJECT_DIR']
+
+/**
+ * 生成 hook 子进程的项目目录环境变量（规范名与别名同值）
+ */
+export function projectDirEnv(dir: string): Record<string, string> {
+  return Object.fromEntries([PROJECT_DIR_VAR, ...PROJECT_DIR_VAR_ALIASES].map(name => [name, dir]))
 }

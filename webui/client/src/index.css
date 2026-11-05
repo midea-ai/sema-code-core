@@ -76,16 +76,28 @@ textarea, input, select { outline: none; }
 .md .md-code { position: relative; }
 .md .md-code pre { margin: .6em 0; }
 .md .md-code-wrap, .md .md-code-wrap code { white-space: pre-wrap; word-break: break-all; }
-.md .md-code-bar { position: absolute; top: .45em; right: .45em; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
-.md .md-code:hover .md-code-bar, .md .md-code-bar:focus-within { opacity: 1; }
-.md .md-code-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 5px; color: var(--color-muted); background: var(--color-code); border: 1px solid var(--color-border); cursor: pointer; }
-.md .md-code-btn:hover, .md .md-code-btn.is-on { color: var(--color-accent); }
+/* 悬浮工具栏（代码块 / 表格共用）：整条铺所在块的底色（不透明），按钮之间的缝隙也盖住下面的内容；
+   按钮本身透明、无边框，悬停只叠一层深色换底色，图标颜色不变（is-on 的开关态除外） */
+.md .md-code-bar { position: absolute; top: .45em; right: .45em; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; background: var(--color-code); border-radius: 5px; }
+.md .md-code:hover .md-code-bar, .md .md-table-box:hover .md-code-bar, .md .md-code-bar:focus-within { opacity: 1; }
+.md .md-code-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 5px; color: var(--color-muted); background: transparent; border: 0; cursor: pointer; }
+.md .md-code-btn:hover { background: #0000000f; }
+.md .md-code-btn.is-on { color: var(--color-accent); }
 .md .md-mermaid { display: flex; justify-content: center; background: var(--color-code); border: 1px solid var(--color-border); border-radius: 8px; padding: .75em 1em; overflow-x: auto; margin: .6em 0; }
 .md .md-mermaid svg { max-width: 100%; height: auto; }
 .md blockquote { border-left: 3px solid var(--color-border); padding-left: .8em; color: var(--color-muted); margin: .5em 0; }
 .md a { color: var(--color-accent); text-decoration: underline; text-underline-offset: 2px; }
-.md .md-table { margin: .8em 0; overflow-x: auto; }
+/* 表格：外层 box 定位悬浮工具栏（复制 / 展开，样式复用代码块的），内层 md-table 负责横向滚动，工具栏不随内容滚走 */
+.md .md-table-box { position: relative; margin: .8em 0; }
+/* 表格的工具栏贴右上角，底色换成正文底色 */
+.md .md-table-box > .md-code-bar { top: .3em; right: 0; background: var(--color-bg); }
+.md .md-table { overflow-x: auto; }
 .md table { border-collapse: collapse; font-size: .9em; width: 100%; }
+/* 表格展开弹层：宽度跟随表格自然列宽，窗口放不下才换行 / 滚动；表头吸顶（collapse 边框不随吸顶单元格走，这里改 separate） */
+.md-table-dialog { display: flex; flex-direction: column; min-width: min(560px, 100%); max-width: 100%; max-height: 100%; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 12px; box-shadow: 0 25px 50px -12px #00000040; }
+.md-table-full { min-height: 0; overflow: auto; padding: 0 1.25em 1em; }
+.md-table-full table { border-collapse: separate; border-spacing: 0; }
+.md-table-full thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg); }
 .md th, .md td { border: 0; border-bottom: 1px solid var(--color-border); padding: .6em .8em; text-align: left; vertical-align: top; line-height: 1.6; }
 .md th { font-weight: 600; color: var(--color-muted); font-size: .92em; }
 .md thead th { border-bottom-color: #0000001f; }

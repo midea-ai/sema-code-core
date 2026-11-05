@@ -277,8 +277,12 @@ export function Caret({ open, size = 12, className }: { open: boolean; size?: nu
 
 export function useCopy() {
   const [copied, setCopied] = useState(false);
-  const copy = useCallback(async (text: string) => {
-    try { await navigator.clipboard.writeText(text); } catch {
+  /** html 可选：连同富文本一起写入（粘到 Excel / 文档里保留格式）；环境不支持富文本写入时退回只写纯文本 */
+  const copy = useCallback(async (text: string, html?: string) => {
+    try {
+      if (html) await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
+      else await navigator.clipboard.writeText(text);
+    } catch {
       const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
     }
     setCopied(true); setTimeout(() => setCopied(false), 1200);

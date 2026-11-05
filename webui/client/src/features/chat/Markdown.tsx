@@ -1,12 +1,13 @@
 import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
 import rehypeKatex from 'rehype-katex';
-import { Check, Code, Copy, Globe, Workflow, WrapText } from 'lucide-react';
-import { cn, useCopy } from '../../common/ui';
+import { Check, Code, Copy, Globe, Maximize2, Workflow, WrapText, X } from 'lucide-react';
+import { Button, cn, useCopy } from '../../common/ui';
 import { getToken } from '../../api/http';
 import { isPrivateUrl } from '../../common/url';
 import { FileLabel } from './fileRefDisplay';
@@ -27,8 +28,9 @@ const urlTransform = (url: string) => (/^file:\/\//i.test(url) || /^[a-zA-Z]:(?:
 /** 围栏代码块内的 code 不做文件识别 */
 const InPre = createContext(false);
 
-interface MdCtx { sessionId?: string; stat: (p: string) => PathStat | undefined; done: boolean; renderImages: boolean }
-const Ctx = createContext<MdCtx>({ stat: () => undefined, done: true, renderImages: false });
+/** src：实际送去解析的 Markdown 原文（已预处理），表格复制时按节点位置从中截取源码 */
+interface MdCtx { sessionId?: string; stat: (p: string) => PathStat | undefined; done: boolean; renderImages: boolean; src: string }
+const Ctx = createContext<MdCtx>({ stat: () => undefined, done: true, renderImages: false, src: '' });
 
 /**
  * Markdown 渲染：禁原始 HTML；支持 GFM 与 KaTeX 公式（$...$ / $$...$$）；
@@ -41,11 +43,12 @@ const Ctx = createContext<MdCtx>({ stat: () => undefined, done: true, renderImag
 export const Markdown = memo(function Markdown({ text, sessionId, className, done = true, renderImages = false }: { text: string; sessionId?: string; className?: string; done?: boolean; renderImages?: boolean }) {
   useLang(); // memo 组件自行订阅语言
   const stat = useFileStats(sessionId, text, done);
-  const ctx = useMemo<MdCtx>(() => ({ sessionId, stat, done, renderImages }), [sessionId, stat, done, renderImages]);
+  const src = useMemo(() => preprocess(text), [text]);
+  const ctx = useMemo<MdCtx>(() => ({ sessionId, stat, done, renderImages, src }), [sessionId, stat, done, renderImages, src]);
   return (
     <Ctx.Provider value={ctx}>
       <div className={`md ${className || ''}`}>
-        <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} skipHtml urlTransform={urlTransform} components={components}>{preprocess(text)}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} skipHtml urlTransform={urlTransform} components={components}>{src}</ReactMarkdown>
       </div>
     </Ctx.Provider>
   );
@@ -53,9 +56,88 @@ export const Markdown = memo(function Markdown({ text, sessionId, className, don
 
 const components = { a: Anchor, img: MdImage, pre: CodeBlock, code: InlineCode, table: Table };
 
-function Table({ children }: any) {
-  // 外层 div 负责横向滚动，table 保持正常布局（列宽对齐、可撑满宽度）
-  return <div className="md-table"><table>{children}</table></div>;
+/** 悬浮工具栏（代码块 / 表格）的按钮不接收鼠标点击带来的焦点：焦点留在按钮上时工具栏会因 :focus-within 一直显示，移开也不消失；
+ * 键盘 Tab 聚焦不受影响，点击也不会抢走输入框的焦点 */
+const keepFocus = (e: MouseEvent) => e.preventDefault();
+
+/** 表格：内层 div 负责横向滚动，table 保持正常布局（列宽对齐、可撑满宽度）；
+ * 悬停时右上角出工具栏（与代码块一致）：复制、展开（在宽弹层里查看，列多被挤窄的表格在里面按自然列宽铺开）。
+ * 复制同时写入两种格式：HTML（粘到 Excel / 文档里仍是表格）与 Markdown 源码（粘到纯文本处） */
+function Table({ children, node }: any) {
+  const ref = useRef<HTMLTableElement>(null);
+  const { src } = useContext(Ctx);
+  const [open, setOpen] = useState(false);
+  const { copied, copy } = useCopy();
+  const onCopy = () => {
+    const el = ref.current;
+    if (el) copy(tableSource(src, node) || el.innerText, tableHtml(el));
+  };
+  return (
+    <div className="md-table-box">
+      <div className="md-table"><table ref={ref}>{children}</table></div>
+      <div className="md-code-bar" onMouseDown={keepFocus}>
+        <button type="button" className="md-code-btn" title={t(copied ? 'common.copied' : 'common.copy')} onClick={onCopy}>
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </button>
+        <button type="button" className="md-code-btn" title={t('chat.expand')} onClick={() => setOpen(true)}>
+          <Maximize2 size={13} />
+        </button>
+      </div>
+      {open && <TableDialog copied={copied} onCopy={onCopy} onClose={() => setOpen(false)}>{children}</TableDialog>}
+    </div>
+  );
+}
+
+/** 表格展开弹层：宽度随表格内容伸展（上限为窗口），表头吸顶；内容与正文是同一份节点，流式中会跟着更新。
+ * 点遮罩或 Esc 关闭 */
+function TableDialog({ children, copied, onCopy, onClose }: { children: ReactNode; copied: boolean; onCopy: () => void; onClose: () => void }) {
+  useEffect(() => {
+    // 捕获阶段拦截 Esc：避免同时触发输入框的中断逻辑（与图片预览一致）
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+  // portal 里的点击仍会沿 React 树冒泡到正文外层的容器，在遮罩层截住，避免误触外层的点击处理
+  return createPortal(
+    <div className="fixed inset-0 z-[1100] bg-black/30 flex items-center justify-center p-6" onMouseDown={onClose} onClick={e => e.stopPropagation()}>
+      <div className="md-table-dialog" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1 px-3 pt-2.5 pb-1">
+          <Button variant="ghost" size="icon" title={t(copied ? 'common.copied' : 'common.copy')} onClick={onCopy}>
+            {copied ? <Check size={15} /> : <Copy size={15} />}
+          </Button>
+          <Button variant="ghost" size="icon" title={t('common.close')} onClick={onClose}><X size={16} /></Button>
+        </div>
+        <div className="md md-table-full"><table>{children}</table></div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** 表格的 Markdown 源码：按节点位置从原文截取；嵌在列表 / 引用里的表格去掉每行的缩进与 > 前缀。取不到位置时返回空串 */
+function tableSource(src: string, node: any): string {
+  const start = node?.position?.start?.offset;
+  const end = node?.position?.end?.offset;
+  if (typeof start !== 'number' || typeof end !== 'number') return '';
+  return src.slice(start, end).split('\n').map(line => line.replace(/^[ \t>]+/, '')).join('\n');
+}
+
+/** 复制用的表格 HTML：克隆后去掉图标（站点图标地址带 token）、公式还原成 TeX 源码、清掉所有属性，
+ * 只保留外链地址与单元格对齐；表格加边框，粘到文档 / 邮件里才有表格线 */
+function tableHtml(el: HTMLTableElement): string {
+  const table = el.cloneNode(true) as HTMLTableElement;
+  table.querySelectorAll('.katex').forEach(n => n.replaceWith(n.querySelector('annotation')?.textContent ?? n.textContent ?? ''));
+  table.querySelectorAll('img, svg').forEach(n => n.remove());
+  table.querySelectorAll('*').forEach(n => {
+    const href = n.tagName === 'A' ? n.getAttribute('href') : null;
+    const align = (n as HTMLElement).style.textAlign;
+    for (const attr of Array.from(n.attributes)) n.removeAttribute(attr.name);
+    if (href && /^https?:\/\//i.test(href)) n.setAttribute('href', href);
+    if (align) n.setAttribute('align', align);
+  });
+  table.setAttribute('border', '1');
+  table.setAttribute('style', 'border-collapse:collapse');
+  return table.outerHTML;
 }
 
 /** 可点击的文件引用（行内代码 / 链接共用，两种写法渲染完全一致）：外形走统一的 FileLabel，名字保持原文 */
@@ -229,7 +311,7 @@ function CodeBlock({ children }: any) {
         {showDiagram
           ? <div className="md-mermaid" dangerouslySetInnerHTML={{ __html: svg }} />
           : <pre ref={ref} className={cn(wrap && 'md-code-wrap')}>{children}</pre>}
-        <div className="md-code-bar">
+        <div className="md-code-bar" onMouseDown={keepFocus}>
           {isMermaid && !!svg && (
             <button type="button" className="md-code-btn" title={t(showDiagram ? 'md.showCode' : 'md.showDiagram')} onClick={() => setAsCode(v => !v)}>
               {showDiagram ? <Code size={14} /> : <Workflow size={14} />}

@@ -10,6 +10,7 @@ import { EventEmitter } from 'events';
 import { WorkerPool, WorkerHandle } from './workers/pool';
 import { RegistryStore, TRANSCRIPT_DIR, CONFIG_WORKSPACE, SEMA_DOCS_ROOT, writeJsonAtomic, removeEmptyDateParent } from './registry/registry';
 import type { CronGroup, CronTask, EventFrame, SessionRecord, SessionSnapshot } from '../../shared/types';
+import { PROJECTS_PREVIEW } from '../../shared/types';
 import { applyEvent, applyLocal, createSnapshot, pendingBlocks } from '../../shared/transcript';
 import { FILE_EDIT_TOOLS, SERVER_EVENTS } from '../../shared/protocol';
 import { DiffBaselines, createBaselines, resetTurn, resetAll, captureOnRead, computeCumulative, NEW_FILE_MAX_LINES, NEW_FILE_MAX_BYTES } from './turnDiff';
@@ -687,7 +688,8 @@ export class SessionManager extends EventEmitter {
    * 超限退场（LRU，均按 lastActiveAt）：
    * 1. 独立会话超 {@link STANDALONE_SESSION_LIMIT}：移除注册表/transcript + 硬删独占目录 + 删 core 对应 history 项目
    * 2. 项目内会话超 {@link SESSIONS_PER_PROJECT_LIMIT}：移除注册表/transcript + 删 core 该会话历史文件（项目目录不动）
-   * 3. 项目超 {@link PROJECT_LIMIT}：仅移除索引及其会话记录/transcript，磁盘与 core history 均保留，重新导入可恢复
+   * 3. 项目超 {@link PROJECT_LIMIT}：仅移除索引及其会话记录/transcript，磁盘与 core history 均保留，重新导入可恢复；
+   *    侧边栏显示顺序排在前 PROJECTS_PREVIEW 个的项目不参与
    */
   async evictOverflow(): Promise<void> {
     if (this.evicting) return;
@@ -700,6 +702,9 @@ export class SessionManager extends EventEmitter {
       // 1) 独立会话
       const standalone = this.registry.listSessions().filter(s => !s.projectId).sort(byActiveDesc);
       for (const rec of standalone.slice(STANDALONE_SESSION_LIMIT)) {
+        // 待淘汰列表是 await 之前取的：期间会话可能已被删除或归档为项目，按最新记录复核
+        const cur = this.registry.getSession(rec.id);
+        if (!cur || cur.projectId) continue;
         if (!this.isEvictable(rec.id, cronGuard)) continue;
         await this.evictSession(rec.id);
         const hasOtherRef = this.registry.hasWorkingDirReference(rec.workingDir);
@@ -737,9 +742,11 @@ export class SessionManager extends EventEmitter {
         }
       }
 
-      // 3) 项目
-      const projects = [...this.registry.snapshot().projects].sort(byActiveDesc);
-      for (const proj of projects.slice(PROJECT_LIMIT)) {
+      // 3) 项目：显示顺序排在前 PROJECTS_PREVIEW 个的不参与（用户拖到前面的就是关注的），其余按最近活跃排，超出名额的退场
+      const ordered = this.registry.snapshot().projects;
+      const keptTop = Math.min(ordered.length, PROJECTS_PREVIEW);
+      const rest = ordered.slice(keptTop).sort(byActiveDesc);
+      for (const proj of rest.slice(Math.max(0, PROJECT_LIMIT - keptTop))) {
         const sess = this.registry.listSessions().filter(s => s.projectId === proj.id);
         if (sess.some(s => !this.isEvictable(s.id, cronGuard))) continue;
         if (this.hasPersistedCron(proj.workingDir)) continue;

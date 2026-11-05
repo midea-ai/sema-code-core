@@ -17,6 +17,7 @@ export const en = {
   'sidebar.projectSessionsEmpty': 'No sessions',
   'menu.rename': 'Rename',
   'menu.reveal': 'Show in file manager',
+  'menu.toProject': 'Archive as project',
   'menu.remove': 'Remove',
   'menu.delete': 'Delete',
   'menu.newSessionHere': 'New session in this project',

@@ -85,14 +85,14 @@ npm publish
 | 内容 | 位置 |
 | --- | --- |
 | 系统配置（权限开关、自定义规则、默认模式/档位等） | `~/.sema/webui/settings.json` |
-| 项目 / 会话索引（名称、目录、创建/活跃时间、模式、档位） | `~/.sema/webui/index.json` |
+| 项目 / 会话索引（名称、目录、创建/活跃时间、模式、档位；项目数组顺序即侧边栏顺序） | `~/.sema/webui/index.json` |
 | 访问 token（重启复用） | `~/.sema/webui/token` |
 | 会话页面消息流快照（用于刷新/重启恢复） | `~/.sema/webui/transcripts/<sessionId>.json` |
 | 进程级 core 的工作目录（模型/系统配置等全局操作专用） | `~/.sema/webui/workspace/` |
 | 服务端错误日志（内部错误与兜底异常；每次启动清空，终端不打；core 日志另在 `~/.sema/logs/`） | `~/.sema/webui/error.log` |
 | 右侧面板标签、当前视图、栏宽 | 浏览器 `localStorage`（仅 UI 状态） |
 | 项目目录 | `~/Documents/Sema/<项目名>/`（导入目录只记录路径） |
-| 独立会话目录 | `~/Documents/Sema/<YYYY-MM-DD>/<sessionId>/` |
+| 独立会话目录 | `~/Documents/Sema/<YYYY-MM-DD>/<sessionId 前 8 位>/`（归档为项目后原地沿用，不搬目录） |
 | 模型列表 / API Key、技能、MCP、定时任务文件，以及给模型看的对话历史 | `~/.sema/`（由 core 管理，WebUI 仅经 core 接口读写） |
 | 使用统计（token / 模型 / 工具 / 技能计数，产品标识 `sema-webui`，桌面版同） | `~/.sema/stats/`（由 core 管理，「使用情况」页读取与清除） |
 
@@ -102,6 +102,6 @@ npm publish
 
 | 对象 | 上限 | 退场动作 |
 | --- | --- | --- |
-| 独立会话 | 30 | 移除索引/快照，硬删 `~/Documents/Sema/<日期>/<会话id>/`，并删 core 对应 history 项目 |
+| 独立会话 | 30 | 移除索引/快照，硬删独立会话目录，并删 core 对应 history 项目（已归档为项目的不在此列） |
 | 项目内会话 | 每项目 30 | 移除索引/快照，删 core 该会话历史文件（项目目录不动） |
-| 项目 | 20 | 仅移除索引（磁盘目录与 core history 保留，重新导入可恢复） |
+| 项目 | 20 | 仅移除索引（磁盘目录与 core history 保留，重新导入可恢复）；侧边栏排在前 10 的项目不参与 |

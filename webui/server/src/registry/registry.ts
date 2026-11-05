@@ -107,6 +107,11 @@ export class RegistryStore {
     for (const proj of this.data.projects) {
       if (proj.managedWorkingDir === undefined) proj.managedWorkingDir = path.resolve(proj.workingDir).startsWith(managedRoot);
     }
+    // 项目数组顺序即侧边栏显示顺序。旧数据无标记：按升级前的显示规则（最近活跃在前）排一次，定为初始顺序
+    if (!this.data.projectsOrdered) {
+      this.data.projects.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+      this.data.projectsOrdered = true;
+    }
   }
 
   // ---------- 读 ----------
@@ -183,7 +188,7 @@ export class RegistryStore {
     fs.mkdirSync(dir, { recursive: true });
     const now = Date.now();
     const rec: ProjectRecord = { id: randomUUID(), name, workingDir: fs.realpathSync(dir), managedWorkingDir: true, createdAt: now, lastActiveAt: now };
-    this.data.projects.push(rec);
+    this.data.projects.unshift(rec); // 新项目排最前
     this.save();
     return rec;
   }
@@ -196,7 +201,7 @@ export class RegistryStore {
     if (exists) return exists;
     const now = Date.now();
     const rec: ProjectRecord = { id: randomUUID(), name: name || path.basename(real), workingDir: real, managedWorkingDir: false, createdAt: now, lastActiveAt: now };
-    this.data.projects.push(rec);
+    this.data.projects.unshift(rec); // 新项目排最前
     this.save();
     return rec;
   }
@@ -209,6 +214,15 @@ export class RegistryStore {
     return p;
   }
 
+  /** 拖动排序：按传入的 id 顺序重排项目；未列出的（拖动期间别处新建的）保持原相对顺序排在最前，与新项目的位置一致 */
+  reorderProjects(ids: string[]) {
+    const pos = new Map<string, number>();
+    ids.forEach((id, i) => { if (!pos.has(id)) pos.set(id, i); });
+    // sort 稳定：未列出的项目（-1）之间保持原相对顺序
+    this.data.projects.sort((a, b) => (pos.get(a.id) ?? -1) - (pos.get(b.id) ?? -1));
+    this.save();
+  }
+
   /** 移除项目索引（不删磁盘）；其下会话一并移除索引 */
   removeProject(id: string): SessionRecord[] {
     const removed = this.data.sessions.filter(s => s.projectId === id);
@@ -218,15 +232,52 @@ export class RegistryStore {
     return removed;
   }
 
+  /**
+   * 独立会话归档为项目：目录原地沿用（不搬），新建项目记录指向它；
+   * 同目录的全部独立会话（含分支出来的兄弟会话）一并挂到项目下并交出目录管理权（managedWorkingDir=false），
+   * 此后会话删除 / 退场只清自己的记录，目录归项目管。单次落盘，不存在目录无人引用的中间态。
+   */
+  sessionToProject(sessionId: string, name: string): ProjectRecord {
+    const s = this.getSession(sessionId);
+    if (!s) throw new Error('会话不存在');
+    if (s.projectId) throw new Error('会话已属于项目');
+    fs.mkdirSync(s.workingDir, { recursive: true }); // 目录被外部删掉：与独立会话一致，重建后继续
+    const dir = path.resolve(s.workingDir);
+    const now = Date.now();
+    // 同目录已有项目（正常不会出现）：并入该项目，不重复建
+    let proj = this.data.projects.find(p => path.resolve(p.workingDir) === dir);
+    if (proj) {
+      proj.lastActiveAt = now;
+    } else {
+      proj = {
+        id: randomUUID(), name: name.trim() || s.title.trim() || path.basename(dir), workingDir: s.workingDir,
+        managedWorkingDir: dir.startsWith(path.resolve(SEMA_DOCS_ROOT) + path.sep),
+        // 活跃时间记归档时刻：避免刚归档就成为最久未用的项目被移出索引
+        createdAt: now, lastActiveAt: now,
+      };
+      this.data.projects.unshift(proj); // 新项目排最前
+    }
+    for (const x of this.data.sessions) {
+      if (x.projectId || path.resolve(x.workingDir) !== dir) continue;
+      x.projectId = proj.id;
+      x.managedWorkingDir = false;
+    }
+    this.save();
+    return proj;
+  }
+
   // ---------- 会话 ----------
-  /** 预分配一个独立会话目录（~/Documents/Sema/<日期>/<会话id>）：备用 worker 预热用，此时还没有会话记录 */
+  /** 预分配一个独立会话目录（~/Documents/Sema/<日期>/<会话id前8位>）：备用 worker 预热用，此时还没有会话记录。
+   * 目录名取短是为了在文件管理器里好认（归档为项目后会长期保留）；同日撞名时回退用完整 id */
   allocStandaloneDir(id: string): string {
-    const dir = path.join(SEMA_DOCS_ROOT, dateFolder(), id);
+    const parent = path.join(SEMA_DOCS_ROOT, dateFolder());
+    const short = path.join(parent, id.slice(0, 8));
+    const dir = fs.existsSync(short) ? path.join(parent, id) : short;
     fs.mkdirSync(dir, { recursive: true });
     return fs.realpathSync(dir);
   }
 
-  /** 创建会话记录：项目会话共享项目目录；独立会话独占 ~/Documents/Sema/<日期>/<会话id>。
+  /** 创建会话记录：项目会话共享项目目录；独立会话独占 ~/Documents/Sema/<日期>/<会话id前8位>。
    * preallocated：复用预热备用 worker 已占的 id 与目录（仅独立会话） */
   createSession(opts: { projectId?: string; agentMode?: AgentMode; permissionLevel?: PermissionLevel; preallocated?: { id: string; workingDir: string } }): SessionRecord {
     const id = (!opts.projectId && opts.preallocated?.id) || randomUUID();

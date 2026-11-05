@@ -74,7 +74,8 @@ function ProjectPicker({ projectId, onChange }: { projectId?: string; onChange: 
   const input = useRef<HTMLInputElement>(null);
   const current = projects.find(p => p.id === projectId);
 
-  const sorted = useMemo(() => [...projects].sort((a, b) => b.lastActiveAt - a.lastActiveAt), [projects]);
+  // 与侧边栏同一顺序：注册表里的数组顺序即显示顺序（新项目在前，拖动调整），不按活跃时间排
+  const sorted = projects;
   const filtered = useMemo(() => {
     const k = q.trim().toLowerCase();
     return k ? sorted.filter(p => p.name.toLowerCase().includes(k) || p.workingDir.toLowerCase().includes(k)) : sorted;

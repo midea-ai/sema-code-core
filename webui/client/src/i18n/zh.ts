@@ -14,6 +14,7 @@ export const zh = {
   'sidebar.projectSessionsEmpty': '暂无会话',
   'menu.rename': '重命名',
   'menu.reveal': '在文件管理器中打开',
+  'menu.toProject': '归档为项目',
   'menu.remove': '移除',
   'menu.delete': '删除',
   'menu.newSessionHere': '在此项目新建会话',

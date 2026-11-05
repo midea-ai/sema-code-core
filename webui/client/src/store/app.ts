@@ -86,10 +86,14 @@ interface AppState {
   createProject(name: string): Promise<ProjectRecord>;
   importProject(path: string, name?: string): Promise<ProjectRecord>;
   renameProject(id: string, name: string): Promise<void>;
+  /** 侧边栏拖动排序：ids 为拖动后的项目显示顺序 */
+  reorderProjects(ids: string[]): Promise<void>;
   removeProject(id: string, deleteFiles?: boolean): Promise<void>;
   revealProject(id: string): Promise<void>;
   createSession(projectId?: string): Promise<SessionRecord>;
   renameSession(id: string, title: string): Promise<void>;
+  /** 独立会话归档为项目（目录原地沿用）；注册表变化随 registry:update 广播到达 */
+  sessionToProject(id: string, name: string): Promise<ProjectRecord>;
   deleteSession(id: string): Promise<void>;
   revealSession(id: string): Promise<void>;
   saveSettings(patch: Partial<WebUISettings>): Promise<void>;
@@ -238,6 +242,17 @@ export const useApp = create<AppState>((set, get) => ({
   async createProject(name) { return api('POST', '/api/projects', { name }); },
   async importProject(path, name) { return api('POST', '/api/projects', { importPath: path, name: name || undefined }); },
   async renameProject(id, name) { await api('PATCH', `/api/projects/${id}`, { name }); },
+  async reorderProjects(ids) {
+    // 先本地生效（松手立即到位），服务端广播的注册表随后覆盖；失败时拉回服务端的顺序
+    const pos = new Map(ids.map((id, i) => [id, i]));
+    set(s => ({ registry: { ...s.registry, projects: [...s.registry.projects].sort((a, b) => (pos.get(a.id) ?? -1) - (pos.get(b.id) ?? -1)) } }));
+    try {
+      await api('POST', '/api/projects/reorder', { ids });
+    } catch (e) {
+      api<Registry>('GET', '/api/registry').then(registry => set({ registry })).catch(() => undefined);
+      throw e;
+    }
+  },
   async removeProject(id, deleteFiles) {
     await api('DELETE', `/api/projects/${id}${deleteFiles ? '?deleteFiles=1' : ''}`);
     const v = get().view;
@@ -259,6 +274,7 @@ export const useApp = create<AppState>((set, get) => ({
     return r.record;
   },
   async renameSession(id, title) { await api('PATCH', `/api/sessions/${id}`, { title }); },
+  async sessionToProject(id, name) { return api<ProjectRecord>('POST', `/api/sessions/${id}/to-project`, { name }); },
   async deleteSession(id) {
     await api('DELETE', `/api/sessions/${id}`);
     set(s => ({ chatKeep: s.chatKeep.filter(x => x !== id) }));

@@ -17,6 +17,9 @@ export type SessionState = 'idle' | 'processing';
 
 // ==================== 注册表 ====================
 
+/** 侧边栏项目分组默认展示的项目数；显示顺序排在这之内的项目不参与超限退场 */
+export const PROJECTS_PREVIEW = 10;
+
 export interface ProjectRecord {
   id: string;
   name: string;
@@ -44,6 +47,8 @@ export interface SessionRecord {
 
 export interface Registry {
   schemaVersion: 1;
+  /** projects 的数组顺序即侧边栏显示顺序（新项目插最前，拖动调整，不随活跃时间变化）；旧数据无该标记，加载时按最近活跃排一次定为初始顺序 */
+  projectsOrdered?: boolean;
   projects: ProjectRecord[];
   sessions: SessionRecord[];
 }

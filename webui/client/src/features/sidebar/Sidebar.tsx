@@ -4,6 +4,7 @@ import { Plus, SquarePen, Settings, CalendarClock, Blocks, ChartColumn, MessageS
 import { useApp } from '../../store/app';
 import { useSessions } from '../../store/sessions';
 import { pendingBlocks } from '../../../../shared/transcript';
+import { PROJECTS_PREVIEW } from '../../../../shared/types';
 import type { ProjectRecord, SessionRecord } from '../../../../shared/types';
 import { Caret, Popover, MenuItem, MenuSep, useContextMenu, useDialog, cn, relTime } from '../../common/ui';
 import { t } from '../../i18n';
@@ -19,8 +20,24 @@ function loadLayout(): { expanded: Record<string, boolean>; projectsOpen: boolea
   } catch { return { expanded: {}, projectsOpen: true, sessionsOpen: true }; }
 }
 
+/** 项目行的拖动排序状态与回调（由侧栏统一管理，仅项目支持拖动） */
+interface ProjectDnd {
+  /** 有项目正在被拖动 */
+  active: boolean;
+  /** 本项目正在被拖动 */
+  dragging: boolean;
+  /** 插入指示线：画在本节点上沿 / 下沿 */
+  mark: 'before' | 'after' | null;
+  onStart(): void;
+  onEnd(): void;
+  /** 拖到本节点上：before = 指针在项目行上半部 */
+  onOver(before: boolean): void;
+  onDrop(): void;
+}
+
 export function Sidebar({ width }: { width: number }) {
   const registry = useApp(s => s.registry);
+  const toast = useApp(s => s.toast);
   const view = useApp(s => s.view);
   const setView = useApp(s => s.setView);
   const setSidebarCollapsed = useApp(s => s.setSidebarCollapsed);
@@ -31,7 +48,8 @@ export function Sidebar({ width }: { width: number }) {
     localStorage.setItem(LAYOUT_KEY, JSON.stringify({ expanded, projectsOpen, sessionsOpen }));
   }, [expanded, projectsOpen, sessionsOpen]);
 
-  const projects = useMemo(() => [...registry.projects].sort((a, b) => b.lastActiveAt - a.lastActiveAt), [registry.projects]);
+  // 项目顺序即注册表里的数组顺序（服务端维护：新项目插最前，拖动调整），不随活跃时间变化
+  const projects = registry.projects;
   const standalone = useMemo(() => registry.sessions.filter(s => !s.projectId).sort((a, b) => b.lastActiveAt - a.lastActiveAt), [registry.sessions]);
   const byProject = useMemo(() => {
     const m: Record<string, SessionRecord[]> = {};
@@ -50,6 +68,33 @@ export function Sidebar({ width }: { width: number }) {
   const [creating, setCreating] = useState(false);
 
   const activeId = view.type === 'chat' ? view.sessionId : undefined;
+
+  // 项目默认只显示前 N 个，点「展开显示」看全部；当前会话 / 草稿所在项目不在前 N 个时自动展开（与项目内会话的规则一致）
+  const [showAllProjectsManual, setShowAllProjects] = useState(false);
+  // 项目分组收起后重置，再展开时回到只显示前 N 个
+  useEffect(() => { if (!projectsOpen) setShowAllProjects(false); }, [projectsOpen]);
+  const activeProjectId = view.type === 'chat' ? registry.sessions.find(s => s.id === view.sessionId)?.projectId
+    : view.type === 'draft' ? view.projectId : undefined;
+  const showAllProjects = showAllProjectsManual || projects.findIndex(p => p.id === activeProjectId) >= PROJECTS_PREVIEW;
+  const shownProjects = showAllProjects ? projects : projects.slice(0, PROJECTS_PREVIEW);
+
+  // 拖动调整项目顺序（仅项目，会话不参与）：dropIdx 是可见列表里的插入位置（0..shownProjects.length）；
+  // 可见列表是完整列表的前缀，下标可直接用于完整列表
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const endDrag = () => { setDragId(null); setDropIdx(null); };
+  const dragFrom = dragId ? projects.findIndex(p => p.id === dragId) : -1;
+  // 落点紧挨原位置（上沿 / 下沿）等于没动：不画指示线，松手也不提交
+  const markIdx = dragFrom >= 0 && dropIdx !== null && dropIdx !== dragFrom && dropIdx !== dragFrom + 1 ? dropIdx : null;
+  const dropProject = () => {
+    const id = dragId, to = markIdx;
+    endDrag();
+    if (!id || to === null) return;
+    const ids = projects.map(p => p.id);
+    ids.splice(dragFrom, 1);
+    ids.splice(to > dragFrom ? to - 1 : to, 0, id);
+    useApp.getState().reorderProjects(ids).catch(e => toast(e.message, 'error'));
+  };
 
   return (
     <aside style={{ width }} className="shrink-0 h-full flex flex-col border-r border-border bg-panel">
@@ -92,17 +137,29 @@ export function Sidebar({ width }: { width: number }) {
         } />
         <CreateProjectDialog open={creating} onClose={() => setCreating(false)} onCreated={p => { setProjectsOpen(true); setExpanded(e => ({ ...e, [p.id]: true })); }} />
         {projectsOpen && projects.length === 0 && <div className="px-2 py-1 text-xs text-muted">{t('sidebar.noProjects')}</div>}
-        {projectsOpen && projects.map(p => (
+        {projectsOpen && shownProjects.map((p, i) => (
           <ProjectNode key={p.id} project={p} sessions={byProject[p.id] || []} expanded={!!expanded[p.id]}
-            onToggle={() => setExpanded(e => ({ ...e, [p.id]: !e[p.id] }))} activeId={activeId} onNewSession={() => newSession(p.id)} />
+            onToggle={() => setExpanded(e => ({ ...e, [p.id]: !e[p.id] }))} activeId={activeId} onNewSession={() => newSession(p.id)}
+            dnd={{
+              active: !!dragId, dragging: dragId === p.id,
+              mark: markIdx === i ? 'before' : markIdx === i + 1 && i === shownProjects.length - 1 ? 'after' : null,
+              onStart: () => setDragId(p.id), onEnd: endDrag,
+              onOver: before => setDropIdx(before ? i : i + 1), onDrop: dropProject,
+            }} />
         ))}
+        {projectsOpen && projects.length > PROJECTS_PREVIEW && !showAllProjects && (
+          <button onClick={() => setShowAllProjects(true)} className="h-7 px-2 text-xs text-dim hover:text-fg text-left w-full">{t('sidebar.showAll')}</button>
+        )}
 
         {/* 独立会话 */}
         <SectionHeader label={t('sidebar.sessions')} className="mt-4" open={sessionsOpen} onToggle={() => setSessionsOpen(v => !v)} action={
           <button onClick={() => newSession()} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.05]" title={t('sidebar.newSession')}><SquarePen size={14} /></button>
         } />
         {sessionsOpen && standalone.length === 0 && <div className="px-2 py-1 text-xs text-muted">{t('sidebar.noSessions')}</div>}
-        {sessionsOpen && standalone.map(s => <SessionItem key={s.id} session={s} active={s.id === activeId} />)}
+        {sessionsOpen && standalone.map(s => (
+          <SessionItem key={s.id} session={s} active={s.id === activeId}
+            onArchived={p => { setProjectsOpen(true); setExpanded(e => ({ ...e, [p.id]: true })); }} />
+        ))}
       </div>
     </aside>
   );
@@ -144,9 +201,10 @@ function DeleteFilesOption({ onChange }: { onChange: (v: boolean) => void }) {
   );
 }
 
-function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSession }: {
-  project: ProjectRecord; sessions: SessionRecord[]; expanded: boolean; onToggle: () => void; activeId?: string; onNewSession: () => void;
+function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSession, dnd }: {
+  project: ProjectRecord; sessions: SessionRecord[]; expanded: boolean; onToggle: () => void; activeId?: string; onNewSession: () => void; dnd: ProjectDnd;
 }) {
+  const headRef = useRef<HTMLDivElement>(null);
   const menu = useContextMenu();
   const dialog = useDialog();
   const toast = useApp(s => s.toast);
@@ -170,9 +228,20 @@ function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSes
     if (ok) app().removeProject(project.id, del.current).catch(e => toast(e.message, 'error'));
   };
   return (
-    <div>
-      <div onContextMenu={menu.open} onClick={onToggle}
-        className={cn('group flex items-center gap-1.5 h-7 px-2 rounded-md text-sm cursor-pointer select-none',
+    // 整个节点（含展开的会话列表）都是落点：指针在项目行上半部插到本项目之前，其余位置插到之后
+    <div className="relative"
+      onDragOver={e => {
+        if (!dnd.active) return;
+        e.preventDefault();
+        const r = headRef.current?.getBoundingClientRect();
+        if (r) dnd.onOver(e.clientY < r.top + r.height / 2);
+      }}
+      onDrop={e => { if (!dnd.active) return; e.preventDefault(); dnd.onDrop(); }}>
+      {dnd.mark && <div className={cn('absolute left-1 right-1 h-0.5 rounded bg-accent pointer-events-none z-10', dnd.mark === 'before' ? '-top-px' : '-bottom-px')} />}
+      {/* 只有项目行可拖（会话行不带 draggable） */}
+      <div ref={headRef} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; dnd.onStart(); }} onDragEnd={dnd.onEnd}
+        onContextMenu={menu.open} onClick={onToggle}
+        className={cn('group flex items-center gap-1.5 h-7 px-2 rounded-md text-sm cursor-pointer select-none', dnd.dragging && 'opacity-40',
           !expanded && sessions.some(s => s.id === activeId) ? 'bg-black/[0.07]' : 'hover:bg-black/[0.05]')} title={project.workingDir}>
         <Folder size={14} className="text-muted shrink-0" />
         <span className="truncate flex-1">{project.name}</span>
@@ -202,7 +271,8 @@ function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSes
 /** 悬浮多久后弹出会话详情面板 */
 const HOVER_CARD_DELAY = 450;
 
-function SessionItem({ session, active }: { session: SessionRecord; active: boolean }) {
+/** onArchived：独立会话归档为项目成功后回调（侧栏据此展开新项目节点）；项目内会话不传 */
+function SessionItem({ session, active, onArchived }: { session: SessionRecord; active: boolean; onArchived?: (p: ProjectRecord) => void }) {
   const setView = useApp(s => s.setView);
   const snap = useSessions(s => s.snapshots[session.id]);
   const status = useApp(s => s.status[session.id]);
@@ -238,6 +308,12 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
     const title = await dialog.prompt({ title: t('menu.rename'), defaultValue: session.title });
     if (title !== null && title !== session.title) app().renameSession(session.id, title).catch(e => toast(e.message, 'error'));
   };
+  // 归档为项目：目录原地沿用，会话（及同目录的分支会话）挂到新项目下，不再受独立会话退场影响
+  const toProject = async () => {
+    const name = (await dialog.prompt({ title: t('menu.toProject'), placeholder: t('dialog.projectName'), defaultValue: session.title || t('chat.untitled') }))?.trim();
+    if (!name) return;
+    app().sessionToProject(session.id, name).then(p => onArchived?.(p)).catch(e => toast(e.message, 'error'));
+  };
   const remove = async () => {
     // 项目内会话只删对话记录，入口又在右键菜单里，不再二次确认；独立会话会连工作目录一起删，保留确认
     if (!session.projectId) {
@@ -272,6 +348,7 @@ function SessionItem({ session, active }: { session: SessionRecord; active: bool
       <Popover anchor={menu.pos} onClose={menu.close}>
         <MenuItem onClick={() => { menu.close(); rename(); }}>{t('menu.rename')}</MenuItem>
         <MenuItem onClick={() => { menu.close(); app().revealSession(session.id).catch(e => toast(e.message, 'error')); }}>{t('menu.reveal')}</MenuItem>
+        {!session.projectId && <MenuItem onClick={() => { menu.close(); toProject(); }}>{t('menu.toProject')}</MenuItem>}
         <MenuSep />
         <MenuItem danger onClick={() => { menu.close(); remove(); }}>{t('menu.delete')}</MenuItem>
       </Popover>

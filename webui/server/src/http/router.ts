@@ -209,6 +209,12 @@ export class Router {
       return p;
     });
     this.add('POST', '/api/projects/pick-directory', async () => ({ path: await pickDirectory() }));
+    // 侧边栏拖动排序：ids 为拖动后的项目显示顺序
+    this.add('POST', '/api/projects/reorder', (_r, _s, _p, body) => {
+      reg.reorderProjects(Array.isArray(body?.ids) ? body.ids.filter((x: unknown): x is string => typeof x === 'string') : []);
+      sm.broadcastRegistry();
+      return true;
+    });
     this.add('PATCH', '/api/projects/:id', (_r, _s, p, body) => { const r = reg.renameProject(p.id, String(body?.name || '')); sm.broadcastRegistry(); return r; });
     this.add('DELETE', '/api/projects/:id', async (r, _s, p) => {
       const proj = reg.getProject(p.id);
@@ -221,6 +227,8 @@ export class Router {
       if (deleteFiles && proj?.managedWorkingDir && !reg.hasWorkingDirReference(proj.workingDir) && path.resolve(proj.workingDir).startsWith(managedRoot)) {
         await sm.dispatch('core.deleteProjectHistory', undefined, { projectPath: proj.workingDir });
         await trashDir(proj.workingDir);
+        // 由独立会话归档来的项目目录在日期目录下：删完顺手清空日期目录
+        removeEmptyDateParent(proj.workingDir);
       }
       sm.broadcastRegistry();
       return { removed: removed.length };
@@ -255,6 +263,13 @@ export class Router {
     this.add('GET', '/api/sessions/:id/snapshot', (_r, _s, p) => sm.getSnapshot(p.id));
     this.add('PATCH', '/api/sessions/:id', (_r, _s, p, body) => {
       const r = reg.updateSession(p.id, { title: String(body?.title || '') }); sm.broadcastRegistry(); return r;
+    });
+    // 独立会话归档为项目：目录原地沿用，同目录会话一并挂到新项目下（规则见 RegistryStore.sessionToProject）
+    this.add('POST', '/api/sessions/:id/to-project', (_r, _s, p, body) => {
+      const proj = reg.sessionToProject(p.id, String(body?.name || ''));
+      sm.broadcastRegistry();
+      void sm.evictOverflow();
+      return proj;
     });
     this.add('DELETE', '/api/sessions/:id', async (_r, _s, p) => {
       const rec = reg.getSession(p.id); if (!rec) return true;

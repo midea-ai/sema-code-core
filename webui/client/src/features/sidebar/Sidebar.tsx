@@ -190,16 +190,19 @@ function SectionHeader({ label, action, className, open = true, onToggle }: { la
 /** 项目节点默认展示的会话数 */
 const PROJECT_SESSIONS_PREVIEW = 5;
 
-/** 移除项目确认框里的「连带删除文件夹」勾选项（仅 WebUI 受管目录显示） */
-function DeleteFilesOption({ onChange }: { onChange: (v: boolean) => void }) {
+/** 确认框里的勾选项：移除项目的「连带删除文件夹」（仅 WebUI 受管目录显示）、删除独立会话的「不再提醒」 */
+function CheckOption({ label, onChange }: { label: string; onChange: (v: boolean) => void }) {
   const [checked, setChecked] = useState(false);
   return (
     <label className="inline-flex items-center gap-2 text-sm cursor-pointer select-none">
       <input type="checkbox" checked={checked} onChange={e => { setChecked(e.target.checked); onChange(e.target.checked); }} />
-      {t('dialog.removeProjectDeleteFiles')}
+      {label}
     </label>
   );
 }
+
+/** 删除独立会话时勾过「不再提醒」：只记在内存里不落盘，本次运行内不再弹确认框，下次启动（或刷新页面）恢复提醒 */
+let skipDeleteSessionConfirm = false;
 
 function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSession, dnd }: {
   project: ProjectRecord; sessions: SessionRecord[]; expanded: boolean; onToggle: () => void; activeId?: string; onNewSession: () => void; dnd: ProjectDnd;
@@ -223,7 +226,7 @@ function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSes
     const ok = await dialog.confirm({
       title: t('menu.remove'), danger: true, okText: t('menu.remove'),
       message: t(project.managedWorkingDir ? 'dialog.confirmRemoveProjectManaged' : 'dialog.confirmRemoveProject', { name: project.name }),
-      extra: project.managedWorkingDir ? <DeleteFilesOption onChange={v => { del.current = v; }} /> : undefined,
+      extra: project.managedWorkingDir ? <CheckOption label={t('dialog.removeProjectDeleteFiles')} onChange={v => { del.current = v; }} /> : undefined,
     });
     if (ok) app().removeProject(project.id, del.current).catch(e => toast(e.message, 'error'));
   };
@@ -315,13 +318,17 @@ function SessionItem({ session, active, onArchived }: { session: SessionRecord; 
     app().sessionToProject(session.id, name).then(p => onArchived?.(p)).catch(e => toast(e.message, 'error'));
   };
   const remove = async () => {
-    // 项目内会话只删对话记录，入口又在右键菜单里，不再二次确认；独立会话会连工作目录一起删，保留确认
-    if (!session.projectId) {
+    // 项目内会话只删对话记录，入口又在右键菜单里，不再二次确认；独立会话会连工作目录一起删，保留确认（可勾「不再提醒」，本次运行内跳过）
+    if (!session.projectId && !skipDeleteSessionConfirm) {
+      const skip = { current: false };
       const ok = await dialog.confirm({
         title: t('menu.delete'), danger: true, okText: t('menu.delete'),
         message: `${t('dialog.confirmDeleteSession', { name: session.title || t('chat.untitled') })}\n${t('dialog.deleteStandaloneHint')}`,
+        extra: <CheckOption label={t('dialog.dontAskAgain')} onChange={v => { skip.current = v; }} />,
       });
       if (!ok) return;
+      // 点了取消不算数，确认删除时才记下
+      if (skip.current) skipDeleteSessionConfirm = true;
     }
     app().deleteSession(session.id).catch(e => toast(e.message, 'error'));
   };

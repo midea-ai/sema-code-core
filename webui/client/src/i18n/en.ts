@@ -37,6 +37,7 @@ export const en = {
   'dialog.removeProjectDeleteFiles': 'Also delete the project folder (moved to Trash, including session history)',
   'dialog.confirmDeleteSession': 'Delete session "{name}"?',
   'dialog.deleteStandaloneHint': "The standalone session's folder will also be moved to Trash.",
+  'dialog.dontAskAgain': "Don't ask again",
   'chat.openLocation': 'Open location',
   'chat.untitled': 'Untitled session',
   'chat.placeholder': 'Describe what you need',

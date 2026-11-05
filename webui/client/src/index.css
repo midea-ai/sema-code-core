@@ -177,6 +177,25 @@ textarea, input, select { outline: none; }
 }
 @keyframes pop-in { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
 .pop-in { animation: pop-in .25s ease-out; }
+/* 赞/踩：点选后播一次约 1.5 秒的反馈，结束即恢复原样，不留选中态。
+   图标弹一下（赞上翘、踩下压）+ 一圈描边扩散淡出；期间图标以次级灰填充，末段淡回本来的颜色。
+   vote-hold 结束时由 FinalActions 的 onAnimationEnd 摘类收尾，所以减弱动态效果时也要保留它 */
+@keyframes vote-pop {
+  0% { transform: none; }
+  35% { transform: translateY(calc(var(--vote-dir) * 3px)) rotate(calc(var(--vote-dir) * 14deg)) scale(1.35); }
+  65% { transform: rotate(calc(var(--vote-dir) * -5deg)) scale(.94); }
+  100% { transform: none; }
+}
+@keyframes vote-ring { from { opacity: .4; transform: scale(.6); } to { opacity: 0; transform: scale(1.8); } }
+/* 不写 100% 帧：末段淡回元素当时本来的颜色（悬浮与否都对） */
+@keyframes vote-hold { 0%, 70% { color: var(--color-muted); } }
+@keyframes vote-fill { 0%, 70% { fill-opacity: 1; } 100% { fill-opacity: 0; } }
+.vote-fx { position: relative; --vote-dir: -1; animation: vote-hold 1.5s linear; }
+.vote-fx.vote-fx-down { --vote-dir: 1; }
+/* forwards：填充淡出后停在透明，避免摘类前闪一帧实心 */
+.vote-fx > svg { animation: vote-pop .5s ease-out, vote-fill 1.5s linear forwards; }
+.vote-fx::after { content: ''; position: absolute; inset: 0; border-radius: 9999px; border: 1.5px solid currentColor; opacity: 0; pointer-events: none; animation: vote-ring .5s ease-out; }
+@media (prefers-reduced-motion: reduce) { .vote-fx > svg { animation: vote-fill 1.5s linear forwards; } .vote-fx::after { animation: none; } }
 /* 回到底部按钮：运行中的三点动画 */
 .run-dots { display: inline-flex; align-items: center; gap: 3px; }
 .run-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: dot-bounce 1.2s ease-in-out infinite; }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type AnimationEvent, type ReactElement } from 'react';
 import { FolderOpen, Pencil, ArrowDown, Copy, Check, ThumbsUp, ThumbsDown, GitBranch, Target } from 'lucide-react';
 import type { Block, SessionSnapshot } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
@@ -454,8 +454,9 @@ export function FinalActions({ text, ts, className, onBranch, branchTitle, branc
   goalAchieved?: { summary?: string };
 }) {
   const { copied, copy } = useCopy();
-  // 点赞/踩：仅前端本地状态，无后端处理
+  // 点赞/踩：仅前端本地状态，无后端处理。点选只挂 vote-fx 类播一次反馈动效，vote-hold 动画结束即复位，不留选中态
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
+  const voteEnd = (e: AnimationEvent) => { if (e.animationName === 'vote-hold') setVote(null); };
   const time = ts ? fmtTime(ts) : '';
   const btn = 'p-1 rounded hover:bg-black/[0.05] hover:text-fg';
   return (
@@ -463,10 +464,10 @@ export function FinalActions({ text, ts, className, onBranch, branchTitle, branc
       <button onClick={() => copy(text)} className={btn} title={t('chat.copy')}>
         {copied ? <Check size={13} className="text-ok" /> : <Copy size={13} />}
       </button>
-      <button onClick={() => setVote(v => v === 'up' ? null : 'up')} className={cn(btn, vote === 'up' && 'text-fg')} title={t('chat.good')}>
+      <button onClick={() => setVote('up')} onAnimationEnd={voteEnd} className={cn(btn, vote === 'up' && 'vote-fx')} title={t('chat.good')}>
         <ThumbsUp size={13} fill={vote === 'up' ? 'currentColor' : 'none'} />
       </button>
-      <button onClick={() => setVote(v => v === 'down' ? null : 'down')} className={cn(btn, vote === 'down' && 'text-fg')} title={t('chat.bad')}>
+      <button onClick={() => setVote('down')} onAnimationEnd={voteEnd} className={cn(btn, vote === 'down' && 'vote-fx vote-fx-down')} title={t('chat.bad')}>
         <ThumbsDown size={13} fill={vote === 'down' ? 'currentColor' : 'none'} />
       </button>
       {onBranch && (

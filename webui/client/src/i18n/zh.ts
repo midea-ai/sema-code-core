@@ -34,6 +34,7 @@ export const zh = {
   'dialog.removeProjectDeleteFiles': '同时删除项目文件夹（移入废纸篓，含会话历史）',
   'dialog.confirmDeleteSession': '删除会话「{name}」？',
   'dialog.deleteStandaloneHint': '独立会话的目录会一并移入废纸篓。',
+  'dialog.dontAskAgain': '不再提醒',
   'chat.openLocation': '打开位置',
   'chat.untitled': '未命名会话',
   'chat.placeholder': '请输入需求',

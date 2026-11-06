@@ -407,6 +407,8 @@ async function injectPendingInputsIntoToolResult(
         originalInput: item.originalInput,
         source: item.source ?? 'user',
         attachments: attachments.length > 0 ? attachments : undefined,
+        // 轮内注入标记：宿主据此把气泡留在当前轮里，不当作新一轮开头，也不提供回退 / 分支锚点
+        injected: true,
       }, agentContext.sessionId)
       if ((item.source ?? 'user') === 'user') {
         getConfManager().saveUserInputToHistory(item.originalInput ?? item.input)

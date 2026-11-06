@@ -279,7 +279,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `state:update` | `StateUpdateData` | `idle` / `processing` |
 | **输入与消息流** | | |
 | `input:received` | `InputReceivedData` | 收到用户输入(处理中则入队等待);`source` 标记来源(缺省 `user`,`cron`=定时任务自动发送) |
-| `input:processing` | `InputProcessingData` | 开始处理该用户输入;`source` 含义同上 |
+| `input:processing` | `InputProcessingData` | 开始处理该用户输入;`source` 含义同上;`injected=true` 表示运行中的轮内注入(不开新轮,`inputId` 不能作为 fork / branch 锚点) |
 | `input:predict` | `InputPredictData` | 用户输入预测结果(需 `enableInputPrediction` 开启;`prediction` 空串表示预计不回复,UI 应清空提示) |
 | `message:text:chunk` | `TextChunkData` | 回复文本流式增量 |
 | `message:thinking:chunk` | `ThinkingChunkData` | 思考内容流式增量 |

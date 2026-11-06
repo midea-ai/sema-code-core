@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Semacore" Version="2.1.4" />
+    <PackageReference Include="Semacore" Version="2.1.7" />
   </ItemGroup>
 
 </Project>

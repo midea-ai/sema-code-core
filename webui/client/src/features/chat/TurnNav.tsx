@@ -9,7 +9,7 @@ const TICK_H = 7; // 每条短横线占的行高（线 2px + 间距 5px）
 const NAV_PAD = 16; // 指示条上下内边距之和
 const MIN_TICKS = 5;
 /** 少于这么多轮不显示指示条 */
-export const MIN_TURNS = 4;
+export const MIN_TURNS = 2;
 
 export interface TurnNavItem {
   /** 用户输入（或轮次开头块的文案）的纯文字 */
@@ -46,7 +46,7 @@ export function turnNavItem(turn: Turn): TurnNavItem | null {
 }
 
 /**
- * 消息流左缘的轮次指示条：一条短横线对应一轮输入，当前轮（用户气泡正吸顶的那轮）加粗；
+ * 消息流左缘的轮次指示条：一条短横线对应一轮输入，当前轮（视口顶部所在的那轮）加粗；
  * 悬停某条短横线在其右侧弹出该轮的小面板（单行输入 + 可选结论最多三行），移开即消失；点击跳到该轮用户输入。
  * 当前轮按列表里的 [data-turn] 零高标记算：最后一个顶边不低于滚动位置的标记；滚到底时取最后一轮（末轮太短时顶边永远到不了视口顶）。
  */
@@ -109,7 +109,7 @@ export function TurnNav({ listRef, items }: { listRef: React.RefObject<HTMLDivEl
   const tip = hovered != null ? items[hovered] : null;
 
   return (
-    // z-30 压过吸顶的用户气泡（z-10）与回到底部按钮（z-20）
+    // z-30 压过回到底部按钮（z-20）
     // 每条短横线的可点区域铺满整行（行高 7px = 线 2px + 间距 5px，整列无死区）
     <div onMouseLeave={() => setHovered(null)} className="absolute z-30 left-0 top-1/2 -translate-y-1/2 w-8 flex flex-col items-stretch pl-2.5 py-2">
       {ticks.map(i => (

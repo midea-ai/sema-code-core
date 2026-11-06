@@ -187,7 +187,8 @@ export class SessionManager extends EventEmitter {
    * （不动 data.content，聊天流工具卡片仍显示单步 diff）。
    */
   private updateReviewDiff(sid: string, rt: Runtime, event: string, data: any) {
-    if (event === 'input:processing') { if (rt.diffBase) resetTurn(rt.diffBase); return; }
+    // 轮内注入（injected）不是轮次边界：不重置轮级基线，同一文件注入前后的改动仍算进同一轮的总 diff
+    if (event === 'input:processing') { if (rt.diffBase && !data?.injected) resetTurn(rt.diffBase); return; }
     if (event === 'state:update') { if (rt.diffBase && data?.state !== 'processing') resetTurn(rt.diffBase); return; }
     if (event === 'session:cleared' || event === 'plan:implement') { if (rt.diffBase) resetAll(rt.diffBase); return; }
     // 恢复会话：core 沿用历史读时间戳，这些文件可不重读直接编辑，此刻先捕获内容作基线来源

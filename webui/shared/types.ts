@@ -280,6 +280,9 @@ export interface UserBlock extends BlockBase {
   /** 超长粘贴转存的附件文件：path 为绝对路径，preview 为首行起的单行预览（从 input 的粘贴模板解析） */
   pastes?: PasteAttachment[];
   queued?: boolean;
+  /** 运行中的轮内注入（core input:processing 的 injected）：输入追加进当前轮的工具结果，不开新轮，气泡归在所在轮的过程里；
+   *  在 core 历史里不是独立消息，不能作为回退 / 分支锚点 */
+  injected?: boolean;
   /** 前端乐观回显：回车即本地插入，core 的 input:received / input:processing 到达时整体替换（仅存在于前端快照） */
   pending?: boolean;
   /** 乐观回显发送失败且用户已在输入新内容：保留气泡供复制，不覆盖草稿（仅存在于前端快照） */

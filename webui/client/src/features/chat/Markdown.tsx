@@ -11,6 +11,7 @@ import { Button, cn, useCopy } from '../../common/ui';
 import { getToken } from '../../api/http';
 import { isPrivateUrl } from '../../common/url';
 import { FileLabel } from './fileRefDisplay';
+import { MermaidDialog } from './MermaidDialog';
 import { t, useLang } from '../../i18n';
 import { useApp } from '../../store/app';
 import { isLocalHref, isPathCandidate, parsePathRef, rawFileUrl, useFileStats, type PathStat } from './fileRefs';
@@ -283,7 +284,8 @@ function nodeText(node: any): string {
 }
 
 /** 围栏代码块：右上角悬浮工具栏（自动换行开关、复制），复制内容取自渲染后的纯文本；
- * mermaid 围栏在流式结束后渲染为图表（默认显示图表，工具栏可切换回代码；渲染失败保持代码展示） */
+ * mermaid 围栏在流式结束后渲染为图表（默认显示图表，工具栏可切换回代码；渲染失败保持代码展示）；
+ * 图表状态下工具栏多一个展开按钮，在弹层里缩放查看、下载成图片 */
 function CodeBlock({ children }: any) {
   const ref = useRef<HTMLPreElement>(null);
   const [wrap, setWrap] = useState(true);
@@ -294,6 +296,7 @@ function CodeBlock({ children }: any) {
   const code = isMermaid ? nodeText(children).replace(/\n$/, '') : '';
   const [svg, setSvg] = useState('');
   const [asCode, setAsCode] = useState(false);
+  const [full, setFull] = useState(false);
   useEffect(() => {
     if (!isMermaid || !done || !code) return;
     let cancelled = false;
@@ -325,7 +328,13 @@ function CodeBlock({ children }: any) {
           <button type="button" className="md-code-btn" title={t(copied ? 'common.copied' : 'common.copy')} onClick={() => copy(showDiagram ? code : ref.current?.textContent ?? '')}>
             {copied ? <Check size={14} /> : <Copy size={14} />}
           </button>
+          {showDiagram && (
+            <button type="button" className="md-code-btn" title={t('chat.expand')} onClick={() => setFull(true)}>
+              <Maximize2 size={13} />
+            </button>
+          )}
         </div>
+        {full && !!svg && <MermaidDialog svg={svg} onClose={() => setFull(false)} />}
       </div>
     </InPre.Provider>
   );

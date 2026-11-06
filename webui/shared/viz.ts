@@ -15,9 +15,12 @@ export function isAttachmentPath(p: string): boolean { return ATTACHMENT_PATH_RE
 /** iframe 内 runtime 与宿主的 postMessage 协议：统一 type 字段，kind 区分消息 */
 export const VIZ_MSG_TYPE = 'sema-viz';
 
+/** 页面声明设计宽度的 meta 名：<meta name="viz-width" content="1100">（px）。不声明则内嵌框与消息列等宽 */
+export const VIZ_WIDTH_META = 'viz-width';
+
 export type VizMessage =
-  /** iframe → 宿主：文档高度与标题（加载后、尺寸变化时上报） */
-  | { type: typeof VIZ_MSG_TYPE; kind: 'size'; height: number; title: string }
+  /** iframe → 宿主：文档高度与标题（加载后、尺寸变化时上报）；width 为页面声明的设计宽度（px），未声明不带 */
+  | { type: typeof VIZ_MSG_TYPE; kind: 'size'; height: number; title: string; width?: number }
   /** 宿主 → iframe：请求整页截图 */
   | { type: typeof VIZ_MSG_TYPE; kind: 'snapshot'; id: number }
   /** iframe → 宿主：截图结果（png Blob；失败时 blob 为空并带 error） */

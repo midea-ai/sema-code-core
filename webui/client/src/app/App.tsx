@@ -18,6 +18,8 @@ import { ResizeHandle, usePanelWidth } from '../common/Resizer';
 import { useStatusFavicon } from '../common/favicon';
 import { useActivateJump, useDockBadge, useVisibilityRead } from '../common/unread';
 
+const SIDEBAR_MIN = 180, PANEL_MIN = 320;
+
 export function App() {
   // 订阅界面语言：切换时整棵树重渲染（memo 组件内各自 useLang）
   useLang();
@@ -29,15 +31,21 @@ export function App() {
   const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
   const setSidebarCollapsed = useApp(s => s.setSidebarCollapsed);
   const setView = useApp(s => s.setView);
-  const [sidebarW, setSidebarW] = usePanelWidth('sidebar', 256, 180, 480);
+  const [sidebarW, setSidebarW] = usePanelWidth('sidebar', 256, SIDEBAR_MIN, 480);
   useStatusFavicon();
   useVisibilityRead();
   useDockBadge();
   useActivateJump();
-  const [panelW, setPanelW] = usePanelWidth('panel', 520, 320, 1200);
+  const [panelW, setPanelW] = usePanelWidth('panel', 520, PANEL_MIN, 1200);
   // 右面板作用域：聊天页 = 会话 id；项目草稿页 = 项目 id（首次发送创建会话时面板随之迁移）
   const panelScopeId = view.type === 'chat' ? view.sessionId : view.type === 'draft' ? view.projectId : undefined;
   const panelCollapsed = useApp(s => panelScopeId ? (s.panels[panelScopeId]?.collapsed ?? true) : true);
+  const updatePanel = useApp(s => s.updatePanel);
+  // 左右栏的拖拽手柄在收起态也保持渲染（见 ResizeHandle）：拖过最小宽度收起后，不松手还能拖回来
+  const panelHandle = (
+    <ResizeHandle side="right" width={panelW} onResize={setPanelW} min={PANEL_MIN} collapsed={panelCollapsed}
+      onCollapse={v => { if (panelScopeId) updatePanel(panelScopeId, p => ({ ...p, collapsed: v })); }} />
+  );
 
   useEffect(() => {
     initToken();
@@ -55,7 +63,7 @@ export function App() {
     <DialogProvider>
       <div className="h-full flex overflow-hidden">
         {!sidebarCollapsed && <Sidebar width={sidebarW} />}
-        {!sidebarCollapsed && <ResizeHandle side="left" width={sidebarW} onResize={setSidebarW} />}
+        <ResizeHandle side="left" width={sidebarW} onResize={setSidebarW} min={SIDEBAR_MIN} collapsed={sidebarCollapsed} onCollapse={setSidebarCollapsed} />
         <div className="flex-1 min-w-0 flex flex-col relative">
           {wsStatus !== 'open' && (
             <div className="absolute top-0 inset-x-0 z-20 text-center text-xs py-1 bg-warn/20 text-warn">
@@ -87,14 +95,14 @@ export function App() {
                   );
                 })}
               </div>
-              {view.type === 'chat' && !panelCollapsed && <ResizeHandle side="right" width={panelW} onResize={setPanelW} />}
+              {view.type === 'chat' && panelHandle}
               {view.type === 'chat' && <RightPanel sessionId={view.sessionId} width={panelW} />}
             </div>
           )}
           {view.type === 'draft' && (view.projectId ? (
             <div className="flex-1 min-h-0 flex">
               <div className="flex-1 min-w-0 flex flex-col"><DraftView key={view.projectId} projectId={view.projectId} /></div>
-              {!panelCollapsed && <ResizeHandle side="right" width={panelW} onResize={setPanelW} />}
+              {panelHandle}
               <RightPanel sessionId={view.projectId} width={panelW} />
             </div>
           ) : <DraftView key="" />)}

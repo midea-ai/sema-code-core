@@ -76,6 +76,10 @@ Verify).
 - `body { margin: 0; padding: 12px 16px; }`. Design for a 720px wide column and keep
   everything usable down to 320px by wrapping and stacking. Never widen a single
   chart; stack panels vertically when they no longer fit side by side.
+- The frame is as wide as the conversation column. Only a full-page mockup or a
+  dashboard with side-by-side panels may ask for more: declare its design width
+  with `<meta name="viz-width" content="<px>">` and the frame widens up to it when
+  the conversation area allows.
 - Size every chart from its container (`ResizeObserver` or the library's resize
   call). A chart container gets an explicit height that includes the axis band
   (a typical Cartesian chart: 320px; small multiples: 220px each).
@@ -337,14 +341,18 @@ choropleths and frame it with modest padding. Choropleth values use the sequenti
 ramp with a visible scale legend.
 
 **UI mockups.** Match the depicted product's chrome, navigation, typography and
-colors; if unknown, infer from the platform. Do not use this skill's theme tokens
+colors; if unknown, infer from the platform and keep it plain: neutral surfaces,
+one accent color, hairline borders, no gradients or glows. Do not use this skill's theme tokens
 inside the mockup; define product-specific colors as custom properties on a
 `.mockup` root rule (the checker exempts selectors containing `mock`), with a
 `:root[data-theme="dark"] .mockup` override when the product has a dark look. Give
-windows, cards and popovers opaque backgrounds. A contained mockup frames a
-component, dialog or mobile screen as a compact product surface; a full-page mockup
-renders a window or page shell at full width. Show realistic states, not filler
-dashboards or oversized icons.
+windows, cards and popovers opaque backgrounds. The outermost surface gets a
+hairline border and no outer shadow: the frame clips whatever is drawn beyond the
+page. A contained mockup shows a component, dialog or mobile screen at its natural
+size, centered on the page, with no stage, backdrop or border around it. A
+full-page mockup renders a window or page shell at full width. The page holds only the mockup: no
+heading, caption or explanation outside it; those belong in the reply. Show
+realistic states, not filler dashboards or oversized icons.
 
 ## Accessibility
 

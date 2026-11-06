@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type AnimationEvent, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type AnimationEvent } from 'react';
 import { FolderOpen, Pencil, ArrowDown, Copy, Check, ThumbsUp, ThumbsDown, GitBranch, Target } from 'lucide-react';
 import type { Block, SessionSnapshot } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
@@ -201,37 +201,25 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
   };
 
   // 轮次列表整体 memo：隐藏实例因 registry / 语言等外部变化重渲染时不重算整棵块树（lang 作依赖保证切语言时刷新文案）
-  const turnEls = useMemo(() => {
-    // 吸顶范围：用户气泡 position: sticky 只在父容器内吸附。目标自动续轮的开头是不吸顶的标签行，
-    // 若每轮各自成容器，滚到续轮区域时上一条真实输入就被释放了；因此一条真实输入及其后连续的续轮共用一个容器，
-    // 真实输入的气泡一直吸到最后一个续轮结束（TurnGroup 自身的包裹是 display: contents，不构成吸顶边界）
-    const scopes: ReactElement[][] = [];
-    turns.forEach((turn, i) => {
-      // 分支锚点：中间轮次取下一轮用户输入的 inputId（历史截到它之前）；
-      // 下一轮开头是合成块（plan-implement）或无 inputId 时截不出干净边界，不提供分支。
-      // 最后一轮不带锚点 = 全量分支。
-      const last = i === turns.length - 1;
-      const nextOpener = last ? undefined : turns[i + 1]?.opener;
-      const anchor = nextOpener?.kind === 'user' ? nextOpener.inputId : undefined;
-      const el = (
-        <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx}
-          active={snap?.state === 'processing' && i === runningIdx}
-          awaitingTs={i === runningIdx ? awaitingTs : undefined}
-          canBranch={canBranchNow && (last || !!anchor)}
-          branchAnchor={anchor}
-          branching={branching}
-          onBranch={branchToNewChat} />
-      );
-      const o = turn.opener;
-      const goalRound = o?.kind === 'user' && o.source === 'goal' && o.goal?.action === 'round';
-      // 轮次指示条的零高定位标记：TurnGroup 是 display: contents 没有盒子可量，标记放在轮前（吸顶容器内，不影响吸顶）
-      const marker = nav.idx[i] >= 0 ? <div key={`nav:${turn.blocks[0].id}`} data-turn={nav.idx[i]} className="h-0" /> : null;
-      const els = marker ? [marker, el] : [el];
-      if (goalRound && scopes.length) scopes[scopes.length - 1].push(...els);
-      else scopes.push(els);
-    });
-    return scopes.map(els => <div key={els[0].key}>{els}</div>);
-  }, [turns, nav, ctx, snap?.state, runningIdx, awaitingTs, canBranchNow, branching, branchToNewChat, lang]);
+  const turnEls = useMemo(() => turns.flatMap((turn, i) => {
+    // 分支锚点：中间轮次取下一轮用户输入的 inputId（历史截到它之前）；
+    // 下一轮开头是合成块（plan-implement）或无 inputId 时截不出干净边界，不提供分支。
+    // 最后一轮不带锚点 = 全量分支。
+    const last = i === turns.length - 1;
+    const nextOpener = last ? undefined : turns[i + 1]?.opener;
+    const anchor = nextOpener?.kind === 'user' ? nextOpener.inputId : undefined;
+    const el = (
+      <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx}
+        active={snap?.state === 'processing' && i === runningIdx}
+        awaitingTs={i === runningIdx ? awaitingTs : undefined}
+        canBranch={canBranchNow && (last || !!anchor)}
+        branchAnchor={anchor}
+        branching={branching}
+        onBranch={branchToNewChat} />
+    );
+    // 轮次指示条的零高定位标记：TurnGroup 是 display: contents 没有盒子可量，标记放在轮前
+    return nav.idx[i] >= 0 ? [<div key={`nav:${turn.blocks[0].id}`} data-turn={nav.idx[i]} className="h-0" />, el] : [el];
+  }), [turns, nav, ctx, snap?.state, runningIdx, awaitingTs, canBranchNow, branching, branchToNewChat, lang]);
 
   if (!record) return <div className="flex-1 flex items-center justify-center text-muted">{t('chat.sessionNotFound')}</div>;
 
@@ -250,8 +238,10 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
 
       {/* 消息流 */}
       <div className="relative flex-1 min-h-0">
-      <div ref={listRef} onScroll={onScroll} className="h-full overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-10 py-4">
+      {/* chat-scroll：把滚动容器标成查询容器，可视化内嵌据此取聊天区宽度、突破消息列的固定宽度（见 index.css） */}
+      <div ref={listRef} onScroll={onScroll} className="chat-scroll h-full overflow-y-auto">
+        {/* pb-8：底部留白与下方渐隐条等高，滚到底时最后一行内容不落进渐隐区 */}
+        <div className="max-w-3xl mx-auto px-10 pt-4 pb-8">
           {!snap && loading && <div className="flex items-center gap-2 text-muted text-sm"><Spinner />{t('common.loading')}</div>}
           {snap && snap.blocks.length === 0 && (snap.agentMode === 'Design' ? (
             // Design 空会话：对齐默认新会话页（DraftView）的居中大字样式，与普通会话的小字提示区分
@@ -273,8 +263,9 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
       </div>
       {/* 左缘轮次指示条：输入轮数够多时才显示，悬停单条短横线弹出该轮小面板，点击跳到该轮用户输入 */}
       {nav.items.length >= MIN_TURNS && <TurnNav listRef={listRef} items={nav.items} />}
-      {/* 回到底部：内容超出一屏且离底时悬浮显示；运行中图标换成三点动画表示进行中。
-          z-20 压过用户气泡（.user-sticky 的 z-index: 10，未吸顶时同样生效） */}
+      {/* 底部渐隐：内容滚到输入框上方时淡出，而非被硬边切断；右侧让出滚动条，层级低于回到底部按钮（z-20） */}
+      <div className="pointer-events-none absolute z-10 left-0 right-2 bottom-0 h-8 bg-linear-to-t from-bg to-transparent" />
+      {/* 回到底部：内容超出一屏且离底时悬浮显示；运行中图标换成三点动画表示进行中 */}
       {overflow && !stick && (
         <button onClick={scrollToBottom} title={t('chat.scrollBottom')}
           className="absolute z-20 left-1/2 -translate-x-1/2 bottom-3 h-8 w-8 rounded-full bg-bg border border-border shadow-lg flex items-center justify-center text-muted hover:text-fg">
@@ -321,10 +312,11 @@ function fmtDuration(ms: number) {
   return t('time.dur.hm', { h: Math.floor(m / 60), m: m % 60 });
 }
 
-/** 轮次开头：用户消息，或「清理上下文并开始实施计划」后的合成 plan-implement 提示块 */
+/** 轮次开头：用户消息，或「清理上下文并开始实施计划」后的合成 plan-implement 提示块。
+ * 运行中轮内注入的用户消息（injected）不开新轮：模型在同一轮里接着跑，气泡留在所在轮的过程里 */
 type TurnOpener = Extract<Block, { kind: 'user' }> | Extract<Block, { kind: 'notice' }>;
 function isTurnOpener(b: Block): b is TurnOpener {
-  return b.kind === 'user' || (b.kind === 'notice' && b.noticeType === 'plan-implement');
+  return (b.kind === 'user' && !b.injected) || (b.kind === 'notice' && b.noticeType === 'plan-implement');
 }
 
 /** 一轮对话：以轮次开头块为界切分（会话开头无开头块的前置块单独成组） */
@@ -356,13 +348,16 @@ const isWork = (b: Block) => b.kind === 'tool' || b.kind === 'agent';
 const isTail = (b: Block) => b.kind === 'cron';
 const isFileChanges = (b: Block) => b.kind === 'file-changes';
 const isText = (b: Block) => b.kind === 'assistant' && !!b.text;
+/** 轮内注入的用户气泡：属于所在轮的过程，运行中 / 展开时按注入位置显示，折叠后不显示 */
+const isInjected = (b: Block) => b.kind === 'user' && !!b.injected;
 
 /**
  * 一轮的渲染。
  * 运行中：用户气泡 →（有文字/工具后）「已处理 N秒」分隔 → 全部块按原顺序（连续 ≥2 工具收成 live 组，组头为最后一个工具的摘要）
- * →（仅当最后一个可见块是已完成的文字或本轮尚无输出时）「正在思考」状态行。
+ * →（仅当最后一个可见块是已完成的文字、轮内注入的用户气泡或本轮尚无输出时）「正在思考」状态行。
  * 结束后：「耗时 N秒 ›」分隔 → 最终结论（最后一段文字）+ 其后的非工具块 + 定时任务卡片 → 生图画廊 → 可视化 → 网站/Office/记忆卡片 → 文件改动卡片 → 复制行；中间过程默认折叠。
  * 展开时按原顺序显示全部块（组头为类别文案），与运行中渲染仅差组名与状态行。
+ * 运行中轮内注入的用户气泡算过程：运行中 / 展开时留在注入位置，折叠后随过程收起。
  */
 function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, branching, onBranch }: {
   turn: Turn; ctx: BlockCtx; active: boolean; awaitingTs?: number;
@@ -390,10 +385,10 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
   // 文件改动卡片不进块列表：固定渲染在所有产物与入口卡片之后、复制行之前（见下方 JSX），三种视图一致
   const fileCards = rest.filter(isFileChanges);
   const ordered = [...rest.filter(b => !isTail(b) && !isFileChanges(b)), ...tailCards];
-  // 折叠视图：最后一段文字 + 其后的非工具块 + 定时任务卡片
+  // 折叠视图：最后一段文字 + 其后的非工具块 + 定时任务卡片（轮内注入的用户气泡算过程，不进折叠视图）
   const collapsedView: Block[] = [
     ...(lastText ? [lastText] : []),
-    ...after.filter(b => !isWork(b) && !isTail(b) && !isFileChanges(b)),
+    ...after.filter(b => !isWork(b) && !isTail(b) && !isFileChanges(b) && !isInjected(b)),
     ...tailCards,
   ];
   const hidden = rest.filter(b => !collapsedView.includes(b) && !isFileChanges(b));
@@ -402,17 +397,17 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
   const hasWork = rest.some(isWork);
   const started = !!lastText || hasWork;
 
-  // 状态行：仅「正在思考」——最后一个可见块是已完成的文字、或本轮尚无输出时显示；
+  // 状态行：仅「正在思考」——最后一个可见块是已完成的文字、轮内注入的用户气泡、或本轮尚无输出时显示；
   // 最后是工具/工具组/子代理时由其行内 spinner 表达状态；文字流式输出中不显示；
   // 等待用户处理权限确认/快速确认/计划退出时不算「思考」，不显示该提示
   let showThinking = false;
   if (running && awaitingTs == null) {
-    const lastVisible = [...rest].reverse().find(b => isWork(b) || isText(b));
-    showThinking = !lastVisible || (lastVisible.kind === 'assistant' && lastVisible.done);
+    const lastVisible = [...rest].reverse().find(b => isWork(b) || isText(b) || isInjected(b));
+    showThinking = !lastVisible || lastVisible.kind === 'user' || (lastVisible.kind === 'assistant' && lastVisible.done);
   }
 
   return (
-    // display: contents：吸顶边界由 ChatView 里的外层容器决定（一条真实输入 + 其后的目标续轮共用一个），这里不构成边界
+    // display: contents：不产生盒子，轮内各块直接排在消息列里
     <div className="contents">
       <BlockRenderer block={opener} ctx={ctx} />
       {!queued && (running ? started : (hasWork || collapsible)) && (

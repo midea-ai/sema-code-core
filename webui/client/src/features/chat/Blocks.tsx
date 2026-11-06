@@ -120,10 +120,8 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
   });
   // 目标自动续轮：文本是固定触发语，不渲染气泡本体，只留下方「目标第 n/m 轮」标签行（含悬浮回退），耗时分隔与各轮整体块不受影响
   const goalRound = block.source === 'goal' && block.goal?.action === 'round';
-  // 展开后的长消息不吸顶：吸顶块比视口还高会把整段回复盖住（回复只能从底下滚过）；续轮标签行也不吸顶
-  const sticky = !(overflowing && expanded) && !goalRound;
   return (
-    <div className={cn('group flex justify-end pt-3 pb-1 mb-2', sticky && 'user-sticky')}>
+    <div className="group flex justify-end pt-3 pb-1 mb-2">
       {/* min-w-0：超长无空格串（编码路径/URL）的 min-content 比容器还宽时不许撑破列宽向左溢出，配合下方 overflow-wrap:anywhere 在词中断行 */}
       <div className="max-w-[90%] min-w-0 flex flex-col items-end gap-1">
         {block.attachments && block.attachments.length > 0 && (
@@ -178,8 +176,8 @@ function UserBubbleBar({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
             {copied ? <Check size={12} /> : <Copy size={12} />}
           </button>
         )}
-        {/* 排队中的输入尚未进入 core 历史，无法作为回退锚点 */}
-        {block.inputId && !block.queued && !goalRound && ctx.onRewind && (
+        {/* 排队中的输入尚未进入 core 历史；轮内注入的输入在 core 历史里不是独立消息——都无法作为回退锚点 */}
+        {block.inputId && !block.queued && !block.injected && !goalRound && ctx.onRewind && (
           <button className={btn} title={t('chat.rewindHere')} onClick={() => ctx.onRewind!(block.inputId!)}>
             <Undo2 size={12} />
           </button>
@@ -534,8 +532,8 @@ export function renderBlockList(blocks: Block[], ctx: BlockCtx, live = false) {
     while (j < blocks.length && isToolGroupable(blocks[j])) j++;
     const run = blocks.slice(i, j);
     if (run.some(b => b.kind === 'tool' && !isHiddenTool(b))) {
-      // 组头是否仍在增长：只有其后再无新文字/工具调用（真正的末尾组）才用「最后一个工具」当标题，否则回退为整体描述
-      const isTailGroup = !blocks.slice(j).some(b => b.kind === 'tool' || (b.kind === 'assistant' && !!b.text));
+      // 组头是否仍在增长：只有其后再无新文字/工具调用/轮内注入的用户气泡（真正的末尾组）才用「最后一个工具」当标题，否则回退为整体描述
+      const isTailGroup = !blocks.slice(j).some(b => b.kind === 'tool' || b.kind === 'user' || (b.kind === 'assistant' && !!b.text));
       out.push(<ToolGroup key={`group:${run[0].id}`} blocks={run} ctx={ctx} live={live && isTailGroup} />);
     } else run.forEach(b => out.push(<BlockRenderer key={b.id} block={b} ctx={ctx} />));
     i = j;

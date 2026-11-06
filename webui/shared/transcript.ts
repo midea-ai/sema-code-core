@@ -250,12 +250,13 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
         while (updateBlock(snap, b => b.kind === 'user' && !b.doneTs, b => ({ ...b, doneTs: now } as Block)));
         updateBlock(snap, b => b.kind === 'notice' && b.noticeType === 'plan-implement' && !b.doneTs, b => ({ ...b, doneTs: now } as Block));
       } else if (!snap.blocks.some(b =>
-        (b.kind === 'user' && !b.queued && !b.doneTs) ||
+        (b.kind === 'user' && !b.queued && !b.injected && !b.doneTs) ||
         (b.kind === 'notice' && b.noticeType === 'plan-implement' && !b.doneTs))) {
         // 后台任务通知静默唤醒继续执行（无 input 事件、不开新轮）：重新打开最近的轮次开头，
-        // 耗时按墙钟接着计——空闲间隙里后台子代理实际一直在运行，本轮最终收尾时再盖上总时长
+        // 耗时按墙钟接着计——空闲间隙里后台子代理实际一直在运行，本轮最终收尾时再盖上总时长；
+        // 轮内注入的气泡不是轮次开头，跳过
         updateBlock(snap,
-          b => (b.kind === 'user' && !b.queued) || (b.kind === 'notice' && b.noticeType === 'plan-implement'),
+          b => (b.kind === 'user' && !b.queued && !b.injected) || (b.kind === 'notice' && b.noticeType === 'plan-implement'),
           b => ({ ...b, doneTs: undefined } as Block));
       }
       break;
@@ -299,6 +300,23 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       const src = { ...(data?.source && data.source !== 'user' ? { source: data.source } : {}), ...(data?.goal ? { goal: data.goal } : {}) };
       const idx = snap.blocks.findIndex(b => b.kind === 'user' && b.inputId === inputId);
       const cur = idx >= 0 ? snap.blocks[idx] as Extract<Block, { kind: 'user' }> : undefined;
+      if (data?.injected) {
+        // 轮内注入：输入被追加进当前轮的工具结果，模型在同一轮里接着跑——不是新一轮。
+        // 不收尾旧轮（开头块继续计时、文件改动继续累计到同一张卡片），只把排队气泡搬到末尾（注入点）并打上标记，
+        // 渲染时它归在运行轮的过程里，轮结束后随过程一起折叠。
+        // 轮末接续（上一轮已给完答复才取队列）不带 injected，仍走下方排队分支另起新轮：上一轮的答复是完整结论，不能被折进去
+        if (idx >= 0) snap.blocks = snap.blocks.filter((_, i) => i !== idx);
+        // 正常都有排队块（input:received 先到）；找不到时按事件内容补一个
+        const pastes = parsePasteInput(String(data?.input ?? ''));
+        const base: Extract<Block, { kind: 'user' }> = cur ?? {
+          kind: 'user', id: `user:${inputId || seq}`, ts: now, inputId,
+          text: data?.originalInput ?? data?.input ?? '', ...(pastes ? { pastes } : {}),
+        };
+        // 排队回显的是原始附件，以此处规范化后的为准（同下方排队分支）
+        const { attachments: _raw, queued: _queued, ...rest } = base;
+        pushBlock(snap, { ...rest, ts: now, injected: true, ...src, ...(attachments?.length ? { attachments } : {}) } as Block);
+        break;
+      }
       if (cur?.queued) {
         // 排队输入真正开始处理：先把排队块摘出来，旧轮收尾（文件卡片落旧轮、开头块耗时定格在此刻），
         // 再把它搬到末尾并以此刻为计时起点开启新轮——排队期间旧轮产出的块不会被错归到新轮
@@ -429,11 +447,11 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
     case 'todos:update': {
       const todos = Array.isArray(data) ? data : [];
       snap.todos = todos;
-      // 同一轮内原地更新（最后一个 user 块之后的 todos 块）
+      // 同一轮内原地更新（最后一个轮次开头 user 块之后的 todos 块；轮内注入的气泡不算轮次边界）
       let idx = -1;
       for (let i = snap.blocks.length - 1; i >= 0; i--) {
         const b = snap.blocks[i];
-        if (b.kind === 'user') break;
+        if (b.kind === 'user' && !b.injected) break;
         if (b.kind === 'todos') { idx = i; break; }
       }
       if (idx >= 0) {

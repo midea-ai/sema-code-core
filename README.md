@@ -11,7 +11,7 @@
 <p>Providing reliable and pluggable intelligent processing capabilities for building code assistant tools.</p>
 
 [![GitHub License](https://img.shields.io/github/license/midea-ai/sema-code-core?style=flat-square)](https://github.com/midea-ai/sema-code-core/blob/main/LICENSE)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/midea-ai/sema-code-core)
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-0085CA?style=flat-square)](https://deepwiki.com/midea-ai/sema-code-core)
 [![npm version](https://img.shields.io/npm/v/sema-core?style=flat-square)](https://www.npmjs.com/package/sema-core)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square)](https://midea-ai.github.io/sema-code-core)
 [![DOI](https://img.shields.io/badge/DOI-10.1145%2F3837729.3840503-0085CA?style=flat-square)](https://doi.org/10.1145/3837729.3840503)
@@ -34,16 +34,23 @@
 [SemaCode Extension](https://github.com/midea-ai/sema-code-vscode-extension) is an intelligent programming plugin based on the Sema Core engine, supporting both the VSCode extension and JetBrains plugins (IntelliJ IDEA / PyCharm / GoLand / WebStorm / CLion, etc.).
 
 <p align="center">
-  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/plan-mode.gif" alt="Sema Code VSCode Extension"/>
+  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/sema-code.png" alt="Sema Code VSCode Extension"/>
 </p>
 
 ### SemaWork
 
-[SemaWork](./webui/README.md) is a local web UI built on Sema Core.
+[SemaWork](./webui/README.md) is a local web UI built on Sema Core. Install it with `npm i -g sema-code-ui`, then run `sema-ui`.
 
-<p align="center">
-  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.gif" alt="SemaWork"/>
-</p>
+<table>
+  <tr>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img2.png" alt="SemaWork game development" width="100%"/></td>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img1.png" alt="SemaWork deep research" width="100%"/></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img4.png" alt="SemaWork slide deck generation" width="100%"/></td>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img3.png" alt="SemaWork web design and image generation" width="100%"/></td>
+  </tr>
+</table>
 
 ### SemaPLC
 

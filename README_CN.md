@@ -11,7 +11,7 @@
 <p>为构建代码助手工具提供可靠、可插拔的智能处理能力</p>
 
 [![GitHub License](https://img.shields.io/github/license/midea-ai/sema-code-core?style=flat-square)](https://github.com/midea-ai/sema-code-core/blob/main/LICENSE)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/midea-ai/sema-code-core)
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-0085CA?style=flat-square)](https://deepwiki.com/midea-ai/sema-code-core)
 [![npm version](https://img.shields.io/npm/v/sema-core?style=flat-square)](https://www.npmjs.com/package/sema-core)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square)](https://midea-ai.github.io/sema-code-core)
 [![DOI](https://img.shields.io/badge/DOI-10.1145%2F3837729.3840503-0085CA?style=flat-square)](https://doi.org/10.1145/3837729.3840503)
@@ -34,16 +34,23 @@
 [SemaCode Extension](https://github.com/midea-ai/sema-code-vscode-extension) 是基于 Sema Core 引擎的智能编程插件，支持 VSCode 插件和 JetBrains 插件（IntelliJ IDEA / PyCharm / GoLand / WebStorm / CLion 等）。
 
 <p align="center">
-  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/plan-mode.gif" alt="Sema Code VSCode Extension"/>
+  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/sema-code.png" alt="Sema Code VSCode Extension"/>
 </p>
 
 ### SemaWork
 
-[SemaWork](./webui/README.md) 是基于 Sema Core 的本地 Web 界面。
+[SemaWork](./webui/README.md) 是基于 Sema Core 的本地 Web 界面。安装 `npm i -g sema-code-ui` 后，启用 `sema-ui`。
 
-<p align="center">
-  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.gif" alt="SemaWork"/>
-</p>
+<table>
+  <tr>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img2.png" alt="SemaWork 游戏开发" width="100%"/></td>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img1.png" alt="SemaWork 深度调研" width="100%"/></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img4.png" alt="SemaWork PPT 生成" width="100%"/></td>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img3.png" alt="SemaWork 网页设计与文生图" width="100%"/></td>
+  </tr>
+</table>
 
 ### SemaPLC
 

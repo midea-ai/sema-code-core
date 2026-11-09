@@ -6,9 +6,16 @@
 
 SemaWork 是基于 sema-core 的本地 Web 界面。
 
-<p align="center">
-  <img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/webui.gif" alt="SemaWork"/>
-</p>
+<table>
+  <tr>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img2.png" alt="SemaWork 游戏开发" width="100%"/></td>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img1.png" alt="SemaWork 深度调研" width="100%"/></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img4.png" alt="SemaWork PPT 生成" width="100%"/></td>
+    <td width="50%"><img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/img3.png" alt="SemaWork 网页设计与文生图" width="100%"/></td>
+  </tr>
+</table>
 
 **npm 安装（推荐）**，要求 Node ≥ 20.18.1：
 

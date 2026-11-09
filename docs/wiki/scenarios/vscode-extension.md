@@ -6,7 +6,7 @@
 
 完整的插件项目：[sema-code-vscode-extension](https://github.com/midea-ai/sema-code-vscode-extension)（含 [JetBrains 插件](https://github.com/midea-ai/sema-code-vscode-extension/tree/main/jetbrains-plugin)）
 
-<img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/plan-mode.gif" alt="Sema Code VSCode Extension"/>
+<img src="https://github.com/midea-ai/sema-code-core/releases/download/docs-assets/sema-code.png" alt="Sema Code VSCode Extension"/>
 
 
 ## 核心特性

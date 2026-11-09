@@ -30,9 +30,20 @@ export const IMAGE_PROVIDERS: Record<string, ImageProviderDefaults> = {
   custom: { name: 'custom', baseURL: '', baseURLPlaceholder: 'https://your-api.com/v1' },
 };
 
+/**
+ * 自定义接口的模型列表地址：约定为图像接口下的 …/images/models（同 OpenRouter）。
+ * 接口地址有三种写法（…/images、…/images/generations、不带 /images），都归到同一个 /images 根再接 /models；
+ * 不用 OpenAI 通用的 …/models，那里列出的是对话模型
+ */
+export function customImageModelsUrl(baseURL: string): string {
+  const url = baseURL.trim().replace(/\/+$/, '').replace(/\/generations$/, '');
+  return /\/images$/.test(url) ? `${url}/models` : `${url}/images/models`;
+}
+
 /** 远端模型列表的单项（OpenRouter /images/models 的字段，其余服务商只保证有 id） */
 export interface ImageListModel {
   id: string; name?: string;
+  key_doc_url?: string;  // 该模型的 API Key 申请页（自建网关返回），有则优先于服务商的 apikeyUrl
   architecture?: { input_modalities?: string[]; output_modalities?: string[] };
   supported_parameters?: Record<string, { type?: string; min?: number; max?: number; values?: string[] }>;
 }

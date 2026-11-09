@@ -10,7 +10,7 @@ import { LanguageSelect } from '../../common/LanguageSelect';
 import { t, languageLabel, type I18nKey } from '../../i18n';
 import { collapsedHeaderPad, desktop, useKeepAwake } from '../../common/desktop';
 import { PROVIDERS, PROVIDER_ORDER, DEFAULT_PROVIDER, DEFAULT_MAX_TOKENS, DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS_OPTIONS, DEFAULT_CONTEXT_LENGTH_OPTIONS, formatTokenCount, validateCustomProviderName, providerLabel, apiKeyPlaceholder, parseProfileName, AdapterType, ThinkingHistoryPolicy } from './providers';
-import { IMAGE_PROVIDERS, IMAGE_PROVIDER_ORDER, DEFAULT_IMAGE_PROVIDER, imageProviderLabel, validateImageProviderName, isTextToImageModel, type ImageListModel } from './imageProviders';
+import { IMAGE_PROVIDERS, IMAGE_PROVIDER_ORDER, DEFAULT_IMAGE_PROVIDER, imageProviderLabel, validateImageProviderName, customImageModelsUrl, isTextToImageModel, type ImageListModel } from './imageProviders';
 import { PERMISSION_LEVELS, DEFAULT_SYSTEM_PROMPT, PREVENT_SLEEP_MODES } from '../../../../shared/types';
 import { defaultCustomRules } from '../../../../shared/lang';
 import type { WebUISettings, BrowserControlState, PreventSleepMode } from '../../../../shared/types';
@@ -519,8 +519,8 @@ function AddImageModelDialog({ open, editModel, onClose, onSaved }: { open: bool
   const apiKeyInput = useRef<HTMLInputElement>(null);
 
   const p = IMAGE_PROVIDERS[provider];
-  /** 有列表接口或内置列表的服务商才提供下拉选择；自定义接口只能手动输入 */
-  const hasList = !!(p.modelsUrl || p.presetModels?.length);
+  /** 有列表接口或内置列表的服务商才提供下拉选择；自定义接口的列表地址跟着接口地址走，拿不到再手动输入 */
+  const hasList = provider === 'custom' || !!(p.modelsUrl || p.presetModels?.length);
   const pickFromList = hasList && !manual;
   const currentModel = pickFromList ? selectedModel : modelName.trim();
 
@@ -558,10 +558,11 @@ function AddImageModelDialog({ open, editModel, onClose, onSaved }: { open: bool
   const fetchModels = async () => {
     // 没有列表接口但有内置列表的服务商，直接使用内置列表，不请求 core
     if (!p.modelsUrl && p.presetModels?.length) { setStatus(null); applyList(p.presetModels, 'preset'); return; }
+    if (!baseURL.trim()) { setStatus({ type: 'error', text: t('settings.err.baseURL') }); return; }
     if (p.requiresApiKeyForModelList !== false && !apiKey) { setStatus({ type: 'error', text: t('settings.err.apiKey') }); return; }
     setFetching(true); setStatus({ type: 'info', text: t('settings.fetchingModels') });
     try {
-      const r = await wsClient.request<any>('core.fetchAvailableModels', undefined, { params: { provider, baseURL, apiKey, adapt: 'openai', modelsUrl: p.modelsUrl } });
+      const r = await wsClient.request<any>('core.fetchAvailableModels', undefined, { params: { provider, baseURL, apiKey, adapt: 'openai', modelsUrl: provider === 'custom' ? customImageModelsUrl(baseURL) : p.modelsUrl } });
       if (!r?.success) throw new Error(r?.message || t('settings.fetchModelsFailed'));
       const list = ((r.models || []) as ImageListModel[]).filter(isTextToImageModel);
       if (!list.length) throw new Error(t('settings.fetchModelsEmpty'));
@@ -598,6 +599,8 @@ function AddImageModelDialog({ open, editModel, onClose, onSaved }: { open: bool
     } catch (e: any) { setStatus({ type: 'error', text: e.message }); } finally { setSaving(false); }
   };
 
+  /** 「获取 API Key」跳转地址：当前模型在列表里自带 key_doc_url 时跳它的申请页，否则跳服务商的 API Key 页 */
+  const docUrl = models.find(m => m.id === currentModel)?.key_doc_url || p.apikeyUrl;
   const linkCls = 'text-xs text-accent hover:underline cursor-pointer';
   const inputCls = 'w-full h-9 px-3 rounded-md bg-white border border-border focus:border-accent disabled:opacity-60';
   return (
@@ -616,7 +619,7 @@ function AddImageModelDialog({ open, editModel, onClose, onSaved }: { open: bool
         <Field label={t('settings.baseURL')}>
           <input value={baseURL} onChange={e => setBaseURL(e.target.value)} placeholder={p.baseURLPlaceholder || p.baseURL} className={inputCls} />
         </Field>
-        <Field label={t('settings.apiKey')} hint={p.apikeyUrl ? <a className={linkCls} href={p.apikeyUrl} target="_blank" rel="noreferrer" title={p.apikeyUrl}>{t('settings.getApiKey')}</a> : undefined}>
+        <Field label={t('settings.apiKey')} hint={docUrl ? <a className={linkCls} href={docUrl} target="_blank" rel="noreferrer" title={docUrl}>{t('settings.getApiKey')}</a> : undefined}>
           <div className="relative">
             <input ref={apiKeyInput} type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => setApiKey(e.target.value.trim())} placeholder={t('settings.apiKeyPlaceholderGeneric')} className="w-full h-9 pl-3 pr-9 rounded-md bg-white border border-border focus:border-accent" />
             <button type="button" onClick={() => setShowKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted hover:text-fg" title={showKey ? t('settings.hideKey') : t('settings.showKey')}>{showKey ? <EyeOff size={14} /> : <Eye size={14} />}</button>

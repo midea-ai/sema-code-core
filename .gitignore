@@ -43,7 +43,6 @@ memory-service
 
 test-chrome/
 sdks/java/.settings/
-sdks/publish.sh
 desktop/release/
 webui/resources/cache/
 

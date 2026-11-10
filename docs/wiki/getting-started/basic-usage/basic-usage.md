@@ -20,19 +20,35 @@ interface SemaCoreConfig {
   skipMCPToolPermission?: boolean;   // 是否跳过 MCP 工具权限检查，默认 否
   skipFetchUrlPermission?: boolean;  // 是否跳过 fetch_url 权限检查，默认 否
   skipExternalFileReadPermission?: boolean; // 是否跳过项目外文件读取权限检查，默认 否
-  enableLLMCache?: boolean;          // 是否开启 LLM 缓存，默认 否（建议只在重复测试时使用）
   useTools?: string[] | null;        // 限定使用的工具，默认 null（使用所有工具）
   disabledTools?: string[] | null;   // 禁用工具黑名单，默认 null；与 useTools 同时传时优先生效
   agentMode?: 'Agent' | 'Plan' | 'Design'; // 会话默认模式，默认 'Agent'
   disableTopicDetection?: boolean;   // 是否禁用话题检测，默认 否
+  enableInputPrediction?: boolean;   // 是否开启用户输入预测（一轮结束后用 quick 模型预测用户下一句，事件 input:predict），默认 否
   disableBackgroundTasks?: boolean;  // 是否禁止后台任务（RunShell 后台 / SubAgent 后台 / 超时转后台），默认 否
   disableMemory?: boolean;           // 是否关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效），默认 否；仅构造时生效
   enableToolSearch?: boolean;        // 是否开启工具搜索（延迟加载），默认 否；开启后仅默认工具集进入 LLM tools，其余内置与 MCP 工具经 load_tools 按名加载；子代理（tools 为 '*' 或未声明）同样按需 load_tools，加载状态子代理私有、不影响父会话；运行时更新于下一次用户输入生效
   toolSearchDefaultTools?: string[] | null; // 工具搜索模式下默认加载的工具白名单，不传用内置默认集；可含内置工具名与 MCP 工具全名（如 'mcp__figma__get_file'），支持 mcp__{server}__* 通配整台 server、mcp__{server}__{prefix}* 前缀通配（须具体到 server，mcp__* 等不合法）；仅构造时生效
   maxSessions?: number;              // 同时存在的会话上限，不传则不限制
   usageProduct?: string;             // 使用统计的产品标识（如 'sema-code-vscode'），不传或空串则不采集；仅构造时生效，读取见 SemaCore.getUsageStats()
+
+  // ---- 来源限定：宿主内置的 host 域内容与各类生效的域，仅构造时生效（类型见 sema-core/types 的 ModelsInput 等）----
+  models?: ModelsInput;              // 宿主内置的模型与指针；只读，查询接口不回传 apiKey
+  mcpServers?: MCPServerInput[];     // 宿主内置的 MCP 服务；查询接口与状态事件里 env / headers 值打码
+  hooks?: HooksInput;                // 宿主内置的 hook（hooks.json 的 hooks 字段）
+  skills?: SkillsInput;              // 宿主内置的 skill：items 内联（正文只在内存）、dirs 明文目录
+  agents?: AgentsInput;              // 宿主内置的子代理，结构同 skills
+  commands?: CommandsInput;          // 宿主内置的命令，结构同 skills
+  scopes?: ScopesConfig;             // 各类生效的域，不写 = 全部生效；写接口落到没生效的域抛 SemaError(SCOPE_DISABLED)
+
+  // ---- 持久化保护 ----
+  encryption?: EncryptionConfig;     // 会话历史、快照、hook 会话记录加密（key 为 32 字节密钥的 base64），密钥只在内存；仅构造时生效
+  disableLLMLog?: boolean;           // 不写模型调用日志；缺省：没传 encryption 为 false，传了为 true；支持运行期更新
+  disableEventLog?: boolean;         // 不写事件日志；缺省规则同上；支持运行期更新
 }
 ```
+
+> 构造参数校验不通过、写接口落到没生效的域或 host 条目时抛 `SemaError`（`code` 为 `CONFIG_INVALID` / `SCOPE_DISABLED` / `HOST_READONLY`）；`createSession` 遇到解不开的加密历史返回 `{ ok: false, error, code: 'HISTORY_KEY_REQUIRED' | 'HISTORY_DECRYPT_FAILED' }`。
 
 > 可通过 `sema.updateCoreConfByKey(key, value)` 或 `sema.updateCoreConfig(partial)` 在运行时更新 `UpdatableCoreConfigKeys` 中定义的字段。`disabledTools` 通过 `sema.updateDisabledTools()` 更新；`agentMode` 是会话级配置，创建会话时通过 `createSession({ agentMode })` 指定，运行中通过 `session.updateAgentMode()` 更新。
 

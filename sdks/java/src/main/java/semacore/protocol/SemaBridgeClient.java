@@ -198,14 +198,19 @@ public final class SemaBridgeClient implements AutoCloseable {
 
     private static SemaBridgeException toException(String action, String dataJson) {
         String message = dataJson;
+        String code = null;
         try {
             JsonObject obj = GSON.fromJson(dataJson, JsonObject.class);
             if (obj != null && obj.has("message") && !obj.get("message").isJsonNull()) {
                 message = obj.get("message").getAsString();
             }
+            // core 的稳定错误码（SemaError.code），没有则缺省
+            if (obj != null && obj.has("code") && !obj.get("code").isJsonNull()) {
+                code = obj.get("code").getAsString();
+            }
         } catch (JsonSyntaxException ignored) {
             // data 不是 JSON 对象时原样作为 message
         }
-        return new SemaBridgeException(action, message == null || message.isEmpty() ? "Unknown error" : message);
+        return new SemaBridgeException(action, message == null || message.isEmpty() ? "Unknown error" : message, code, null);
     }
 }

@@ -32,14 +32,23 @@ AdapterType = Literal["openai", "anthropic"]
 # 历史思考回传策略：preserve=全部保留（默认）；current_turn=仅当前轮；omit=不回传
 ThinkingHistoryPolicy = Literal["preserve", "current_turn", "omit"]
 MCPTransportType = Literal["stdio", "sse", "http"]
-MCPScopeType = Literal["local", "project", "user", "plugin"]
+# host：宿主构造时传入的条目（只读、同名优先）；MCP 的 host 条目 env / headers 值对外打码
+MCPScopeType = Literal["host", "local", "project", "user", "plugin"]
 MCPServerStatus = Literal["disconnected", "connecting", "connected", "error"]
 PluginScopeKind = Literal["local", "project", "user"]
-AgentScope = Literal["user", "project", "builtin", "plugin"]
-SkillScope = Literal["user", "project", "plugin", "builtin"]
-CommandScope = Literal["user", "project", "plugin"]
+AgentScope = Literal["host", "user", "project", "builtin", "plugin"]
+SkillScope = Literal["host", "user", "project", "plugin", "builtin"]
+CommandScope = Literal["host", "user", "project", "plugin"]
 RuleScope = Literal["user", "project"]
-HookScope = Literal["user", "project", "plugin"]
+HookScope = Literal["host", "user", "project", "plugin"]
+# 稳定错误码（≙ core SemaErrorCode）：SemaBridgeException.code / create_session 失败的 code
+SemaErrorCode = Literal[
+    "CONFIG_INVALID",          # 构造参数或运行期更新的配置校验不通过
+    "SCOPE_DISABLED",          # 要写的域没有生效（scopes 未包含）
+    "HOST_READONLY",           # 要改的是宿主传入的 host 域条目
+    "HISTORY_KEY_REQUIRED",    # 历史文件是密文但没传密钥
+    "HISTORY_DECRYPT_FAILED",  # 密钥不对或密文损坏
+]
 HookEntryStatus = Literal["ok", "skipped", "invalid"]
 ToolStatus = Literal["enable", "disable"]
 CronTaskStatus = Literal["running", "completed", "failed", "killed"]  # 后台任务状态（core: task.ts / events）
@@ -52,8 +61,110 @@ UpdatableCoreConfigKeys = Literal[
     "lang", "stream", "thinking", "systemPrompt", "customRules", "skipFileEditPermission",
     "skipShellExecPermission", "skipSkillPermission", "skipMCPToolPermission",
     "skipFetchUrlPermission", "fetchUrlBrowserUserAgent", "skipExternalFileReadPermission",
-    "enableLLMCache", "disableBackgroundTasks", "enableToolSearch",
+    "disableBackgroundTasks", "enableToolSearch", "enableInputPrediction",
+    "disableLLMLog", "disableEventLog",
 ]
+
+
+# ==================== host 域内容 / 生效域 / 持久化保护（≙ core types/host.ts） ====================
+# 宿主在构造参数里传入的模型 / MCP / hook / skill / 子代理 / 命令叫 host 域：只读、同名盖掉其他域、不落盘；
+# scopes 指定每一类哪些域生效，不写 = 全部生效。均只在构造时生效。
+
+class ModelsInput(TypedDict):
+    """宿主内置的模型列表与指针（字段同 add_model / add_image_model 入参）。"""
+    profiles: List["ModelConfig"]
+    imageProfiles: NotRequired[List["ImageModelConfig"]]
+    main: NotRequired[str]   # 主模型 "modelName[provider]"，缺省取 profiles[0]；是没有用户选择时的缺省值
+    quick: NotRequired[str]  # 快速模型，缺省同 main
+    image: NotRequired[str]  # 文生图模型，缺省取 imageProfiles[0]，传 "" 停用文生图
+
+
+class MCPServerInput(TypedDict):
+    """宿主内置的 MCP 服务（字段同 add_mcp_server 入参，去掉 scope）；查询接口与状态事件里 env / headers 值打码。"""
+    name: str
+    transport: MCPTransportType
+    description: NotRequired[str]
+    command: NotRequired[str]
+    args: NotRequired[List[str]]
+    env: NotRequired[Dict[str, str]]
+    url: NotRequired[str]
+    headers: NotRequired[Dict[str, str]]
+    enabled: NotRequired[bool]  # 默认 True；不受 settings 的 disabledMcpServers 影响
+    useTools: NotRequired[Optional[List[str]]]  # 允许的工具名，None / 缺省表示全部
+
+
+class HookCommandInput(TypedDict):
+    type: NotRequired[Literal["command"]]
+    command: str
+    timeout: NotRequired[int]
+    failClosed: NotRequired[bool]
+
+
+class HookGroupInput(TypedDict):
+    matcher: NotRequired[str]
+    hooks: List[HookCommandInput]
+
+
+# 宿主内置的 hook：即 hooks.json 里 hooks 字段的内容，键为事件名
+HooksInput = Dict[str, List[HookGroupInput]]
+
+
+class SkillInput(TypedDict):
+    """内联 skill：正文与文本子文件只在内存里，磁盘上不留。"""
+    name: str
+    description: str
+    prompt: str  # SKILL.md 正文
+    files: NotRequired[Dict[str, str]]  # 文本子文件：相对路径 → 内容，模型用 skill 工具的 file 参数读
+    resourceDir: NotRequired[str]  # 脚本、图片、模板等所在的磁盘目录（绝对路径），不保护
+
+
+class SkillsInput(TypedDict, total=False):
+    items: List[SkillInput]  # 内联 skill
+    dirs: List[str]  # 产品自带的明文目录，每个目录下是 <skill 名>/SKILL.md
+
+
+class AgentInput(TypedDict):
+    """内联子代理（字段同 add_agent_conf 入参，去掉 locate）。"""
+    name: str
+    description: str
+    prompt: str
+    tools: NotRequired[Union[List[str], Literal["*"]]]  # 默认 "*"
+    model: NotRequired[str]  # "quick" 对应快速模型，其他值均对应主模型
+
+
+class AgentsInput(TypedDict, total=False):
+    items: List[AgentInput]
+    dirs: List[str]  # 产品自带的明文目录，每个目录下是 <name>.md
+
+
+class CommandInput(TypedDict):
+    """内联命令（字段同 add_command_conf 入参，去掉 locate）。"""
+    name: str
+    description: str
+    prompt: str
+    argumentHint: NotRequired[Union[str, List[str]]]
+
+
+class CommandsInput(TypedDict, total=False):
+    items: List[CommandInput]
+    dirs: List[str]  # 产品自带的明文目录，每个目录下是 <name>.md，子目录成为 dir:name
+
+
+class ScopesConfig(TypedDict, total=False):
+    """各类生效的域；不写 = 该类全部域生效，要锁定必须显式写。"""
+    models: List[Literal["host", "user"]]
+    mcp: List[Literal["host", "user", "project"]]
+    hooks: List[Literal["host", "user", "project"]]
+    skills: List[Literal["host", "builtin", "user", "project"]]
+    agents: List[Literal["host", "builtin", "user", "project"]]
+    commands: List[Literal["host", "user", "project"]]
+    plugins: List[PluginScopeKind]  # 插件没有 host 域，值是安装位置；[] 表示不加载任何插件
+
+
+class EncryptionConfig(TypedDict):
+    """会话历史、hook 会话记录、快照加密；密钥只在内存。"""
+    key: str  # 32 字节随机密钥的 base64（44 个字符）
+    keyId: NotRequired[str]  # 可选的密钥标识，写进密文开头
 
 
 # ==================== 配置 / 模型 ====================
@@ -75,17 +186,29 @@ class SemaCoreConfig(TypedDict, total=False):
     skipFetchUrlPermission: bool
     fetchUrlBrowserUserAgent: bool
     skipExternalFileReadPermission: bool
-    enableLLMCache: bool
     useTools: Optional[List[str]]
     disabledTools: Optional[List[str]]
     agentMode: AgentMode
     disableTopicDetection: bool
+    enableInputPrediction: bool  # 一轮结束后用 quick 模型预测用户下一句（事件 input:predict），默认否
     disableBackgroundTasks: bool
     disableMemory: bool  # 关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效），仅构造时生效
     enableToolSearch: bool
     toolSearchDefaultTools: Optional[List[str]]
     maxSessions: int
     usageProduct: str  # 使用统计的产品标识（如 sema-code-vscode）；不传或空串则本进程不采集，仅构造时生效
+    # ---- 来源限定：host 域内容与各类生效的域，仅构造时生效；校验不通过 init 报 CONFIG_INVALID ----
+    models: ModelsInput  # 宿主内置的模型与指针；host 模型只读，查询接口不回传 apiKey
+    mcpServers: List[MCPServerInput]
+    hooks: HooksInput
+    skills: SkillsInput
+    agents: AgentsInput
+    commands: CommandsInput
+    scopes: ScopesConfig
+    # ---- 持久化保护 ----
+    encryption: EncryptionConfig  # 仅构造时生效
+    disableLLMLog: bool  # 不写模型调用日志；缺省：没传 encryption 为 False，传了为 True；支持运行期更新
+    disableEventLog: bool  # 不写事件日志；缺省规则同上；支持运行期更新
 
 
 class UpdatableCoreConfig(TypedDict, total=False):
@@ -102,9 +225,11 @@ class UpdatableCoreConfig(TypedDict, total=False):
     skipFetchUrlPermission: bool
     fetchUrlBrowserUserAgent: bool
     skipExternalFileReadPermission: bool
-    enableLLMCache: bool
     disableBackgroundTasks: bool
     enableToolSearch: bool
+    enableInputPrediction: bool
+    disableLLMLog: bool
+    disableEventLog: bool
 
 
 class ModelConfig(TypedDict):
@@ -119,7 +244,7 @@ class ModelConfig(TypedDict):
 
 
 class ModelProfile(TypedDict):
-    """get_model_profile 返回：磁盘上的完整模型 profile，供配置页编辑回填。"""
+    """get_model_profile 返回：磁盘上的完整模型 profile，供配置页编辑回填；host 模型的 apiKey 为空串。"""
     name: str
     provider: str
     modelName: str
@@ -147,7 +272,7 @@ class ImageModelConfig(TypedDict):
 
 
 class ImageModelProfile(TypedDict):
-    """get_image_model_profile 返回：磁盘上的完整文生图模型 profile。"""
+    """get_image_model_profile 返回：磁盘上的完整文生图模型 profile；host 模型的 apiKey 为空串。"""
     name: str
     provider: str
     modelName: str
@@ -197,6 +322,7 @@ class ModelUpdateData(TypedDict):
     modelList: List[str]
     taskConfig: TaskConfig
     imageModelList: NotRequired[List[str]]  # 文生图模型列表（与 modelList 分开）
+    hostModels: NotRequired[List[str]]  # 来自宿主（host 域）的模型名，含对话与文生图模型；只读，不可删改
 
 
 class ToolInfo(TypedDict):
@@ -246,7 +372,7 @@ class MCPServerCapabilities(TypedDict, total=False):
 
 
 class MCPServerInfo(TypedDict):
-    """getMCPServerInfo 等返回项；亦为 mcp:server:status 事件数据。"""
+    """getMCPServerInfo 等返回项；亦为 mcp:server:status 事件数据。host 条目的 config.env / headers 值打码为 "***"。"""
     config: MCPServerConfig
     connectStatus: MCPServerStatus
     status: bool
@@ -264,27 +390,31 @@ class AgentConfig(TypedDict):
     description: str
     tools: Union[List[str], Literal["*"]]  # 默认 "*"
     model: str
-    prompt: str
+    prompt: str  # 内联（private）子代理在查询接口里为空串
     locate: NotRequired[AgentScope]
-    filePath: NotRequired[str]
+    filePath: NotRequired[str]  # 内联子代理没有
+    private: NotRequired[bool]  # 宿主内联传入：正文只在内存里，查询接口不回传
 
 
 class SkillConfig(TypedDict):
     name: str
     description: str
-    prompt: str
+    prompt: str  # 内联（private）skill 在查询接口里为空串
     locate: NotRequired[SkillScope]
-    filePath: NotRequired[str]
-    status: NotRequired[bool]  # 是否启用（settings 的 disabledSkills 控制，用户级+项目级并集；缺省视为启用）
+    filePath: NotRequired[str]  # SKILL.md 路径；内联 skill 没有
+    status: NotRequired[bool]  # 是否启用（settings 的 disabledSkills 控制，用户级+项目级并集；缺省视为启用；builtin / host 恒为启用）
+    private: NotRequired[bool]  # 宿主内联传入：正文与文本子文件只在内存里，不出现在查询接口与事件里
+    resourceDir: NotRequired[str]  # 内联 skill 的脚本、资源所在磁盘目录（绝对路径）
 
 
 class CommandConfig(TypedDict):
     name: str
     description: str
-    prompt: str
+    prompt: str  # 内联（private）命令在查询接口里为空串
     argumentHint: NotRequired[Union[str, List[str]]]
     locate: NotRequired[CommandScope]
-    filePath: NotRequired[str]
+    filePath: NotRequired[str]  # 内联命令没有
+    private: NotRequired[bool]  # 宿主内联传入：正文只在内存里，查询接口不回传
 
 
 # ==================== Memory / Rule / Design ====================
@@ -322,16 +452,16 @@ class HookEntryInfo(TypedDict):
     timeout: NotRequired[int]  # 配置原值（秒），未配则缺省（运行时默认 60s）
     status: HookEntryStatus
     statusReason: NotRequired[str]
-    filePath: NotRequired[str]  # "绝对路径:起始行-结束行"（事件块粒度）
+    filePath: NotRequired[str]  # "绝对路径:起始行-结束行"（事件块粒度）；host 条目无此字段
 
 
 class HooksInfo(TypedDict):
-    userConfigPath: str
-    projectConfigPath: str
-    userConfigExists: bool
-    projectConfigExists: bool
+    userConfigPath: str  # user 域没生效（scopes.hooks 未含 user）时为空串
+    projectConfigPath: str  # project 域没生效时为空串
+    userConfigExists: bool  # user 域没生效时恒为 False
+    projectConfigExists: bool  # project 域没生效时恒为 False
     parseErrors: List[HookParseError]
-    events: Dict[str, List[HookEntryInfo]]  # 按事件分组，插件在前、用户级其次、项目级追加
+    events: Dict[str, List[HookEntryInfo]]  # 按事件分组，host 在前、插件其次、用户级再次、项目级追加
 
 
 class DesignSystemColor(TypedDict):
@@ -558,9 +688,10 @@ class CreateSessionResultOk(TypedDict):
 class CreateSessionResultErr(TypedDict):
     ok: Literal[False]
     error: str
+    code: NotRequired[SemaErrorCode]  # 稳定错误码（如历史密文解不开的 HISTORY_DECRYPT_FAILED）；没有对应错误码时缺省
 
 
-# ≙ core CreateSessionResult；注意 SDK 的 create_session 直接返回 SemaSession（已解包）。
+# ≙ core CreateSessionResult；注意 SDK 的 create_session 直接返回 SemaSession（已解包），失败抛 SemaBridgeException（code 在 .code 上）。
 CreateSessionResult = Union[CreateSessionResultOk, CreateSessionResultErr]
 
 

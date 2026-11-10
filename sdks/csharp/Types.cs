@@ -14,14 +14,16 @@ public enum ThinkingHistoryPolicy { preserve, current_turn, omit }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AgentMode { Agent, Plan, Design }
 
+/// <summary>host：宿主构造时传入（内联或 dirs 目录），只读。</summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum AgentScope { user, project, builtin, plugin }
+public enum AgentScope { host, user, project, builtin, plugin }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AppSessionState { idle, processing }
 
+/// <summary>host：宿主构造时传入（内联或 dirs 目录），只读。</summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum CommandScope { user, project, plugin }
+public enum CommandScope { host, user, project, plugin }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CronTaskStatus { running, completed, failed, killed }
@@ -32,11 +34,13 @@ public enum ForkFileEffect { modify, recreate, delete }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum HookEntryStatus { ok, skipped, invalid }
 
+/// <summary>host：宿主构造时传入，只读、无配置文件。</summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum HookScope { user, project, plugin }
+public enum HookScope { host, user, project, plugin }
 
+/// <summary>host：宿主构造时传入的条目（只读，env / headers 对外打码）。</summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum MCPScopeType { local, project, user, plugin }
+public enum MCPScopeType { host, local, project, user, plugin }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum MCPServerStatus { disconnected, connecting, connected, error }
@@ -53,8 +57,17 @@ public enum PluginScopeKind { local, project, user }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum RuleScope { user, project }
 
+/// <summary>host：宿主构造时传入（内联或 dirs 目录），只读。</summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum SkillScope { user, project, plugin, builtin }
+public enum SkillScope { host, user, project, plugin, builtin }
+
+/// <summary>
+/// 稳定错误码（≙ core SemaErrorCode）：桥 error 帧的 code，挂在 SemaBridgeException.Code 上；文案随 lang 变化而 code 不变。
+/// CONFIG_INVALID=构造参数或运行期更新的配置校验不通过；SCOPE_DISABLED=要写的域没有生效；HOST_READONLY=要改的是宿主传入的 host 域条目；
+/// HISTORY_KEY_REQUIRED=历史文件是密文但没传密钥；HISTORY_DECRYPT_FAILED=密钥不对或密文损坏。
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum SemaErrorCode { CONFIG_INVALID, SCOPE_DISABLED, HOST_READONLY, HISTORY_KEY_REQUIRED, HISTORY_DECRYPT_FAILED }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SystemPromptMode { append, replace, replaceAll }
@@ -70,7 +83,7 @@ public enum GoalStatus { running, paused, completed, blocked }
 public enum ToolStatus { enable, disable }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum UpdatableCoreConfigKeys { lang, stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, enableLLMCache, disableBackgroundTasks, enableToolSearch }
+public enum UpdatableCoreConfigKeys { lang, stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, disableBackgroundTasks, enableToolSearch, enableInputPrediction, disableLLMLog, disableEventLog }
 
 /// <summary>判别联合（≙ core CreateSessionResult）：按 <c>Ok</c> 分派到 CreateSessionResultOk / CreateSessionResultErr。</summary>
 public abstract record CreateSessionResult
@@ -96,9 +109,13 @@ public record AgentConfig
     [JsonPropertyName("description")] public string? Description { get; init; }
     [JsonPropertyName("tools")] public JsonElement? Tools { get; init; }
     [JsonPropertyName("model")] public string? Model { get; init; }
+    /// <summary>内联（Private）子代理在查询接口里为空串。</summary>
     [JsonPropertyName("prompt")] public string? Prompt { get; init; }
     [JsonPropertyName("locate")] public AgentScope? Locate { get; init; }
+    /// <summary>内联子代理没有。</summary>
     [JsonPropertyName("filePath")] public string? FilePath { get; init; }
+    /// <summary>宿主内联传入：正文只在内存里，查询接口不回传。</summary>
+    [JsonPropertyName("private")] public bool? Private { get; init; }
 }
 
 public record ApiTestParams
@@ -121,10 +138,14 @@ public record CommandConfig
 {
     [JsonPropertyName("name")] public string? Name { get; init; }
     [JsonPropertyName("description")] public string? Description { get; init; }
+    /// <summary>内联（Private）命令在查询接口里为空串。</summary>
     [JsonPropertyName("prompt")] public string? Prompt { get; init; }
     [JsonPropertyName("argumentHint")] public JsonElement? ArgumentHint { get; init; }
     [JsonPropertyName("locate")] public CommandScope? Locate { get; init; }
+    /// <summary>内联命令没有。</summary>
     [JsonPropertyName("filePath")] public string? FilePath { get; init; }
+    /// <summary>宿主内联传入：正文只在内存里，查询接口不回传。</summary>
+    [JsonPropertyName("private")] public bool? Private { get; init; }
 }
 
 public record CreateSessionOptions
@@ -138,9 +159,12 @@ public record CreateSessionOptions
     [JsonPropertyName("quickModel")] public string? QuickModel { get; init; }
 }
 
+/// <summary>注意 SDK 的 CreateSession 直接返回 SemaSession，失败抛 SemaBridgeException（Code 在 .Code 上）。</summary>
 public record CreateSessionResultErr : CreateSessionResult
 {
     [JsonPropertyName("error")] public string? Error { get; init; }
+    /// <summary>稳定错误码（如历史密文解不开的 HISTORY_DECRYPT_FAILED）；没有对应错误码时为 null。</summary>
+    [JsonPropertyName("code")] public SemaErrorCode? Code { get; init; }
 }
 
 public record CreateSessionResultOk : CreateSessionResult
@@ -284,6 +308,7 @@ public record HookEntryInfo
     [JsonPropertyName("timeout")] public long? Timeout { get; init; }
     [JsonPropertyName("status")] public HookEntryStatus? Status { get; init; }
     [JsonPropertyName("statusReason")] public string? StatusReason { get; init; }
+    /// <summary>"绝对路径:起始行-结束行"（事件块粒度）；host 条目没有配置文件，为 null。</summary>
     [JsonPropertyName("filePath")] public string? FilePath { get; init; }
 }
 
@@ -294,6 +319,7 @@ public record HookParseError
     [JsonPropertyName("message")] public string? Message { get; init; }
 }
 
+/// <summary>user / project 域没生效（scopes.hooks 未包含）时对应 ConfigPath 为空串、ConfigExists 恒为 false。</summary>
 public record HooksInfo
 {
     [JsonPropertyName("userConfigPath")] public string? UserConfigPath { get; init; }
@@ -301,6 +327,7 @@ public record HooksInfo
     [JsonPropertyName("userConfigExists")] public bool UserConfigExists { get; init; }
     [JsonPropertyName("projectConfigExists")] public bool ProjectConfigExists { get; init; }
     [JsonPropertyName("parseErrors")] public List<HookParseError>? ParseErrors { get; init; }
+    /// <summary>按事件分组，host 在前、插件其次、用户级再次、项目级追加。</summary>
     [JsonPropertyName("events")] public Dictionary<string, List<HookEntryInfo>>? Events { get; init; }
 }
 
@@ -331,6 +358,7 @@ public record MCPServerConfig
     [JsonPropertyName("headers")] public Dictionary<string, string>? Headers { get; init; }
 }
 
+/// <summary>GetMCPServerInfo 等返回项，亦为 mcp:server:status 事件数据；host 条目的 Config.Env / Headers 值打码为 "***"。</summary>
 public record MCPServerInfo
 {
     [JsonPropertyName("config")] public MCPServerConfig? Config { get; init; }
@@ -407,7 +435,7 @@ public record ModelConfig
     [JsonPropertyName("thinkingHistoryPolicy")] public ThinkingHistoryPolicy? ThinkingHistoryPolicy { get; init; }
 }
 
-/// <summary>GetModelProfile 返回：磁盘上的完整模型 profile，供配置页编辑回填。</summary>
+/// <summary>GetModelProfile 返回：磁盘上的完整模型 profile，供配置页编辑回填；host 模型的 ApiKey 为空串。</summary>
 public record ModelProfile
 {
     [JsonPropertyName("name")] public string? Name { get; init; }
@@ -430,7 +458,7 @@ public record ImageModelConfig
     [JsonPropertyName("apiKey")] public string? ApiKey { get; init; }
 }
 
-/// <summary>GetImageModelProfile 返回：磁盘上的完整文生图模型 profile；Name 形如 qwen-image-3.0[qwen]。</summary>
+/// <summary>GetImageModelProfile 返回：磁盘上的完整文生图模型 profile；Name 形如 qwen-image-3.0[qwen]；host 模型的 ApiKey 为空串。</summary>
 public record ImageModelProfile
 {
     [JsonPropertyName("name")] public string? Name { get; init; }
@@ -455,6 +483,8 @@ public record ModelUpdateData
     [JsonPropertyName("taskConfig")] public TaskConfig? TaskConfig { get; init; }
     /// <summary>文生图模型列表（与 ModelList 分开）。</summary>
     [JsonPropertyName("imageModelList")] public List<string>? ImageModelList { get; init; }
+    /// <summary>来自宿主（host 域）的模型名，含对话与文生图模型；只读，不可删改。</summary>
+    [JsonPropertyName("hostModels")] public List<string>? HostModels { get; init; }
 }
 
 public record PluginComponentEntry
@@ -509,11 +539,12 @@ public record SemaCoreConfig
     [JsonPropertyName("skipFetchUrlPermission")] public bool? SkipFetchUrlPermission { get; init; }
     [JsonPropertyName("fetchUrlBrowserUserAgent")] public bool? FetchUrlBrowserUserAgent { get; init; }
     [JsonPropertyName("skipExternalFileReadPermission")] public bool? SkipExternalFileReadPermission { get; init; }
-    [JsonPropertyName("enableLLMCache")] public bool? EnableLLMCache { get; init; }
     [JsonPropertyName("useTools")] public List<string>? UseTools { get; init; }
     [JsonPropertyName("disabledTools")] public List<string>? DisabledTools { get; init; }
     [JsonPropertyName("agentMode")] public AgentMode? AgentMode { get; init; }
     [JsonPropertyName("disableTopicDetection")] public bool? DisableTopicDetection { get; init; }
+    /// <summary>一轮结束后用 quick 模型预测用户下一句（事件 input:predict），默认否。</summary>
+    [JsonPropertyName("enableInputPrediction")] public bool? EnableInputPrediction { get; init; }
     [JsonPropertyName("disableBackgroundTasks")] public bool? DisableBackgroundTasks { get; init; }
     /// <summary>关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效）。仅构造时生效。</summary>
     [JsonPropertyName("disableMemory")] public bool? DisableMemory { get; init; }
@@ -522,6 +553,148 @@ public record SemaCoreConfig
     [JsonPropertyName("maxSessions")] public long? MaxSessions { get; init; }
     /// <summary>使用统计的产品标识（如 sema-code-vscode）；null 或空串则本进程不采集。仅构造时生效。</summary>
     [JsonPropertyName("usageProduct")] public string? UsageProduct { get; init; }
+
+    // ---- 来源限定：host 域内容与各类生效的域，仅构造时生效；校验不通过 Start 抛 CONFIG_INVALID ----
+    /// <summary>宿主内置的模型与指针；host 模型只读，查询接口不回传 apiKey。</summary>
+    [JsonPropertyName("models")] public ModelsInput? Models { get; init; }
+    /// <summary>宿主内置的 MCP 服务；查询接口与状态事件里 env / headers 值打码。</summary>
+    [JsonPropertyName("mcpServers")] public List<MCPServerInput>? McpServers { get; init; }
+    /// <summary>宿主内置的 hook：即 hooks.json 里 hooks 字段的内容，键为事件名。</summary>
+    [JsonPropertyName("hooks")] public Dictionary<string, List<HookGroupInput>>? Hooks { get; init; }
+    /// <summary>宿主内置的 skill：Items 内联（正文只在内存）、Dirs 明文目录。</summary>
+    [JsonPropertyName("skills")] public SkillsInput? Skills { get; init; }
+    /// <summary>宿主内置的子代理，结构同 Skills。</summary>
+    [JsonPropertyName("agents")] public AgentsInput? Agents { get; init; }
+    /// <summary>宿主内置的命令，结构同 Skills。</summary>
+    [JsonPropertyName("commands")] public CommandsInput? Commands { get; init; }
+    /// <summary>各类生效的域，不写 = 全部生效。</summary>
+    [JsonPropertyName("scopes")] public ScopesConfig? Scopes { get; init; }
+
+    // ---- 持久化保护 ----
+    /// <summary>会话历史、hook 会话记录、快照加密；密钥只在内存。仅构造时生效。</summary>
+    [JsonPropertyName("encryption")] public EncryptionConfig? Encryption { get; init; }
+    /// <summary>不写模型调用日志；缺省：没传 Encryption 为 false，传了为 true。支持运行期更新。</summary>
+    [JsonPropertyName("disableLLMLog")] public bool? DisableLLMLog { get; init; }
+    /// <summary>不写事件日志；缺省规则同 DisableLLMLog。支持运行期更新。</summary>
+    [JsonPropertyName("disableEventLog")] public bool? DisableEventLog { get; init; }
+}
+
+// ==================== host 域内容 / 生效域 / 持久化保护（≙ core types/host.ts）====================
+// 宿主在构造参数里传入的模型 / MCP / hook / skill / 子代理 / 命令叫 host 域：只读、同名盖掉其他域、不落盘；
+// Scopes 指定每一类哪些域生效，不写 = 全部生效。均只在构造时生效。
+
+/// <summary>宿主内置的模型列表与指针（字段同 AddModel / AddImageModel 入参）。Main / Quick / Image 为 "modelName[provider]"，是没有用户选择时的缺省值：Main 缺省取 Profiles[0]，Quick 缺省同 Main，Image 缺省取 ImageProfiles[0]、传 "" 停用文生图。</summary>
+public record ModelsInput
+{
+    [JsonPropertyName("profiles")] public List<ModelConfig>? Profiles { get; init; }
+    [JsonPropertyName("imageProfiles")] public List<ImageModelConfig>? ImageProfiles { get; init; }
+    [JsonPropertyName("main")] public string? Main { get; init; }
+    [JsonPropertyName("quick")] public string? Quick { get; init; }
+    [JsonPropertyName("image")] public string? Image { get; init; }
+}
+
+/// <summary>宿主内置的 MCP 服务（字段同 AddMCPServer 入参，去掉 scope）。Enabled 默认 true，不受 settings 的 disabledMcpServers 影响；UseTools 为允许的工具名，null 表示全部。</summary>
+public record MCPServerInput
+{
+    [JsonPropertyName("name")] public string? Name { get; init; }
+    [JsonPropertyName("transport")] public MCPTransportType? Transport { get; init; }
+    [JsonPropertyName("description")] public string? Description { get; init; }
+    [JsonPropertyName("command")] public string? Command { get; init; }
+    [JsonPropertyName("args")] public List<string>? Args { get; init; }
+    [JsonPropertyName("env")] public Dictionary<string, string>? Env { get; init; }
+    [JsonPropertyName("url")] public string? Url { get; init; }
+    [JsonPropertyName("headers")] public Dictionary<string, string>? Headers { get; init; }
+    [JsonPropertyName("enabled")] public bool? Enabled { get; init; }
+    [JsonPropertyName("useTools")] public List<string>? UseTools { get; init; }
+}
+
+/// <summary>宿主内置 hook 的一条命令（hooks.json 里 hooks[].hooks[] 的元素）；Type 只支持 "command"，缺省即是；Timeout 单位秒。</summary>
+public record HookCommandInput
+{
+    [JsonPropertyName("type")] public string? Type { get; init; }
+    [JsonPropertyName("command")] public string? Command { get; init; }
+    [JsonPropertyName("timeout")] public long? Timeout { get; init; }
+    [JsonPropertyName("failClosed")] public bool? FailClosed { get; init; }
+}
+
+/// <summary>宿主内置 hook 的一个 matcher 组；SemaCoreConfig.Hooks 为 Dictionary&lt;事件名, List&lt;HookGroupInput&gt;&gt;（≙ core HooksInput）。</summary>
+public record HookGroupInput
+{
+    [JsonPropertyName("matcher")] public string? Matcher { get; init; }
+    [JsonPropertyName("hooks")] public List<HookCommandInput>? Hooks { get; init; }
+}
+
+/// <summary>内联 skill：正文与文本子文件只在内存里，磁盘上不留。Prompt 为 SKILL.md 正文；Files 为文本子文件（相对路径 → 内容，模型用 skill 工具的 file 参数读）；ResourceDir 为脚本、图片、模板等所在的磁盘目录（绝对路径），不保护。</summary>
+public record SkillInput
+{
+    [JsonPropertyName("name")] public string? Name { get; init; }
+    [JsonPropertyName("description")] public string? Description { get; init; }
+    [JsonPropertyName("prompt")] public string? Prompt { get; init; }
+    [JsonPropertyName("files")] public Dictionary<string, string>? Files { get; init; }
+    [JsonPropertyName("resourceDir")] public string? ResourceDir { get; init; }
+}
+
+/// <summary>宿主内置的 skill：Items 内联、Dirs 为产品自带的明文目录（每个目录下是 &lt;skill 名&gt;/SKILL.md）。</summary>
+public record SkillsInput
+{
+    [JsonPropertyName("items")] public List<SkillInput>? Items { get; init; }
+    [JsonPropertyName("dirs")] public List<string>? Dirs { get; init; }
+}
+
+/// <summary>内联子代理（字段同 AddAgentConf 入参，去掉 locate）。Tools 为 string[] 或字符串 "*"（默认 "*"）；Model 为 "quick" 对应快速模型，其他值均对应主模型。</summary>
+public record AgentInput
+{
+    [JsonPropertyName("name")] public string? Name { get; init; }
+    [JsonPropertyName("description")] public string? Description { get; init; }
+    [JsonPropertyName("prompt")] public string? Prompt { get; init; }
+    [JsonPropertyName("tools")] public JsonElement? Tools { get; init; }
+    [JsonPropertyName("model")] public string? Model { get; init; }
+}
+
+/// <summary>宿主内置的子代理：Items 内联、Dirs 为产品自带的明文目录（每个目录下是 &lt;name&gt;.md）。</summary>
+public record AgentsInput
+{
+    [JsonPropertyName("items")] public List<AgentInput>? Items { get; init; }
+    [JsonPropertyName("dirs")] public List<string>? Dirs { get; init; }
+}
+
+/// <summary>内联命令（字段同 AddCommandConf 入参，去掉 locate）；ArgumentHint 为 string 或 string[]。</summary>
+public record CommandInput
+{
+    [JsonPropertyName("name")] public string? Name { get; init; }
+    [JsonPropertyName("description")] public string? Description { get; init; }
+    [JsonPropertyName("prompt")] public string? Prompt { get; init; }
+    [JsonPropertyName("argumentHint")] public JsonElement? ArgumentHint { get; init; }
+}
+
+/// <summary>宿主内置的命令：Items 内联、Dirs 为产品自带的明文目录（每个目录下是 &lt;name&gt;.md，子目录成为 dir:name）。</summary>
+public record CommandsInput
+{
+    [JsonPropertyName("items")] public List<CommandInput>? Items { get; init; }
+    [JsonPropertyName("dirs")] public List<string>? Dirs { get; init; }
+}
+
+/// <summary>
+/// 各类生效的域；null = 该类全部域生效，要锁定必须显式写。值为域名字符串：
+/// Models: host / user；Mcp、Hooks、Commands: host / user / project；Skills、Agents: host / builtin / user / project；
+/// Plugins 没有 host 域，值是插件安装位置（PluginScopeKind），空列表表示不加载任何插件。
+/// </summary>
+public record ScopesConfig
+{
+    [JsonPropertyName("models")] public List<string>? Models { get; init; }
+    [JsonPropertyName("mcp")] public List<string>? Mcp { get; init; }
+    [JsonPropertyName("hooks")] public List<string>? Hooks { get; init; }
+    [JsonPropertyName("skills")] public List<string>? Skills { get; init; }
+    [JsonPropertyName("agents")] public List<string>? Agents { get; init; }
+    [JsonPropertyName("commands")] public List<string>? Commands { get; init; }
+    [JsonPropertyName("plugins")] public List<PluginScopeKind>? Plugins { get; init; }
+}
+
+/// <summary>会话历史、hook 会话记录、快照加密；密钥只在内存。Key 为 32 字节随机密钥的 base64（44 个字符）；KeyId 可选，写进密文开头，不能含 ':' 或换行。</summary>
+public record EncryptionConfig
+{
+    [JsonPropertyName("key")] public string? Key { get; init; }
+    [JsonPropertyName("keyId")] public string? KeyId { get; init; }
 }
 
 // ==================== 使用统计（GetUsageStats）====================
@@ -588,11 +761,17 @@ public record SkillConfig
 {
     [JsonPropertyName("name")] public string? Name { get; init; }
     [JsonPropertyName("description")] public string? Description { get; init; }
+    /// <summary>内联（Private）skill 在查询接口里为空串。</summary>
     [JsonPropertyName("prompt")] public string? Prompt { get; init; }
     [JsonPropertyName("locate")] public SkillScope? Locate { get; init; }
+    /// <summary>SKILL.md 路径；内联 skill 没有。</summary>
     [JsonPropertyName("filePath")] public string? FilePath { get; init; }
-    /// <summary>是否启用（settings 的 disabledSkills 控制，用户级+项目级并集；null 视为启用）。</summary>
+    /// <summary>是否启用（settings 的 disabledSkills 控制，用户级+项目级并集；null 视为启用；builtin / host 恒为启用）。</summary>
     [JsonPropertyName("status")] public bool? Status { get; init; }
+    /// <summary>宿主内联传入：正文与文本子文件只在内存里，不出现在查询接口与事件里。</summary>
+    [JsonPropertyName("private")] public bool? Private { get; init; }
+    /// <summary>内联 skill 的脚本、资源所在磁盘目录（绝对路径）。</summary>
+    [JsonPropertyName("resourceDir")] public string? ResourceDir { get; init; }
 }
 
 public record TaskConfig
@@ -676,9 +855,11 @@ public record UpdatableCoreConfig
     [JsonPropertyName("skipFetchUrlPermission")] public bool? SkipFetchUrlPermission { get; init; }
     [JsonPropertyName("fetchUrlBrowserUserAgent")] public bool? FetchUrlBrowserUserAgent { get; init; }
     [JsonPropertyName("skipExternalFileReadPermission")] public bool? SkipExternalFileReadPermission { get; init; }
-    [JsonPropertyName("enableLLMCache")] public bool? EnableLLMCache { get; init; }
     [JsonPropertyName("disableBackgroundTasks")] public bool? DisableBackgroundTasks { get; init; }
     [JsonPropertyName("enableToolSearch")] public bool? EnableToolSearch { get; init; }
+    [JsonPropertyName("enableInputPrediction")] public bool? EnableInputPrediction { get; init; }
+    [JsonPropertyName("disableLLMLog")] public bool? DisableLLMLog { get; init; }
+    [JsonPropertyName("disableEventLog")] public bool? DisableEventLog { get; init; }
 }
 
 /// <summary>镜像 sema-core 从 types 入口导出的常量（≙ import { MAIN_AGENT_ID } from 'sema-core/types'）。</summary>

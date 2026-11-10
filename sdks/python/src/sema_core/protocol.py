@@ -17,12 +17,17 @@ from .transport import BridgeConnection, ConnectionState, SemaEvent
 
 
 class SemaBridgeException(Exception):
-    """桥返回的 error 帧（≙ Java SemaBridgeException）。"""
+    """桥返回的 error 帧（≙ Java SemaBridgeException）。
 
-    def __init__(self, action: str, message: str) -> None:
+    code：core 的稳定错误码（≙ types.SemaErrorCode：CONFIG_INVALID / SCOPE_DISABLED / HOST_READONLY /
+    HISTORY_KEY_REQUIRED / HISTORY_DECRYPT_FAILED），文案随 lang 变化而 code 不变；没有对应错误码时为 None。
+    """
+
+    def __init__(self, action: str, message: str, code: Optional[str] = None) -> None:
         super().__init__(f"[{action}] {message}")
         self.action = action
         self.message = message
+        self.code = code
 
 
 class Registration:
@@ -127,11 +132,14 @@ class SemaBridgeClient:
                 return
             if evt.event == "error":
                 message = str(evt.data)
+                code: Optional[str] = None
                 try:
-                    message = json.loads(evt.data).get("message", message)
+                    body = json.loads(evt.data)
+                    message = body.get("message", message)
+                    code = body.get("code") or None
                 except (json.JSONDecodeError, AttributeError):
                     pass
-                fut.set_exception(SemaBridgeException(action, message))
+                fut.set_exception(SemaBridgeException(action, message, code))
             else:
                 fut.set_result(evt.data)
             return

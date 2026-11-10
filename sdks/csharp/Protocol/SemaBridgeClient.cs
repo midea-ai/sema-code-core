@@ -222,20 +222,23 @@ public sealed class SemaBridgeClient : IAsyncDisposable
     private static SemaBridgeException ToException(string action, string dataJson)
     {
         var message = dataJson;
+        string? code = null;
         try
         {
             using var doc = JsonDocument.Parse(dataJson);
-            if (doc.RootElement.ValueKind == JsonValueKind.Object
-                && doc.RootElement.TryGetProperty("message", out var m)
-                && m.ValueKind == JsonValueKind.String)
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
             {
-                message = m.GetString();
+                if (doc.RootElement.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String)
+                    message = m.GetString();
+                // core 的稳定错误码（SemaError.code），没有则缺省
+                if (doc.RootElement.TryGetProperty("code", out var c) && c.ValueKind == JsonValueKind.String)
+                    code = c.GetString();
             }
         }
         catch (JsonException)
         {
             // data 不是 JSON 对象时原样作为 message
         }
-        return new SemaBridgeException(action, string.IsNullOrEmpty(message) ? "Unknown error" : message);
+        return new SemaBridgeException(action, string.IsNullOrEmpty(message) ? "Unknown error" : message, code, null);
     }
 }

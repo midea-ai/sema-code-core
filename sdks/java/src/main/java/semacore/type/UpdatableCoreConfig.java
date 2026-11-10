@@ -5,7 +5,7 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record UpdatableCoreConfig(String lang, Boolean stream, Boolean thinking, String systemPrompt, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, Boolean enableLLMCache, Boolean disableBackgroundTasks, Boolean enableToolSearch) {
+public record UpdatableCoreConfig(String lang, Boolean stream, Boolean thinking, String systemPrompt, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, Boolean disableBackgroundTasks, Boolean enableToolSearch, Boolean enableInputPrediction, Boolean disableLLMLog, Boolean disableEventLog) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private String lang;
@@ -20,9 +20,11 @@ public record UpdatableCoreConfig(String lang, Boolean stream, Boolean thinking,
         private Boolean skipFetchUrlPermission;
         private Boolean fetchUrlBrowserUserAgent;
         private Boolean skipExternalFileReadPermission;
-        private Boolean enableLLMCache;
         private Boolean disableBackgroundTasks;
         private Boolean enableToolSearch;
+        private Boolean enableInputPrediction;
+        private Boolean disableLLMLog;
+        private Boolean disableEventLog;
         private Builder() {}
         public Builder lang(String lang) { this.lang = lang; return this; }
         public Builder stream(Boolean stream) { this.stream = stream; return this; }
@@ -36,9 +38,11 @@ public record UpdatableCoreConfig(String lang, Boolean stream, Boolean thinking,
         public Builder skipFetchUrlPermission(Boolean skipFetchUrlPermission) { this.skipFetchUrlPermission = skipFetchUrlPermission; return this; }
         public Builder fetchUrlBrowserUserAgent(Boolean fetchUrlBrowserUserAgent) { this.fetchUrlBrowserUserAgent = fetchUrlBrowserUserAgent; return this; }
         public Builder skipExternalFileReadPermission(Boolean skipExternalFileReadPermission) { this.skipExternalFileReadPermission = skipExternalFileReadPermission; return this; }
-        public Builder enableLLMCache(Boolean enableLLMCache) { this.enableLLMCache = enableLLMCache; return this; }
         public Builder disableBackgroundTasks(Boolean disableBackgroundTasks) { this.disableBackgroundTasks = disableBackgroundTasks; return this; }
         public Builder enableToolSearch(Boolean enableToolSearch) { this.enableToolSearch = enableToolSearch; return this; }
-        public UpdatableCoreConfig build() { return new UpdatableCoreConfig(lang, stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, enableLLMCache, disableBackgroundTasks, enableToolSearch); }
+        public Builder enableInputPrediction(Boolean enableInputPrediction) { this.enableInputPrediction = enableInputPrediction; return this; }
+        public Builder disableLLMLog(Boolean disableLLMLog) { this.disableLLMLog = disableLLMLog; return this; }
+        public Builder disableEventLog(Boolean disableEventLog) { this.disableEventLog = disableEventLog; return this; }
+        public UpdatableCoreConfig build() { return new UpdatableCoreConfig(lang, stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, disableBackgroundTasks, enableToolSearch, enableInputPrediction, disableLLMLog, disableEventLog); }
     }
 }

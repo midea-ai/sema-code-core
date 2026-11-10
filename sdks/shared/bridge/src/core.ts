@@ -25,8 +25,11 @@ export class SemaCoreManager {
    */
   init(overrides?: Record<string, any>): SemaCore {
     if (!this.core) {
-      this.baseConfig = { ...this.baseConfig, ...(overrides ?? {}) };
-      this.core = new SemaCore(this.baseConfig);
+      // 构造成功才记下配置：校验不通过（SemaError CONFIG_INVALID）时构造同步抛出，
+      // 不留实例也不留这次的入参，SDK 修正配置后重发 init 即可
+      const config = { ...this.baseConfig, ...(overrides ?? {}) };
+      this.core = new SemaCore(config);
+      this.baseConfig = config;
     }
     return this.core;
   }

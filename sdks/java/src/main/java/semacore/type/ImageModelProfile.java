@@ -5,6 +5,6 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-// getImageModelProfile 返回：磁盘上的完整文生图模型 profile；name 形如 qwen-image-3.0[qwen]
+// getImageModelProfile 返回：磁盘上的完整文生图模型 profile；name 形如 qwen-image-3.0[qwen]；host 模型的 apiKey 为空串
 public record ImageModelProfile(String name, String provider, String modelName, String baseURL, String apiKey) {
 }

@@ -82,8 +82,9 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
   };
   const pushEvent = (event: string, data: any, sessionId: string) => write({ event, data, sessionId });
   const ack = (cmdId: string, data?: any) => write({ event: 'ack', data, cmdId });
-  const fail = (cmdId: string, message: string, action?: string) =>
-    write({ event: 'error', data: { message, action }, cmdId });
+  // code：core 的稳定错误码（SemaError.code / createSession 失败结果的 code），没有则缺省；各语言 SDK 挂到 SemaBridgeException 上
+  const fail = (cmdId: string, message: string, action?: string, code?: string) =>
+    write({ event: 'error', data: { message, action, ...(code ? { code } : {}) }, cmdId });
 
   // 本连接加入广播集合，接收跨连接合成事件（如 model:update）
   connections.add(pushEvent);
@@ -172,8 +173,9 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
             Object.keys(createOpts).length ? createOpts : undefined,
           );
           if (!result.ok) {
-            // tsconfig strict=false 下不会按 ok 收窄联合类型，这里显式取 error
-            fail(id, (result as { error?: string }).error || '创建会话失败', action);
+            // tsconfig strict=false 下不会按 ok 收窄联合类型，这里显式取 error / code（如历史密文解不开的 HISTORY_DECRYPT_FAILED）
+            const err = result as { error?: string; code?: string };
+            fail(id, err.error || '创建会话失败', action, err.code);
             return;
           }
           const session = result.session;
@@ -321,7 +323,8 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
       }
       ack(id, { action });
     } catch (err: any) {
-      fail(id, err.message, action);
+      // 写接口抛的 SemaError 带 code（CONFIG_INVALID / SCOPE_DISABLED / HOST_READONLY 等），原样透传
+      fail(id, err.message, action, typeof err?.code === 'string' ? err.code : undefined);
     }
   });
 

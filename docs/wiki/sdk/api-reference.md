@@ -35,14 +35,22 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `new SemaCore(config)` | `SemaCore.start` | `SemaCore.start` | `SemaCore.Start` | `config: SemaCoreConfig` | Node 直接 new;SDK 用静态 `start()` 托管 sidecar |
+| `new SemaCore(config)` | `SemaCore.start` | `SemaCore.start` | `SemaCore.Start` | `config: SemaCoreConfig` | Node 直接 new;SDK 用静态 `start()` 托管 sidecar;构造参数校验不通过抛 `CONFIG_INVALID`(见下方错误码) |
 | `await dispose()` | `close` | `close` | `Close` | — | SDK 统一叫 `close`;托管实例 close 时级联杀桥 |
+
+> **来源限定与持久化保护**(`SemaCoreConfig` 新增字段,均只在构造时生效):
+> - `models` / `mcpServers` / `hooks` / `skills` / `agents` / `commands`:宿主内置的 host 域内容(类型 `ModelsInput` / `MCPServerInput[]` / `HooksInput` / `SkillsInput` / `AgentsInput` / `CommandsInput`)。host 域条目只读、同名盖掉其他域、不落盘;查询接口里 host 模型的 `apiKey` 为空串、host MCP 的 `env` / `headers` 值打码为 `***`、内联 skill / 子代理 / 命令的 `prompt` 为空串并带 `private: true`。
+> - `scopes: ScopesConfig`:每一类哪些域生效(`models`: host/user;`mcp` / `hooks` / `commands`: host/user/project;`skills` / `agents`: host/builtin/user/project;`plugins`: user/project/local,`[]` 表示不加载任何插件)。不写 = 全部生效;写接口落到没生效的域抛 `SCOPE_DISABLED`。
+> - `encryption: EncryptionConfig`(`key` 为 32 字节密钥的 base64,`keyId` 可选):会话历史、快照、hook 会话记录加密,密钥只在内存。传了之后 `disableLLMLog` / `disableEventLog` 缺省变为 `true`(可显式传 `false`,且支持运行期更新)。密文格式 `SEMA1:<keyId>:<nonce base64>:<AES-256-GCM 密文+tag base64>`,宿主要读时用同一把密钥自己解,SDK 不提供加解密与 skill 目录打包函数。
+> - 顺带:`enableLLMCache` 已删除;`enableInputPrediction` 补进三端 `SemaCoreConfig` / `UpdatableCoreConfig`。
+>
+> **稳定错误码**:桥 error 帧带 `code`,三端挂在 `SemaBridgeException` 上(Python `.code`、Java `.code()`、C# `.Code`,类型清单里的 `SemaErrorCode`),文案随 `lang` 变而 code 不变;没有对应错误码的普通错误为空。取值:`CONFIG_INVALID`(构造参数或运行期更新校验不通过)、`SCOPE_DISABLED`(写接口的目标域没生效)、`HOST_READONLY`(改的是 host 域条目)、`HISTORY_KEY_REQUIRED`(历史是密文但没传密钥)、`HISTORY_DECRYPT_FAILED`(密钥不对或密文损坏);后两个出现在 `createSession` 失败时。
 
 ### 会话池
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await createSession` | `create_session` | `createSession` | `CreateSession` | `opts: CreateSessionOptions` | `opts` 含 `sessionId?/agentMode?/permissionLevel?/mainModel?/quickModel?`;`mainModel`/`quickModel` 为会话级模型覆盖(profile 名,同 switchModel 参数),仅本会话生效、不持久化;`mainModel` 不传则钉住创建时刻的全局 main |
+| `await createSession` | `create_session` | `createSession` | `CreateSession` | `opts: CreateSessionOptions` | `opts` 含 `sessionId?/agentMode?/permissionLevel?/mainModel?/quickModel?`;`mainModel`/`quickModel` 为会话级模型覆盖(profile 名,同 switchModel 参数),仅本会话生效、不持久化;`mainModel` 不传则钉住创建时刻的全局 main。Node 返回 `CreateSessionResult`(失败带 `error` 与可选 `code`);SDK 直接返回会话,失败抛 `SemaBridgeException`(code 在异常上) |
 | `getSession` | `session` / `get_session` | `session` / `getSession` | `Session` / `GetSession` | `sessionId: string`(必填) | core 查池、无则 `undefined`;SDK 只造句柄、恒有返回,用时才校验存在 |
 | `listSessions` | `list_sessions` | `listSessions` | `ListSessions` | — | — |
 | `setActiveSession` | `set_active_session` | `setActiveSession` | `SetActiveSession` | `sessionId: string`(必填) | — |
@@ -66,8 +74,8 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `await delModel` | `del_model` | `delModel` | `DelModel` | `modelName: string`(必填) | 被会话钉住的模型删除后,这些会话回退全局并各自收到会话级 `model:update` |
 | `await switchModel` | `switch_model` | `switchModel` | `SwitchModel` | `modelName: string`(必填) | 切全局主模型指针,只影响之后创建的会话;已打开会话用 `SemaSession.switchModel` |
 | `await applyTaskModel` | `apply_task_model` | `applyTaskModel` | `ApplyTaskModel` | `config: TaskConfig`(必填) | `main` 同 switchModel 只影响新会话;`quick` 不钉住,对所有会话即时生效 |
-| `await getModelData` | `get_model_data` | `getModelData` | `GetModelData` | — | 全局视角;会话实际生效的模型用 `SemaSession.getModelData` |
-| `getModelProfile` | `get_model_profile` | `getModelProfile` | `GetModelProfile` | `provider: string`(必填), `modelName: string`(必填) | 只读,返回磁盘上的完整 `ModelProfile`(含明文 apiKey),不存在为 null/None;不触发 `model:update` |
+| `await getModelData` | `get_model_data` | `getModelData` | `GetModelData` | — | 全局视角;会话实际生效的模型用 `SemaSession.getModelData`;返回的 `hostModels` 为宿主传入的模型名(只读,`addModel` 同名或 `delModel` 抛 `HOST_READONLY`) |
+| `getModelProfile` | `get_model_profile` | `getModelProfile` | `GetModelProfile` | `provider: string`(必填), `modelName: string`(必填) | 只读,返回磁盘上的完整 `ModelProfile`(含明文 apiKey;host 模型为空串),不存在为 null/None;不触发 `model:update` |
 
 ### 文生图模型管理
 
@@ -117,39 +125,39 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getAgentsInfo` | `get_agents_info` | `getAgentsInfo` | `GetAgentsInfo` | `concise: boolean`, `refresh: boolean` | — |
-| `await addAgentConf` | `add_agent_conf` | `addAgentConf` | `AddAgentConf` | `agentConf: AgentConfig`(必填) | — |
-| `await removeAgentConf` | `remove_agent_conf` | `removeAgentConf` | `RemoveAgentConf` | `name`(必填) | — |
+| `await getAgentsInfo` | `get_agents_info` | `getAgentsInfo` | `GetAgentsInfo` | `concise: boolean`, `refresh: boolean` | 宿主内联的子代理 `locate` 为 `host`、`private: true`、`prompt` 为空串、无 `filePath`(Java 字段名 `isPrivate`) |
+| `await addAgentConf` | `add_agent_conf` | `addAgentConf` | `AddAgentConf` | `agentConf: AgentConfig`(必填) | 目标域没生效抛 `SCOPE_DISABLED`;与 host 条目同名抛 `HOST_READONLY` |
+| `await removeAgentConf` | `remove_agent_conf` | `removeAgentConf` | `RemoveAgentConf` | `name`(必填) | host 条目抛 `HOST_READONLY` |
 
 ### Skills 管理
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getSkillsInfo` | `get_skills_info` | `getSkillsInfo` | `GetSkillsInfo` | `concise: boolean`, `refresh: boolean` | 返回含禁用项,`status: false` 表示已禁用;内置 Skill(`locate` 为 `builtin`)`status` 恒为 `true` |
-| `await removeSkillConf` | `remove_skill_conf` | `removeSkillConf` | `RemoveSkillConf` | `name`(必填) | 内置与插件 Skill 不可移除,调用只记日志并原样返回列表 |
-| `await enableSkill` | `enable_skill` | `enableSkill` | `EnableSkill` | `name`(必填) | 写入层跟随技能所在层(用户级技能全局生效);内置 Skill 不支持开关 |
-| `await disableSkill` | `disable_skill` | `disableSkill` | `DisableSkill` | `name`(必填) | 写入 settings 的 `disabledSkills`(用户级+项目级并集生效);内置 Skill 不支持开关 |
+| `await getSkillsInfo` | `get_skills_info` | `getSkillsInfo` | `GetSkillsInfo` | `concise: boolean`, `refresh: boolean` | 返回含禁用项,`status: false` 表示已禁用;内置(`builtin`)与宿主(`host`)Skill `status` 恒为 `true`;宿主内联的 Skill `private: true`、`prompt` 为空串、无 `filePath`、可带 `resourceDir`(Java 字段名 `isPrivate`) |
+| `await removeSkillConf` | `remove_skill_conf` | `removeSkillConf` | `RemoveSkillConf` | `name`(必填) | 内置与插件 Skill 不可移除,调用只记日志并原样返回列表;host Skill 抛 `HOST_READONLY` |
+| `await enableSkill` | `enable_skill` | `enableSkill` | `EnableSkill` | `name`(必填) | 写入层跟随技能所在层(用户级技能全局生效);内置与 host Skill 不支持开关 |
+| `await disableSkill` | `disable_skill` | `disableSkill` | `DisableSkill` | `name`(必填) | 写入 settings 的 `disabledSkills`(用户级+项目级并集生效);内置与 host Skill 不支持开关 |
 
 ### Commands 管理
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getCommandsInfo` | `get_commands_info` | `getCommandsInfo` | `GetCommandsInfo` | `concise: boolean`, `refresh: boolean` | — |
-| `await addCommandConf` | `add_command_conf` | `addCommandConf` | `AddCommandConf` | `commandConf: CommandConfig`(必填) | — |
-| `await removeCommandConf` | `remove_command_conf` | `removeCommandConf` | `RemoveCommandConf` | `name`(必填) | — |
+| `await getCommandsInfo` | `get_commands_info` | `getCommandsInfo` | `GetCommandsInfo` | `concise: boolean`, `refresh: boolean` | 宿主内联的命令 `locate` 为 `host`、`private: true`、`prompt` 为空串、无 `filePath`(Java 字段名 `isPrivate`) |
+| `await addCommandConf` | `add_command_conf` | `addCommandConf` | `AddCommandConf` | `commandConf: CommandConfig`(必填) | 目标域没生效抛 `SCOPE_DISABLED`;与 host 条目同名抛 `HOST_READONLY` |
+| `await removeCommandConf` | `remove_command_conf` | `removeCommandConf` | `RemoveCommandConf` | `name`(必填) | host 条目抛 `HOST_READONLY` |
 
 ### MCP 管理
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getMCPServerInfo` | `get_mcp_server_info` | `getMCPServerInfo` | `GetMCPServerInfo` | — | — |
+| `await getMCPServerInfo` | `get_mcp_server_info` | `getMCPServerInfo` | `GetMCPServerInfo` | — | host 条目 `scope` 为 `host`、无 `filePath`,`config.env` / `headers` 值打码为 `***`(`mcp:server:status` 事件同) |
 | `await refreshMCPServerInfo` | `refresh_mcp_server_info` | `refreshMCPServerInfo` | `RefreshMCPServerInfo` | — | — |
-| `await addMCPServer` | `add_mcp_server` | `addMCPServer` | `AddMCPServer` | `mcpConfig: MCPServerConfig`(必填) | — |
-| `await removeMCPServer` | `remove_mcp_server` | `removeMCPServer` | `RemoveMCPServer` | `name`(必填) | — |
+| `await addMCPServer` | `add_mcp_server` | `addMCPServer` | `AddMCPServer` | `mcpConfig: MCPServerConfig`(必填) | 目标域没生效抛 `SCOPE_DISABLED`;与 host 条目同名抛 `HOST_READONLY` |
+| `await removeMCPServer` | `remove_mcp_server` | `removeMCPServer` | `RemoveMCPServer` | `name`(必填) | host 条目抛 `HOST_READONLY`(下面三个写接口同) |
 | `await reconnectMCPServer` | `reconnect_mcp_server` | `reconnectMCPServer` | `ReconnectMCPServer` | `name`(必填) | — |
-| `await disableMCPServer` | `disable_mcp_server` | `disableMCPServer` | `DisableMCPServer` | `name`(必填) | 写入 settings 的 `disabledMcpServers`(用户级+项目级并集生效),写入层跟随 server 所在层 |
+| `await disableMCPServer` | `disable_mcp_server` | `disableMCPServer` | `DisableMCPServer` | `name`(必填) | 写入 settings 的 `disabledMcpServers`(用户级+项目级并集生效),写入层跟随 server 所在层;host 条目启停只取构造入参 `enabled` |
 | `await enableMCPServer` | `enable_mcp_server` | `enableMCPServer` | `EnableMCPServer` | `name`(必填) | 只从 server 所在层移除禁用记录;另一层仍禁用时不会连接 |
-| `await updateMCPUseTools` | `update_mcp_use_tools` | `updateMCPUseTools` | `UpdateMCPUseTools` | `name`(必填), `toolNames: string[] \| null`(必填,null=全部可用) | 写入 settings 的 `enabledMcpServerUseTools`(用户级打底、项目级同名覆盖),写入层跟随 server 所在层 |
+| `await updateMCPUseTools` | `update_mcp_use_tools` | `updateMCPUseTools` | `UpdateMCPUseTools` | `name`(必填), `toolNames: string[] \| null`(必填,null=全部可用) | 写入 settings 的 `enabledMcpServerUseTools`(用户级打底、项目级同名覆盖),写入层跟随 server 所在层;host 条目取构造入参 `useTools` |
 
 ### Memory 管理
 
@@ -167,7 +175,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getHooksInfo` | `get_hooks_info` | `getHooksInfo` | `GetHooksInfo` | `refresh: boolean` | 返回合并后的 hooks 配置视图 `HooksInfo`;条目与解析错误的 `source` 取 `user` / `project` / `plugin`,来自插件时附带 `pluginName`;`refresh=true` 重新加载配置 |
+| `await getHooksInfo` | `get_hooks_info` | `getHooksInfo` | `GetHooksInfo` | `refresh: boolean` | 返回合并后的 hooks 配置视图 `HooksInfo`;条目与解析错误的 `source` 取 `host` / `user` / `project` / `plugin`,来自插件时附带 `pluginName`,host 条目无 `filePath`;`user` / `project` 域没生效时对应 `ConfigPath` 为空串、`ConfigExists` 为 false;`refresh=true` 重新加载配置 |
 
 ### Cron 定时任务管理
 
@@ -341,6 +349,7 @@ core 无此事件,由 gRPC 桥合成,仅在 SDK 侧存在。
 
 ```
 SemaCore, SemaSession                                        // 主类:进程级 / 会话级
+SemaError, ERROR_CODES                                       // Node 专有:带稳定错误码的异常 / 错误码常量;SDK 侧对应 SemaBridgeException.code + types 的 SemaErrorCode
 ```
 
 ### 类型 `sema-core/types`
@@ -348,15 +357,19 @@ SemaCore, SemaSession                                        // 主类:进程级
 ```
 AgentMode, PermissionLevel, SystemPromptMode                 // Agent 模式 / 权限档位 / 系统提示词模式
 SemaCoreConfig, UpdatableCoreConfig, UpdatableCoreConfigKeys // Core 配置 / 可更新子集 / 可更新键名
-ModelConfig, ModelProfile, TaskConfig, ModelInfo, ModelUpdateData // 模型:配置 / 磁盘完整 profile / 主快(image)指针 / 模型项 / 变更结果(含 imageModelList)
+ModelsInput, MCPServerInput, HooksInput                      // host 域内容:模型与指针 / MCP 服务 / hook(事件名 → HookGroupInput[],Java/C# 为 Map/Dictionary)
+HookGroupInput, HookCommandInput                             // host hook:matcher 组 / 单条命令
+SkillInput, SkillsInput, AgentInput, AgentsInput, CommandInput, CommandsInput  // host 域内容:内联 skill / 子代理 / 命令(单项 / items+dirs)
+ScopesConfig, EncryptionConfig, SemaErrorCode                // 生效域 / 加密 / 稳定错误码
+ModelConfig, ModelProfile, TaskConfig, ModelInfo, ModelUpdateData // 模型:配置 / 磁盘完整 profile / 主快(image)指针 / 模型项 / 变更结果(含 imageModelList、hostModels)
 ImageModelConfig, ImageModelProfile                          // 文生图模型:配置 / 磁盘完整 profile
 FetchModelsParams, FetchModelsResult                         // 拉取可用模型:参数 / 结果
 ApiTestParams, ApiTestResult                                 // API 连通测试:参数 / 结果
 ToolInfo, FileReferenceInfo                                  // 工具信息 / 文件引用
-AgentConfig, AgentScope                                      // Agents:配置 / 作用域
-SkillConfig, SkillScope                                      // Skills:配置(含 status 启用态)/ 作用域
-CommandConfig, CommandScope                                  // Commands:配置 / 作用域
-MCPServerConfig, MCPServerInfo                               // MCP:配置 / 运行信息
+AgentConfig, AgentScope                                      // Agents:配置(含 private)/ 作用域(含 host)
+SkillConfig, SkillScope                                      // Skills:配置(含 status 启用态、private、resourceDir)/ 作用域(含 host)
+CommandConfig, CommandScope                                  // Commands:配置(含 private)/ 作用域(含 host)
+MCPServerConfig, MCPServerInfo                               // MCP:配置 / 运行信息(scope 含 host)
 MemoryConfig, RuleConfig, RuleScope                          // Memory / Rule(含作用域)
 DesignSkillInfo, DesignSystemInfo, DesignSystemColor         // Design:技能 / 系统 / 色板项
 PluginScopeKind, MarketplacePluginsInfo                      // 插件市场:作用域 / 汇总信息
@@ -366,7 +379,7 @@ UsageModelStat, UsageToolStat, UsageSkillStat                // 使用统计:按
 TaskListItem                                                 // 后台任务列表项
 TodoItem, TodoTask, TodoTaskStatus                           // 待办:精简项 / 完整任务 / 状态
 GoalState, GoalStatus                                        // 长期目标(/goal):状态对象 / 状态枚举
-CreateSessionOptions, CreateSessionResult                    // 会话创建:选项 / 结果
+CreateSessionOptions, CreateSessionResult                    // 会话创建:选项 / 结果(失败项含 error 与可选 code)
 ForkOptions, ForkPreview, ForkResult, ForkFileChange, ForkFileEffect  // 会话 Fork/撤销:选项/预览/结果/文件改动/改动类型
 InputImageAttachment                                         // 图片附件(processUserInput)
 MAIN_AGENT_ID                                                // 常量:主代理 agentId
@@ -379,6 +392,8 @@ MAIN_AGENT_ID                                                // 常量:主代理
 > `systemPromptMode`:`'append'`(默认,配置的 systemPrompt 叠加在内置提示词前)| `'replace'`(替换内置系统提示词,memory/env 上下文仍附加)| `'replaceAll'`(完全替换,系统提示词仅为 systemPrompt,不附加 memory/env/gitStatus,turn-level reminder 也不注入 MEMORY.md);replace/replaceAll 未配 systemPrompt 时回落 append。仅构造时生效,不支持动态更新。
 >
 > `disableMemory`:关闭内置记忆(系统提示词不拼记忆使用说明、首轮不注入 MEMORY.md、不读 `.sema/memory`、记忆文件编辑豁免失效),记忆改由外部服务经 hook/MCP 提供。仅构造时生效,不支持动态更新。
+>
+> `private` 字段:Java 里 `private` 是关键字,三个配置 record 的组件名为 `isPrivate`(`@SerializedName("private")` 锚定 wire 名);Python / C# 保持 `private` / `Private`。`HooksInput` 在 Java / C# 没有独立类型,`SemaCoreConfig.hooks` 直接是 `Map<String, List<HookGroupInput>>` / `Dictionary<string, List<HookGroupInput>>`。
 
 ### 事件数据 `sema-core/event`
 

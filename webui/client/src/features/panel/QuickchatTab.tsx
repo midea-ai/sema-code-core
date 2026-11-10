@@ -21,17 +21,19 @@ export function QuickchatTab({ sessionId }: { sessionId: string }) {
   const [pending, setPending] = useState<PendingQ[]>([]);
   const [text, setText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
-  const lenRef = useRef(quickchats.length);
+  // 记录条数有上限、到顶后长度不再变化，新回答按末条 seq 识别
+  const lastSeq = quickchats.length ? quickchats[quickchats.length - 1].seq : 0;
+  const seqRef = useRef(lastSeq);
 
   // 回答到达（含从主输入框发的）：按 FIFO 消掉等待项
   useEffect(() => {
-    const added = quickchats.length - lenRef.current;
-    lenRef.current = quickchats.length;
+    const added = quickchats.filter(q => q.seq > seqRef.current).length;
+    seqRef.current = lastSeq;
     if (added > 0) setPending(p => p.slice(added));
-  }, [quickchats.length]);
+  }, [lastSeq]);
 
   // 新回答 / 新等待项滚到底部
-  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); }, [quickchats.length, pending.length]);
+  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); }, [lastSeq, pending.length]);
 
   const send = async () => {
     const q = text.trim();

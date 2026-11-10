@@ -103,6 +103,11 @@ export class SessionManager extends EventEmitter {
 
   private transcriptPath(id: string) { return path.join(TRANSCRIPT_DIR, `${id}.json`); }
 
+  /** 快照落盘。快问记录只留在内存里（服务存活期间可见，重启即清空），不写进文件 */
+  private writeSnapshot(snapshot: SessionSnapshot) {
+    writeJsonAtomic(this.transcriptPath(snapshot.sessionId), { ...snapshot, quickchats: undefined });
+  }
+
   private loadRuntime(id: string): Runtime {
     let rt = this.runtimes.get(id);
     if (rt) return rt;
@@ -114,6 +119,8 @@ export class SessionManager extends EventEmitter {
       if (fs.existsSync(file)) snapshot = JSON.parse(fs.readFileSync(file, 'utf8'));
     } catch { /* 损坏则重建 */ }
     if (!snapshot) snapshot = createSnapshot({ sessionId: id, workingDir: rec.workingDir, agentMode: rec.agentMode, permissionLevel: rec.permissionLevel });
+    // 快问记录不持久化：旧版写进文件的那些加载时丢弃
+    snapshot.quickchats = undefined;
     // 归一化旧快照：遗留的排队输入从未被处理（队列随进程消失，也不在 core 历史里），
     // 移除以免错切轮次、卡住分支或提供无效回退锚点
     if (snapshot.blocks.some(b => b.kind === 'user' && b.queued)) {
@@ -142,7 +149,7 @@ export class SessionManager extends EventEmitter {
     rt.saveTimer = setTimeout(() => {
       rt.saveTimer = undefined;
       try {
-        writeJsonAtomic(this.transcriptPath(rt.snapshot.sessionId), rt.snapshot);
+        this.writeSnapshot(rt.snapshot);
         rt.saveFailed = false;
       } catch (e: any) {
         if (!rt.saveFailed) logErr('transcript', `会话 ${rt.snapshot.sessionId} 落盘失败（后续同类失败不再记录）:`, e?.message || e);
@@ -589,7 +596,7 @@ export class SessionManager extends EventEmitter {
       };
       const targetRt: Runtime = { snapshot, buffer: [], subscribers: new Set() };
       this.runtimes.set(record.id, targetRt);
-      writeJsonAtomic(this.transcriptPath(record.id), snapshot);
+      this.writeSnapshot(snapshot);
 
       // record 与 runtime 已建立，session:ready 等事件可安全落入目标快照。
       await this.ensureLive(record.id);
@@ -949,7 +956,7 @@ export class SessionManager extends EventEmitter {
     clearInterval(this.sessionReapTimer);
     clearInterval(this.cronKeeperTimer);
     for (const rt of this.runtimes.values()) {
-      if (rt.saveTimer) { clearTimeout(rt.saveTimer); try { writeJsonAtomic(this.transcriptPath(rt.snapshot.sessionId), rt.snapshot); } catch { /* ignore */ } }
+      if (rt.saveTimer) { clearTimeout(rt.saveTimer); try { this.writeSnapshot(rt.snapshot); } catch { /* ignore */ } }
     }
     await this.pool.disposeAll();
     this.discardSpare();

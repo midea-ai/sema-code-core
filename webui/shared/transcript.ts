@@ -10,6 +10,9 @@ import type {
 import { CRON_TOOLS, FILE_EDIT_TOOLS, MAIN_AGENT_ID } from './protocol';
 import { parsePasteInput } from './paste';
 
+/** 每个会话的快问记录保留条数上限（只在内存里，不落盘） */
+const QUICKCHAT_KEEP = 10;
+
 export function createSnapshot(init: Pick<SessionSnapshot, 'sessionId' | 'workingDir' | 'agentMode' | 'permissionLevel'>): SessionSnapshot {
   return {
     ...init,
@@ -549,7 +552,8 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       // 旁路问答：不进消息流，累积到 quickchats 供右侧「快问」标签渲染；空问题提示用法
       const question = String(data?.question || '');
       if (!question) { notice(snap, seq, 'info', 'info', '用法：/quickchat 问题'); break; }
-      snap.quickchats = [...(snap.quickchats || []), { question, content: String(data?.content || ''), seq, ts: now }];
+      // 只留最近 QUICKCHAT_KEEP 条，超出的最早记录退场
+      snap.quickchats = [...(snap.quickchats || []), { question, content: String(data?.content || ''), seq, ts: now }].slice(-QUICKCHAT_KEEP);
       break;
     }
 

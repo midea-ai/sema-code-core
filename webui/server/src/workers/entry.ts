@@ -94,27 +94,29 @@ async function getCommandsInfo(): Promise<CommandsInfo> {
   };
 }
 
-/** 扩展标签的技能行：内置技能不列（无文件、不可开关）；enabled 为 core 按两层 settings 并集算出的 status */
+/** 界面层作用域：宿主注入（host）与 core 内置（builtin）都算「内置」 */
+const uiScope = <T extends string>(s: T | 'host' | undefined, fallback: T): T | 'builtin' => s === 'host' ? 'builtin' : (s || fallback);
+
+/** 扩展标签的技能行：内置（含宿主注入）也列，无文件不可开关；enabled 为 core 按两层 settings 并集算出的 status */
 const mapSkills = (list: any[]): ExtSkill[] => (list || [])
-  .filter(s => s.locate === 'user' || s.locate === 'project' || s.locate === 'plugin')
-  .map(s => ({ name: s.name, description: s.description || '', locate: s.locate, filePath: s.filePath, enabled: s.status !== false }));
+  .map(s => ({ name: s.name, description: s.description || '', locate: uiScope(s.locate, 'user'), filePath: s.filePath, enabled: s.status !== false }));
 
 /** 扩展标签的命令行：argumentHint 数组拼成一行 */
 const mapCommands = (list: any[]): ExtCommand[] => (list || []).map(c => ({
-  name: c.name, description: c.description || '', locate: c.locate || 'user', filePath: c.filePath,
+  name: c.name, description: c.description || '', locate: uiScope(c.locate, 'user'), filePath: c.filePath,
   argumentHint: Array.isArray(c.argumentHint) ? c.argumentHint.join(' ') : c.argumentHint || undefined,
 }));
 
 /** 扩展标签的子代理行：内置的也列（标内置，无文件不可跳）；tools 非数组一律视为全部 */
 const mapAgents = (list: any[]): ExtAgent[] => (list || []).map(a => ({
-  name: a.name, description: a.description || '', locate: a.locate || 'user', filePath: a.filePath, model: a.model,
+  name: a.name, description: a.description || '', locate: uiScope(a.locate, 'user'), filePath: a.filePath, model: a.model,
   tools: Array.isArray(a.tools) ? a.tools : '*',
 }));
 
 /** 扩展标签的 MCP 行：summary 为 stdio 命令行 / 远程 url；tools 仅在 core 已拿到 capabilities 时有值 */
 const mapMcp = (list: any[]): ExtMcp[] => (list || []).map(i => ({
   name: i.config?.name,
-  scope: i.config?.scope || i.scope || 'user',
+  scope: uiScope(i.config?.scope || i.scope, 'user'),
   summary: i.config?.url ? String(i.config.url) : [i.config?.command, ...(Array.isArray(i.config?.args) ? i.config.args : [])].filter(Boolean).join(' '),
   enabled: i.status !== false,
   connectStatus: i.connectStatus || 'disconnected',
@@ -152,10 +154,10 @@ async function getExtensionsInfo(refresh: boolean): Promise<ExtensionsInfo> {
     mcp: mapMcp(mcp),
     hooks: {
       entries: Object.entries(hooks?.events || {}).flatMap(([event, list]) => (list || []).map(h => ({
-        event, source: h.source, pluginName: h.pluginName, matcher: h.matcher, command: h.command, timeout: h.timeout,
+        event, source: uiScope(h.source, 'user'), pluginName: h.pluginName, matcher: h.matcher, command: h.command, timeout: h.timeout,
         status: h.status, statusReason: h.statusReason, filePath: h.filePath,
       }))),
-      parseErrors: hooks?.parseErrors || [],
+      parseErrors: (hooks?.parseErrors || []).map(e => ({ ...e, source: uiScope(e.source, 'user') })),
       userConfigPath: hooks?.userConfigPath || '',
       projectConfigPath: hooks?.projectConfigPath || '',
       userConfigExists: !!hooks?.userConfigExists,

@@ -148,16 +148,17 @@ export interface EcoMcpStatus { id: string; connectStatus: 'disconnected' | 'con
 /** 规则：core 只返回生效的一份（项目级 AGENTS.md 覆盖用户级） */
 export interface ExtRule { locate: 'user' | 'project'; filePath: string; prompt: string }
 export interface ExtMemory { prompt: string; FilePath?: string; refFilePath?: string[] }
-/** 技能：不含内置；enabled 为用户级 + 项目级 disabledSkills 并集后的结果 */
-export interface ExtSkill { name: string; description: string; locate: 'user' | 'project' | 'plugin'; filePath?: string; enabled: boolean }
+// 以下作用域里的 builtin：core 内置与宿主注入（core 的 host）在界面层统一算内置，只读
+/** 技能：enabled 为用户级 + 项目级 disabledSkills 并集后的结果 */
+export interface ExtSkill { name: string; description: string; locate: 'user' | 'project' | 'plugin' | 'builtin'; filePath?: string; enabled: boolean }
 /** MCP：filePath 同 EcoMcpStatus 的定位串；useTools null = 全部工具可用 */
 export interface ExtMcp {
-  name: string; scope: 'local' | 'project' | 'user' | 'plugin'; summary: string; enabled: boolean;
+  name: string; scope: 'local' | 'project' | 'user' | 'plugin' | 'builtin'; summary: string; enabled: boolean;
   connectStatus: EcoMcpStatus['connectStatus']; error?: string; filePath?: string; tools?: EcoMcpTool[]; useTools?: string[] | null;
 }
 /** Hook 条目：filePath 为所属配置文件的 "路径:起始行-结束行"（事件块粒度），旧版 core 无此字段 */
 export interface ExtHook {
-  event: string; source: 'user' | 'project' | 'plugin'; pluginName?: string; matcher?: string; command: string; timeout?: number;
+  event: string; source: 'user' | 'project' | 'plugin' | 'builtin'; pluginName?: string; matcher?: string; command: string; timeout?: number;
   status: 'ok' | 'skipped' | 'invalid'; statusReason?: string; filePath?: string;
 }
 export interface ExtHooks {
@@ -170,7 +171,7 @@ export interface ExtTool { name: string; description: string; enabled: boolean }
 /** 子代理：含内置；只读无开关（core 对子代理只有增删）；tools '*' 为全部工具；model 'quick' 以外都按主模型 */
 export interface ExtAgent { name: string; description: string; locate: 'user' | 'project' | 'plugin' | 'builtin'; filePath?: string; model?: string; tools: string[] | '*' }
 /** 斜杠命令：只读无开关（core 对命令只有增删）；argumentHint 已拼成一行 */
-export interface ExtCommand { name: string; description: string; argumentHint?: string; locate: 'user' | 'project' | 'plugin'; filePath?: string }
+export interface ExtCommand { name: string; description: string; argumentHint?: string; locate: 'user' | 'project' | 'plugin' | 'builtin'; filePath?: string }
 export interface ExtensionsInfo {
   rule: ExtRule | null; memory: ExtMemory | null; skills: ExtSkill[]; commands: ExtCommand[]; agents: ExtAgent[]; builtinTools: ExtTool[]; mcp: ExtMcp[]; hooks: ExtHooks;
 }

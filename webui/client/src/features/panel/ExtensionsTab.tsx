@@ -24,7 +24,7 @@ import type { WsAction } from '../../../../shared/protocol';
 import type { ExtensionsInfo, ExtSkill, ExtMcp, ExtHook, ExtTool } from '../../../../shared/types';
 
 type ExtAction = 'getExtensionsInfo' | 'toggleSkill' | 'toggleMcp' | 'updateMcpUseTools';
-/** 排序：内置（仅子代理有）最前，然后项目级（MCP 的 local 与 project 同层）、用户级、插件 */
+/** 排序：内置（含宿主注入）最前，然后项目级（MCP 的 local 与 project 同层）、用户级、插件 */
 const SCOPE_ORDER: Record<string, number> = { builtin: 0, project: 1, local: 1, user: 2, plugin: 3 };
 const scopeRank = (scope: string) => SCOPE_ORDER[scope] ?? 9;
 /** 标签文案：项目级 / 用户级 / 插件 / 内置 */
@@ -227,7 +227,7 @@ export function ExtensionsTab({ sessionId, tab }: { sessionId: string; tab: Pane
 
             {showCapability && (
               <Region title={t('ext.regionCapability')} hint={t('ext.regionCapabilityHint')}>
-                {/* 技能：点名称打开 SKILL.md；开关写入层由 core 按所在层决定；插件技能显示短名，完整名在 tooltip */}
+                {/* 技能：点名称打开 SKILL.md；开关写入层由 core 按所在层决定，内置的只读无开关；插件技能显示短名，完整名在 tooltip */}
                 {skills.length > 0 && (
                   <Item icon={<Sparkles size={16} />} label={t('ext.skills')} alias="Skills" value={t('ext.items', { n: skills.length })}
                     open={expanded.has('skills')} onToggle={() => toggleExpand('skills')}>
@@ -236,7 +236,7 @@ export function ExtensionsTab({ sessionId, tab }: { sessionId: string; tab: Pane
                       return (
                         <SubRow key={`${s.locate}:${s.name}`} title={s.name} sub={s.description || undefined} tags={<ScopeTag scope={s.locate} />}
                           label={s.filePath ? <FileName fp={s.filePath} label={short} title={s.name} onOpen={() => openFileTab(sessionId, s.filePath!)} /> : short}
-                          toggle={<Toggle small checked={s.enabled} disabled={busy.has(`skill:${s.name}`)} onChange={v => toggleSkill(s, v)} />} />
+                          toggle={s.locate === 'builtin' ? undefined : <Toggle small checked={s.enabled} disabled={busy.has(`skill:${s.name}`)} onChange={v => toggleSkill(s, v)} />} />
                       );
                     })}
                   </Item>
@@ -300,6 +300,7 @@ export function ExtensionsTab({ sessionId, tab }: { sessionId: string; tab: Pane
                       const isOn = (toolName: string) => m.useTools == null || m.useTools.includes(toolName);
                       const toolsOn = m.tools ? m.tools.filter(tool => isOn(tool.name)).length : 0;
                       const serverBusy = busy.has(key);
+                      const readOnly = m.scope === 'builtin';
                       // 开关表示是否启用，停用不再另写文字；启用的在右侧写连接情况（连接失败要明确写出）。
                       // 已连接是常态，用普通灰字；只有连接中 / 失败这两个需要留意的状态带颜色
                       const [status, statusCls]: [string, string] = m.connectStatus === 'connected' ? [t('eco.connOk'), 'text-muted']
@@ -311,7 +312,7 @@ export function ExtensionsTab({ sessionId, tab }: { sessionId: string; tab: Pane
                           label={m.filePath ? <FileName fp={m.filePath} label={short} title={m.name} onOpen={() => openLocated(m.filePath!)} /> : short}
                           sub={m.enabled && m.tools ? countText('ext.unitTools', m.tools.length, toolsOn) : undefined}
                           status={m.enabled ? status : undefined} statusCls={statusCls} statusTitle={m.connectStatus === 'error' ? m.error : undefined}
-                          toggle={<Toggle small checked={m.enabled} disabled={serverBusy} onChange={v => toggleMcp(m, v)} />}
+                          toggle={readOnly ? undefined : <Toggle small checked={m.enabled} disabled={serverBusy} onChange={v => toggleMcp(m, v)} />}
                           open={expanded.has(key)} onToggle={() => toggleExpand(key)}>
                           {m.summary && <code className="block py-1 break-all font-mono text-[11px] text-muted">{m.summary}</code>}
                           {m.error && <div className="mt-1.5 text-xs text-danger break-words">{m.error}</div>}
@@ -320,7 +321,7 @@ export function ExtensionsTab({ sessionId, tab }: { sessionId: string; tab: Pane
                               : !m.tools ? <div className="text-xs text-muted py-1">{status}</div>
                               : m.tools.length === 0 ? <div className="text-xs text-muted py-1">{t('eco.toolsEmpty')}</div>
                               : <ToolList tools={m.tools.map(tool => ({ name: tool.name, description: tool.description || '', enabled: isOn(tool.name) }))}
-                                  disabled={serverBusy} onToggle={(name, v) => toggleMcpTool(m, name, v)} />}
+                                  disabled={serverBusy || readOnly} onToggle={(name, v) => toggleMcpTool(m, name, v)} />}
                           </div>
                         </SubRow>
                       );

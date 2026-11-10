@@ -31,7 +31,6 @@ export async function getTopicFromUserInput(
       ],
       userPrompt: userInput,
       signal: abortSignal,
-      enableLLMCache: false,
       sessionId,
     })
 

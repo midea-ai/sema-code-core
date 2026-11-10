@@ -29,7 +29,6 @@ Sema Core 的所有持久化数据存储在用户主目录的 `~/.sema/` 下，�
 │   └── [product]/
 │       └── 2024-01-15.jsonl
 ├── cache/                        # 缓存
-│   ├── llm-cache.json            # LLM 响应缓存
 │   └── shell-[envHash].json      # Windows shell 探测结果（跨进程复用）
 ├── skills/
 │   └── [skill-name]/
@@ -297,10 +296,6 @@ LLM 日志归档文件，从原始日志中提取 **messages 最长的一次请�
 - 多进程可并发追加同一文件；启动时把早于今天且多于一行的文件合并成一行
 
 通过 `SemaCore.getUsageStats({ product })` 读取（累计 + 近 366 天逐日，缺省汇总全部产品目录），`clearUsageStats(product)` 删除该产品目录（`product` 必填）。
-
-### LLM 响应缓存 `~/.sema/cache/llm-cache.json`
-
-LLM 响应缓存文件，由 `enableLLMCache` 配置控制是否启用。
 
 ### Shell 探测缓存 `~/.sema/cache/shell-[envHash].json`
 

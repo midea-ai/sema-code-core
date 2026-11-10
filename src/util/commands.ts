@@ -266,7 +266,6 @@ export async function getCommandPrefix(
       ],
       userPrompt: COMMAND_PREFIX_USER_PROMPT(command),
       signal: abortSignal,
-      enableLLMCache: false,
       sessionId,
     })
   } catch {

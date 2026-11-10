@@ -197,7 +197,6 @@ package.json 提供了多个导出入口：
 | `~/.sema/llm_logs/` | LLM 调用日志 |
 | `~/.sema/tracks/` | LLM 调用轨迹归档 |
 | `~/.sema/event/` | 事件日志 |
-| `~/.sema/cache/llm-cache.json` | LLM LRU 缓存 |
 | `~/.sema/cache/shell-<envHash>.json` | Windows shell 探测结果缓存（跨进程复用） |
 
 > Sema 根目录可通过环境变量 `SEMA_ROOT` 自定义。

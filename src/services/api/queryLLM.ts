@@ -5,11 +5,10 @@ import { getModelManager } from '../../manager/ModelManager'
 import { getConfManager } from '../../manager/ConfManager'
 import { getUsageStatsManager } from '../../manager/UsageStatsManager'
 import { countTokens } from '../../util/tokens'
-import { logDebug, logError } from '../../util/log'
-import { logLLMRequest, logLLMResponse } from '../../util/logLLM'
+import { logError } from '../../util/log'
+import { logLLMResponse } from '../../util/logLLM'
 import { getEventBus } from '../../events/EventSystem'
 import { SessionErrorData } from '../../events/types'
-import { tryGetCachedResponse, setCachedResponse, getCacheSize } from './cache'
 import { Tool } from '../../tools/base/Tool'
 import { t } from '../../util/i18n'
 
@@ -60,34 +59,14 @@ export async function queryLLM(
 
   try {
     const coreConfig = getConfManager().getCoreConfig()
-    const shouldUseCache = coreConfig?.enableLLMCache  // 默认不启用
     const shouldStream = coreConfig?.stream !== false  // 默认启用
     const enableThinking = !disableThinking && coreConfig?.thinking !== false;  // 默认启用
     const emitChunkEvents = !disableChunkEvents && shouldStream !== false;  // 默认启用
 
     // 按模型级策略裁剪历史思考块；未开启 thinking 时由适配器沿用原有过滤逻辑
-    // 过滤后的副本只用于本次请求（含缓存 key 计算），原始历史不受影响
+    // 过滤后的副本只用于本次请求，原始历史不受影响
     const thinkingHistoryPolicy = modelProfile.thinkingHistoryPolicy ?? 'preserve'
     const requestMessages = enableThinking ? applyThinkingHistoryPolicy(messages, thinkingHistoryPolicy) : messages
-
-    if (shouldUseCache) {
-      const cachedResponse = await tryGetCachedResponse(
-        requestMessages,
-        systemPromptContent,
-        modelProfile.modelName,
-        shouldStream,
-        enableThinking,
-        emitChunkEvents,
-        signal,
-        sessionId
-      )
-      if (cachedResponse) {
-        // 缓存命中时也记录请求和响应
-        logLLMRequest({ cached: true, model: modelProfile.modelName, messages: requestMessages }, sessionId)
-        logLLMResponse(cachedResponse, sessionId)
-        return cachedResponse
-      }
-    }
 
     // 根据模型配置的 adapt 字段路由到不同的查询函数
     let result: AiMessage
@@ -120,18 +99,6 @@ export async function queryLLM(
     if (!signal.aborted && result.message.content.length === 0) {
       logError(`API返回空响应: messageId=${result.message.id}, model=${modelProfile.modelName}, stopReason=${result.message.stop_reason}`)
       throw new Error(t('error.emptyResponse'))
-    }
-
-    // 保存到缓存（仅当内容或工具调用非空时，且未被中断）
-    if (shouldUseCache && !signal.aborted) {
-      const hasContent = result.message.content.some(block =>
-        (block.type === 'text' && block.text.trim().length > 0) ||
-        block.type === 'tool_use'
-      )
-      if (hasContent) {
-        setCachedResponse(requestMessages, systemPromptContent, modelProfile.modelName, result, enableThinking)
-        logDebug(`LLM响应已缓存，当前缓存条目数: ${getCacheSize()}`)
-      }
     }
 
     return result
@@ -236,7 +203,6 @@ export async function queryQuick({
   systemPrompt?: Array<{ type: 'text', text: string }>
   userPrompt: string
   signal?: AbortSignal
-  enableLLMCache?: boolean | null
   sessionId?: string
 }): Promise<AiMessage> {
   const messages = [

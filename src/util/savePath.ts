@@ -124,20 +124,6 @@ export function getTracksDir(): string {
 }
 
 /**
- * 获取缓存目录路径
- */
-export function getCacheDir(): string {
-  return path.join(getSemaRootDir(), 'cache');
-}
-
-/**
- * 获取LLM缓存文件路径
- */
-export function getLLMCacheFilePath(): string {
-  return path.join(getCacheDir(), 'llm-cache.json');
-}
-
-/**
  * 获取事件日志目录路径
  */
 export function getEventDir(): string {

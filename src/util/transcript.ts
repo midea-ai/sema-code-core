@@ -10,6 +10,8 @@
  *   任一配置了 hook 才写，没配的用户零开销；每次 sync 时判断，中途刷新配置即生效
  * - 懒创建：首次有未写消息时建文件并用当时内存历史补种；恢复会话若已有文件则把当前内存消息视为已写
  * - 不随会话结束删除，退场跟随历史 JSON（history.ts 删 .json 时顺带删同主干 .jsonl）
+ * - 加密：传了 encryption 时文件名带 .enc、每行一条密文（hook 程序收到的 transcript_path 就是密文路径）；
+ *   首次写密文时删掉同主干的旧明文
  */
 
 import * as fs from 'fs';
@@ -21,6 +23,7 @@ import { resolveHistoryFile } from './history';
 import { getHistoryFilePath } from './savePath';
 import { readInitialCwd } from './cwd';
 import { logWarn } from './log';
+import { isEncName, sealLine, secureName, stripEnc } from './cipher';
 
 // 带 transcript_path 的事件：任一配置了 hook 即开启写入
 const TRANSCRIPT_EVENTS = ['Stop', 'PreCompact', 'SubagentStart', 'SubagentStop'];
@@ -65,7 +68,8 @@ function serializeLine(message: Message, parentUuid: string | null, sessionId: s
   };
   if (compactSummaries.has(message)) line.isCompactSummary = true;
   line.message = { ...message.message, content: stripImages(message.message.content) };
-  return JSON.stringify(line) + '\n';
+  // 有密钥时整条 JSON 变成一行密文
+  return sealLine(JSON.stringify(line)) + '\n';
 }
 
 interface AgentCursor {
@@ -83,10 +87,10 @@ export class TranscriptWriter {
 
   constructor(private readonly sessionId: string) {}
 
-  /** transcript 文件路径（可选子代理）；文件不一定已创建 */
+  /** transcript 文件路径（可选子代理，开启加密时带 .enc）；文件不一定已创建 */
   getPath(projectPath: string | undefined, noDate: boolean, agentId: string = MAIN_AGENT_ID): string {
     const stem = this.resolveStem(projectPath, noDate);
-    return agentId === MAIN_AGENT_ID ? `${stem}.jsonl` : `${stem}.agent-${agentId}.jsonl`;
+    return secureName(agentId === MAIN_AGENT_ID ? `${stem}.jsonl` : `${stem}.agent-${agentId}.jsonl`);
   }
 
   /**
@@ -122,6 +126,11 @@ export class TranscriptWriter {
       if (pending.length === 0) return;
 
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      // 首次写密文时清掉升级前留下的同主干明文
+      if (isEncName(filePath) && !fs.existsSync(filePath)) {
+        const plain = stripEnc(filePath);
+        if (fs.existsSync(plain)) fs.unlinkSync(plain);
+      }
       fs.appendFileSync(filePath, lines.join(''));
       for (const message of pending) cursor.written.add(message.uuid);
       cursor.lastUuid = parentUuid;
@@ -139,7 +148,8 @@ export class TranscriptWriter {
   private resolveStem(projectPath: string | undefined, noDate: boolean): string {
     if (!this.stem) {
       const resolved = resolveHistoryFile(this.sessionId, projectPath);
-      const jsonPath = resolved.exists ? resolved.path : getHistoryFilePath(this.sessionId, projectPath, noDate);
+      // 历史文件可能是 .json.enc，主干按明文名取
+      const jsonPath = stripEnc(resolved.exists ? resolved.path : getHistoryFilePath(this.sessionId, projectPath, noDate));
       this.stem = jsonPath.slice(0, -'.json'.length);
     }
     return this.stem;

@@ -14,9 +14,14 @@ import {
 } from '../conf/config';
 import { nowMillis } from './time';
 import { getConfManager } from '../manager/ConfManager';
+import { openLine, resolveSecurePath, stripEnc, writeSecureFile } from './cipher';
+import { SemaError } from './errors';
 
 // 清理历史文件的时间间隔（毫秒）
 let lastHistoryCleanupTime: number = 0;
+
+// 加密：传了 encryption 时历史写成 <原名>.json.enc（整个文件一行密文），读时密文优先；
+// 清理与删除按去掉 .enc 后的名字判断文件类型
 
 // 历史数据结构
 interface HistoryData {
@@ -27,24 +32,34 @@ interface HistoryData {
   goal?: GoalState;
 }
 
+export interface ResolvedHistoryFile {
+  /** 实际存在的文件路径；不存在时为将要写入的路径（开启加密时带 .enc） */
+  path: string;
+  noDate: boolean;
+  exists: boolean;
+  /** 文件是密文（.enc） */
+  encrypted: boolean;
+}
+
 /**
  * 解析会话当前应使用的历史文件路径与命名格式。
- * 优先级：无日期 会话id.json > 当天带日期 日期_会话id.json > 目录扫描任意日期 日期_会话id.json（跨天恢复）。
+ * 优先级：无日期 会话id.json > 当天带日期 日期_会话id.json > 目录扫描任意日期 日期_会话id.json（跨天恢复）；
+ * 每一级密文（.json.enc）优先于明文。
  * 都不存在时返回当天带日期路径，exists=false（由调用方决定新会话的命名格式）。
  */
-export function resolveHistoryFile(sessionId: string, projectPath?: string): { path: string; noDate: boolean; exists: boolean } {
-  const noDatePath = getHistoryFilePath(sessionId, projectPath, true);
-  if (fs.existsSync(noDatePath)) return { path: noDatePath, noDate: true, exists: true };
+export function resolveHistoryFile(sessionId: string, projectPath?: string): ResolvedHistoryFile {
+  const noDate = resolveSecurePath(getHistoryFilePath(sessionId, projectPath, true));
+  if (noDate.exists) return { path: noDate.path, noDate: true, exists: true, encrypted: noDate.encrypted };
 
-  const datedPath = getHistoryFilePath(sessionId, projectPath, false);
-  if (fs.existsSync(datedPath)) return { path: datedPath, noDate: false, exists: true };
+  const dated = resolveSecurePath(getHistoryFilePath(sessionId, projectPath, false));
+  if (dated.exists) return { path: dated.path, noDate: false, exists: true, encrypted: dated.encrypted };
 
   // 带日期文件的日期是创建当天的，跨天恢复时上面拼"今天"必然落空，需扫描目录匹配任意日期
   const historyDir = projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
   try {
-    // 文件名固定为 YYYY-MM-DD_会话id.json（前缀 11 字符），用字符串比较而非拼正则，兼容含特殊字符的会话 id
+    // 文件名固定为 YYYY-MM-DD_会话id.json[.enc]（前缀 11 字符），用字符串比较而非拼正则，兼容含特殊字符的会话 id
     const candidates = fs.readdirSync(historyDir).filter(file =>
-      /^\d{4}-\d{2}-\d{2}_/.test(file) && file.slice(11) === `${sessionId}.json`
+      /^\d{4}-\d{2}-\d{2}_/.test(file) && stripEnc(file).slice(11) === `${sessionId}.json`
     );
     if (candidates.length > 0) {
       const latest = candidates
@@ -53,26 +68,29 @@ export function resolveHistoryFile(sessionId: string, projectPath?: string): { p
           return { path: filePath, mtime: fs.statSync(filePath).mtime.getTime() };
         })
         .sort((a, b) => b.mtime - a.mtime)[0];
-      return { path: latest.path, noDate: false, exists: true };
+      return { path: latest.path, noDate: false, exists: true, encrypted: latest.path !== stripEnc(latest.path) };
     }
   } catch {
     // 目录不存在或读取失败，按未命中处理
   }
 
-  return { path: datedPath, noDate: false, exists: false };
+  return { path: dated.path, noDate: false, exists: false, encrypted: dated.encrypted };
 }
 
 /**
- * 加载历史消息和todos
+ * 加载历史消息和todos。
+ * 密文无密钥抛 HISTORY_KEY_REQUIRED、解不开抛 HISTORY_DECRYPT_FAILED（createSession 据此失败，文件原样保留），
+ * 其余读取 / 解析错误按空会话继续
  */
 export async function loadHistory(sessionId?: string, projectPath?: string): Promise<HistoryData> {
   if (!sessionId) return { messages: [], todos: [] };
 
-  const { path: historyPath, exists } = resolveHistoryFile(sessionId, projectPath);
+  const { path: historyPath, exists, encrypted } = resolveHistoryFile(sessionId, projectPath);
 
   try {
     if (exists) {
-      const historyData: HistoryData = JSON.parse(fs.readFileSync(historyPath, 'utf-8'));
+      const raw = fs.readFileSync(historyPath, 'utf-8');
+      const historyData: HistoryData = JSON.parse(encrypted ? openLine(raw).toString('utf8') : raw);
       const messages = historyData.messages || [];
       const todos = historyData.todos || [];
       const todoTasks = historyData.todoTasks || [];
@@ -84,17 +102,25 @@ export async function loadHistory(sessionId?: string, projectPath?: string): Pro
       return { messages: [], todos: [] };
     }
   } catch (error) {
+    // 密钥对不上不能当空会话继续：下一次保存会把原文件覆盖掉
+    if (error instanceof SemaError) throw error;
     logWarn(`加载历史失败: ${error instanceof Error ? error.message : String(error)}`);
     return { messages: [], todos: [] };
   }
 }
 
 /**
- * 会话记录文件（<主干>.jsonl / <主干>.agent-<agentId>.jsonl）是否属于指定历史主干。
+ * 会话记录文件（<主干>.jsonl / <主干>.agent-<agentId>.jsonl，可带 .enc）是否属于指定历史主干。
  * transcript 退场跟随历史 JSON：删某个 .json 时顺带删同主干的全部 .jsonl；数量上限只数 .json
  */
 function isTranscriptOf(file: string, stem: string): boolean {
-  return file === `${stem}.jsonl` || (file.startsWith(`${stem}.agent-`) && file.endsWith('.jsonl'));
+  const name = stripEnc(file);
+  return name === `${stem}.jsonl` || (name.startsWith(`${stem}.agent-`) && name.endsWith('.jsonl'));
+}
+
+/** 历史 JSON 文件名（可带 .enc）的主干：去掉 .enc 与 .json */
+function historyStem(file: string): string {
+  return stripEnc(file).slice(0, -'.json'.length);
 }
 
 /**
@@ -107,9 +133,7 @@ function cleanupProjectHistoryFiles(projectHistoryDir: string): void {
     }
 
     const files = fs.readdirSync(projectHistoryDir);
-    const historyFiles = files.filter(file =>
-      file.endsWith('.json') && /^\d{4}-\d{2}-\d{2}_.+\.json$/.test(file)
-    );
+    const historyFiles = files.filter(file => /^\d{4}-\d{2}-\d{2}_.+\.json$/.test(stripEnc(file)));
 
     if (historyFiles.length <= PER_PROJECT_HISTORY_LENGTH_LIMIT) {
       return;
@@ -125,7 +149,7 @@ function cleanupProjectHistoryFiles(projectHistoryDir: string): void {
     const filesToDelete = filesWithStats.slice(PER_PROJECT_HISTORY_LENGTH_LIMIT);
 
     for (const file of filesToDelete) {
-      const stem = file.name.slice(0, -'.json'.length);
+      const stem = historyStem(file.name);
       const targets = [file.name, ...files.filter(name => isTranscriptOf(name, stem))];
       for (const name of targets) {
         try {
@@ -173,7 +197,7 @@ function cleanupInactiveProjects(): void {
       try {
         const files = fs.readdirSync(dirPath);
         for (const file of files) {
-          if (file.endsWith('.json')) {
+          if (stripEnc(file).endsWith('.json')) {
             const stats = fs.statSync(path.join(dirPath, file));
             if (stats.mtime > latestMtime) {
               latestMtime = stats.mtime;
@@ -281,7 +305,7 @@ export function deleteSessionHistory(sessionId: string, projectPath?: string): v
   const historyDir = getProjectHistoryDir(target);
   try {
     if (fs.existsSync(historyDir)) {
-      const isSessionFile = (name: string) => name === `${sessionId}.json` || isTranscriptOf(name, sessionId);
+      const isSessionFile = (name: string) => stripEnc(name) === `${sessionId}.json` || isTranscriptOf(name, sessionId);
       const targets = fs.readdirSync(historyDir).filter(file =>
         isSessionFile(file) ||
         (/^\d{4}-\d{2}-\d{2}_/.test(file) && isSessionFile(file.slice(11)))
@@ -306,18 +330,12 @@ export function deleteSessionHistory(sessionId: string, projectPath?: string): v
  * 保存历史消息和todos
  */
 export async function saveHistory(sessionId: string, messages: Message[], todos?: TodoItem[], projectPath?: string, readFileTimestamps?: Record<string, number>, todoTasks?: TodoTask[], noDate?: boolean, goal?: GoalState): Promise<void> {
-  const historyDir = projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
   // 已有历史文件时写回原文件（旧日期文件跨天/跨零点继续沿用，不按今天日期另起新文件），
-  // 不存在时才按 noDate 决定新文件命名格式
+  // 不存在时才按 noDate 决定新文件命名格式。按明文名定位，开启加密时 writeSecureFile 写 .enc 并删掉同名明文
   const resolved = resolveHistoryFile(sessionId, projectPath);
-  const historyPath = resolved.exists ? resolved.path : getHistoryFilePath(sessionId, projectPath, noDate);
+  const historyPath = stripEnc(resolved.exists ? resolved.path : getHistoryFilePath(sessionId, projectPath, noDate));
 
   try {
-    // 确保目录存在
-    if (!fs.existsSync(historyDir)) {
-      fs.mkdirSync(historyDir, { recursive: true });
-    }
-
     const historyData: HistoryData = {
       messages,
       todos: todos || [],
@@ -326,7 +344,7 @@ export async function saveHistory(sessionId: string, messages: Message[], todos?
       ...(goal && { goal })
     };
 
-    fs.writeFileSync(historyPath, JSON.stringify(historyData, null, 2));
+    writeSecureFile(historyPath, JSON.stringify(historyData, null, 2));
     logInfo(`保存历史消息 ${messages.length} 条，todos ${(todos || []).length} 项，readFileTimestamps ${Object.keys(readFileTimestamps || {}).length} 项到 ${historyPath}`);
 
     // 定时清理历史文件（每小时最多执行一次）

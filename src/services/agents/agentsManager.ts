@@ -17,6 +17,8 @@ import { DEFAULT_BUILT_IN_AGENTS_CONFS } from '../../prompt/agents'
 import { isToolAlias, normalizeToolName } from '../../prompt/toolAliases'
 import { getPluginsManager } from '../plugins/pluginsManager'
 import { t } from '../../util/i18n'
+import { assertScopeEnabled, getHostConfig, isScopeEnabled } from '../../conf/hostConfig'
+import { hostReadonlyError } from '../../util/errors'
 
 /**
  * Agents 管理器类 - 单例模式
@@ -64,21 +66,49 @@ class AgentsManager {
   private async loadAgents(): Promise<Map<string, AgentConfig>> {
     const target = new Map<string, AgentConfig>()
 
-    // 1. 内置 agents - 最低优先级
-    this.loadBuiltInAgents(target)
+    // 1. 内置 agents - 最低优先级（域没生效时不加载）
+    if (isScopeEnabled('agents', 'builtin')) this.loadBuiltInAgents(target)
 
-    // 2. 插件 agents
+    // 2. 插件 agents（插件按安装位置的域由 pluginsManager 过滤）
     await this.loadAgentsFromPlugins(target)
 
     // 3. 用户级
-    await this.loadAgentsFromDir(target, this.semaUserAgentsDir, 'user')
+    if (isScopeEnabled('agents', 'user')) await this.loadAgentsFromDir(target, this.semaUserAgentsDir, 'user')
 
-    // 4. 项目级 - 最高优先级
-    await this.loadAgentsFromDir(target, this.semaProjectAgentsDir, 'project')
+    // 4. 项目级
+    if (isScopeEnabled('agents', 'project')) await this.loadAgentsFromDir(target, this.semaProjectAgentsDir, 'project')
+
+    // 5. host 域（宿主构造时传入）- 最高优先级，同名盖掉其他域的
+    await this.loadHostAgents(target)
 
     const agentNames = Array.from(target.keys()).join(', ')
     logInfo(`加载 Agents 配置: ${agentNames}`)
     return target
+  }
+
+  /**
+   * 加载宿主传入的 agents：dirs 为明文目录（按目录解析，locate 'host'），items 为内联（正文只在内存，private）
+   */
+  private async loadHostAgents(target: Map<string, AgentConfig>): Promise<void> {
+    const { items, dirs } = getHostConfig().agents
+    for (const dir of dirs ?? []) {
+      await this.loadAgentsFromDir(target, dir, 'host')
+    }
+    for (const item of items ?? []) {
+      if (target.has(item.name)) {
+        logDebug(`Agent [${item.name}] 被 host 内联配置覆盖`)
+      }
+      target.set(item.name, {
+        name: item.name,
+        description: item.description,
+        tools: item.tools ?? '*',
+        model: item.model ?? 'quick',
+        prompt: item.prompt,
+        locate: 'host',
+        private: true,
+      })
+    }
+    if (items?.length) logDebug(`加载 host 内联 Agents: ${items.length} 个`)
   }
 
   /**
@@ -135,7 +165,7 @@ class AgentsManager {
   /**
    * 从指定目录加载 agent 配置
    */
-  private async loadAgentsFromDir(target: Map<string, AgentConfig>, dirPath: string, scope: 'user' | 'project'): Promise<void> {
+  private async loadAgentsFromDir(target: Map<string, AgentConfig>, dirPath: string, scope: 'user' | 'project' | 'host'): Promise<void> {
     try {
       if (!fs.existsSync(dirPath)) {
         logDebug(`Agents 目录不存在: ${dirPath}`)
@@ -153,14 +183,13 @@ class AgentsManager {
 
       // 统计加载数量
       let loadedCount = 0
-      const locateValue = scope === 'user' ? 'user' : 'project'
       for (const agentConfig of agentConfigs) {
         if (agentConfig) {
           // 如果已存在同名 agent，记录覆盖日志
           if (target.has(agentConfig.name)) {
             logDebug(`Agent [${agentConfig.name}] 被 ${scope} 级配置覆盖`)
           }
-          target.set(agentConfig.name, { ...agentConfig, locate: locateValue })
+          target.set(agentConfig.name, { ...agentConfig, locate: scope })
           loadedCount++
         }
       }
@@ -270,14 +299,16 @@ class AgentsManager {
     // 先加载到新 Map，此时 agentConfigs 与缓存仍是旧的
     const next = await this.loadAgents()
 
+    // 内联（private）agent 的正文只留在 agentConfigs，查询接口里为 ''
     const agentInfos = Array.from(next.values()).map(config => ({
       name: config.name,
       description: config.description,
       tools: config.tools,
       model: config.model,
-      prompt: config.prompt,
+      prompt: config.private ? '' : config.prompt,
       locate: config.locate as AgentScope,
-      filePath: config.filePath
+      filePath: config.filePath,
+      ...(config.private ? { private: true } : {}),
     }))
 
     // 同步一次性发布：重载期间 getAgentConfig / getAgentTypesDescription 始终读到完整的旧值，
@@ -402,6 +433,11 @@ class AgentsManager {
     if (!agentConf.locate || (agentConf.locate !== 'project' && agentConf.locate !== 'user')) {
       throw new Error(t('agent.addInvalidLocate'))
     }
+    // 目标域没生效报 SCOPE_DISABLED；与 host 条目同名报 HOST_READONLY
+    assertScopeEnabled('agents', agentConf.locate)
+    if (this.agentConfigs.get(agentConf.name)?.locate === 'host') {
+      throw hostReadonlyError('Agent', agentConf.name)
+    }
 
     // 如果已存在同名 agent，记录覆盖日志
     if (this.agentConfigs.has(agentConf.name)) {
@@ -434,6 +470,9 @@ class AgentsManager {
     if (agentConf.locate === 'builtin') {
       logWarn(`移除 Agent 失败: 内置 Agent 不可移除 [${name}]`)
       return this.getAgentsInfo()
+    }
+    if (agentConf.locate === 'host') {
+      throw hostReadonlyError('Agent', name)
     }
 
     this.agentConfigs.delete(name)

@@ -259,7 +259,9 @@ export class SemaEngine {
     const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
     mainAgentState.updateState('processing');
 
-    logInfo(`用户输入(${inputs.length}条): ${inputs.map(i => i.input).join(' | ')}`);
+    // 正文只进 debug 级：info 及以上不打印消息内容
+    logInfo(`用户输入(${inputs.length}条)`);
+    logDebug(`用户输入内容: ${inputs.map(i => i.input).join(' | ')}`);
 
     // 创建新的 AbortController 用于此次处理
     this.runtime.currentAbortController = new AbortController();
@@ -427,7 +429,7 @@ export class SemaEngine {
         agentContext.tools = [...agentContext.tools, CompleteGoal as unknown as Tool];
       }
 
-      logInfo(`返回文件引用信息: ${JSON.stringify(allSupplementaryInfo, null, 2)}`)
+      logDebug(`返回文件引用信息: ${JSON.stringify(allSupplementaryInfo, null, 2)}`)
       if (allSupplementaryInfo.length > 0) {
         this.emit('file:reference', { references: allSupplementaryInfo });
       }

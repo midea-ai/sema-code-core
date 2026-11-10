@@ -19,7 +19,10 @@ export interface CreateSessionOptions {
   quickModel?: string;
 }
 
-/** 创建会话的结果（超限等失败场景返回明确错误，不抛异常） */
+/**
+ * 创建会话的结果（超限等失败场景返回明确错误，不抛异常）。
+ * code 为稳定错误码（见 util/errors.ts），如历史密文解不开的 HISTORY_DECRYPT_FAILED；没有对应错误码时缺省
+ */
 export type CreateSessionResult =
   | { ok: true; session: SemaSession }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: string };

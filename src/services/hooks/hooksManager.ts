@@ -2,8 +2,9 @@
  * Hooks 管理器
  *
  * 负责 hooks.json 的加载、合并、校验、缓存与 matcher 匹配。
- * 加载顺序：已启用插件(<插件目录>/hooks/hooks.json) → 用户级(~/.sema/hooks/hooks.json)
+ * 加载顺序：宿主传入(host 域) → 已启用插件(<插件目录>/hooks/hooks.json) → 用户级(~/.sema/hooks/hooks.json)
  * → 项目级(<workingDir>/.sema/hooks/hooks.json)，同一事件的条目按加载顺序追加（不覆盖）。
+ * 用户级 / 项目级只在对应域生效时加载（scopes.hooks，见 conf/hostConfig.ts）。
  */
 
 import * as fs from 'fs'
@@ -15,6 +16,7 @@ import { getSemaRootDir } from '../../util/savePath'
 import { readInitialCwd } from '../../util/cwd'
 import { getPluginsManager } from '../plugins/pluginsManager'
 import { expandPluginRoot } from '../../prompt/toolAliases'
+import { getHostConfig, isScopeEnabled } from '../../conf/hostConfig'
 import {
   HOOK_EVENTS,
   TOOL_HOOK_EVENTS,
@@ -39,7 +41,8 @@ type MatcherPredicate = (genericName?: string, semaName?: string) => boolean
 // 一个待加载的 hooks 配置文件及其来源
 interface HookFileSource {
   source: HookSource
-  filePath: string
+  filePath: string // host 来源为 ''（内容在 raw 里，不读文件）
+  raw?: RawHooksFile // 仅 host 来源：宿主传入的内容
   pluginName?: string // 仅插件来源
   pluginRoot?: string // 仅插件来源：插件安装目录，用于展开命令中的插件根目录变量
 }
@@ -135,23 +138,34 @@ class HooksManager {
     const parseErrors: HooksInfo['parseErrors'] = []
     const allEntries: LoadedHookEntry[] = []
     const rawByFile = new Map<string, string>()
+    // 域没生效的那层：不读文件，视图里路径为 ''、存在标记为 false
+    const userEnabled = isScopeEnabled('hooks', 'user')
+    const projectEnabled = isScopeEnabled('hooks', 'project')
     let userExists = false
     let projectExists = false
 
     try {
-      userExists = fs.existsSync(this.userConfigPath)
-      projectExists = fs.existsSync(this.projectConfigPath)
+      userExists = userEnabled && fs.existsSync(this.userConfigPath)
+      projectExists = projectEnabled && fs.existsSync(this.projectConfigPath)
 
-      // 插件 → 用户级 → 项目级，条目追加不覆盖（顺序即同一事件下的执行先后）
-      const files: HookFileSource[] = [...await this.listPluginHookFiles()]
+      // host → 插件 → 用户级 → 项目级，条目追加不覆盖（顺序即同一事件下的执行先后）
+      const files: HookFileSource[] = []
+      const hostHooks = getHostConfig().hooks
+      if (hostHooks) files.push({ source: 'host', filePath: '', raw: { hooks: hostHooks } })
+      files.push(...await this.listPluginHookFiles())
       if (userExists) files.push({ source: 'user', filePath: this.userConfigPath })
       if (projectExists) files.push({ source: 'project', filePath: this.projectConfigPath })
 
       for (const file of files) {
         try {
-          const raw = await fsPromises.readFile(file.filePath, 'utf-8')
-          const parsed = JSON.parse(raw) as RawHooksFile
-          rawByFile.set(file.filePath, raw)
+          let parsed: RawHooksFile
+          if (file.raw) {
+            parsed = file.raw
+          } else {
+            const raw = await fsPromises.readFile(file.filePath, 'utf-8')
+            parsed = JSON.parse(raw) as RawHooksFile
+            rawByFile.set(file.filePath, raw)
+          }
           allEntries.push(...this.parseHooksFile(parsed, file))
         } catch (error) {
           // 单个文件解析失败只记 parseErrors，不影响其他来源
@@ -199,15 +213,16 @@ class HooksManager {
         timeout: entry.timeoutRaw,
         status: entry.status,
         statusReason: entry.statusReason,
-        filePath: locateEvent(entry.configPath, entry.event),
+        // host 条目没有配置文件，不给定位
+        ...(entry.configPath ? { filePath: locateEvent(entry.configPath, entry.event) } : {}),
       })
     }
 
     this.entriesByEvent = entriesByEvent
     this.matcherCache.clear()
     this.infoCache = {
-      userConfigPath: this.userConfigPath,
-      projectConfigPath: this.projectConfigPath,
+      userConfigPath: userEnabled ? this.userConfigPath : '',
+      projectConfigPath: projectEnabled ? this.projectConfigPath : '',
       userConfigExists: userExists,
       projectConfigExists: projectExists,
       parseErrors,

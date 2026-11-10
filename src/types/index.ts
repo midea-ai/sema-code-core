@@ -34,7 +34,6 @@ export interface SemaCoreConfig {
   skipFetchUrlPermission?: boolean;  // 是否跳过fetch_url权限检查，默认 否
   fetchUrlBrowserUserAgent?: boolean; // fetch_url 是否以浏览器身份（Chrome User-Agent）发请求，默认 否；关闭时用工具自身标识
   skipExternalFileReadPermission?: boolean; // 是否跳过项目外文件读取权限检查，默认 否
-  enableLLMCache?: boolean;          // 是否开启LLM缓存，默认 否 建议只在重复测试时使用
   useTools?: string[] | null;        // 限定使用的工具（白名单）默认 null 使用所有工具
   disabledTools?: string[] | null;   // 禁用的工具（黑名单）默认 null 不禁用；与 useTools 同时传时优先生效
   agentMode?: AgentMode;             // 默认 'Agent'
@@ -56,6 +55,20 @@ export interface SemaCoreConfig {
   maxSessions?: number;              // 同时存在的会话上限，不传则不限制
   usageProduct?: string;             // 使用统计的产品标识（如 sema-code-vscode、sema-code-jb、sema-webui），
                                      // 不传或空串则不采集（不建目录、不注册监听、不起定时器）；仅构造时生效
+
+  // ---- 来源限定（见 types/host.ts）：host 域内容与各类生效的域，都只在构造时生效；插件没有 host 域，只有 scopes.plugins ----
+  models?: import('./host').ModelsInput;           // 宿主内置的模型与指针；host 模型只读，查询接口不回传 apiKey
+  mcpServers?: import('./host').MCPServerInput[];  // 宿主内置的 MCP 服务；查询接口与状态事件里 env / headers 值打码
+  hooks?: import('./host').HooksInput;             // 宿主内置的 hook（hooks.json 的 hooks 字段）
+  skills?: import('./host').SkillsInput;           // 宿主内置的 skill：items 内联（正文只在内存）、dirs 明文目录
+  agents?: import('./host').AgentsInput;           // 宿主内置的子代理，结构同 skills
+  commands?: import('./host').CommandsInput;       // 宿主内置的命令，结构同 skills
+  scopes?: import('./host').ScopesConfig;          // 各类生效的域，不写 = 全部生效
+
+  // ---- 持久化保护 ----
+  encryption?: import('./host').EncryptionConfig;  // 会话历史、hook 会话记录、快照加密；仅构造时生效，密钥只在内存
+  disableLLMLog?: boolean;           // 不写模型调用日志（llm_logs 与 tracks 归档）；缺省：没传 encryption 为 false，传了为 true；支持运行期更新
+  disableEventLog?: boolean;         // 不写事件日志（event 目录）；缺省规则同上；支持运行期更新
 }
 
 // 支持动态更新的核心配置字段（从默认配置派生）
@@ -75,10 +88,12 @@ export const defaultCoreConfig = {
   skipExternalFileReadPermission: false,
   systemPrompt: DEFINE_SYSTEM_PROMPT,
   customRules: '',
-  enableLLMCache: false,
   disableBackgroundTasks: false,
   enableToolSearch: false,
   enableInputPrediction: false,
+  // 实际缺省由 ConfManager.setCoreConfig 按是否传 encryption 决定，这里只是让字段进入可更新键集合
+  disableLLMLog: false,
+  disableEventLog: false,
 };
 
 // 可更新的核心配置类型（基于默认配置）
@@ -149,6 +164,7 @@ export interface ModelUpdateData {
     image?: string;          // 文生图模型指针，空串表示未启用
   };
   imageModelList?: string[]; // 文生图模型列表（与 modelList 分开）
+  hostModels?: string[];     // 来自宿主（host 域）的模型名，含对话与文生图模型；只读，不可删改
 }
 
 // 文件引用信息
@@ -287,4 +303,23 @@ export type {
 
 // 长期目标（/goal）：getGoal 返回值与 goal:update 事件载荷
 export type { GoalState, GoalStatus, GoalInputMark } from './goal';
+
+// 来源限定与持久化保护：构造参数里 host 域内容、生效域、加密与日志档位的类型
+export type {
+  ModelsInput,
+  MCPServerInput,
+  HooksInput,
+  SkillInput,
+  SkillsInput,
+  AgentInput,
+  AgentsInput,
+  CommandInput,
+  CommandsInput,
+  ScopesConfig,
+  EncryptionConfig,
+} from './host';
+
+// 稳定错误码：createSession 失败结果的 code 与写接口抛出的 SemaError.code
+export { SemaError, ERROR_CODES } from '../util/errors';
+export type { SemaErrorCode } from '../util/errors';
 

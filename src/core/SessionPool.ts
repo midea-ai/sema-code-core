@@ -5,6 +5,7 @@ import { getCronManager } from '../manager/CronManager';
 import { getStateManager } from '../manager/StateManager';
 import { logWarn } from '../util/log';
 import { t } from '../util/i18n';
+import { errorCodeOf } from '../util/errors';
 
 /**
  * 会话池 - 管理多会话的创建、查找与销毁。
@@ -39,7 +40,8 @@ class SessionPool {
       return { ok: true, session };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      return { ok: false, error: t('session.initFailed', { error: msg }) };
+      // 历史密文解不开等失败带稳定错误码（HISTORY_KEY_REQUIRED / HISTORY_DECRYPT_FAILED），宿主据此提示
+      return { ok: false, error: t('session.initFailed', { error: msg }), code: errorCodeOf(error) };
     }
   };
 

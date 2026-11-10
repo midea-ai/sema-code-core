@@ -19,6 +19,8 @@ import { parseFile } from '../../util/formatter'
 import { getPluginsManager } from '../plugins/pluginsManager'
 import { CommandConfig } from '../../types/command'
 import { t } from '../../util/i18n'
+import { assertScopeEnabled, getHostConfig, isScopeEnabled } from '../../conf/hostConfig'
+import { hostReadonlyError } from '../../util/errors'
 
 
 /**
@@ -68,14 +70,17 @@ class CommandsManager {
   private async loadCommands(): Promise<Map<string, CommandConfig>> {
     const target = new Map<string, CommandConfig>()
 
-    // 1. 插件 commands - 最低优先级
+    // 1. 插件 commands - 最低优先级（插件按安装位置的域由 pluginsManager 过滤）
     await this.loadCommandsFromPlugins(target)
 
     // 2. 用户级
-    await this.loadCommandsFromDir(target, this.semaUserCommandsDir, 'user')
+    if (isScopeEnabled('commands', 'user')) await this.loadCommandsFromDir(target, this.semaUserCommandsDir, 'user')
 
-    // 3. 项目级 - 最高优先级
-    await this.loadCommandsFromDir(target, this.semaProjectCommandsDir, 'project')
+    // 3. 项目级
+    if (isScopeEnabled('commands', 'project')) await this.loadCommandsFromDir(target, this.semaProjectCommandsDir, 'project')
+
+    // 4. host 域（宿主构造时传入）- 最高优先级，同名盖掉其他域的
+    await this.loadHostCommands(target)
 
     const commandNames = Array.from(target.keys()).join(', ')
     logInfo(`加载 Commands 配置: ${commandNames}`)
@@ -83,10 +88,35 @@ class CommandsManager {
   }
 
   /**
+   * 加载宿主传入的 commands：dirs 为明文目录（按目录解析，locate 'host'），items 为内联（正文只在内存，private）
+   */
+  private async loadHostCommands(target: Map<string, CommandConfig>): Promise<void> {
+    const { items, dirs } = getHostConfig().commands
+    for (const dir of dirs ?? []) {
+      await this.loadCommandsFromDir(target, dir, 'host')
+    }
+    for (const item of items ?? []) {
+      if (target.has(item.name)) {
+        logDebug(`Command [${item.name}] 被 host 内联配置覆盖`)
+      }
+      const argumentHint = typeof item.argumentHint === 'string' ? this.normalizeArgumentHint(item.argumentHint) : item.argumentHint
+      target.set(item.name, {
+        name: item.name,
+        description: item.description,
+        ...(argumentHint !== undefined ? { argumentHint } : {}),
+        prompt: item.prompt,
+        locate: 'host',
+        private: true,
+      })
+    }
+    if (items?.length) logDebug(`加载 host 内联 Commands: ${items.length} 个`)
+  }
+
+  /**
    * 从指定目录递归加载 command 配置
    * 每个 command 为 .md 文件，命令名由相对路径生成
    */
-  private async loadCommandsFromDir(target: Map<string, CommandConfig>, dirPath: string, scope: 'user' | 'project'): Promise<void> {
+  private async loadCommandsFromDir(target: Map<string, CommandConfig>, dirPath: string, scope: 'user' | 'project' | 'host'): Promise<void> {
     try {
       if (!fs.existsSync(dirPath)) {
         logDebug(`Commands 目录不存在: ${dirPath}`)
@@ -244,13 +274,15 @@ class CommandsManager {
     // 先加载到新 Map，此时 commandConfigs 与缓存仍是旧的
     const next = await this.loadCommands()
 
+    // 内联（private）command 的正文只留在 commandConfigs，查询接口里为 ''
     const commandInfos = Array.from(next.values()).map(config => ({
       name: config.name,
       description: config.description,
       argumentHint: config.argumentHint,
-      prompt: config.prompt,
+      prompt: config.private ? '' : config.prompt,
       locate: config.locate,
-      filePath: config.filePath
+      filePath: config.filePath,
+      ...(config.private ? { private: true } : {}),
     }))
 
     // 同步一次性发布：重载期间 getCommandConfig / getCommandsInfo 始终读到完整的旧值，不会读到空表或半截
@@ -376,6 +408,11 @@ class CommandsManager {
     if (!commandConf.locate || (commandConf.locate !== 'project' && commandConf.locate !== 'user')) {
       throw new Error(t('command.addInvalidLocate'))
     }
+    // 目标域没生效报 SCOPE_DISABLED；与 host 条目同名报 HOST_READONLY
+    assertScopeEnabled('commands', commandConf.locate)
+    if (this.commandConfigs.get(commandConf.name)?.locate === 'host') {
+      throw hostReadonlyError('Command', commandConf.name)
+    }
 
     if (this.commandConfigs.has(commandConf.name)) {
       logWarn(`Command [${commandConf.name}] 被覆盖`)
@@ -411,6 +448,9 @@ class CommandsManager {
     if (commandConf.locate === 'plugin') {
       logWarn(`移除 Command 失败: 插件 Command 不可移除 [${name}]`)
       return this.getCommandsInfo()
+    }
+    if (commandConf.locate === 'host') {
+      throw hostReadonlyError('Command', name)
     }
 
     this.commandConfigs.delete(name)

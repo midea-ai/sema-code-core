@@ -7,6 +7,7 @@ import { getProjectConfigFilePath} from '../util/savePath';
 import { readInitialCwd, updateInitialCwd } from '../util/cwd';
 import { getCurrentLocalTimeString } from '../util/time';
 import { logWarn, logError, logInfo, setLogLevel } from '../util/log';
+import { setHostConfig } from '../conf/hostConfig';
 
 /**
  * 配置管理器
@@ -26,11 +27,28 @@ export class ConfigManager {
   }
 
   /**
-   * 设置核心配置
+   * 设置核心配置。
+   * 宿主配置（host 域内容、生效域、密钥）的校验是同步的：不通过当场抛 SemaError(CONFIG_INVALID)，
+   * 不走返回的 Promise —— SemaCore 构造因此直接失败，不会留下一个配置没生效的实例。
+   * 其余初始化（workingDir 校验、项目配置等）在返回的 Promise 里。
    */
-  async setCoreConfig(config: SemaCoreConfig): Promise<void> {
+  setCoreConfig(config: SemaCoreConfig): Promise<void> {
+    // host 域内容、生效域与密钥集中存到 hostConfig；密钥不进 coreConfig，getCoreConfig 拿不到它
+    setHostConfig(config);
+    return this.applyCoreConfig(config);
+  }
+
+  private async applyCoreConfig(config: SemaCoreConfig): Promise<void> {
+    const { encryption, ...rest } = config;
+    // 模型调用日志与事件日志缺省跟随是否加密：没传密钥照常写，传了就不写
+    const disableLogs = encryption !== undefined && encryption !== null;
     // lang 归一化：不在 SUPPORTED_LANGUAGES 内一律 'zh'
-    this.coreConfig = this.applyDisabledTools({ ...config, lang: normalizeLang(config.lang) });
+    this.coreConfig = this.applyDisabledTools({
+      ...rest,
+      lang: normalizeLang(config.lang),
+      disableLLMLog: rest.disableLLMLog ?? disableLogs,
+      disableEventLog: rest.disableEventLog ?? disableLogs,
+    });
 
     // 设置日志级别（优先设置，确保后续日志能正确过滤）
     setLogLevel(config.logLevel || 'info');
@@ -97,7 +115,6 @@ export class ConfigManager {
     if (!allowedKeys.includes(key)) {
       throw new Error(`不支持更新字段 '${key}'，只支持以下字段: ${allowedKeys.join(', ')}`);
     }
-
     // 更新核心配置对象
     this.coreConfig = this.normalizeConfig({
       ...this.coreConfig,
@@ -125,7 +142,6 @@ export class ConfigManager {
     if (invalidKeys.length > 0) {
       throw new Error(`不支持更新字段: ${invalidKeys.join(', ')}，只支持以下字段: ${allowedKeys.join(', ')}`);
     }
-
     // 批量更新核心配置对象
     this.coreConfig = this.normalizeConfig({
       ...this.coreConfig,

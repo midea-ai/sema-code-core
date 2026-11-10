@@ -52,8 +52,8 @@ export interface RawHooksFile {
   [k: string]: unknown
 }
 
-// hook 条目来源：用户级 / 项目级配置文件，或已启用插件自带的 hooks/hooks.json
-export type HookSource = 'user' | 'project' | 'plugin'
+// hook 条目来源：宿主构造时传入 / 用户级 / 项目级配置文件，或已启用插件自带的 hooks/hooks.json
+export type HookSource = 'host' | 'user' | 'project' | 'plugin'
 
 // ==================== 合并后的可执行条目（内部） ====================
 
@@ -61,7 +61,7 @@ export interface LoadedHookEntry {
   event: string // 原样保留（未知事件名标 invalid 但保留在视图中）
   source: HookSource
   pluginName?: string // 仅 source === 'plugin'
-  configPath: string // 所属配置文件绝对路径
+  configPath: string // 所属配置文件绝对路径；host 条目为 ''
   matcher?: string
   command: string // 插件条目已展开 ${SEMA_PLUGIN_ROOT}
   timeoutMs: number // 已应用默认值 60s 与 clamp
@@ -82,14 +82,14 @@ export interface HookEntryInfo {
   timeout?: number // 配置原值（秒），未配则 undefined（运行时默认 60s）
   status: 'ok' | 'skipped' | 'invalid'
   statusReason?: string // 如 "unsupported type: http" / "contains 'if' condition"
-  filePath?: string // 所属配置文件定位，"绝对路径:起始行-结束行"（事件块粒度），定位失败为纯路径
+  filePath?: string // 所属配置文件定位，"绝对路径:起始行-结束行"（事件块粒度），定位失败为纯路径；host 条目无此字段
 }
 
 export interface HooksInfo {
-  userConfigPath: string // ~/.sema/hooks/hooks.json
-  projectConfigPath: string // <workingDir>/.sema/hooks/hooks.json
-  userConfigExists: boolean
-  projectConfigExists: boolean
+  userConfigPath: string // ~/.sema/hooks/hooks.json；user 域没生效时为 ''
+  projectConfigPath: string // <workingDir>/.sema/hooks/hooks.json；project 域没生效时为 ''
+  userConfigExists: boolean // user 域没生效时恒为 false
+  projectConfigExists: boolean // project 域没生效时恒为 false
   parseErrors: Array<{ source: HookSource; pluginName?: string; message: string }>
   events: Record<string, HookEntryInfo[]> // 按事件分组，插件在前、用户级其次、项目级追加
 }

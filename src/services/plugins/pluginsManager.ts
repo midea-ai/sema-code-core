@@ -14,6 +14,8 @@ import { readInitialCwd } from '../../util/cwd'
 import { execFileSafely } from '../../util/file'
 import { getSettingsPath, readSettingsFile, writeSettingsFile } from '../settings/settingsLoader'
 import { t } from '../../util/i18n'
+import { assertScopeEnabled, getHostConfig } from '../../conf/hostConfig'
+import { SemaError } from '../../util/errors'
 import type {
   PluginScopeKind,
   GithubSource,
@@ -139,6 +141,13 @@ class PluginsManager {
 
   private async writeSettings(filePath: string, data: PluginSettings): Promise<void> {
     writeSettingsFile(filePath, data)
+  }
+
+  /** scopes.plugins 为 [] 时插件整体不可用，市场类接口报 SCOPE_DISABLED */
+  private assertPluginsAllowed(): void {
+    if (getHostConfig().scopes.plugins.length === 0) {
+      throw new SemaError('SCOPE_DISABLED', 'Plugins are disabled: scopes.plugins is empty')
+    }
   }
 
   private async readMarketplaceJson(installLocation: string): Promise<MarketplaceJson | null> {
@@ -478,6 +487,7 @@ class PluginsManager {
    * 增加市场（git 方式）
    */
   async addMarketplaceFromGit(input: string): Promise<MarketplacePluginsInfo> {
+    this.assertPluginsAllowed()
     const value = input.trim()
     // 输入形态：owner/repo 或 github.com/owner/repo 克隆整个仓库；其它 http(s) 地址视为 marketplace.json 文件，只下载该文件
     let repo = value
@@ -526,6 +536,7 @@ class PluginsManager {
    * 增加市场（本地目录方式）
    */
   async addMarketplaceFromDirectory(dirPath: string): Promise<MarketplacePluginsInfo> {
+    this.assertPluginsAllowed()
     logInfo(`添加本地目录市场: ${dirPath}`)
 
     if (!fs.existsSync(dirPath)) {
@@ -585,6 +596,7 @@ class PluginsManager {
    * 更新市场（github 来源 git pull，url 来源重新下载；directory 来源直接读本地目录，只刷新）
    */
   async updateMarketplace(marketplaceName: string): Promise<MarketplacePluginsInfo> {
+    this.assertPluginsAllowed()
     logInfo(`更新市场: ${marketplaceName}`)
 
     const known = await this.readKnownMarketplaces()
@@ -611,6 +623,7 @@ class PluginsManager {
    * 同时清理 known_marketplaces.json、installed_plugins.json 相关记录, git 来源的市场目录也会被删除
    */
   async removeMarketplace(marketplaceName: string): Promise<MarketplacePluginsInfo> {
+    this.assertPluginsAllowed()
     logInfo(`移除市场: ${marketplaceName}`)
 
     const known = await this.readKnownMarketplaces()
@@ -667,6 +680,8 @@ class PluginsManager {
     scope: PluginScopeKind,
     projectPath?: string
   ): Promise<MarketplacePluginsInfo> {
+    // 安装位置的域没生效报 SCOPE_DISABLED（updatePlugin 走这里，一并覆盖）
+    assertScopeEnabled('plugins', scope)
     logInfo(`安装插件: ${pluginName}@${marketplaceName} (scope: ${scope})`)
 
     const known = await this.readKnownMarketplaces()
@@ -757,6 +772,7 @@ class PluginsManager {
     scope: PluginScopeKind,
     projectPath?: string
   ): Promise<MarketplacePluginsInfo> {
+    assertScopeEnabled('plugins', scope)
     logInfo(`卸载插件: ${pluginName}@${marketplaceName} (scope: ${scope})`)
 
     const pluginKey = `${pluginName}@${marketplaceName}`
@@ -820,6 +836,7 @@ class PluginsManager {
     enabled: boolean,
     projectPath?: string
   ): Promise<MarketplacePluginsInfo> {
+    assertScopeEnabled('plugins', scope)
     const pluginKey = `${pluginName}@${marketplaceName}`
     logInfo(`${enabled ? '开启' : '禁用'}插件: ${pluginKey} (scope: ${scope})`)
 
@@ -858,6 +875,8 @@ class PluginsManager {
     const marketplacesResult: MarketplaceInfoResult[] = []
     const pluginsResult: PluginInfoResult[] = []
     const cwd = readInitialCwd()
+    // 安装位置的域没生效的插件整个不出现：下游 agents/skills/commands/MCP/hooks 都读本结果，随之不加载其组件
+    const enabledScopes = getHostConfig().scopes.plugins
 
     for (const [marketplaceName, marketplaceInfo] of Object.entries(known)) {
       const marketplaceJson = await this.readMarketplaceJson(marketplaceInfo.installLocation)
@@ -876,7 +895,7 @@ class PluginsManager {
           const pluginKey = `${pluginDef.name}@${marketplaceName}`
           // project/local 范围的安装记录只对其 projectPath 对应的项目可见，否则在其他项目会因 settings 无该 key 而被兜底判为启用
           const installEntries = installed.plugins[pluginKey]?.filter(
-            entry => entry.scope === 'user' || entry.projectPath === cwd
+            entry => enabledScopes.includes(entry.scope) && (entry.scope === 'user' || entry.projectPath === cwd)
           )
 
           if (installEntries?.length) {

@@ -6,30 +6,104 @@ import { ModelConfig, TaskConfig, ModelUpdateData, ApiTestResult } from '../type
 import { testApiConnection } from '../services/api/apiUtil';
 import { getModelConfigFilePath } from '../util/savePath';
 import { convertToModelProfile, convertToImageModelProfile, findModelProfile, parseModelName, createDefaultConfig, validateProviderName } from '../util/model';
-import { logWarn, logError } from '../util/log';
+import { logWarn, logError, logInfo } from '../util/log';
 import { t } from '../util/i18n';
 import { getEventBus } from '../events/EventSystem';
+import { assertScopeEnabled, getHostConfig, isScopeEnabled } from '../conf/hostConfig';
+import { hostReadonlyError } from '../util/errors';
+import type { ModelsInput } from '../types/host';
 
 
 /**
  * 模型管理器
  * 专门负责模型配置的加载、保存和管理
+ *
+ * 来源限定：宿主构造时传入的模型（host 域）合并进内存配置，排在最前、同名盖掉用户的，只读且不落盘；
+ * 被盖掉的用户条目不生效但原样留在 model.conf 里，宿主哪天下掉同名模型，用户的配置自动恢复可用。
+ * user 域（model.conf）只在 scopes.models 含 'user' 时读写。宿主传的指针是没有用户选择时的缺省值
  */
 export class ModelManager {
   private config: ModelConfiguration;
   private readonly configPath: string;
   /** 会话级模型指针覆盖（纯内存、不落盘）：sessionId → { main?, quick? }，值为 profile 名 */
   private sessionOverrides = new Map<string, Partial<ModelPointers>>();
+  /**
+   * 来自宿主的模型名，只读、不写 model.conf、查询不回传 apiKey。
+   * 对话与文生图是两张表、名字规则相同（modelName[provider]），可能重名，所以各记各的
+   */
+  private readonly hostNames = new Set<string>();
+  private readonly hostImageNames = new Set<string>();
+  /** model.conf 里与宿主同名而不生效的用户条目：不进内存列表，落盘时原样写回 */
+  private readonly shadowedProfiles: ModelProfile[] = [];
+  private readonly shadowedImageProfiles: ImageModelProfile[] = [];
 
   constructor(initialConfig: ModelConfiguration) {
     this.configPath = getModelConfigFilePath();
     this.config = initialConfig;
+    this.applyHostModels(getHostConfig().models);
   }
 
   /**
-   * 保存模型配置到独立配置文件
+   * 合并宿主传入的模型：host profile 排最前并盖掉同名的用户 profile（被盖掉的记到 shadowed，落盘时写回）；
+   * 指针只在文件里的指针为空或指向不存在的模型时才用宿主的（没传则取第一个）
+   */
+  private applyHostModels(models: ModelsInput | null): void {
+    if (!models) return;
+    const hostProfiles = models.profiles.map(convertToModelProfile);
+    const hostImages = (models.imageProfiles ?? []).map(convertToImageModelProfile);
+    for (const p of hostProfiles) this.hostNames.add(p.name);
+    for (const p of hostImages) this.hostImageNames.add(p.name);
+
+    // 只和同一张表里的宿主条目比：宿主的对话模型不盖用户的同名文生图模型，反之亦然
+    const split = <T extends { name: string }>(list: T[], hostNames: Set<string>, shadowed: T[]): T[] => {
+      const kept: T[] = [];
+      for (const p of list) (hostNames.has(p.name) ? shadowed : kept).push(p);
+      return kept;
+    };
+    this.config.modelProfiles = [...hostProfiles, ...split(this.config.modelProfiles, this.hostNames, this.shadowedProfiles)];
+    this.config.imageModelProfiles = [...hostImages, ...split(this.imageProfiles, this.hostImageNames, this.shadowedImageProfiles)];
+
+    const pointers = this.config.modelPointers;
+    const pick = (hostValue: string | undefined, fallback: string, label: string): string => {
+      if (hostValue === undefined) return fallback;
+      const list: Array<{ provider: string; modelName: string }> = label === 'image' ? this.imageProfiles : this.config.modelProfiles;
+      if (hostValue && !findModelProfile(hostValue, list)) {
+        logWarn(`宿主传入的 ${label} 指针 ${hostValue} 不在模型列表中，忽略`);
+        return fallback;
+      }
+      return hostValue;
+    };
+    if (!pointers.main || !findModelProfile(pointers.main, this.config.modelProfiles)) {
+      pointers.main = pick(models.main, hostProfiles[0]?.name ?? '', 'main');
+    }
+    if (!pointers.quick || !findModelProfile(pointers.quick, this.config.modelProfiles)) {
+      pointers.quick = pick(models.quick, pointers.main, 'quick');
+    }
+    // image 指针与 main / quick 不同：空串是用户明确停用文生图（switchImageModel('')），要保留；
+    // 没配置过（缺失）或指向不存在的模型才用宿主的
+    const imageUnset = pointers.image === undefined || (pointers.image !== '' && !findModelProfile(pointers.image, this.imageProfiles));
+    if (imageUnset) {
+      pointers.image = pick(models.image, hostImages[0]?.name ?? '', 'image');
+    }
+    logInfo(`合并宿主模型 ${this.hostNames.size} 个、文生图模型 ${this.hostImageNames.size} 个，指针 main=${pointers.main} quick=${pointers.quick} image=${pointers.image || '(无)'}`);
+  }
+
+  /** 是否宿主的对话模型 */
+  private isHost(name: string): boolean {
+    return this.hostNames.has(name);
+  }
+
+  /** 是否宿主的文生图模型 */
+  private isHostImage(name: string): boolean {
+    return this.hostImageNames.has(name);
+  }
+
+  /**
+   * 保存模型配置到独立配置文件。
+   * user 域没生效时不落盘（只改内存）；落盘时不写宿主的模型，被宿主盖掉的用户条目原样写回
    */
   async saveConfig(): Promise<void> {
+    if (!isScopeEnabled('models', 'user')) return;
     try {
       // 确保配置目录存在
       const configDir = path.dirname(this.configPath);
@@ -37,9 +111,12 @@ export class ModelManager {
         fs.mkdirSync(configDir, { recursive: true });
       }
 
-      // 直接保存模型配置
-      const configContent = JSON.stringify(this.config, null, 2);
-      fs.writeFileSync(this.configPath, configContent, 'utf8');
+      const persisted: ModelConfiguration = {
+        modelProfiles: [...this.config.modelProfiles.filter(p => !this.isHost(p.name)), ...this.shadowedProfiles],
+        modelPointers: this.config.modelPointers,
+        imageModelProfiles: [...this.imageProfiles.filter(p => !this.isHostImage(p.name)), ...this.shadowedImageProfiles],
+      };
+      fs.writeFileSync(this.configPath, JSON.stringify(persisted, null, 2), 'utf8');
     } catch (error) {
       throw new Error(t('model.saveFailed'));
     }
@@ -51,11 +128,14 @@ export class ModelManager {
    * 添加新模型
    */
   async addNewModel(config: ModelConfig, skipValidation: boolean = false): Promise<ModelUpdateData> {
+    // 写的是 user 域：域没生效报 SCOPE_DISABLED；与宿主模型同名报 HOST_READONLY
+    assertScopeEnabled('models', 'user');
     const providerError = validateProviderName(config.provider);
     if (providerError) {
       throw new Error(t('model.invalidProvider', { error: providerError }));
     }
     const profile = convertToModelProfile(config);
+    if (this.isHost(profile.name)) throw hostReadonlyError('Model', profile.name);
     const existingModelIndex = this.config.modelProfiles.findIndex(p => p.name === profile.name);
 
     // 进行API连接测试（可选）
@@ -117,6 +197,7 @@ export class ModelManager {
     if (modelIndex === -1) {
       throw new Error(t('model.notFound', { name }));
     }
+    if (this.isHost(name)) throw hostReadonlyError('Model', name);
 
     // 检查是否被模型指针引用（image 指针指向的是文生图模型，同名也不算引用）
     const pointers = this.config.modelPointers;
@@ -142,10 +223,11 @@ export class ModelManager {
 
   /**
    * 按 provider + modelName 读取磁盘上的完整 profile，供配置页编辑回填；不存在返回 null。
-   * 定位谓词与 deleteModel 一致。
+   * 定位谓词与 deleteModel 一致。宿主模型的 apiKey 不回传（为 ''）
    */
   getModelProfile(provider: string, modelName: string): ModelProfile | null {
-    return this.config.modelProfiles.find(p => p.provider === provider && p.modelName === modelName) ?? null;
+    const profile = this.config.modelProfiles.find(p => p.provider === provider && p.modelName === modelName) ?? null;
+    return profile && this.isHost(profile.name) ? { ...profile, apiKey: '' } : profile;
   }
 
   /**
@@ -195,11 +277,13 @@ export class ModelManager {
    * 不做连接测试：测一次就要真实出一张图。
    */
   async addImageModel(config: ImageModelConfig): Promise<ModelUpdateData> {
+    assertScopeEnabled('models', 'user');
     const providerError = validateProviderName(config.provider);
     if (providerError) {
       throw new Error(t('model.invalidProvider', { error: providerError }));
     }
     const profile = convertToImageModelProfile(config);
+    if (this.isHostImage(profile.name)) throw hostReadonlyError('Image model', profile.name);
     const profiles = this.imageProfiles;
     const existingIndex = profiles.findIndex(p => p.name === profile.name);
 
@@ -226,10 +310,13 @@ export class ModelManager {
     if (index === -1) {
       throw new Error(t('model.notFound', { name }));
     }
+    if (this.isHostImage(name)) throw hostReadonlyError('Image model', name);
 
     profiles.splice(index, 1);
     if (this.config.modelPointers.image === name) {
-      this.config.modelPointers.image = profiles[0]?.name ?? '';
+      // 没有剩余时去掉指针（回到"没配置过"），不写空串：空串专指用户明确停用，见 applyHostModels
+      if (profiles.length > 0) this.config.modelPointers.image = profiles[0].name;
+      else delete this.config.modelPointers.image;
     }
 
     await this.saveConfig();
@@ -250,9 +337,11 @@ export class ModelManager {
 
   /**
    * 按 provider + modelName 读取磁盘上的完整文生图 profile，供配置页编辑回填；不存在返回 null。
+   * 宿主模型的 apiKey 不回传（为 ''）
    */
   getImageModelProfile(provider: string, modelName: string): ImageModelProfile | null {
-    return this.imageProfiles.find(p => p.provider === provider && p.modelName === modelName) ?? null;
+    const profile = this.imageProfiles.find(p => p.provider === provider && p.modelName === modelName) ?? null;
+    return profile && this.isHostImage(profile.name) ? { ...profile, apiKey: '' } : profile;
   }
 
   /**
@@ -367,7 +456,8 @@ export class ModelManager {
         quick: this.config.modelPointers.quick,
         image: this.config.modelPointers.image || ''
       },
-      imageModelList: this.imageProfiles.map(p => p.name)
+      imageModelList: this.imageProfiles.map(p => p.name),
+      hostModels: Array.from(new Set([...this.hostNames, ...this.hostImageNames])),
     };
   }
 
@@ -424,11 +514,12 @@ let globalModelManager: ModelManager | null = null;
 export const getModelManager = (): ModelManager => {
   try {
     if (!globalModelManager) {
-      let config = getModelConfig();
+      // user 域没生效时 model.conf 既不读也不写，只有宿主传入的模型
+      let config = isScopeEnabled('models', 'user') ? getModelConfig() : null;
       if (!config) {
-        logWarn('没有可用的全局配置，使用空配置创建 ModelManager');
+        if (isScopeEnabled('models', 'user')) logWarn('没有可用的全局配置，使用空配置创建 ModelManager');
         config = createDefaultConfig()
-      } 
+      }
       globalModelManager = new ModelManager(config);
     }
     return globalModelManager;

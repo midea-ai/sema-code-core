@@ -8,9 +8,9 @@
 export type MCPTransportType = 'stdio' | 'sse' | 'http'
 
 /**
- * MCP Server 安装范围类型
+ * MCP Server 安装范围类型；host 为宿主构造时传入的条目（只读，env / headers 对外打码）
  */
-export type MCPScopeType = 'local' | 'project' | 'user' | 'plugin'
+export type MCPScopeType = 'local' | 'project' | 'user' | 'plugin' | 'host'
 
 /**
  * MCP Server 配置

@@ -17,9 +17,21 @@ import { SkillConfig } from '../../types/skill'
 import { buildBuiltInSkillConfs } from '../../prompt/skills'
 import { readSettings, writeSettings } from '../settings/settingsLoader'
 import { SettingsScope } from '../../types/settings'
+import { getHostConfig, isScopeEnabled } from '../../conf/hostConfig'
+import { hostReadonlyError } from '../../util/errors'
 
 
 const SKILL_FILE_NAME = 'SKILL.md'
+
+/** 内置与 host 域 skill 不支持开关，始终启用 */
+function isAlwaysEnabled(locate: SkillConfig['locate']): boolean {
+  return locate === 'builtin' || locate === 'host'
+}
+
+/** 内联 skill 子文件路径归一：统一为 posix 分隔、去掉开头的 ./ */
+export function normalizeSkillFilePath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/^(\.\/)+/, '')
+}
 
 /**
  * Skills 管理器类 - 单例模式
@@ -68,21 +80,53 @@ class SkillsManager {
   private async loadSkills(): Promise<Map<string, SkillConfig>> {
     const target = new Map<string, SkillConfig>()
 
-    // 1. 内置 skills - 最低优先级
-    this.loadBuiltInSkills(target)
+    // 1. 内置 skills - 最低优先级（域没生效时不加载）
+    if (isScopeEnabled('skills', 'builtin')) this.loadBuiltInSkills(target)
 
-    // 2. 插件 skills
+    // 2. 插件 skills（插件按安装位置的域由 pluginsManager 过滤）
     await this.loadSkillsFromPlugins(target)
 
     // 3. 用户级
-    await this.loadSkillsFromDir(target, this.semaUserSkillsDir, 'user')
+    if (isScopeEnabled('skills', 'user')) await this.loadSkillsFromDir(target, this.semaUserSkillsDir, 'user')
 
-    // 4. 项目级 - 最高优先级
-    await this.loadSkillsFromDir(target, this.semaProjectSkillsDir, 'project')
+    // 4. 项目级
+    if (isScopeEnabled('skills', 'project')) await this.loadSkillsFromDir(target, this.semaProjectSkillsDir, 'project')
+
+    // 5. host 域（宿主构造时传入）- 最高优先级，同名盖掉其他域的
+    await this.loadHostSkills(target)
 
     const skillNames = Array.from(target.keys()).join(', ')
     logInfo(`加载 Skills 配置: ${skillNames}`)
     return target
+  }
+
+  /**
+   * 加载宿主传入的 skills：dirs 为明文目录（按目录解析，locate 'host'），
+   * items 为内联（正文与文本子文件只在内存，private；子文件路径统一成 posix 相对路径）
+   */
+  private async loadHostSkills(target: Map<string, SkillConfig>): Promise<void> {
+    const { items, dirs } = getHostConfig().skills
+    for (const dir of dirs ?? []) {
+      await this.loadSkillsFromDir(target, dir, 'host')
+    }
+    for (const item of items ?? []) {
+      if (target.has(item.name)) {
+        logDebug(`Skill [${item.name}] 被 host 内联配置覆盖`)
+      }
+      const files = item.files
+        ? Object.fromEntries(Object.entries(item.files).map(([k, v]) => [normalizeSkillFilePath(k), v]))
+        : undefined
+      target.set(item.name, {
+        name: item.name,
+        description: item.description,
+        prompt: item.prompt,
+        locate: 'host',
+        private: true,
+        ...(files ? { files } : {}),
+        ...(item.resourceDir ? { resourceDir: item.resourceDir } : {}),
+      })
+    }
+    if (items?.length) logDebug(`加载 host 内联 Skills: ${items.length} 个`)
   }
 
   /**
@@ -142,7 +186,7 @@ class SkillsManager {
    * 从指定目录加载 skill 配置
    * 每个 skill 存放于子目录中，子目录下有 SKILL.md 文件
    */
-  private async loadSkillsFromDir(target: Map<string, SkillConfig>, dirPath: string, scope: 'user' | 'project'): Promise<void> {
+  private async loadSkillsFromDir(target: Map<string, SkillConfig>, dirPath: string, scope: 'user' | 'project' | 'host'): Promise<void> {
     try {
       if (!fs.existsSync(dirPath)) {
         logDebug(`Skills 目录不存在: ${dirPath}`)
@@ -221,10 +265,10 @@ class SkillsManager {
 
   /**
    * Skill 是否被禁用
-   * 内置 Skill 不支持开关，始终启用（即便名字被手写进 settings 的 disabledSkills 也忽略）
+   * 内置与 host 域 Skill 不支持开关，始终启用（即便名字被手写进 settings 的 disabledSkills 也忽略）
    */
   isSkillDisabled(name: string): boolean {
-    if (this.skillConfigs.get(name)?.locate === 'builtin') return false
+    if (isAlwaysEnabled(this.skillConfigs.get(name)?.locate)) return false
     return this.readDisabledSkills().has(name)
   }
 
@@ -243,6 +287,9 @@ class SkillsManager {
     if (conf.locate === 'builtin') {
       logWarn(`${enabled ? '启用' : '禁用'} Skill 失败: 内置 Skill 不支持开关 [${name}]`)
       return this.getSkillsInfo()
+    }
+    if (conf.locate === 'host') {
+      throw hostReadonlyError('Skill', name)
     }
     // 写入层跟随技能所在层：项目级技能写项目级 settings，用户级/插件技能写用户级（全局生效）
     const target: SettingsScope = conf.locate === 'project' ? 'project' : 'user'
@@ -270,12 +317,14 @@ class SkillsManager {
     // 先加载到新 Map，此时 skillConfigs 与缓存仍是旧的
     const next = await this.loadSkills()
 
+    // 内联（private）skill 的正文与子文件只留在 skillConfigs，查询接口里 prompt 为 ''、无 files
     const skillInfos = Array.from(next.values()).map(config => ({
       name: config.name,
       description: config.description,
-      prompt: config.prompt,
+      prompt: config.private ? '' : config.prompt,
       locate: config.locate,
-      filePath: config.filePath
+      filePath: config.filePath,
+      ...(config.private ? { private: true } : {}),
     }))
 
     // 同步一次性发布：重载期间 getSkillConfig / getSkillsInfo 始终读到完整的旧值，不会读到空表或半截
@@ -302,11 +351,11 @@ class SkillsManager {
       infos = await this.loadAndCacheSkills()
     }
     // status 实时按 settings 标注（不进缓存），返回全量含禁用项供管理页展示；执行侧自行过滤
-    // 内置 Skill 不支持开关，status 恒为 true
+    // 内置与 host 域 Skill 不支持开关，status 恒为 true
     const disabled = this.readDisabledSkills()
     return infos.map(info => ({
       ...info,
-      status: info.locate === 'builtin' || !disabled.has(info.name),
+      status: isAlwaysEnabled(info.locate) || !disabled.has(info.name),
       ...(concise ? { prompt: '' } : {}),
     }))
   }
@@ -351,6 +400,9 @@ class SkillsManager {
     if (skillConf.locate === 'plugin') {
       logWarn(`移除 Skill 失败: 插件 Skill 不可移除 [${name}]`)
       return this.getSkillsInfo()
+    }
+    if (skillConf.locate === 'host') {
+      throw hostReadonlyError('Skill', name)
     }
 
     this.skillConfigs.delete(name)

@@ -2,11 +2,13 @@
  * MCP 管理器
  *
  * 管理 MCP Server 配置，从多个来源加载
- * 实现优先级：插件 < 用户级 < 项目级
+ * 实现优先级：插件 < 用户级 < 项目级 < host（宿主构造时传入，只读且同名优先；用户级 / 项目级只在对应域生效时读）
  *
  * 状态管理：
- * - 服务启用/禁用：settings.json -> disabledMcpServers（用户级 ~/.sema + 项目级 .sema 取并集生效）
- * - 可用工具列表：settings.json -> enabledMcpServerUseTools（用户级打底、项目级同名覆盖）
+ * - 服务启用/禁用：settings.json -> disabledMcpServers（用户级 ~/.sema + 项目级 .sema 取并集生效；host 条目不受影响）
+ * - 可用工具列表：settings.json -> enabledMcpServerUseTools（用户级打底、项目级同名覆盖；host 条目取构造入参）
+ *
+ * 对外视图：host 条目的 env / headers 值打码（查询接口与 mcp:server:status 事件），内部缓存保持真实值
  *
  * 变量展开：.mcp.json 条目的 command / args / env / url / headers 支持
  * - ${SEMA_PLUGIN_ROOT}：该 .mcp.json 所属根目录（插件目录；<project>/.sema/.mcp.json 为 <project>）；
@@ -30,6 +32,16 @@ import { existsSync, readFileSync } from 'fs'
 import { getEffectiveEnv, readSettings, writeSettings } from '../settings/settingsLoader'
 import { SemaSettings, SettingsScope } from '../../types/settings'
 import { isPluginRootVar } from '../../prompt/toolAliases'
+import { assertScopeEnabled, getHostConfig, isScopeEnabled } from '../../conf/hostConfig'
+import { hostReadonlyError } from '../../util/errors'
+
+const MASK = '***'
+
+/** 日志 / 对外视图用：env、headers 只留键名，值打码 */
+function maskValues(obj: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!obj) return obj
+  return Object.fromEntries(Object.keys(obj).map(k => [k, MASK]))
+}
 
 // ==================== .mcp.json 变量展开 ====================
 
@@ -96,12 +108,17 @@ class MCPManager {
   // MCP 客户端（用于工具调用）
   private clients: Map<string, MCPClient> = new Map()
 
+  // 宿主传入的 server 名：同名的用户级 / 项目级条目不加载，写接口拒改
+  private readonly hostNames: Set<string>
+
   constructor() {
     const semaRootDir = getSemaRootDir()
     this.semaUserConfigPath = path.join(semaRootDir, '.mcp.json')
 
     const cwd = readInitialCwd()
     this.semaProjectConfigPath = path.join(cwd, '.sema', '.mcp.json')
+
+    this.hostNames = new Set(getHostConfig().mcpServers.map(s => s.name))
 
     // 后台静默加载 MCP 配置
     this.refreshMCPServerConfigs().catch(err => {
@@ -234,7 +251,7 @@ class MCPManager {
 
         for (const mcpEntry of mcpComponents) {
           const servers = this.readMcpServers(mcpEntry.filePath)
-          logDebug(`插件 [${plugin.name}] MCP 文件: ${mcpEntry.filePath}, 配置: ${JSON.stringify(servers)}`)
+          logDebug(`插件 [${plugin.name}] MCP 文件: ${mcpEntry.filePath}, 服务: ${servers ? Object.keys(servers).join(', ') : '无'}`)
           if (!servers) continue
 
           for (const [serverName, raw] of Object.entries<any>(servers)) {
@@ -277,14 +294,18 @@ class MCPManager {
     const semaDisabled = this.readDisabledUnion()
     const semaUseToolsMap: Record<string, string[]> = this.readUseToolsMerged()
 
-    // 1. 插件 MCP：从已安装且启用的插件中加载 - 最低优先级
+    // 1. 插件 MCP：从已安装且启用的插件中加载 - 最低优先级（插件按安装位置的域由 pluginsManager 过滤）
     await this.loadMCPsFromPlugins(serverMap, semaDisabled, semaUseToolsMap)
 
-    // 2. Sema 用户级：~/.sema/.mcp.json
-    const semaUserServers = this.readMcpServers(this.semaUserConfigPath)
+    // 2. Sema 用户级：~/.sema/.mcp.json（域生效时）
+    const semaUserServers = isScopeEnabled('mcp', 'user') ? this.readMcpServers(this.semaUserConfigPath) : null
     if (semaUserServers) {
       let count = 0
       for (const [name, raw] of Object.entries<any>(semaUserServers)) {
+        if (this.hostNames.has(name)) {
+          logDebug(`用户级 MCP [${name}] 与 host 条目同名，不加载`)
+          continue
+        }
         const config = this.parseSemaEntry(name, raw, 'user')
         if (config) {
           const useTools = name in semaUseToolsMap ? semaUseToolsMap[name] : undefined
@@ -295,11 +316,15 @@ class MCPManager {
       if (count > 0) logDebug(`加载 Sema 用户级 MCP: ${count} 个`)
     }
 
-    // 3. Sema 项目级：<project>/.sema/.mcp.json（最高优先级）
-    const semaProjectServers = this.readMcpServers(this.semaProjectConfigPath)
+    // 3. Sema 项目级：<project>/.sema/.mcp.json（域生效时）
+    const semaProjectServers = isScopeEnabled('mcp', 'project') ? this.readMcpServers(this.semaProjectConfigPath) : null
     if (semaProjectServers) {
       let count = 0
       for (const [name, raw] of Object.entries<any>(semaProjectServers)) {
+        if (this.hostNames.has(name)) {
+          logDebug(`项目级 MCP [${name}] 与 host 条目同名，不加载`)
+          continue
+        }
         const config = this.parseSemaEntry(name, raw, 'project')
         if (config) {
           const useTools = name in semaUseToolsMap ? semaUseToolsMap[name] : undefined
@@ -309,6 +334,24 @@ class MCPManager {
       }
       if (count > 0) logDebug(`加载 Sema 项目级 MCP: ${count} 个`)
     }
+
+    // 4. host：宿主构造时传入（最高优先级）。启停取入参 enabled，不受 settings 的 disabledMcpServers 影响；
+    //    useTools 取入参；没有配置文件
+    for (const s of getHostConfig().mcpServers) {
+      const config: MCPServerConfig = {
+        name: s.name,
+        transport: s.transport,
+        description: s.description,
+        command: s.command,
+        args: s.args,
+        env: s.env,
+        url: s.url,
+        headers: s.headers,
+        scope: 'host',
+      }
+      serverMap.set(s.name, this.newServerInfo(config, s.enabled !== false, s.useTools ?? undefined))
+    }
+    if (this.hostNames.size > 0) logDebug(`加载 host MCP: ${this.hostNames.size} 个`)
 
     const serverNames = Array.from(serverMap.keys()).join(', ')
     logInfo(`加载 MCP 配置: ${serverMap.size} 个服务 [${serverNames}]`)
@@ -350,6 +393,24 @@ class MCPManager {
     }
   }
 
+  // ==================== 对外视图 ====================
+
+  /**
+   * host 条目的 env / headers 值打码后的副本；其他条目原样。
+   * 查询接口返回值与 mcp:server:status 事件都走这里，内部缓存与连接用的是真实值
+   */
+  private toPublic(info: MCPServerInfo): MCPServerInfo {
+    if (info.config.scope !== 'host') return info
+    return {
+      ...info,
+      config: { ...info.config, env: maskValues(info.config.env), headers: maskValues(info.config.headers) },
+    }
+  }
+
+  private toPublicList(list: MCPServerInfo[] | null): MCPServerInfo[] {
+    return (list ?? []).map(info => this.toPublic(info))
+  }
+
   /**
    * 比较两个 MCPServerConfig 的连接相关字段是否相同（不含 useTools）
    */
@@ -372,7 +433,7 @@ class MCPManager {
     const eventBus = EventBus.getInstance()
     info.connectStatus = 'connecting'
     info.error = undefined
-    eventBus.emit('mcp:server:status', info)
+    eventBus.emit('mcp:server:status', this.toPublic(info))
     // 连接期间可能发生过刷新，缓存里已是新建的条目（复制了 connecting 状态），结果要写到当前条目上，
     // 否则界面永远看到 connecting。条目已不存在（被移除或 dispose）、已禁用或配置已变时，这次连接就过期了：
     // 不写缓存、不进 clients
@@ -397,7 +458,7 @@ class MCPManager {
       cur.connectedAt = Date.now()
       cur.error = undefined
       logDebug(`MCP Server [${name}] 连接成功`)
-      eventBus.emit('mcp:server:status', cur)
+      eventBus.emit('mcp:server:status', this.toPublic(cur))
     } catch (err) {
       const cur = target()
       // 条目已变，或已有别的连接落地（同配置的重复连接后失败）：不把 error 写到别人的结果上
@@ -405,7 +466,7 @@ class MCPManager {
       cur.connectStatus = 'error'
       cur.error = String(err)
       logError(`连接 MCP Server [${name}] 失败: ${err}`)
-      eventBus.emit('mcp:server:status', cur)
+      eventBus.emit('mcp:server:status', this.toPublic(cur))
     }
   }
 
@@ -485,12 +546,13 @@ class MCPManager {
   }
 
   /**
-   * 获取所有 MCP Server 信息（有缓存则直接返回，否则等待正在进行的刷新或重新加载）
+   * 获取所有 MCP Server 信息（有缓存则直接返回，否则等待正在进行的刷新或重新加载）。
+   * 返回对外视图：host 条目的 env / headers 值打码
    */
   async getMCPServerConfigs(): Promise<MCPServerInfo[]> {
-    if (this.serverInfoCache) return this.serverInfoCache
+    if (this.serverInfoCache) return this.toPublicList(this.serverInfoCache)
     await this.refreshChain
-    return this.serverInfoCache ?? this.refreshMCPServerConfigs()
+    return this.serverInfoCache ? this.toPublicList(this.serverInfoCache) : this.refreshMCPServerConfigs()
   }
 
   /**
@@ -501,7 +563,7 @@ class MCPManager {
     const run = this.refreshChain.then(() => this.doRefresh())
     // 链上只记结果，失败不阻断后续刷新；错误由调用方的 run 拿到
     this.refreshChain = run.catch(() => this.serverInfoCache ?? [])
-    return run
+    return run.then(list => this.toPublicList(list))
   }
 
   private async doRefresh(): Promise<MCPServerInfo[]> {
@@ -588,9 +650,12 @@ class MCPManager {
    * 添加或更新 MCP Server
    */
   async addMCPServer(config: MCPServerConfig): Promise<MCPServerInfo[]> {
+    // 写入层只有 user / project 两种：域没生效报 SCOPE_DISABLED；与 host 条目同名报 HOST_READONLY
+    assertScopeEnabled('mcp', config.scope === 'project' ? 'project' : 'user')
+    if (this.hostNames.has(config.name)) throw hostReadonlyError('MCP server', config.name)
     const configPath = this.getSemaMcpConfigPath(config.scope)
     const { servers, hasMcpServersField } = this.readSemaMcpConfigFile(configPath)
-    logDebug(`configPath: ${configPath}, servers: ${servers}, hasMcpServersField: ${hasMcpServersField}`)
+    logDebug(`configPath: ${configPath}, servers: ${Object.keys(servers).join(', ')}, hasMcpServersField: ${hasMcpServersField}`)
     const { name, scope, useTools, ...rest } = config
     servers[name] = rest
     this.writeSemaMcpConfigFile(configPath, servers, hasMcpServersField)
@@ -607,6 +672,7 @@ class MCPManager {
       logWarn(`移除 MCP Server 失败: 未找到 [${name}]`)
       return this.getMCPServerConfigs()
     }
+    if (info.scope === 'host') throw hostReadonlyError('MCP server', name)
     const configPath = this.getSemaMcpConfigPath(info.scope!)
     const { servers, hasMcpServersField } = this.readSemaMcpConfigFile(configPath)
     delete servers[name]
@@ -666,6 +732,7 @@ class MCPManager {
       logWarn(`禁用 MCP Server 失败: 未找到 [${name}]`)
       return this.getMCPServerConfigs()
     }
+    if (info.scope === 'host') throw hostReadonlyError('MCP server', name)
     const scope = this.toggleScope(info)
     const settings = readSettings(scope)
     if (!settings.disabledMcpServers) settings.disabledMcpServers = []
@@ -691,6 +758,7 @@ class MCPManager {
       logWarn(`启用 MCP Server 失败: 未找到 [${name}]`)
       return this.getMCPServerConfigs()
     }
+    if (info.scope === 'host') throw hostReadonlyError('MCP server', name)
     const scope = this.toggleScope(info)
     const settings = readSettings(scope)
     if (settings.disabledMcpServers) {
@@ -719,6 +787,7 @@ class MCPManager {
       logWarn(`更新工具列表失败: 未找到 MCP Server [${name}]`)
       return this.getMCPServerConfigs()
     }
+    if (info.scope === 'host') throw hostReadonlyError('MCP server', name)
     const scope = this.toggleScope(info)
     const settings = readSettings(scope)
     if (!settings.enabledMcpServerUseTools) settings.enabledMcpServerUseTools = {}

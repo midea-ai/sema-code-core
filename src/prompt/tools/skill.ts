@@ -4,6 +4,7 @@ Format:
 - \`skill: "name"\` — basic call
 - \`skill: "name", args: "value"\` — with arguments
 - \`skill: "provider:name"\` — namespaced call
+- \`skill: "name", file: "guides/x.md"\` — return a text file bundled with the skill (only for skills whose activation says so)
 
 Behavior contract:
 1. A matching skill MUST be dispatched before any text output — this is a hard gate, not a preference.

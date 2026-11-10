@@ -12,6 +12,19 @@ import { getConfManager } from '../manager/ConfManager';
 let lastLLMCleanupTime: number = 0;
 let lastEventCleanupTime: number = 0;
 
+// ============================================================
+// 开关：disableLLMLog / disableEventLog 为 true 时不建目录不写文件
+// 缺省由 ConfManager 按是否传 encryption 决定；支持运行期更新，下一次写入生效
+// ============================================================
+
+const isLogDisabled = (field: 'disableLLMLog' | 'disableEventLog'): boolean => {
+  try {
+    return getConfManager().getCoreConfig()?.[field] === true;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * 获取项目名（从workingDir中提取最后一个目录名）
  */
@@ -153,6 +166,7 @@ const cleanupOrphanImages = async (cleanupStart: number): Promise<void> => {
  */
 export const logLLMRequest = (body: any, sessionId?: string): void => {
   try {
+    if (isLogDisabled('disableLLMLog')) return;
     const timeStr = getTimeString(); // 使用时分秒格式
 
     const bodyStr = typeof body === 'string' ? body : JSON.stringify(externalizeImages(body));
@@ -181,6 +195,7 @@ export const logLLMRequest = (body: any, sessionId?: string): void => {
  */
 export const logLLMResponse = (assistantMessage: any, sessionId?: string): void => {
   try {
+    if (isLogDisabled('disableLLMLog')) return;
     const timeStr = getTimeString(); // 使用时分秒格式
 
     // 从AiMessage中提取文本内容
@@ -453,6 +468,7 @@ const getEventLogFilePath = (sessionId?: string): string => {
  */
 export const logEvent = (event: string, data: any, sessionId?: string): void => {
   try {
+    if (isLogDisabled('disableEventLog')) return;
     const timeStr = getTimeString();
     const dataStr = data !== undefined ? JSON.stringify(data) : '';
     const logLine = `[${timeStr}]${event}|${dataStr}`;

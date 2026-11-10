@@ -1,15 +1,18 @@
 import type { Tool } from '../tools/base/Tool'
 
-export type AgentScope = 'user' | 'project' | 'builtin' | 'plugin'
+/** 来源：host 为宿主构造时传入（内联或 dirs 目录），只读 */
+export type AgentScope = 'host' | 'user' | 'project' | 'builtin' | 'plugin'
 
 export interface AgentConfig {
   name: string
   description: string
-  tools: string[] | '*'  // 默认 '*' 
+  tools: string[] | '*'  // 默认 '*'
   model: string  // quick 对应 quick，其他值均对应 main
-  prompt: string
+  prompt: string  // 内联子代理在查询接口里为 ''
   locate?: AgentScope
-  filePath?: string
+  filePath?: string  // 内联子代理没有
+  /** 内联子代理：正文只在内存里，查询接口不回传 */
+  private?: boolean
 }
 
 /**

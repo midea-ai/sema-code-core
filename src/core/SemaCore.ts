@@ -36,6 +36,8 @@ import { getEventBus } from '../events/EventSystem';
 import { ProcessEvent } from '../events/types';
 import { logInfo } from '../util/log';
 import { getShellRuntimeInfoAsync, PersistentShell } from '../util/shell';
+import { maskForLog } from '../conf/hostConfig';
+import { errorCodeOf } from '../util/errors';
 
 /**
  * Sema 核心 API 类（进程级）
@@ -47,6 +49,7 @@ export class SemaCore {
   private procListeners: Array<{ event: ProcessEvent; fn: Function }> = [];
 
   constructor(config?: SemaCoreConfig) {
+    // 宿主配置校验不通过在这里同步抛 SemaError(CONFIG_INVALID)，构造直接失败
     this.configPromise = getConfManager().setCoreConfig(config || {});
 
     this.configPromise = this.configPromise.then(async () => {
@@ -61,7 +64,11 @@ export class SemaCore {
       // 使用统计：usageProduct 未配置时 init 直接返回，不做任何采集
       getUsageStatsManager().init(config?.usageProduct);
     });
-    logInfo(`初始化SemaCore: ${JSON.stringify(config, null, 2)}`)
+    // 异步初始化失败（如 workingDir 无效）由 createSession 返回；这里先标记为已处理，
+    // 宿主构造后不马上建会话时不会触发未处理的 Promise 拒绝
+    this.configPromise.catch(() => {});
+    // 密钥、apiKey、MCP 凭证、内联正文不进日志
+    logInfo(`初始化SemaCore: ${JSON.stringify(maskForLog(config), null, 2)}`)
   }
 
   // ==================== 会话池（实现见 SessionPool）====================
@@ -69,11 +76,11 @@ export class SemaCore {
     if (this.configPromise) {
       try {
         await this.configPromise;
-      } catch (e) {
-        // 配置初始化失败（如 workingDir 无效）：返回明确错误而非抛异常
-        return { ok: false, error: e instanceof Error ? e.message : String(e) };
-      } finally {
         this.configPromise = null;
+      } catch (e) {
+        // 配置初始化失败（如 workingDir 无效）：返回明确错误而非抛异常。
+        // 失败后保留 configPromise，之后每次建会话都返回同一个错误，不会带着没生效的配置建出会话
+        return { ok: false, error: e instanceof Error ? e.message : String(e), code: errorCodeOf(e) };
       }
     }
     return getSessionPool().createSession(opts);

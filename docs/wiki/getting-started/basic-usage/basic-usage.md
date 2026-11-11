@@ -6,6 +6,7 @@
 
 ```javascript
 interface SemaCoreConfig {
+  configFile?: string;               // 构造配置文件路径（~/xx 或绝对路径），见下方「用文件配置」；仅构造时读一次
   workingDir?: string;               // 项目绝对路径
   logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'none'; // 默认 'info'
   lang?: 'zh' | 'en' | 'de' | 'fr' | 'it'; // UI 可见文案语言（权限面板选项、Plan 退出选项、错误提示等），默认 'zh'；支持运行时更新，切换即时生效
@@ -51,6 +52,30 @@ interface SemaCoreConfig {
 > 构造参数校验不通过、写接口落到没生效的域或 host 条目时抛 `SemaError`（`code` 为 `CONFIG_INVALID` / `SCOPE_DISABLED` / `HOST_READONLY`）；`createSession` 遇到解不开的加密历史返回 `{ ok: false, error, code: 'HISTORY_KEY_REQUIRED' | 'HISTORY_DECRYPT_FAILED' }`。
 
 > 可通过 `sema.updateCoreConfByKey(key, value)` 或 `sema.updateCoreConfig(partial)` 在运行时更新 `UpdatableCoreConfigKeys` 中定义的字段。`disabledTools` 通过 `sema.updateDisabledTools()` 更新；`agentMode` 是会话级配置，创建会话时通过 `createSession({ agentMode })` 指定，运行中通过 `session.updateAgentMode()` 更新。
+
+### 用文件配置
+
+配置项多或提示词很长时，可以把构造配置放进一个 JSON 文件，构造时只传路径：
+
+```javascript
+const sema = new SemaCore({ configFile: '~/my-app/core.json' })
+```
+
+```json
+{
+  "workingDir": "/path/to/your/project",
+  "systemPrompt": { "$file": "./prompts/system.md" },
+  "customRules": { "$file": "~/rules/common.md" },
+  "enableToolSearch": true,
+  "scopes": { "plugins": [] }
+}
+```
+
+- **文件内容**：严格 JSON（不支持注释），字段与 `SemaCoreConfig` 相同。
+- **路径**：`configFile` 支持 `~/xx` 和绝对路径。
+- **合并**：构造参数里显式传的顶层键整体覆盖文件里的同名键，不做深合并。
+- **外置文本**：文件里任意位置的 `{ "$file": "路径" }` 会替换成该文件的文本，路径支持 `~/xx`、绝对路径，以及相对配置文件所在目录的相对路径。
+- **出错**：文件读不到、不是合法 JSON、`$file` 指向的文件读不到时，构造同步抛 `SemaError`（`code` 为 `CONFIG_INVALID`）。
 
 ## 输出约定
 

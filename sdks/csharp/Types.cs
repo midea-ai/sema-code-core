@@ -524,6 +524,8 @@ public record RuleConfig
 
 public record SemaCoreConfig
 {
+    /// <summary>构造配置文件路径（~/xx 或绝对路径，由桥进程读取）：严格 JSON，字段同本类型；这里显式传的顶层键整体覆盖文件里的同名键；文件内 {"$file": "路径"} 替换为该文件文本。</summary>
+    [JsonPropertyName("configFile")] public string? ConfigFile { get; init; }
     [JsonPropertyName("workingDir")] public string? WorkingDir { get; init; }
     [JsonPropertyName("logLevel")] public string? LogLevel { get; init; }
     [JsonPropertyName("lang")] public string? Lang { get; init; }

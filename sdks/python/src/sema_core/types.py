@@ -171,6 +171,7 @@ class EncryptionConfig(TypedDict):
 
 class SemaCoreConfig(TypedDict, total=False):
     """SemaCore 构造配置（init payload）；全字段可选。"""
+    configFile: str  # 构造配置文件路径（~/xx 或绝对路径，由桥进程读取）：严格 JSON，字段同本类型；这里显式传的顶层键整体覆盖文件里的同名键；文件内 {"$file": "路径"} 替换为该文件文本
     workingDir: str
     logLevel: Literal["debug", "info", "warn", "error", "none"]
     lang: Literal["zh", "en", "de", "fr", "it"]

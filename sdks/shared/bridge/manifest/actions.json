@@ -10,7 +10,7 @@
     "note": "code 为 core 的稳定错误码（SemaError.code：CONFIG_INVALID / SCOPE_DISABLED / HOST_READONLY / HISTORY_KEY_REQUIRED / HISTORY_DECRYPT_FAILED），没有对应错误码时缺省；各语言 SDK 挂到 SemaBridgeException.code"
   },
   "actions": {
-    "init": { "level": "core", "payload": ["<SemaCore 构造配置透传>"], "ack": "value", "note": "ack {ready, protocolVersion}；幂等，不覆盖已有实例。构造配置含 host 域内容（models / mcpServers / hooks / skills / agents / commands）、生效域 scopes、加密 encryption 与日志开关 disableLLMLog / disableEventLog，均原样透传；校验不通过 error 帧 code=CONFIG_INVALID" },
+    "init": { "level": "core", "payload": ["<SemaCore 构造配置透传>"], "ack": "value", "note": "ack {ready, protocolVersion}；幂等，不覆盖已有实例。构造配置含 host 域内容（models / mcpServers / hooks / skills / agents / commands）、生效域 scopes、加密 encryption 与日志开关 disableLLMLog / disableEventLog，均原样透传；也可只传 configFile（配置文件路径，由桥进程读取，显式传的顶层键覆盖文件里的同名键）；校验不通过 error 帧 code=CONFIG_INVALID" },
     "updateCoreConfig": { "level": "core", "payload": ["<配置对象透传>"], "ack": "delivery" },
     "updateCoreConfByKey": { "level": "core", "payload": ["key", "value"], "ack": "delivery" },
     "addModel": { "level": "core", "payload": ["config", "skipValidation"], "ack": "value", "note": "并广播 model:update" },

@@ -1,5 +1,34 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { SemaCore } from 'sema-core';
 import type { SemaSession } from 'sema-core';
+
+/**
+ * 配置文件（init payload 的 configFile）里已经写了的顶层键。
+ * 只取键名；文件读不到或不合法时返回空，错误留给 core 构造时报 CONFIG_INVALID。
+ */
+function configFileKeys(configFile: unknown): string[] {
+  if (typeof configFile !== 'string' || !configFile) return [];
+  try {
+    const file = configFile === '~' || /^~[\\/]/.test(configFile) ? path.join(os.homedir(), configFile.slice(1)) : configFile;
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, ''));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? Object.keys(parsed) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 合成 core 构造参数，优先级：init payload > 配置文件 > 桥的默认值（workingDir / logLevel）。
+ * core 把构造参数里出现的键一律当作显式传入、盖掉配置文件里的同名键，
+ * 所以配置文件里已经写了的键，桥的默认值不能再带进构造参数。
+ */
+export function mergeInitConfig(defaults: Record<string, any>, payload?: Record<string, any>): Record<string, any> {
+  const base = { ...defaults };
+  for (const key of configFileKeys(payload?.configFile)) delete base[key];
+  return { ...base, ...(payload ?? {}) };
+}
 
 /**
  * SemaCoreManager —— 进程级单例。
@@ -27,7 +56,7 @@ export class SemaCoreManager {
     if (!this.core) {
       // 构造成功才记下配置：校验不通过（SemaError CONFIG_INVALID）时构造同步抛出，
       // 不留实例也不留这次的入参，SDK 修正配置后重发 init 即可
-      const config = { ...this.baseConfig, ...(overrides ?? {}) };
+      const config = mergeInitConfig(this.baseConfig, overrides);
       this.core = new SemaCore(config);
       this.baseConfig = config;
     }

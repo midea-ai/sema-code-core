@@ -10,7 +10,7 @@ import java.util.Map;
  * models / mcpServers / hooks / skills / agents / commands 为宿主传入的 host 域内容（只读、同名盖掉其他域、不落盘），
  * scopes 指定每一类哪些域生效，encryption 开启历史 / 快照 / hook 记录加密；这些都只在构造时生效，校验不通过 start 抛 CONFIG_INVALID。
  */
-public record SemaCoreConfig(String workingDir, String logLevel, String lang, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean enableInputPrediction, Boolean disableBackgroundTasks, Boolean disableMemory, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions, String usageProduct, ModelsInput models, List<MCPServerInput> mcpServers, Map<String, List<HookGroupInput>> hooks, SkillsInput skills, AgentsInput agents, CommandsInput commands, ScopesConfig scopes, EncryptionConfig encryption, Boolean disableLLMLog, Boolean disableEventLog) {
+public record SemaCoreConfig(String workingDir, String logLevel, String lang, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean enableInputPrediction, Boolean disableBackgroundTasks, Boolean disableMemory, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions, String usageProduct, ModelsInput models, List<MCPServerInput> mcpServers, Map<String, List<HookGroupInput>> hooks, SkillsInput skills, AgentsInput agents, CommandsInput commands, ScopesConfig scopes, EncryptionConfig encryption, Boolean disableLLMLog, Boolean disableEventLog, String configFile) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private String workingDir;
@@ -49,6 +49,7 @@ public record SemaCoreConfig(String workingDir, String logLevel, String lang, Bo
         private EncryptionConfig encryption;
         private Boolean disableLLMLog;
         private Boolean disableEventLog;
+        private String configFile;
         private Builder() {}
         public Builder workingDir(String workingDir) { this.workingDir = workingDir; return this; }
         public Builder logLevel(String logLevel) { this.logLevel = logLevel; return this; }
@@ -99,6 +100,8 @@ public record SemaCoreConfig(String workingDir, String logLevel, String lang, Bo
         public Builder disableLLMLog(Boolean disableLLMLog) { this.disableLLMLog = disableLLMLog; return this; }
         /** 不写事件日志；缺省规则同 disableLLMLog。支持运行期更新。 */
         public Builder disableEventLog(Boolean disableEventLog) { this.disableEventLog = disableEventLog; return this; }
-        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, lang, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, useTools, disabledTools, agentMode, disableTopicDetection, enableInputPrediction, disableBackgroundTasks, disableMemory, enableToolSearch, toolSearchDefaultTools, maxSessions, usageProduct, models, mcpServers, hooks, skills, agents, commands, scopes, encryption, disableLLMLog, disableEventLog); }
+        /** 构造配置文件路径（~/xx 或绝对路径，由桥进程读取）：严格 JSON，字段同本类型；这里显式传的顶层键整体覆盖文件里的同名键；文件内 {"$file": "路径"} 替换为该文件文本。 */
+        public Builder configFile(String configFile) { this.configFile = configFile; return this; }
+        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, lang, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, useTools, disabledTools, agentMode, disableTopicDetection, enableInputPrediction, disableBackgroundTasks, disableMemory, enableToolSearch, toolSearchDefaultTools, maxSessions, usageProduct, models, mcpServers, hooks, skills, agents, commands, scopes, encryption, disableLLMLog, disableEventLog, configFile); }
     }
 }

@@ -19,6 +19,9 @@ export const SUPPORTED_LANGUAGES = ['zh', 'en', 'de', 'fr', 'it'] as const;
 export type Language = typeof SUPPORTED_LANGUAGES[number];
 
 export interface SemaCoreConfig {
+  configFile?: string;               // 构造配置文件路径（~/xx 或绝对路径）：严格 JSON，字段同本接口；构造参数里显式传的顶层键整体覆盖文件里的同名键（不深合并）；
+                                     // 文件内任意位置的 { "$file": "路径" } 替换为该文件文本（~/xx、绝对路径，或相对配置文件所在目录）；
+                                     // 仅构造时读一次，读不到或内容不合法抛 SemaError(CONFIG_INVALID)；实现见 conf/configFile.ts
   workingDir?: string;               // 项目绝对路径
   logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'none'; // 默认 'info'
   lang?: Language;                   // UI 可见文案语言，默认 'zh'；支持运行时更新，切换即时生效

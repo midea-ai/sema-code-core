@@ -8,6 +8,7 @@ import { readInitialCwd, updateInitialCwd } from '../util/cwd';
 import { getCurrentLocalTimeString } from '../util/time';
 import { logWarn, logError, logInfo, setLogLevel } from '../util/log';
 import { setHostConfig } from '../conf/hostConfig';
+import { resolveConfigFile } from '../conf/configFile';
 
 /**
  * 配置管理器
@@ -32,7 +33,9 @@ export class ConfigManager {
    * 不走返回的 Promise —— SemaCore 构造因此直接失败，不会留下一个配置没生效的实例。
    * 其余初始化（workingDir 校验、项目配置等）在返回的 Promise 里。
    */
-  setCoreConfig(config: SemaCoreConfig): Promise<void> {
+  setCoreConfig(input: SemaCoreConfig): Promise<void> {
+    // 传了 configFile 时先读文件并与构造参数合并（同步，读不到或不合法同样当场抛 CONFIG_INVALID），后面只认合并结果
+    const config = resolveConfigFile(input);
     // host 域内容、生效域与密钥集中存到 hostConfig；密钥不进 coreConfig，getCoreConfig 拿不到它
     setHostConfig(config);
     return this.applyCoreConfig(config);

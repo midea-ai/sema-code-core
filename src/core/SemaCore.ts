@@ -62,7 +62,8 @@ export class SemaCore {
       // 结果持久化到 ~/.sema/cache/shell.json，后续进程直接复用。失败不影响初始化（取 env 时会再走一次正式路径）
       if (process.platform === 'win32') void getShellRuntimeInfoAsync();
       // 使用统计：usageProduct 未配置时 init 直接返回，不做任何采集
-      getUsageStatsManager().init(config?.usageProduct);
+      // 从生效配置取而不是构造入参：usageProduct 可能写在 configFile 里
+      getUsageStatsManager().init(getConfManager().getCoreConfig()?.usageProduct);
     });
     // 异步初始化失败（如 workingDir 无效）由 createSession 返回；这里先标记为已处理，
     // 宿主构造后不马上建会话时不会触发未处理的 Promise 拒绝

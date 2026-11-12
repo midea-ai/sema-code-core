@@ -153,8 +153,12 @@ class HooksManager {
    * 内容完全相同的条目已存在时不重复写
    */
   async addHook(conf: HookConfig): Promise<HooksInfo> {
-    // 写入层只有 user / project 两种：域没生效报 SCOPE_DISABLED
-    const scope = conf?.scope === 'project' ? 'project' : 'user'
+    // 写入层只有 user / project 两种，缺省为用户级；明确传了其他值（host / plugin、拼错）报错，不悄悄落到用户级
+    const scope = conf?.scope ?? 'user'
+    if (scope !== 'user' && scope !== 'project') {
+      throw new SemaError('CONFIG_INVALID', `Hook scope must be 'user' or 'project', got '${String(scope)}'`)
+    }
+    // 域没生效报 SCOPE_DISABLED
     assertScopeEnabled('hooks', scope)
 
     const event = conf?.event
@@ -278,11 +282,13 @@ class HooksManager {
     return entry.source === 'project' ? 'project' : 'user'
   }
 
-  /** 读取禁用的 hook id 集合（用户级 + 项目级并集） */
+  /**
+   * 读取禁用的 hook id 集合（用户级 + 项目级并集）。
+   * 手改 settings 写成非数组时按空列表处理：这里在 loadAndCache 的 try 之外，抛错会让缓存一直落不下来
+   */
   private readDisabledHooks(): Set<string> {
-    const user = readSettings('user').disabledHooks ?? []
-    const project = readSettings('project').disabledHooks ?? []
-    return new Set([...user, ...project])
+    const list = (value: unknown): string[] => (Array.isArray(value) ? value : [])
+    return new Set([...list(readSettings('user').disabledHooks), ...list(readSettings('project').disabledHooks)])
   }
 
   private findEntry(id: string): LoadedHookEntry | undefined {

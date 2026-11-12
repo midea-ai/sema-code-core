@@ -86,6 +86,16 @@ test('host 条目只读：启停与移除都报 HOST_READONLY，手写进 disabl
   writeFile(userSettingsPath, JSON.stringify({}))
 })
 
+test('disabledHooks 被手改成非数组：按空列表处理，加载不抛错', async () => {
+  writeFile(userSettingsPath, JSON.stringify({ disabledHooks: {} }))
+  writeFile(projectSettingsPath, JSON.stringify({ disabledHooks: 1 }))
+  const info = await hooks.getHooksInfo(true)
+  assert.equal(all(info).every(e => e.enabled), true)
+  assert.deepEqual(matchedCommands('PreToolUse', 'Bash'), ['echo host', 'echo user'])
+  writeFile(userSettingsPath, JSON.stringify({}))
+  writeFile(projectSettingsPath, JSON.stringify({}))
+})
+
 test('新增：同 matcher 追加进原组，新事件新建组，未知字段保留，重复添加不重复写', async () => {
   let info = await hooks.addHook({ scope: 'user', event: 'PreToolUse', matcher: 'Bash', command: 'echo added', timeout: 10, failClosed: true })
   const added = find(info, 'echo added')
@@ -112,6 +122,19 @@ test('新增：入参不合法报 CONFIG_INVALID', async () => {
   await rejectsWithCode(hooks.addHook({ scope: 'user', event: 'NoSuchEvent' as any, command: 'echo x' }), 'CONFIG_INVALID')
   await rejectsWithCode(hooks.addHook({ scope: 'user', event: 'Stop', command: '  ' }), 'CONFIG_INVALID')
   await rejectsWithCode(hooks.addHook({ scope: 'user', event: 'Stop', command: 'echo x', timeout: 0 }), 'CONFIG_INVALID')
+  // scope 明确传了 user / project 以外的值：拒绝，不悄悄写进用户级
+  const before = readFileSync(userHooksPath, 'utf8')
+  await rejectsWithCode(hooks.addHook({ scope: 'host' as any, event: 'Stop', command: 'echo x' }), 'CONFIG_INVALID')
+  assert.equal(readFileSync(userHooksPath, 'utf8'), before)
+})
+
+test('新增：scope 缺省写用户级', async () => {
+  const info = await hooks.addHook({ event: 'Stop', command: 'echo default' } as any)
+  const added = find(info, 'echo default')
+  assert.equal(added.source, 'user')
+  assert.deepEqual(readJson(userHooksPath).hooks.Stop, [{ hooks: [{ type: 'command', command: 'echo default' }] }])
+  await hooks.removeHook(added.id)
+  assert.equal('Stop' in readJson(userHooksPath).hooks, false)
 })
 
 test('移除：删掉条目并清掉禁用记录，组和事件删空后一并去掉', async () => {

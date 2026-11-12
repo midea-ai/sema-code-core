@@ -29,7 +29,7 @@ if TYPE_CHECKING:
         AdapterType, AgentConfig, AgentMode, ApiTestParams, ApiTestResult, BranchResult,
         CommandConfig, CreateSessionOptions, CronTask, DesignSkillInfo, DesignSystemInfo,
         FetchModelsParams, FetchModelsResult, ForkOptions, ForkPreview, ForkResult, GoalState,
-        HooksInfo, ImageModelConfig, ImageModelProfile, InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
+        HookConfig, HooksInfo, ImageModelConfig, ImageModelProfile, InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
         MCPServerInfo, MemoryConfig, ModelConfig, ModelProfile, ModelUpdateData, PermissionLevel,
         RuleConfig, SemaCoreConfig, SkillConfig, TaskConfig, TaskListItem, ToolInfo, UsageStatsData,
     )
@@ -330,6 +330,18 @@ class SemaCore:
 
     async def get_hooks_info(self, refresh: Optional[bool] = None) -> "HooksInfo":
         return await self._json("getHooksInfo", _obj(refresh=refresh))
+
+    async def add_hook(self, hook_conf: "HookConfig") -> "HooksInfo":
+        return await self._json("addHook", hook_conf)
+
+    async def remove_hook(self, id: str) -> "HooksInfo":
+        return await self._json("removeHook", {"id": id})
+
+    async def enable_hook(self, id: str) -> "HooksInfo":
+        return await self._json("enableHook", {"id": id})
+
+    async def disable_hook(self, id: str) -> "HooksInfo":
+        return await self._json("disableHook", {"id": id})
 
     async def get_design_skills_info(self, refresh: Optional[bool] = None) -> "List[DesignSkillInfo]":
         return await self._json("getDesignSkillsInfo", _obj(refresh=refresh))

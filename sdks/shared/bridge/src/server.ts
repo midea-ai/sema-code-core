@@ -314,6 +314,10 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         case 'getMemoryInfo':        ack(id, await manager.instance.getMemoryInfo(payload?.refresh)); return;
         case 'getRuleInfo':          ack(id, await manager.instance.getRuleInfo(payload?.refresh)); return;
         case 'getHooksInfo':         ack(id, await manager.instance.getHooksInfo(payload?.refresh)); return;
+        case 'addHook':              ack(id, await manager.instance.addHook(payload)); return;
+        case 'removeHook':           ack(id, await manager.instance.removeHook(payload.id)); return;
+        case 'enableHook':           ack(id, await manager.instance.enableHook(payload.id)); return;
+        case 'disableHook':          ack(id, await manager.instance.disableHook(payload.id)); return;
         case 'getDesignSkillsInfo':  ack(id, await manager.instance.getDesignSkillsInfo(payload?.refresh)); return;
         case 'getDesignSystemsInfo': ack(id, await manager.instance.getDesignSystemsInfo(payload?.refresh)); return;
 

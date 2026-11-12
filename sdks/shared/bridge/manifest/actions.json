@@ -70,6 +70,10 @@
     "getMemoryInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
     "getRuleInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
     "getHooksInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
+    "addHook": { "level": "core", "payload": ["<Hook 配置对象透传>"], "ack": "value", "note": "ack 为最新 HooksInfo；写入 scope 对应层的 hooks.json；入参不合法 error 帧 code=CONFIG_INVALID，域没生效 code=SCOPE_DISABLED" },
+    "removeHook": { "level": "core", "payload": ["id"], "ack": "value", "note": "ack 为最新 HooksInfo；只能移除用户级 / 项目级条目，host 条目 error 帧 code=HOST_READONLY，插件条目报错（只能禁用）" },
+    "enableHook": { "level": "core", "payload": ["id"], "ack": "value", "note": "ack 为最新 HooksInfo；host 条目 error 帧 code=HOST_READONLY" },
+    "disableHook": { "level": "core", "payload": ["id"], "ack": "value", "note": "ack 为最新 HooksInfo；写入 settings 的 disabledHooks；host 条目 error 帧 code=HOST_READONLY" },
     "getDesignSkillsInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
     "getDesignSystemsInfo": { "level": "core", "payload": ["refresh"], "ack": "value" },
 

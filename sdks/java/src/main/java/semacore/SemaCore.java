@@ -471,6 +471,22 @@ public final class SemaCore implements AutoCloseable {
         return call("getHooksInfo", Json.obj("refresh", refresh), HooksInfo.class);
     }
 
+    public HooksInfo addHook(HookConfig hookConf) {
+        return call("addHook", hookConf, HooksInfo.class);
+    }
+
+    public HooksInfo removeHook(String id) {
+        return call("removeHook", Json.obj("id", id), HooksInfo.class);
+    }
+
+    public HooksInfo enableHook(String id) {
+        return call("enableHook", Json.obj("id", id), HooksInfo.class);
+    }
+
+    public HooksInfo disableHook(String id) {
+        return call("disableHook", Json.obj("id", id), HooksInfo.class);
+    }
+
     public List<DesignSkillInfo> getDesignSkillsInfo() {
         return getDesignSkillsInfo(null);
     }

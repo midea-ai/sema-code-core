@@ -176,7 +176,11 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getHooksInfo` | `get_hooks_info` | `getHooksInfo` | `GetHooksInfo` | `refresh: boolean` | 返回合并后的 hooks 配置视图 `HooksInfo`;条目与解析错误的 `source` 取 `host` / `user` / `project` / `plugin`,来自插件时附带 `pluginName`,host 条目无 `filePath`;`user` / `project` 域没生效时对应 `ConfigPath` 为空串、`ConfigExists` 为 false;`refresh=true` 重新加载配置 |
+| `await getHooksInfo` | `get_hooks_info` | `getHooksInfo` | `GetHooksInfo` | `refresh: boolean` | 返回合并后的 hooks 配置视图 `HooksInfo`;条目与解析错误的 `source` 取 `host` / `user` / `project` / `plugin`,来自插件时附带 `pluginName`,host 条目无 `filePath`;`user` / `project` 域没生效时对应 `ConfigPath` 为空串、`ConfigExists` 为 false;`refresh=true` 重新加载配置;每个条目带 `id` 与 `enabled` |
+| `await addHook` | `add_hook` | `addHook` | `AddHook` | `hookConf: HookConfig`(必填) | 写入 `scope`(`user` / `project`)对应层的 `hooks.json`;入参不合法抛 `CONFIG_INVALID`,目标域没生效抛 `SCOPE_DISABLED`;内容相同的条目已存在时不重复写;返回最新 `HooksInfo` |
+| `await removeHook` | `remove_hook` | `removeHook` | `RemoveHook` | `id`(必填) | 只能移除用户级 / 项目级条目;host 条目抛 `HOST_READONLY`,插件条目报错(只能禁用) |
+| `await enableHook` | `enable_hook` | `enableHook` | `EnableHook` | `id`(必填) | host 条目抛 `HOST_READONLY` |
+| `await disableHook` | `disable_hook` | `disableHook` | `DisableHook` | `id`(必填) | 写入 settings 的 `disabledHooks`(用户级+项目级并集生效),写入层跟随条目所在层(插件条目写用户级);host 条目抛 `HOST_READONLY` |
 
 ### Cron 定时任务管理
 
@@ -372,6 +376,7 @@ SkillConfig, SkillScope                                      // Skills:配置(�
 CommandConfig, CommandScope                                  // Commands:配置(含 private)/ 作用域(含 host)
 MCPServerConfig, MCPServerInfo                               // MCP:配置 / 运行信息(scope 含 host)
 MemoryConfig, RuleConfig, RuleScope                          // Memory / Rule(含作用域)
+HookConfig, HooksInfo, HookEntryInfo                         // Hooks:新增入参 / 配置视图 / 条目(含 id、enabled 启用态)
 DesignSkillInfo, DesignSystemInfo, DesignSystemColor         // Design:技能 / 系统 / 色板项
 PluginScopeKind, MarketplacePluginsInfo                      // 插件市场:作用域 / 汇总信息
 CronTask, CronTaskFile                                       // Cron:任务 / 持久化文件

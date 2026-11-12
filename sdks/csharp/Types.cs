@@ -298,8 +298,26 @@ public record BranchResultOk : BranchResult
     [JsonPropertyName("sessionId")] public string? SessionId { get; init; }
 }
 
+/// <summary>AddHook 入参：写入 Scope（user / project）对应层的 hooks.json。</summary>
+public record HookConfig
+{
+    [JsonPropertyName("scope")] public HookScope? Scope { get; init; }
+    [JsonPropertyName("event")] public string? Event { get; init; }
+    /// <summary>仅工具类事件生效；缺省匹配全部工具。</summary>
+    [JsonPropertyName("matcher")] public string? Matcher { get; init; }
+    [JsonPropertyName("command")] public string? Command { get; init; }
+    /// <summary>秒，缺省 60。</summary>
+    [JsonPropertyName("timeout")] public long? Timeout { get; init; }
+    /// <summary>hook 执行失败时按阻断处理，缺省 false。</summary>
+    [JsonPropertyName("failClosed")] public bool? FailClosed { get; init; }
+}
+
 public record HookEntryInfo
 {
+    /// <summary>条目标识，RemoveHook / EnableHook / DisableHook 的入参；改了事件、matcher 或命令即变。</summary>
+    [JsonPropertyName("id")] public string? Id { get; init; }
+    /// <summary>是否启用（settings 的 disabledHooks 控制；host 条目恒为 true）；与 Status 独立。</summary>
+    [JsonPropertyName("enabled")] public bool Enabled { get; init; }
     [JsonPropertyName("event")] public string? Event { get; init; }
     [JsonPropertyName("source")] public HookScope? Source { get; init; }
     [JsonPropertyName("pluginName")] public string? PluginName { get; init; }

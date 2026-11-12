@@ -444,7 +444,19 @@ class HookParseError(TypedDict):
     message: str
 
 
+class HookConfig(TypedDict):
+    """add_hook 入参：写入 scope 对应层的 hooks.json。"""
+    scope: Literal["user", "project"]
+    event: str
+    matcher: NotRequired[str]  # 仅工具类事件生效；缺省匹配全部工具
+    command: str
+    timeout: NotRequired[int]  # 秒，缺省 60
+    failClosed: NotRequired[bool]  # hook 执行失败时按阻断处理，缺省 False
+
+
 class HookEntryInfo(TypedDict):
+    id: str  # 条目标识，remove_hook / enable_hook / disable_hook 的入参；改了事件、matcher 或命令即变
+    enabled: bool  # 是否启用（settings 的 disabledHooks 控制；host 条目恒为 True）；与 status 独立
     event: str
     source: HookScope
     pluginName: NotRequired[str]  # 仅 source == "plugin"：所属插件名

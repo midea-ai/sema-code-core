@@ -15,7 +15,7 @@ import fs from 'fs';
 import { isMainThread, parentPort, threadId, workerData } from 'worker_threads';
 import type { SemaCore as SemaCoreType, SemaSession } from 'sema-core';
 import { SESSION_EVENTS, PROCESS_EVENTS } from '../../../shared/protocol';
-import type { CommandsInfo, ExtensionsInfo, ExtSkill, ExtCommand, ExtAgent, ExtMcp, ExtTool } from '../../../shared/types';
+import type { CommandsInfo, ExtensionsInfo, ExtSkill, ExtCommand, ExtAgent, ExtMcp, ExtHooks, ExtTool } from '../../../shared/types';
 import { logErr } from '../errlog';
 
 const IN_THREAD = !isMainThread && !!parentPort;
@@ -152,17 +152,23 @@ async function getExtensionsInfo(refresh: boolean): Promise<ExtensionsInfo> {
     agents: mapAgents(agents),
     builtinTools,
     mcp: mapMcp(mcp),
-    hooks: {
-      entries: Object.entries(hooks?.events || {}).flatMap(([event, list]) => (list || []).map(h => ({
-        event, source: uiScope(h.source, 'user'), pluginName: h.pluginName, matcher: h.matcher, command: h.command, timeout: h.timeout,
-        status: h.status, statusReason: h.statusReason, filePath: h.filePath,
-      }))),
-      parseErrors: (hooks?.parseErrors || []).map(e => ({ ...e, source: uiScope(e.source, 'user') })),
-      userConfigPath: hooks?.userConfigPath || '',
-      projectConfigPath: hooks?.projectConfigPath || '',
-      userConfigExists: !!hooks?.userConfigExists,
-      projectConfigExists: !!hooks?.projectConfigExists,
-    },
+    hooks: mapHooks(hooks),
+  };
+}
+
+/** 扩展标签的钩子：core 按事件分组的视图拍平成条目列表，宿主注入的归为「内置」 */
+function mapHooks(hooks: Awaited<ReturnType<typeof core.getHooksInfo>> | null): ExtHooks {
+  return {
+    entries: Object.entries(hooks?.events || {}).flatMap(([event, list]) => (list || []).map(h => ({
+      id: h.id, enabled: h.enabled !== false,
+      event, source: uiScope(h.source, 'user'), pluginName: h.pluginName, matcher: h.matcher, command: h.command, timeout: h.timeout,
+      status: h.status, statusReason: h.statusReason, filePath: h.filePath,
+    }))),
+    parseErrors: (hooks?.parseErrors || []).map(e => ({ ...e, source: uiScope(e.source, 'user') })),
+    userConfigPath: hooks?.userConfigPath || '',
+    projectConfigPath: hooks?.projectConfigPath || '',
+    userConfigExists: !!hooks?.userConfigExists,
+    projectConfigExists: !!hooks?.projectConfigExists,
   };
 }
 
@@ -193,6 +199,8 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'core.disableMCPServer': return core.disableMCPServer(p.name);
     // 生态市场装/卸 skill 后清缓存重扫（SkillsManager 有进程内缓存，否则常驻 worker 感知不到）
     case 'core.refreshSkills': await core.getSkillsInfo(true, true); return true;
+    // 扩展标签启停 hook 后其他 worker 重读配置（HooksManager 有进程内缓存），下一次 hook 触发即按新状态
+    case 'core.refreshHooks': await core.getHooksInfo(true); return true;
     // 浏览器控制开关（http/browserControl）：与 IDE 插件 BrowserControlManager 调用同一组 core 方法，均走配置 worker
     case 'core.getSkillsInfo': return core.getSkillsInfo(true, !!p.refresh);
     case 'core.removeSkillConf': return core.removeSkillConf(p.name);
@@ -223,6 +231,8 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'session.toggleSkill': return mapSkills(await (p.enabled ? core.enableSkill(p.name) : core.disableSkill(p.name)));
     case 'ext.toggleMcp':
     case 'session.toggleMcp': return mapMcp(await (p.enabled ? core.enableMCPServer(p.name) : core.disableMCPServer(p.name)));
+    case 'ext.toggleHook':
+    case 'session.toggleHook': return mapHooks(await (p.enabled ? core.enableHook(p.id) : core.disableHook(p.id)));
     // 单工具开关：toolNames null = 全部可用；写入层同启停
     case 'ext.updateMcpUseTools':
     case 'session.updateMcpUseTools': return mapMcp(await core.updateMCPUseTools(p.name, p.toolNames ?? null));

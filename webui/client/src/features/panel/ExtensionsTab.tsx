@@ -21,9 +21,9 @@ import { Caret, Spinner, Toggle, cn } from '../../common/ui';
 import { t, type I18nKey } from '../../i18n';
 import { MemoryEntries, memoryEntryCount } from './MemoryTab';
 import type { WsAction } from '../../../../shared/protocol';
-import type { ExtensionsInfo, ExtSkill, ExtMcp, ExtHook, ExtTool } from '../../../../shared/types';
+import type { ExtensionsInfo, ExtSkill, ExtMcp, ExtHook, ExtHooks, ExtTool } from '../../../../shared/types';
 
-type ExtAction = 'getExtensionsInfo' | 'toggleSkill' | 'toggleMcp' | 'updateMcpUseTools';
+type ExtAction = 'getExtensionsInfo' | 'toggleSkill' | 'toggleMcp' | 'toggleHook' | 'updateMcpUseTools';
 /** 排序：内置（含宿主注入）最前，然后项目级（MCP 的 local 与 project 同层）、用户级、插件 */
 const SCOPE_ORDER: Record<string, number> = { builtin: 0, project: 1, local: 1, user: 2, plugin: 3 };
 const scopeRank = (scope: string) => SCOPE_ORDER[scope] ?? 9;
@@ -60,7 +60,7 @@ export function ExtensionsTab({ sessionId, tab }: { sessionId: string; tab: Pane
   /** 展开的行：顶层 rule / memory / skills / tools / hooks，嵌套 builtin / mcp:名；默认只展开「工具与 MCP」 */
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['tools']));
   const toggleExpand = (key: string) => setExpanded(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
-  /** 启停进行中的项（`skill:名` / `mcp:名`）：开关禁用防连点，MCP enable 要等 core 连接完成（冷启动可达数秒） */
+  /** 启停进行中的项（`skill:名` / `mcp:名` / `hook:id`）：开关禁用防连点，MCP enable 要等 core 连接完成（冷启动可达数秒） */
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const setBusyKey = (key: string, on: boolean) => setBusy(prev => { const next = new Set(prev); on ? next.add(key) : next.delete(key); return next; });
 
@@ -113,6 +113,18 @@ export function ExtensionsTab({ sessionId, tab }: { sessionId: string; tab: Pane
       setInfo(i => i && { ...i, mcp: list });
       if (enabled && list.find(x => x.name === mcp.name)?.enabled === false) toast(t('ext.stillDisabled'), 'warn');
       if (!enabled) setExpanded(prev => { const next = new Set(prev); next.delete(key); return next; });
+    } catch (e: any) { toast(e?.message || String(e), 'error'); void load({ silent: true }); }
+    finally { setBusyKey(key, false); }
+  };
+  /** 钩子开关：按条目 id 启停（内容相同的重复条目共用 id，一起变）；响应为最新钩子视图 */
+  const toggleHook = async (hook: ExtHook, enabled: boolean) => {
+    const key = `hook:${hook.id}`;
+    setBusyKey(key, true);
+    setInfo(i => i && { ...i, hooks: { ...i.hooks, entries: i.hooks.entries.map(x => x.id === hook.id ? { ...x, enabled } : x) } });
+    try {
+      const hooks = await call<ExtHooks>('toggleHook', { id: hook.id, enabled });
+      setInfo(i => i && { ...i, hooks });
+      if (enabled && hooks.entries.find(x => x.id === hook.id)?.enabled === false) toast(t('ext.stillDisabled'), 'warn');
     } catch (e: any) { toast(e?.message || String(e), 'error'); void load({ silent: true }); }
     finally { setBusyKey(key, false); }
   };
@@ -175,6 +187,7 @@ export function ExtensionsTab({ sessionId, tab }: { sessionId: string; tab: Pane
   const memoryCount = useMemo(() => memory?.prompt ? memoryEntryCount(memory) : 0, [memory]);
   const parseErrors = info?.hooks.parseErrors || [];
   const hooksTotal = info?.hooks.entries.length || 0;
+  const hooksOn = countOn(info?.hooks.entries || []);
   const toolSources = (builtinTools.length ? 1 : 0) + mcp.length;
   const showContext = !!rule || !!memory?.prompt;
   const showCapability = skills.length > 0 || commands.length > 0 || agents.length > 0 || toolSources > 0;
@@ -334,10 +347,11 @@ export function ExtensionsTab({ sessionId, tab }: { sessionId: string; tab: Pane
             {showHooks && (
               <Region title={t('ext.regionAutomation')} hint={t('ext.regionAutomationHint')}>
                 {/* 钩子：按来源 + 事件分小标题，每条命令一行；解析错误放最前 */}
-                <Item icon={<Webhook size={16} />} label={t('ext.hooks')} alias="Hooks" value={t('ext.items', { n: hooksTotal })}
+                <Item icon={<Webhook size={16} />} label={t('ext.hooks')} alias="Hooks" value={countText('ext.items', hooksTotal, hooksOn)}
                   open={expanded.has('hooks')} onToggle={() => toggleExpand('hooks')}>
                   {/* 展开区与技能一致：同一来源的同一事件合成一行，事件名当标题（点击打开配置文件并定位），作用域标签跟在标题后；
-                      次行列出该事件下每条命令（单行截断，有 matcher 再多一行，timeout 在悬浮提示里），失效的那条命令右侧红字 */}
+                      次行列出该事件下每条命令（单行截断，有 matcher 再多一行，timeout 在悬浮提示里），失效的那条命令右侧红字；
+                      有效且非内置的命令右侧带开关，停用的置灰但不挪位置（同一事件下的顺序就是执行顺序） */}
                   {parseErrors.map((err, i) => (
                     <div key={i} className="py-1.5 text-xs text-danger break-words">
                       {t('ext.hookParseError', { source: `${scopeLabel(err.source)}${err.pluginName ? ` ${err.pluginName}` : ''}`, message: err.message })}
@@ -352,10 +366,11 @@ export function ExtensionsTab({ sessionId, tab }: { sessionId: string; tab: Pane
                         sub={g.entries.map((e, i) => (
                           <div key={i} className={cn(i > 0 && 'mt-1')}>
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className="flex-1 min-w-0 truncate font-mono" title={[e.command || '-', e.timeout && `timeout: ${e.timeout}s`].filter(Boolean).join('\n')}>{e.command || '-'}</span>
+                              <span className={cn('flex-1 min-w-0 truncate font-mono', !e.enabled && 'opacity-50')} title={[e.command || '-', e.timeout && `timeout: ${e.timeout}s`].filter(Boolean).join('\n')}>{e.command || '-'}</span>
                               {e.status !== 'ok' && <span className="text-danger shrink-0" title={e.statusReason}>{e.status === 'skipped' ? t('ext.hookSkipped') : t('ext.hookInvalid')}</span>}
+                              {e.status === 'ok' && e.source !== 'builtin' && e.id && <Toggle small checked={e.enabled} disabled={busy.has(`hook:${e.id}`)} onChange={v => toggleHook(e, v)} />}
                             </div>
-                            {e.matcher && <div className="truncate" title={e.matcher}>matcher: {e.matcher}</div>}
+                            {e.matcher && <div className={cn('truncate', !e.enabled && 'opacity-50')} title={e.matcher}>matcher: {e.matcher}</div>}
                           </div>
                         ))} />
                     );

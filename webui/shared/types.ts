@@ -157,7 +157,9 @@ export interface ExtMcp {
   connectStatus: EcoMcpStatus['connectStatus']; error?: string; filePath?: string; tools?: EcoMcpTool[]; useTools?: string[] | null;
 }
 /** Hook 条目：filePath 为所属配置文件的 "路径:起始行-结束行"（事件块粒度），旧版 core 无此字段 */
+/** 钩子条目：id 为 core 按内容算出的标识（启停入参）；enabled 按两层 settings.disabledHooks 并集，内置（宿主注入）恒为启用 */
 export interface ExtHook {
+  id: string; enabled: boolean;
   event: string; source: 'user' | 'project' | 'plugin' | 'builtin'; pluginName?: string; matcher?: string; command: string; timeout?: number;
   status: 'ok' | 'skipped' | 'invalid'; statusReason?: string; filePath?: string;
 }

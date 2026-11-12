@@ -369,6 +369,16 @@ export class SessionManager extends EventEmitter {
     }
   }
 
+  /**
+   * 扩展标签启停 hook 后同步其他存活 worker：用户级 / 插件 hook 的禁用写在用户级 settings 全局生效，
+   * 其他 worker 的 hooks 缓存要重读；发起的 worker 已由 core 重载，跳过
+   */
+  private refreshHooksElsewhere(except: WorkerHandle) {
+    for (const w of this.pool.list()) {
+      if (w.alive && w !== except) void this.pool.request(w, 'core.refreshHooks', undefined, {}).catch(() => null);
+    }
+  }
+
   // ==================== 独立会话备用 worker ====================
 
   /**
@@ -452,6 +462,7 @@ export class SessionManager extends EventEmitter {
       if (action === 'project.getCommandsInfo') return this.pool.request(w, 'core.getCommandsInfo', undefined, {});
       const result = await this.pool.request(w, action.replace('project.', 'ext.'), undefined, payload);
       if (action === 'project.toggleMcp' || action === 'project.updateMcpUseTools') this.refreshMcpElsewhere(w);
+      if (action === 'project.toggleHook') this.refreshHooksElsewhere(w);
       return result;
     }
 
@@ -494,6 +505,7 @@ export class SessionManager extends EventEmitter {
     const w = await this.ensureLive(sid);
     const result = await this.pool.request(w, action, sid, payload);
     if (action === 'session.toggleMcp' || action === 'session.updateMcpUseTools') this.refreshMcpElsewhere(w);
+    if (action === 'session.toggleHook') this.refreshHooksElsewhere(w);
     if (action === 'session.interrupt') {
       await this.pool.request(w, 'session.stopAllTasks', sid, {}).catch(() => null);
     }

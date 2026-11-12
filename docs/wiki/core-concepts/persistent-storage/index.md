@@ -162,13 +162,15 @@ MCP 加载优先级：**插件 MCP < 用户级 < 项目级**，项目级配置�
   "disabledMcpServers": ["filesystem"],
   "enabledMcpServerUseTools": {
     "context7": ["resolve-library-id", "query-docs"]
-  }
+  },
+  "disabledHooks": ["a9546d121132"]
 }
 ```
 
 - `env`：注入到终端执行、后台任务、hooks 子进程的环境变量，并参与 `.mcp.json` 的 `${VAR}` 展开，合并顺序为 **进程环境 < 用户级 env < 项目级 env**（后者覆盖前者），修改后重启服务生效
 - `disabledMcpServers`：已禁用的 MCP 服务名列表（仅项目级）
 - `enabledMcpServerUseTools`：按服务名指定的可用工具白名单（仅项目级）
+- `disabledHooks`：已禁用的 hook 条目 id 列表（用户级与项目级取并集），由 `disableHook` / `enableHook` 写入，id 见 `getHooksInfo` 的条目
 
 ### 会话历史`~/.sema/history/[project-dir]/[date]_[sessionId].json`
 

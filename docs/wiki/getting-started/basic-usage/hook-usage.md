@@ -377,8 +377,30 @@ fs.appendFileSync('/tmp/sema_subagent.log', line + '\n');
 
 ## 查询与事件
 
-- `getHooksInfo(refresh?)`：返回合并后的配置视图（用户级/项目级配置的路径与存在性、解析错误、按事件分组的条目及其状态与文件定位）；条目与解析错误的 `source` 取 `user` / `project` / `plugin`，来自插件时附带 `pluginName`；`refresh=true` 重新加载。
+- `getHooksInfo(refresh?)`：返回合并后的配置视图（用户级/项目级配置的路径与存在性、解析错误、按事件分组的条目及其状态与文件定位）；条目与解析错误的 `source` 取 `user` / `project` / `plugin`，来自插件时附带 `pluginName`；`refresh=true` 重新加载。每个条目带 `id` 与 `enabled`。
 - `hook:notice` 会话事件：hook 的 `systemMessage` 展示与告警通道（超时、配置问题、输入被拦截），见[事件类型](wiki/core-concepts/event-system/event-catalog)。
+
+## 增删与启停
+
+除了手改配置文件，也可以通过接口管理，四个接口都返回最新的配置视图，改动在下一次 hook 触发时生效：
+
+```javascript
+// 新增：写入 scope 对应层的 hooks.json
+const info = await sema.addHook({ scope: 'project', event: 'PreToolUse', matcher: 'Bash', command: 'node .sema/hooks/check.js', timeout: 10 })
+
+// 条目标识取自配置视图
+const id = info.events.PreToolUse.find(h => h.command === 'node .sema/hooks/check.js').id
+
+await sema.disableHook(id) // 禁用：条目保留在配置里，不再触发
+await sema.enableHook(id)  // 启用
+await sema.removeHook(id)  // 移除：从 hooks.json 删掉
+```
+
+- **条目标识**：hook 没有名字，`id` 由来源、事件、`matcher` 和命令算出。改了其中任意一项即视为新条目，原先的禁用状态不再作用于它。
+- **新增**：同一事件下 `matcher` 相同的组会追加进去，否则新建一组；内容完全相同的条目已存在时不重复写。配置文件解析失败时报错，不覆盖原文件。
+- **移除**：只能移除用户级和项目级条目。插件自带的 hook 只能禁用。
+- **启停**：禁用状态保存在 `settings.json` 的 `disabledHooks`，用户级与项目级取并集。项目级条目写项目级 settings，用户级和插件条目写用户级 settings。
+- **宿主内置的 hook**：不能移除也不能禁用，调用时抛 `HOST_READONLY`。
 
 ## 注意事项
 

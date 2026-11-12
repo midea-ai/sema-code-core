@@ -232,6 +232,21 @@ getMemoryInfo(refresh?: boolean): Promise<MemoryConfig | null>
 getRuleInfo(refresh?: boolean): Promise<RuleConfig | null>
 ```
 
+## Hooks 管理
+
+```javascript
+// 获取合并后的 hooks 配置视图；传 refresh=true 重新加载
+getHooksInfo(refresh?: boolean): Promise<HooksInfo>
+
+// 增加 / 删除 hook（写用户级或项目级 hooks.json；id 取自 getHooksInfo 的条目）
+addHook(hookConf: HookConfig): Promise<HooksInfo>
+removeHook(id: string): Promise<HooksInfo>
+
+// 启用 / 禁用 hook
+enableHook(id: string): Promise<HooksInfo>
+disableHook(id: string): Promise<HooksInfo>
+```
+
 ## Design 管理
 
 ```javascript

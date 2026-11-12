@@ -56,10 +56,10 @@ export const skillDisplayOrder = (name: string): number => { const i = DISPLAY_O
 
 /**
  * 文本以 `/<映射技能名或内置命令名>` 开头 → 返回名字、前缀长度（含其后一个空格）与剩余文本。
- * 默认后接空白或结尾都算；输入框传 requireSpace，避免手敲到一半刚好拼出技能名就被换成标签
+ * 后接空白或结尾都算；输入框里手敲到一半刚好拼出技能名时不换标签，由调用方在命令面板打开期间跳过匹配
  */
-export function matchSkillPrefix(text: string, requireSpace = false): { name: string; display: SkillDisplay; prefixLen: number; rest: string } | null {
-  const m = text.match(requireSpace ? /^\/(\S+)\s/ : /^\/(\S+)(\s|$)/);
+export function matchSkillPrefix(text: string): { name: string; display: SkillDisplay; prefixLen: number; rest: string } | null {
+  const m = text.match(/^\/(\S+)(\s|$)/);
   if (!m) return null;
   const display = SKILL_DISPLAY[m[1]] || COMMAND_DISPLAY[m[1]];
   if (!display) return null;

@@ -91,20 +91,23 @@ export function Composer({ sessionId, projectId, active = true }: { sessionId?: 
     if (projectId) wsClient.request('project.warm', undefined, { projectId }).catch(() => undefined);
     else wsClient.request('draft.warm', undefined, {}).catch(() => undefined);
   }, [isDraft, projectId, wsStatus]);
-  // 编辑器分段：开头的 `/<映射技能> ` 显示为「图标 + 名字」标签，`@路径 ` 经服务端 stat 确认存在后显示为「文件图标 + 文件名」芯片，
+  // 编辑器分段：开头的 `/<映射技能>` 显示为「图标 + 名字」标签，`@路径 ` 经服务端 stat 确认存在后显示为「文件图标 + 文件名」芯片，
   // 不存在的引用保持原文；draft.text 与发送内容始终是完整文本，所有光标/触发判定都按完整文本算，编辑器内部负责标签与全文坐标的换算。
   // 芯片点击在右栏打开文件；草稿页没有右栏，芯片只显示不响应
   // 正在输入的引用 = @ 选择器当前打开的那个（typingAt 为其 @ 的全文偏移），它保持明文以便继续编辑 query；
   // 其余存在的引用一律是芯片，删掉芯片后的空格也不会打回明文（配合 onChange 里"删除不新开弹层"）
   const scopeId = sessionId || projectId;
   const typingAt = trigger?.kind === 'file' ? trigger.start : null;
+  // 斜杠标签同理：命令面板开着（正在敲命令名）时保持明文，其余时候开头的 `/<映射名>` 一律是标签，
+  // 删掉名字后的空格也不打回明文，再按一次退格即可整块删除
+  const typingCmd = trigger?.kind === 'cmd';
   const refKeys = useMemo(() => refPaths(draft.text, typingAt), [draft.text, typingAt]);
   const stat = usePathStats(scopeId, refKeys, true);
   const openRef = useCallback((seg: RefSegment) => { if (sessionId) openFileRef(sessionId, seg.path, seg.line, seg.endLine); }, [sessionId, openFileRef]);
   const parse = useCallback((text: string): EditorSegment[] => {
     const segs: EditorSegment[] = [];
     let body = text;
-    const sk = matchSkillPrefix(text, true);
+    const sk = typingCmd ? null : matchSkillPrefix(text);
     if (sk) { segs.push({ type: 'token', raw: `/${sk.name}`, node: <SkillLabel display={sk.display} /> }); body = text.slice(sk.name.length + 1); }
     for (const s of splitFileRefs(body, typingAt === null ? null : typingAt - (text.length - body.length))) {
       if (s.type === 'text') { segs.push(s); continue; }
@@ -113,7 +116,7 @@ export function Composer({ sessionId, projectId, active = true }: { sessionId?: 
       segs.push({ type: 'token', raw: s.raw, node: <FileRefChip seg={{ ...s, isDirectory: st.isDir }} onOpen={sessionId ? openRef : undefined} /> });
     }
     return segs;
-  }, [sessionId, openRef, stat, typingAt]);
+  }, [sessionId, openRef, stat, typingAt, typingCmd]);
   const scope = { sessionId, projectId };
   const fileSearch = useFileSearch(scope, trigger?.kind === 'file' && (sessionId || projectId) ? trigger.query : null);
   const cmds = useCommands(scope, trigger?.kind === 'cmd');
@@ -269,7 +272,7 @@ export function Composer({ sessionId, projectId, active = true }: { sessionId?: 
     const list = snap ? snap.inputHistory : draftHistory;
     if (!list?.length) return false;
     const caret = taRef.current?.getCaret() ?? draft.text.length;
-    // 历史里存的是 trim 过的文本：整条只有 `/<命令或技能名>` 时补一个尾随空格，否则编辑器不会把它换成标签（标签要求名后跟空格）
+    // 历史里存的是 trim 过的文本：整条只有 `/<命令或技能名>` 时补一个尾随空格，光标落在空格后可直接接着敲参数
     const apply = (raw: string) => {
       const sk = matchSkillPrefix(raw);
       const text = sk && raw.length === sk.prefixLen && !/\s$/.test(raw) ? raw + ' ' : raw;

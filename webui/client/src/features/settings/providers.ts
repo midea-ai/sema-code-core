@@ -21,7 +21,7 @@ export const DEFAULT_CONTEXT_LENGTH_OPTIONS = [128000, 256000, 512000, 1000000];
 export const DEFAULT_MAX_TOKENS = 64000;
 export const DEFAULT_CONTEXT_LENGTH = 1000000;
 export const DEFAULT_PROVIDER = 'deepseek';
-export const PROVIDER_ORDER = ['custom', 'deepseek', 'minimax', 'glm', 'mimo', 'qwen', 'kimi', 'volcengine', 'openrouter', 'anthropic', 'openai'];
+export const PROVIDER_ORDER = ['custom', 'deepseek', 'minimax', 'glm', 'kimi', 'qwen', 'ernie', 'mimo', 'volcengine', 'openrouter', 'anthropic', 'openai'];
 
 export const PROVIDERS: Record<string, ProviderDefaults> = {
   // 官方 Models API 默认一页只返回 20 条，带 limit 一次拉全；内置列表作为远端获取失败的兜底
@@ -45,6 +45,7 @@ export const PROVIDERS: Record<string, ProviderDefaults> = {
   glm: { name: 'GLM (智谱)', baseURL: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.3', apikeyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys', defaultAdapt: 'openai', defaultThinkingHistoryPolicy: 'current_turn' },
   openrouter: { name: 'OpenRouter', baseURL: 'https://openrouter.ai/api', modelsUrl: 'https://openrouter.ai/api/v1/models', defaultModel: 'anthropic/claude-opus-4.6', apikeyUrl: 'https://openrouter.ai/settings/keys', defaultAdapt: 'anthropic' },
   qwen: { name: 'Qwen (Alibaba)', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen3.8-max', apikeyUrl: 'https://bailian.console.aliyun.com/cn-beijing?api-key', defaultAdapt: 'openai', defaultThinkingHistoryPolicy: 'current_turn' },
+  ernie: { name: 'ERNIE (Baidu)', baseURL: 'https://qianfan.baidubce.com/v2', modelsUrl: 'https://qianfan.baidubce.com/v2/models', defaultModel: 'ernie-5.5-flash-preview', apikeyUrl: 'https://console.bce.baidu.com/qianfan/ais/console/apiKey', defaultAdapt: 'openai', defaultThinkingHistoryPolicy: 'current_turn' },
   mimo: { name: 'MiMo (Xiaomi)', baseURL: 'https://api.xiaomimimo.com/anthropic', modelsUrl: 'https://api.xiaomimimo.com/v1/models', defaultModel: 'mimo-v2.6-pro', apikeyUrl: 'https://platform.xiaomimimo.com/console/api-keys', defaultAdapt: 'anthropic', defaultThinkingHistoryPolicy: 'current_turn' },
   custom: { name: 'custom', baseURL: '', baseURLPlaceholder: 'https://your-api.com/v1', defaultAdapt: 'openai' },
 };
@@ -56,7 +57,7 @@ export function providerLabel(k: string): string {
 }
 
 /** API Key 输入框占位：品牌名套进当前语言模板，没有品牌名（自定义接口）用通用文案 */
-const API_KEY_VENDOR: Record<string, string> = { anthropic: 'Anthropic', openai: 'OpenAI', kimi: 'Moonshot', minimax: 'MiniMax', deepseek: 'DeepSeek', glm: 'Zhipu', qwen: 'Alibaba Cloud', openrouter: 'OpenRouter', mimo: 'Xiaomi MiMo', volcengine: 'Volcengine' };
+const API_KEY_VENDOR: Record<string, string> = { anthropic: 'Anthropic', openai: 'OpenAI', kimi: 'Moonshot', minimax: 'MiniMax', deepseek: 'DeepSeek', glm: 'Zhipu', qwen: 'Alibaba Cloud', openrouter: 'OpenRouter', mimo: 'Xiaomi MiMo', volcengine: 'Volcengine', ernie: 'Baidu Qianfan' };
 export function apiKeyPlaceholder(k: string): string {
   const vendor = API_KEY_VENDOR[k];
   return vendor ? t('settings.apiKeyPlaceholder', { name: vendor }) : t('settings.apiKeyPlaceholderGeneric');

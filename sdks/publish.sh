@@ -3,7 +3,6 @@
 #
 #   ./publish.sh pack    [python] [java] [csharp]   构建桥产物并打包，每端一个安装包平铺到 sdks/dist/
 #   ./publish.sh publish [python] [java] [csharp]   发布当前版本到 PyPI / Maven Central / NuGet
-#   ./publish.sh all     [python] [java] [csharp]   pack 后接 publish
 #   ./publish.sh release                            创建 GitHub Release v<版本>，附 npm / Python / Java / C# 四个安装包
 #
 # 不带语言参数时三端都做；某一端失败后可只带该语言重跑。全程无交互，命令直接执行。
@@ -33,7 +32,7 @@ if [ "$ver_python" != "$VER" ] || [ "$ver_java" != "$VER" ] || [ "$ver_csharp" !
 fi
 
 usage() {
-  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
   echo
   echo "当前版本：$VER"
 }
@@ -226,7 +225,6 @@ done
 case "$CMD" in
   pack)    do_pack ;;
   publish) do_publish ;;
-  all)     do_pack; do_publish ;;
   release) do_release ;;
   *)       usage; exit 1 ;;
 esac

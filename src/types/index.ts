@@ -302,6 +302,8 @@ export type {
   HooksInfo,
   HookEntryInfo,
   HookSource,
+  HookConfig,
+  HookEventName,
 } from './hook';
 
 // 长期目标（/goal）：getGoal 返回值与 goal:update 事件载荷

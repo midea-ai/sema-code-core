@@ -10,6 +10,8 @@ export interface SemaSettings {
   disabledMcpServers?: string[]
   /** 禁用的 Skill 名称列表（用户级 + 项目级取并集生效；插件 Skill 用 插件名:skill名 全名） */
   disabledSkills?: string[]
+  /** 禁用的 hook 条目 id 列表（用户级 + 项目级取并集生效；id 见 HookEntryInfo.id） */
+  disabledHooks?: string[]
   /** MCP Server 启用的工具列表 */
   enabledMcpServerUseTools?: Record<string, string[]>
   /** 禁用的定时任务 id 列表 */

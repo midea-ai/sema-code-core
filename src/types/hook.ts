@@ -58,6 +58,8 @@ export type HookSource = 'host' | 'user' | 'project' | 'plugin'
 // ==================== 合并后的可执行条目（内部） ====================
 
 export interface LoadedHookEntry {
+  id: string // 条目标识，见 HookEntryInfo.id
+  enabled: boolean // 见 HookEntryInfo.enabled
   event: string // 原样保留（未知事件名标 invalid 但保留在视图中）
   source: HookSource
   pluginName?: string // 仅 source === 'plugin'
@@ -74,6 +76,10 @@ export interface LoadedHookEntry {
 // ==================== 公开查询视图（经 src/types/index.ts re-export） ====================
 
 export interface HookEntryInfo {
+  // 条目标识（hook 没有名字）：由 来源 + 插件名 + 事件 + matcher + 配置里的原始命令 算出，removeHook / enableHook / disableHook 的入参。
+  // 改了事件、matcher 或命令即视为新条目；同一来源里内容完全相同的重复条目共用一个 id
+  id: string
+  enabled: boolean // 是否启用（settings 的 disabledHooks 控制，用户级 + 项目级并集；host 条目恒为启用）；与 status 独立，都满足才会执行
   event: string
   source: HookSource
   pluginName?: string // 仅 source === 'plugin'：所属插件名
@@ -83,6 +89,16 @@ export interface HookEntryInfo {
   status: 'ok' | 'skipped' | 'invalid'
   statusReason?: string // 如 "unsupported type: http" / "contains 'if' condition"
   filePath?: string // 所属配置文件定位，"绝对路径:起始行-结束行"（事件块粒度），定位失败为纯路径；host 条目无此字段
+}
+
+// addHook 入参：写入 scope 对应层的 hooks.json
+export interface HookConfig {
+  scope: 'user' | 'project'
+  event: HookEventName
+  matcher?: string // 仅工具类事件生效；缺省匹配全部工具
+  command: string
+  timeout?: number // 秒，缺省 60
+  failClosed?: boolean // hook 执行失败时按阻断处理，缺省 false
 }
 
 export interface HooksInfo {

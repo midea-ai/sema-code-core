@@ -18,7 +18,7 @@ import { MemoryConfig } from '../types/memory';
 import { getRuleManager } from '../services/rules/rulesManager';
 import { RuleConfig } from '../types/rule';
 import { getHooksManager } from '../services/hooks/hooksManager';
-import { HooksInfo } from '../types/hook';
+import { HookConfig, HooksInfo } from '../types/hook';
 import { getDesignManager } from '../services/design/designManager';
 import { DesignSkillInfo, DesignSystemInfo } from '../types/design';
 import { getTaskManager } from '../manager/TaskManager';
@@ -203,6 +203,11 @@ export class SemaCore {
   // ==================== Hooks 管理 ====================
   // 合并后的 hooks 配置视图；refresh=true 重新加载配置，下一次 hook 触发即生效
   getHooksInfo = (refresh?: boolean): Promise<HooksInfo> => getHooksManager().getHooksInfo(refresh);
+  // 增删只作用于用户级 / 项目级 hooks.json；启停写 settings 的 disabledHooks（写入层跟随条目所在层）；id 取自 getHooksInfo 的条目，host 条目只读
+  addHook = (hookConf: HookConfig): Promise<HooksInfo> => getHooksManager().addHook(hookConf);
+  removeHook = (id: string): Promise<HooksInfo> => getHooksManager().removeHook(id);
+  enableHook = (id: string): Promise<HooksInfo> => getHooksManager().setHookEnabled(id, true);
+  disableHook = (id: string): Promise<HooksInfo> => getHooksManager().setHookEnabled(id, false);
 
   // ==================== Design 设计资源 ====================
   getDesignSkillsInfo = (refresh?: boolean): Promise<DesignSkillInfo[]> => getDesignManager().getDesignSkillsInfo(refresh);

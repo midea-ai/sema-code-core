@@ -5,25 +5,37 @@
  * 加载顺序：宿主传入(host 域) → 已启用插件(<插件目录>/hooks/hooks.json) → 用户级(~/.sema/hooks/hooks.json)
  * → 项目级(<workingDir>/.sema/hooks/hooks.json)，同一事件的条目按加载顺序追加（不覆盖）。
  * 用户级 / 项目级只在对应域生效时加载（scopes.hooks，见 conf/hostConfig.ts）。
+ *
+ * 增删与启停：
+ * - 增删只写用户级 / 项目级 hooks.json；插件条目只能启停，host 条目只读
+ * - 启停：settings.json -> disabledHooks 存条目 id（用户级 ~/.sema + 项目级 .sema 取并集生效；host 条目不受影响）
+ * - disabledHooks 里的残留 id 不在加载时清理：用户级 settings 跨项目共享，条目暂时不在（插件被禁用、换了项目）不代表可以丢掉启停状态
  */
 
 import * as fs from 'fs'
 import { promises as fsPromises } from 'fs'
 import * as path from 'path'
+import { createHash } from 'crypto'
 import { findJsonKeyValueLineRange } from '../../util/file'
 import { logDebug, logError, logInfo, logWarn } from '../../util/log'
 import { getSemaRootDir } from '../../util/savePath'
 import { readInitialCwd } from '../../util/cwd'
 import { getPluginsManager } from '../plugins/pluginsManager'
 import { expandPluginRoot } from '../../prompt/toolAliases'
-import { getHostConfig, isScopeEnabled } from '../../conf/hostConfig'
+import { assertScopeEnabled, getHostConfig, isScopeEnabled } from '../../conf/hostConfig'
+import { readSettings, writeSettings } from '../settings/settingsLoader'
+import { SettingsScope } from '../../types/settings'
+import { SemaError, hostReadonlyError } from '../../util/errors'
 import {
   HOOK_EVENTS,
   TOOL_HOOK_EVENTS,
+  HookConfig,
   HookEntryInfo,
   HookSource,
   HooksInfo,
   LoadedHookEntry,
+  RawHookCommand,
+  RawHookMatcherGroup,
   RawHooksFile,
 } from '../../types/hook'
 
@@ -45,6 +57,17 @@ interface HookFileSource {
   raw?: RawHooksFile // 仅 host 来源：宿主传入的内容
   pluginName?: string // 仅插件来源
   pluginRoot?: string // 仅插件来源：插件安装目录，用于展开命令中的插件根目录变量
+}
+
+/**
+ * 条目标识：来源 + 插件名 + 事件 + matcher + 配置里的原始命令 的 sha1 前 12 位。
+ * 用原始命令而非展开后的：插件升级换安装目录后 id 不变。没有命令的条目（不支持的类型等）拿整条配置参与，避免彼此撞 id
+ */
+function hookEntryId(source: HookSource, pluginName: string | undefined, event: string, matcher: unknown, cmd: RawHookCommand): string {
+  const rawCommand = typeof cmd.command === 'string' ? cmd.command.trim() : ''
+  const basis = rawCommand || JSON.stringify(cmd)
+  const key = JSON.stringify([source, pluginName ?? '', event, typeof matcher === 'string' ? matcher : '', basis])
+  return createHash('sha1').update(key).digest('hex').slice(0, 12)
 }
 
 class HooksManager {
@@ -92,7 +115,7 @@ class HooksManager {
   }
 
   /**
-   * 返回指定事件下 matcher 命中的可执行条目（仅 status === 'ok'）
+   * 返回指定事件下 matcher 命中的可执行条目（仅 status === 'ok' 且已启用）
    * 工具类事件按通用工具名 / 内置名匹配；其他事件忽略 matcher 总是触发
    */
   getMatchedEntries(event: string, genericToolName?: string, semaToolName?: string): LoadedHookEntry[] {
@@ -101,7 +124,7 @@ class HooksManager {
 
     const isToolEvent = TOOL_HOOK_EVENTS.has(event)
     return entries.filter(entry => {
-      if (entry.status !== 'ok') return false
+      if (entry.status !== 'ok' || !entry.enabled) return false
       if (!isToolEvent) return true
       return this.compileMatcher(entry.matcher)(genericToolName, semaToolName)
     })
@@ -121,6 +144,180 @@ class HooksManager {
       }
     }
     return { ...this.infoCache! }
+  }
+
+  // ==================== 增删与启停 ====================
+
+  /**
+   * 新增 hook：写入 scope 对应层的 hooks.json（同事件下 matcher 相同的组追加，否则新建一组）。
+   * 内容完全相同的条目已存在时不重复写
+   */
+  async addHook(conf: HookConfig): Promise<HooksInfo> {
+    // 写入层只有 user / project 两种：域没生效报 SCOPE_DISABLED
+    const scope = conf?.scope === 'project' ? 'project' : 'user'
+    assertScopeEnabled('hooks', scope)
+
+    const event = conf?.event
+    if (typeof event !== 'string' || !HOOK_EVENT_SET.has(event)) {
+      throw new SemaError('CONFIG_INVALID', `Unknown hook event '${String(event)}' (allowed: ${HOOK_EVENTS.join(', ')})`)
+    }
+    const command = typeof conf.command === 'string' ? conf.command.trim() : ''
+    if (!command) throw new SemaError('CONFIG_INVALID', 'Hook command must be a non-empty string')
+    if (conf.matcher !== undefined && typeof conf.matcher !== 'string') {
+      throw new SemaError('CONFIG_INVALID', 'Hook matcher must be a string')
+    }
+    if (conf.timeout !== undefined && !(typeof conf.timeout === 'number' && Number.isFinite(conf.timeout) && conf.timeout > 0)) {
+      throw new SemaError('CONFIG_INVALID', 'Hook timeout must be a positive number of seconds')
+    }
+    const matcher = conf.matcher?.trim() || undefined
+
+    const cmd: RawHookCommand = {
+      type: 'command',
+      command,
+      ...(conf.timeout !== undefined ? { timeout: conf.timeout } : {}),
+      ...(conf.failClosed === true ? { failClosed: true } : {}),
+    }
+    const configPath = scope === 'project' ? this.projectConfigPath : this.userConfigPath
+    const file = this.readHooksFileForWrite(configPath)
+    if (!file.hooks) file.hooks = {}
+    const groups = file.hooks[event] ?? (file.hooks[event] = [])
+    if (!Array.isArray(groups)) throw new Error(`Invalid hooks config [${configPath}]: hooks.${event} must be an array`)
+
+    const id = hookEntryId(scope, undefined, event, matcher, cmd)
+    const isGroup = (g: unknown): g is RawHookMatcherGroup & { hooks: RawHookCommand[] } =>
+      !!g && typeof g === 'object' && Array.isArray((g as RawHookMatcherGroup).hooks)
+    const exists = groups.some(g => isGroup(g) && g.hooks.some(c => !!c && typeof c === 'object' && hookEntryId(scope, undefined, event, g.matcher, c) === id))
+    if (exists) {
+      logInfo(`Hook 已存在，未重复添加 [${scope}] ${event}: ${command}`)
+      return this.getHooksInfo(true)
+    }
+
+    const sameMatcher = groups.find(g => isGroup(g) && (typeof g.matcher === 'string' ? g.matcher : '') === (matcher ?? ''))
+    if (sameMatcher) {
+      sameMatcher.hooks!.push(cmd)
+    } else {
+      groups.push({ ...(matcher ? { matcher } : {}), hooks: [cmd] })
+    }
+    this.writeHooksFile(configPath, file)
+    logInfo(`添加 Hook 到 ${scope} 级配置 ${event}: ${command}`)
+    return this.getHooksInfo(true)
+  }
+
+  /**
+   * 移除 hook：只能移除用户级 / 项目级条目（从所属 hooks.json 删掉，组和事件删空后一并去掉）。
+   * host 条目报 HOST_READONLY；插件条目随插件更新被覆盖，只能禁用
+   */
+  async removeHook(id: string): Promise<HooksInfo> {
+    await this.ready()
+    const entry = this.findEntry(id)
+    if (!entry) {
+      logWarn(`移除 Hook 失败: 未找到 [${id}]`)
+      return this.getHooksInfo()
+    }
+    if (entry.source === 'host') throw hostReadonlyError('Hook', id)
+    if (entry.source === 'plugin') {
+      throw new Error(`Hook '${id}' belongs to plugin '${entry.pluginName}' and cannot be removed; disable it instead`)
+    }
+
+    const { source, event, configPath } = entry
+    const file = this.readHooksFileForWrite(configPath)
+    const groups = file.hooks?.[event]
+    if (Array.isArray(groups)) {
+      const kept = groups.filter(group => {
+        if (!group || typeof group !== 'object' || !Array.isArray(group.hooks)) return true
+        const before = group.hooks.length
+        group.hooks = group.hooks.filter(c => !(c && typeof c === 'object' && hookEntryId(source, undefined, event, group.matcher, c) === id))
+        // 只去掉本次删空的组，原本就空的组不动
+        return group.hooks.length > 0 || group.hooks.length === before
+      })
+      if (kept.length > 0) file.hooks![event] = kept
+      else delete file.hooks![event]
+      this.writeHooksFile(configPath, file)
+    }
+
+    // 清理同层 settings 中的禁用记录（写入层与启停对称，见 toggleScope）
+    const settingsScope = this.toggleScope(entry)
+    const settings = readSettings(settingsScope)
+    if (settings.disabledHooks?.includes(id)) {
+      settings.disabledHooks = settings.disabledHooks.filter(n => n !== id)
+      writeSettings(settingsScope, settings)
+    }
+    logInfo(`移除 Hook [${id}] ${event}: ${entry.command}`)
+    return this.getHooksInfo(true)
+  }
+
+  /**
+   * 启用/禁用 hook：写入 settings 的 disabledHooks（写入层见 toggleScope）。
+   * 启用只从目标层移除；若另一层仍禁用，最终仍为禁用
+   */
+  async setHookEnabled(id: string, enabled: boolean): Promise<HooksInfo> {
+    await this.ready()
+    const entry = this.findEntry(id)
+    if (!entry) {
+      logWarn(`${enabled ? '启用' : '禁用'} Hook 失败: 未找到 [${id}]`)
+      return this.getHooksInfo()
+    }
+    if (entry.source === 'host') throw hostReadonlyError('Hook', id)
+
+    const scope = this.toggleScope(entry)
+    const settings = readSettings(scope)
+    const list = settings.disabledHooks ?? []
+    settings.disabledHooks = enabled ? list.filter(n => n !== id) : (list.includes(id) ? list : [...list, id])
+    writeSettings(scope, settings)
+    if (enabled && this.readDisabledHooks().has(id)) {
+      logWarn(`Hook [${id}] 在另一层 settings 中仍被禁用`)
+    }
+    logInfo(`${enabled ? '启用' : '禁用'} Hook [${id}]（${scope} 级）${entry.event}: ${entry.command}`)
+    return this.getHooksInfo(true)
+  }
+
+  /**
+   * 启停写入哪层 settings：跟随条目所在层（项目级写项目级，用户级 / 插件写用户级，即全局生效）
+   */
+  private toggleScope(entry: LoadedHookEntry): SettingsScope {
+    return entry.source === 'project' ? 'project' : 'user'
+  }
+
+  /** 读取禁用的 hook id 集合（用户级 + 项目级并集） */
+  private readDisabledHooks(): Set<string> {
+    const user = readSettings('user').disabledHooks ?? []
+    const project = readSettings('project').disabledHooks ?? []
+    return new Set([...user, ...project])
+  }
+
+  private findEntry(id: string): LoadedHookEntry | undefined {
+    for (const entries of this.entriesByEvent?.values() ?? []) {
+      const hit = entries.find(e => e.id === id)
+      if (hit) return hit
+    }
+    return undefined
+  }
+
+  /**
+   * 读出待改写的 hooks.json（文件不存在视为空配置）。
+   * 解析失败或结构不对直接抛错：改写会整体回写，不能拿空配置盖掉用户写坏的文件
+   */
+  private readHooksFileForWrite(configPath: string): RawHooksFile {
+    if (!fs.existsSync(configPath)) return {}
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    } catch (error) {
+      throw new Error(`Failed to parse hooks config [${configPath}]: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`Invalid hooks config [${configPath}]: root must be an object`)
+    }
+    const hooks = (parsed as RawHooksFile).hooks
+    if (hooks !== undefined && (!hooks || typeof hooks !== 'object' || Array.isArray(hooks))) {
+      throw new Error(`Invalid hooks config [${configPath}]: hooks must be an object`)
+    }
+    return parsed as RawHooksFile
+  }
+
+  private writeHooksFile(configPath: string, file: RawHooksFile): void {
+    fs.mkdirSync(path.dirname(configPath), { recursive: true })
+    fs.writeFileSync(configPath, JSON.stringify(file, null, 2), 'utf-8')
   }
 
   private invalidateCache(): void {
@@ -196,15 +393,20 @@ class HooksManager {
       return location
     }
 
+    // 启停状态：host 条目恒为启用，其余按 settings 的 disabledHooks（用户级 + 项目级并集）
+    const disabled = this.readDisabledHooks()
     const entriesByEvent = new Map<string, LoadedHookEntry[]>()
     const eventsView: Record<string, HookEntryInfo[]> = {}
     for (const entry of allEntries) {
+      entry.enabled = entry.source === 'host' || !disabled.has(entry.id)
       if (!entriesByEvent.has(entry.event)) {
         entriesByEvent.set(entry.event, [])
         eventsView[entry.event] = []
       }
       entriesByEvent.get(entry.event)!.push(entry)
       eventsView[entry.event].push({
+        id: entry.id,
+        enabled: entry.enabled,
         event: entry.event,
         source: entry.source,
         ...(entry.pluginName ? { pluginName: entry.pluginName } : {}),
@@ -229,7 +431,7 @@ class HooksManager {
       events: eventsView,
     }
 
-    const okCount = allEntries.filter(e => e.status === 'ok').length
+    const okCount = allEntries.filter(e => e.status === 'ok' && e.enabled).length
     if (allEntries.length > 0 || parseErrors.length > 0) {
       logInfo(`Hooks 配置刷新完成: ${okCount}/${allEntries.length} 条可用`)
     }
@@ -289,6 +491,8 @@ class HooksManager {
             : undefined
 
           const entry: LoadedHookEntry = {
+            id: hookEntryId(source, file.pluginName, event, group.matcher, cmd),
+            enabled: true, // 加载完统一按 settings 的 disabledHooks 回填，见 loadAndCache
             event,
             source,
             ...(file.pluginName ? { pluginName: file.pluginName } : {}),

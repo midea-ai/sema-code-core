@@ -10,7 +10,7 @@ import java.util.Map;
  * models / mcpServers / hooks / skills / agents / commands 为宿主传入的 host 域内容（只读、同名盖掉其他域、不落盘），
  * scopes 指定每一类哪些域生效，encryption 开启历史 / 快照 / hook 记录加密；这些都只在构造时生效，校验不通过 start 抛 CONFIG_INVALID。
  */
-public record SemaCoreConfig(String workingDir, String logLevel, String lang, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean enableInputPrediction, Boolean disableBackgroundTasks, Boolean disableMemory, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions, String usageProduct, ModelsInput models, List<MCPServerInput> mcpServers, Map<String, List<HookGroupInput>> hooks, SkillsInput skills, AgentsInput agents, CommandsInput commands, ScopesConfig scopes, EncryptionConfig encryption, Boolean disableLLMLog, Boolean disableEventLog, String configFile) {
+public record SemaCoreConfig(String workingDir, String logLevel, String lang, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean enableInputPrediction, Boolean disableBackgroundTasks, Boolean disableMemory, Boolean disableEnvContext, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions, String usageProduct, ModelsInput models, List<MCPServerInput> mcpServers, Map<String, List<HookGroupInput>> hooks, SkillsInput skills, AgentsInput agents, CommandsInput commands, ScopesConfig scopes, EncryptionConfig encryption, Boolean disableLLMLog, Boolean disableEventLog, String configFile) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private String workingDir;
@@ -35,6 +35,7 @@ public record SemaCoreConfig(String workingDir, String logLevel, String lang, Bo
         private Boolean enableInputPrediction;
         private Boolean disableBackgroundTasks;
         private Boolean disableMemory;
+        private Boolean disableEnvContext;
         private Boolean enableToolSearch;
         private List<String> toolSearchDefaultTools;
         private Long maxSessions;
@@ -75,6 +76,8 @@ public record SemaCoreConfig(String workingDir, String logLevel, String lang, Bo
         public Builder disableBackgroundTasks(Boolean disableBackgroundTasks) { this.disableBackgroundTasks = disableBackgroundTasks; return this; }
         /** 关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效）。仅构造时生效。 */
         public Builder disableMemory(Boolean disableMemory) { this.disableMemory = disableMemory; return this; }
+        /** 关闭环境上下文（主代理与子代理的系统提示词不拼 env / gitStatus，建会话不起 git 进程）。仅构造时生效。 */
+        public Builder disableEnvContext(Boolean disableEnvContext) { this.disableEnvContext = disableEnvContext; return this; }
         public Builder enableToolSearch(Boolean enableToolSearch) { this.enableToolSearch = enableToolSearch; return this; }
         public Builder toolSearchDefaultTools(List<String> toolSearchDefaultTools) { this.toolSearchDefaultTools = toolSearchDefaultTools; return this; }
         public Builder maxSessions(Long maxSessions) { this.maxSessions = maxSessions; return this; }
@@ -102,6 +105,6 @@ public record SemaCoreConfig(String workingDir, String logLevel, String lang, Bo
         public Builder disableEventLog(Boolean disableEventLog) { this.disableEventLog = disableEventLog; return this; }
         /** 构造配置文件路径（~/xx 或绝对路径，由桥进程读取）：严格 JSON，字段同本类型；这里显式传的顶层键整体覆盖文件里的同名键；文件内 {"$file": "路径"} 替换为该文件文本。 */
         public Builder configFile(String configFile) { this.configFile = configFile; return this; }
-        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, lang, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, useTools, disabledTools, agentMode, disableTopicDetection, enableInputPrediction, disableBackgroundTasks, disableMemory, enableToolSearch, toolSearchDefaultTools, maxSessions, usageProduct, models, mcpServers, hooks, skills, agents, commands, scopes, encryption, disableLLMLog, disableEventLog, configFile); }
+        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, lang, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, useTools, disabledTools, agentMode, disableTopicDetection, enableInputPrediction, disableBackgroundTasks, disableMemory, disableEnvContext, enableToolSearch, toolSearchDefaultTools, maxSessions, usageProduct, models, mcpServers, hooks, skills, agents, commands, scopes, encryption, disableLLMLog, disableEventLog, configFile); }
     }
 }

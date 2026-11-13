@@ -40,7 +40,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 > **来源限定与持久化保护**(`SemaCoreConfig` 新增字段,均只在构造时生效):
 > - `models` / `mcpServers` / `hooks` / `skills` / `agents` / `commands`:宿主内置的 host 域内容(类型 `ModelsInput` / `MCPServerInput[]` / `HooksInput` / `SkillsInput` / `AgentsInput` / `CommandsInput`)。host 域条目只读、同名盖掉其他域、不落盘;查询接口里 host 模型的 `apiKey` 为空串、host MCP 的 `env` / `headers` 值打码为 `***`、内联 skill / 子代理 / 命令的 `prompt` 为空串并带 `private: true`。
-> - `scopes: ScopesConfig`:每一类哪些域生效(`models`: host/user;`mcp` / `hooks` / `commands`: host/user/project;`skills` / `agents`: host/builtin/user/project;`plugins`: user/project/local,`[]` 表示不加载任何插件)。不写 = 全部生效;写接口落到没生效的域抛 `SCOPE_DISABLED`。
+> - `scopes: ScopesConfig`:每一类哪些域生效(`models`: host/user;`mcp` / `hooks` / `commands`: host/user/project;`skills` / `agents`: host/builtin/user/project;`plugins`: user/project/local,`[]` 表示不加载任何插件;`rules`: user/project,规则文件 AGENTS.md 读哪几级,`[]` 表示都不读,`customRules` 不受影响)。不写 = 全部生效;写接口落到没生效的域抛 `SCOPE_DISABLED`。
 > - `encryption: EncryptionConfig`(`key` 为 32 字节密钥的 base64,`keyId` 可选):会话历史、快照、hook 会话记录加密,密钥只在内存。传了之后 `disableLLMLog` / `disableEventLog` 缺省变为 `true`(可显式传 `false`,且支持运行期更新)。密文格式 `SEMA1:<keyId>:<nonce base64>:<AES-256-GCM 密文+tag base64>`,宿主要读时用同一把密钥自己解,SDK 不提供加解密与 skill 目录打包函数。
 > - `configFile: string`:构造配置文件路径(`~/xx` 或绝对路径,由桥进程读取),内容是严格 JSON,字段同 `SemaCoreConfig`。`start` 里显式传的顶层键整体覆盖文件里的同名键(不深合并);文件内任意位置的 `{ "$file": "路径" }` 替换为该文件文本(`~/xx`、绝对路径,或相对配置文件所在目录)。读不到或内容不合法抛 `CONFIG_INVALID`。SDK 自带的缺省值(`workingDir` 为当前目录、`logLevel` 为 `none`)优先级低于配置文件:文件里写了就用文件的,`start` 里显式传的仍最优先。
 > - 顺带:`enableLLMCache` 已删除;`enableInputPrediction` 补进三端 `SemaCoreConfig` / `UpdatableCoreConfig`。
@@ -170,7 +170,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getRuleInfo` | `get_rule_info` | `getRuleInfo` | `GetRuleInfo` | `refresh: boolean` | — |
+| `await getRuleInfo` | `get_rule_info` | `getRuleInfo` | `GetRuleInfo` | `refresh: boolean` | 只读 `scopes.rules` 生效的域,都没生效时恒返回 null/None |
 
 ### Hooks 管理
 
@@ -395,9 +395,11 @@ MAIN_AGENT_ID                                                // 常量:主代理
 >
 > `defaultCoreConfig`(含超大默认 systemPrompt)与 `TOOL_NAME_*` 常量暂未纳入 SDK,如需再议。
 >
-> `systemPromptMode`:`'append'`(默认,配置的 systemPrompt 叠加在内置提示词前)| `'replace'`(替换内置系统提示词,memory/env 上下文仍附加)| `'replaceAll'`(完全替换,系统提示词仅为 systemPrompt,不附加 memory/env/gitStatus,turn-level reminder 也不注入 MEMORY.md);replace/replaceAll 未配 systemPrompt 时回落 append。仅构造时生效,不支持动态更新。
+> `systemPromptMode`:`'append'`(默认,配置的 systemPrompt 叠加在内置提示词前)| `'replace'`(替换内置系统提示词);两种模式都照常附加 memory / env / gitStatus,要关掉用 `disableMemory`、`disableEnvContext`;replace 未配 systemPrompt 时回落 append。仅构造时生效,不支持动态更新。`'replaceAll'` 已废弃,传入等同 `'replace'`(三端枚举保留该取值只为兼容)。
 >
 > `disableMemory`:关闭内置记忆(系统提示词不拼记忆使用说明、首轮不注入 MEMORY.md、不读 `.sema/memory`、记忆文件编辑豁免失效),记忆改由外部服务经 hook/MCP 提供。仅构造时生效,不支持动态更新。
+>
+> `disableEnvContext`:关闭环境上下文(主代理与子代理的系统提示词都不拼 env 与 gitStatus,建会话不起 git 进程),适合没有 shell / 文件工具的纯对话场景;仍带这类工具时由宿主在 systemPrompt 里说明工作目录与平台。仅构造时生效,不支持动态更新。
 >
 > `private` 字段:Java 里 `private` 是关键字,三个配置 record 的组件名为 `isPrivate`(`@SerializedName("private")` 锚定 wire 名);Python / C# 保持 `private` / `Private`。`HooksInput` 在 Java / C# 没有独立类型,`SemaCoreConfig.hooks` 直接是 `Map<String, List<HookGroupInput>>` / `Dictionary<string, List<HookGroupInput>>`。
 

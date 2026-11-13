@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 # ==================== 字面量枚举 ====================
 
 AgentMode = Literal["Agent", "Plan", "Design"]
-SystemPromptMode = Literal["append", "replace", "replaceAll"]
+SystemPromptMode = Literal["append", "replace", "replaceAll"]  # replaceAll 已废弃，等同 replace
 PermissionLevel = Literal["Ask", "AutoEdit", "AutoRun", "Bypass"]
 AdapterType = Literal["openai", "anthropic"]
 # 历史思考回传策略：preserve=全部保留（默认）；current_turn=仅当前轮；omit=不回传
@@ -159,6 +159,7 @@ class ScopesConfig(TypedDict, total=False):
     agents: List[Literal["host", "builtin", "user", "project"]]
     commands: List[Literal["host", "user", "project"]]
     plugins: List[PluginScopeKind]  # 插件没有 host 域，值是安装位置；[] 表示不加载任何插件
+    rules: List[Literal["user", "project"]]  # 规则文件 AGENTS.md 读哪几级，没有 host 域（customRules 不受影响）；[] 表示都不读
 
 
 class EncryptionConfig(TypedDict):
@@ -194,6 +195,7 @@ class SemaCoreConfig(TypedDict, total=False):
     enableInputPrediction: bool  # 一轮结束后用 quick 模型预测用户下一句（事件 input:predict），默认否
     disableBackgroundTasks: bool
     disableMemory: bool  # 关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效），仅构造时生效
+    disableEnvContext: bool  # 关闭环境上下文（主代理与子代理的系统提示词不拼 env / gitStatus，建会话不起 git 进程），仅构造时生效
     enableToolSearch: bool
     toolSearchDefaultTools: Optional[List[str]]
     maxSessions: int

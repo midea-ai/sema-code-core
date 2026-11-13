@@ -69,6 +69,7 @@ public enum SkillScope { host, user, project, plugin, builtin }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SemaErrorCode { CONFIG_INVALID, SCOPE_DISABLED, HOST_READONLY, HISTORY_KEY_REQUIRED, HISTORY_DECRYPT_FAILED }
 
+/// <summary>replaceAll 已废弃，等同 replace。</summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SystemPromptMode { append, replace, replaceAll }
 
@@ -568,6 +569,8 @@ public record SemaCoreConfig
     [JsonPropertyName("disableBackgroundTasks")] public bool? DisableBackgroundTasks { get; init; }
     /// <summary>关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效）。仅构造时生效。</summary>
     [JsonPropertyName("disableMemory")] public bool? DisableMemory { get; init; }
+    /// <summary>关闭环境上下文（主代理与子代理的系统提示词不拼 env / gitStatus，建会话不起 git 进程）。仅构造时生效。</summary>
+    [JsonPropertyName("disableEnvContext")] public bool? DisableEnvContext { get; init; }
     [JsonPropertyName("enableToolSearch")] public bool? EnableToolSearch { get; init; }
     [JsonPropertyName("toolSearchDefaultTools")] public List<string>? ToolSearchDefaultTools { get; init; }
     [JsonPropertyName("maxSessions")] public long? MaxSessions { get; init; }
@@ -697,7 +700,8 @@ public record CommandsInput
 /// <summary>
 /// 各类生效的域；null = 该类全部域生效，要锁定必须显式写。值为域名字符串：
 /// Models: host / user；Mcp、Hooks、Commands: host / user / project；Skills、Agents: host / builtin / user / project；
-/// Plugins 没有 host 域，值是插件安装位置（PluginScopeKind），空列表表示不加载任何插件。
+/// Plugins 没有 host 域，值是插件安装位置（PluginScopeKind），空列表表示不加载任何插件；
+/// Rules 是规则文件 AGENTS.md 读哪几级（RuleScope），没有 host 域（CustomRules 不受影响），空列表表示都不读。
 /// </summary>
 public record ScopesConfig
 {
@@ -708,6 +712,7 @@ public record ScopesConfig
     [JsonPropertyName("agents")] public List<string>? Agents { get; init; }
     [JsonPropertyName("commands")] public List<string>? Commands { get; init; }
     [JsonPropertyName("plugins")] public List<PluginScopeKind>? Plugins { get; init; }
+    [JsonPropertyName("rules")] public List<RuleScope>? Rules { get; init; }
 }
 
 /// <summary>会话历史、hook 会话记录、快照加密；密钥只在内存。Key 为 32 字节随机密钥的 base64（44 个字符）；KeyId 可选，写进密文开头，不能含 ':' 或换行。</summary>

@@ -8,9 +8,10 @@ import java.util.Map;
 /**
  * 各类生效的域；不写（null）= 该类全部域生效，要锁定必须显式写。值为域名字符串：
  * models: host / user；mcp、hooks、commands: host / user / project；skills、agents: host / builtin / user / project；
- * plugins 没有 host 域，值是插件安装位置（PluginScopeKind：user / project / local），空列表表示不加载任何插件。
+ * plugins 没有 host 域，值是插件安装位置（PluginScopeKind：user / project / local），空列表表示不加载任何插件；
+ * rules 是规则文件 AGENTS.md 读哪几级（RuleScope：user / project），没有 host 域（customRules 不受影响），空列表表示都不读。
  */
-public record ScopesConfig(List<String> models, List<String> mcp, List<String> hooks, List<String> skills, List<String> agents, List<String> commands, List<PluginScopeKind> plugins) {
+public record ScopesConfig(List<String> models, List<String> mcp, List<String> hooks, List<String> skills, List<String> agents, List<String> commands, List<PluginScopeKind> plugins, List<RuleScope> rules) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private List<String> models;
@@ -20,6 +21,7 @@ public record ScopesConfig(List<String> models, List<String> mcp, List<String> h
         private List<String> agents;
         private List<String> commands;
         private List<PluginScopeKind> plugins;
+        private List<RuleScope> rules;
         private Builder() {}
         public Builder models(List<String> models) { this.models = models; return this; }
         public Builder mcp(List<String> mcp) { this.mcp = mcp; return this; }
@@ -28,6 +30,7 @@ public record ScopesConfig(List<String> models, List<String> mcp, List<String> h
         public Builder agents(List<String> agents) { this.agents = agents; return this; }
         public Builder commands(List<String> commands) { this.commands = commands; return this; }
         public Builder plugins(List<PluginScopeKind> plugins) { this.plugins = plugins; return this; }
-        public ScopesConfig build() { return new ScopesConfig(models, mcp, hooks, skills, agents, commands, plugins); }
+        public Builder rules(List<RuleScope> rules) { this.rules = rules; return this; }
+        public ScopesConfig build() { return new ScopesConfig(models, mcp, hooks, skills, agents, commands, plugins, rules); }
     }
 }

@@ -4,7 +4,7 @@ import { basename, extname } from 'path'
 import { Tool } from './base/Tool'
 import { TOOL_DESCRIPTION } from '../prompt/tools/generateImage'
 import { TOOL_NAME_GENERATE_IMAGE } from '../prompt/tool'
-import { generateImage, REFERENCE_IMAGE_MAX_BYTES, REFERENCE_IMAGE_MAX_COUNT } from '../services/image/generateImage'
+import { generateImage, REFERENCE_IMAGE_MAX_BYTES, REFERENCE_IMAGE_MAX_COUNT, REFERENCE_IMAGE_MAX_TOTAL_BYTES } from '../services/image/generateImage'
 import type { ImageGenResult } from '../types/imageModel'
 import { getModelManager } from '../manager/ModelManager'
 import { getCheckpointManager } from '../manager/CheckpointManager'
@@ -113,9 +113,14 @@ export const GenerateImage = {
     if (!getModelManager().getImageModel()) {
       return { result: false, message: 'No image generation model is configured.' }
     }
+    let totalBytes = 0
     for (const ref of normalizeReferences(reference_images)) {
       const message = checkReference(ref)
       if (message) return { result: false, message }
+      if (!isHttpUrl(ref)) totalBytes += fs.statSync(ref).size
+    }
+    if (totalBytes > REFERENCE_IMAGE_MAX_TOTAL_BYTES) {
+      return { result: false, message: `Reference images are too large in total (${formatSize(totalBytes)}, limit ${REFERENCE_IMAGE_MAX_TOTAL_BYTES / 1024 / 1024} MB).` }
     }
     return { result: true }
   },

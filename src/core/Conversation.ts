@@ -20,7 +20,7 @@ import { getConfManager } from '../manager/ConfManager'
 import { generateRulesReminders, generateSkillsReminder } from '../services/agents/genSystemReminder'
 import { runToolsConcurrently, runToolsSerially } from './RunTools'
 import { processFileReferences } from '../util/fileReference'
-import { normalizeImageAttachments, toImageContentBlocks } from '../util/imageCompress'
+import { normalizeImageAttachments, saveAttachedImages, toImageContentBlocks } from '../util/imageCompress'
 import { TOOL_NAME_SKILL } from '../prompt/tool'
 import { normalizeToolUseBlock } from '../prompt/toolAliases'
 import type { Tool } from '../tools/base/Tool'
@@ -398,7 +398,7 @@ async function injectPendingInputsIntoToolResult(
 
   for (const item of injectItems) {
     // 图片附件与正常轮次同一套规范化（过滤非法类型、超限压缩），事件回吐与注入模型的是同一份
-    const attachments = await normalizeImageAttachments(item.attachments)
+    const { attachments, originals } = await normalizeImageAttachments(item.attachments)
     // 非静默：发送 input:processing 事件；仅真实用户输入保存到项目输入历史（自动来源如 cron 不入历史）
     if (!item.silent) {
       getEventBus().emit('input:processing', {
@@ -437,7 +437,8 @@ async function injectPendingInputsIntoToolResult(
         type: 'text',
         text: `${REMINDER_SYS_OPEN}\nNew user message arrived during your task:\n${injectText}${imageNote}\n\nReminder: Once current task finishes, immediately respond to the user's latest message. Do not skip it.\n${REMINDER_SYS_CLOSE}`,
       })
-      lastResult.message.content.push(...toImageContentBlocks(attachments))
+      // 原图同时落盘，每张图前带一段路径说明（与正常轮次一致）
+      lastResult.message.content.push(...toImageContentBlocks(attachments, saveAttachedImages(originals)))
     }
   }
 

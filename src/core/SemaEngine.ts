@@ -16,7 +16,7 @@ import { getModelManager } from '../manager/ModelManager';
 import { SessionEventBus } from '../events/EventSystem';
 import { isInterruptedException } from '../types/errors';
 import type { Message, UserMsg, InputImageAttachment, InputSource } from '../types/message';
-import { normalizeImageAttachments, toImageContentBlocks } from '../util/imageCompress';
+import { normalizeImageAttachments, saveAttachedImages, toImageContentBlocks } from '../util/imageCompress';
 import type { UUID } from '../types/uuid';
 import type { ForkOptions, ForkResult, BranchResult } from '../types/fork';
 import { generateSessionId } from '../util/session';
@@ -312,8 +312,12 @@ export class SemaEngine {
     // 先按 inputId 规范化各输入的图片附件（过滤非法类型、超限压缩），
     // 以便 input:processing 事件直接回吐与该消息绑定的最终附件，气泡回显无需 UI 暂存或队列对齐
     const normalizedAttachments = new Map<string, InputImageAttachment[]>();
+    // 归一化前的原图字节：等输入通过 hook、确定进入对话后再落盘（见下方 userMessages 构建），被拦截的输入不留盘
+    const attachmentOriginals = new Map<string, Buffer[]>();
     for (const item of inputs) {
-      normalizedAttachments.set(item.inputId, await normalizeImageAttachments(item.attachments));
+      const normalized = await normalizeImageAttachments(item.attachments);
+      normalizedAttachments.set(item.inputId, normalized.attachments);
+      attachmentOriginals.set(item.inputId, normalized.originals);
     }
 
     // 为每条输入发送独立的 input:processing 事件（静默输入跳过）
@@ -509,8 +513,8 @@ export class SemaEngine {
       // 文件引用提醒挂在各自输入消息上，回合级提醒只挂首条；
       // API 调用时由 prepareMessagesForApi 自动合并连续 user 消息
       const userMessages: UserMsg[] = perInput.map((p, idx) => {
-        // 图片附件转 image content block
-        const imageBlocks: Anthropic.ContentBlockParam[] = toImageContentBlocks(p.attachments)
+        // 图片附件转 image content block；原图同时落盘，每张图前带一段路径说明，模型才能把附图当文件用
+        const imageBlocks: Anthropic.ContentBlockParam[] = toImageContentBlocks(p.attachments, saveAttachedImages(attachmentOriginals.get(p.inputId)))
         // 存在图片时过滤空文本块（纯截图场景 input 为空，空 text block 会导致 API 报错）
         const textBlocks = imageBlocks.length > 0
           ? p.blocks.filter(b => !(b.type === 'text' && !b.text.trim()))
@@ -538,6 +542,9 @@ export class SemaEngine {
         if (goalMark) msg.goal = goalMark
         return msg
       })
+
+      // 原图已落盘，释放字节，不随本轮 ReAct 长驻内存
+      attachmentOriginals.clear()
 
       const messages: Message[] = [...messageHistory, ...userMessages]
       historyLenBefore = messages.length

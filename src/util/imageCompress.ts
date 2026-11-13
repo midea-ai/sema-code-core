@@ -1,6 +1,12 @@
+import * as fs from 'fs'
+import * as path from 'path'
+import { randomUUID } from 'crypto'
 import { logDebug, logInfo, logWarn } from './log'
 import Jimp from 'jimp'
 import type { InputImageAttachment } from '../types/message'
+import { getAttachmentsDir } from './savePath'
+import { sniffImageType } from '../services/image/generateImage'
+import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
 
 const MIN_QUALITY = 20
 const MIN_DIMENSION = 100
@@ -175,23 +181,28 @@ export async function normalizeImage(buffer: Buffer, mediaType: ImageMediaType):
   return toBase64Result(jpeg, 'image/jpeg', alpha)
 }
 
+/** 归一化后的附件与各自归一化前的原图字节（同下标对应），原图供 saveAttachedImages 落盘 */
+export type NormalizedAttachments = { attachments: InputImageAttachment[]; originals: Buffer[] }
+
 /**
  * 规范化用户输入的图片附件：过滤非法 media_type，单张走 normalizeImage 归一化
- * 返回干净可直接转 image content block 的附件数组；
+ * attachments 是干净可直接转 image content block 的附件数组；
  * 正常轮次（SemaEngine.processQuery）与轮内注入（Conversation 注入路径）共用同一套规则
  */
-export async function normalizeImageAttachments(attachments?: InputImageAttachment[]): Promise<InputImageAttachment[]> {
-  if (!attachments || attachments.length === 0) return []
+export async function normalizeImageAttachments(attachments?: InputImageAttachment[]): Promise<NormalizedAttachments> {
+  const result: NormalizedAttachments = { attachments: [], originals: [] }
+  if (!attachments || attachments.length === 0) return result
 
-  const result: InputImageAttachment[] = []
   for (const att of attachments) {
     if (!SUPPORTED_IMAGE_MEDIA_TYPES.includes(att.media_type as ImageMediaType)) {
       logWarn(`忽略不支持的图片类型: ${att.media_type}`)
       continue
     }
     try {
-      const normalized = await normalizeImage(Buffer.from(att.data, 'base64'), att.media_type as ImageMediaType)
-      result.push(normalized.data === att.data ? att : { type: 'image', data: normalized.data, media_type: normalized.media_type })
+      const original = Buffer.from(att.data, 'base64')
+      const normalized = await normalizeImage(original, att.media_type as ImageMediaType)
+      result.attachments.push(normalized.data === att.data ? att : { type: 'image', data: normalized.data, media_type: normalized.media_type })
+      result.originals.push(original)
     } catch (e) {
       logWarn(`处理图片附件失败，已忽略: ${e instanceof Error ? e.message : String(e)}`)
     }
@@ -199,12 +210,50 @@ export async function normalizeImageAttachments(attachments?: InputImageAttachme
   return result
 }
 
-/** 图片附件转 API image content block（正常轮次与注入路径共用） */
-export function toImageContentBlocks(attachments?: InputImageAttachment[]): Array<{ type: 'image'; source: { type: 'base64'; media_type: InputImageAttachment['media_type']; data: string } }> {
-  return (attachments ?? []).map(a => ({
-    type: 'image' as const,
-    source: { type: 'base64' as const, media_type: a.media_type, data: a.data },
-  }))
+/**
+ * 把用户附图的原图落盘到附件目录（一次调用一个 <uuid> 目录），返回与入参同下标的绝对路径。
+ * 模型据此把附图当文件用（生图参考图、复制进项目）；发给模型看的那份经过压缩，不能替代原图。
+ * 写盘失败的项为 null，不影响图片本身发给模型
+ */
+export function saveAttachedImages(originals?: Buffer[]): Array<string | null> {
+  if (!originals || originals.length === 0) return []
+  const dir = path.join(getAttachmentsDir(), randomUUID())
+  return originals.map((buf, index) => {
+    try {
+      // 扩展名按文件头识别：generate_image 校验参考图扩展名，并按真实格式拼 data URL
+      const ext = sniffImageType(buf)?.ext ?? '.png'
+      const filePath = path.join(dir, `attached-${index + 1}${ext}`)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(filePath, buf)
+      return filePath
+    } catch (e) {
+      logWarn(`附图落盘失败，模型拿不到该图路径: ${e instanceof Error ? e.message : String(e)}`)
+      return null
+    }
+  })
+}
+
+type AttachmentImageBlock = { type: 'image'; source: { type: 'base64'; media_type: InputImageAttachment['media_type']; data: string } }
+type AttachmentTextBlock = { type: 'text'; text: string }
+
+/**
+ * 图片附件转 API content block（正常轮次与注入路径共用）。
+ * 传了落盘路径时，每张图前插一段路径说明（与 @图片 "先文本后图片" 的排法一致）；
+ * 说明不带序号：同一条消息里还可能有 @图片，多条输入也会合并，序号对不上模型实际看到的顺序
+ */
+export function toImageContentBlocks(attachments?: InputImageAttachment[], paths?: Array<string | null>): Array<AttachmentTextBlock | AttachmentImageBlock> {
+  return (attachments ?? []).flatMap((a, index): Array<AttachmentTextBlock | AttachmentImageBlock> => {
+    const image: AttachmentImageBlock = {
+      type: 'image',
+      source: { type: 'base64', media_type: a.media_type, data: a.data },
+    }
+    const savedPath = paths?.[index]
+    if (!savedPath) return [image]
+    return [
+      { type: 'text', text: `${REMINDER_SYS_OPEN}\nAttached image saved at ${savedPath}\n${REMINDER_SYS_CLOSE}` },
+      image,
+    ]
+  })
 }
 
 /**

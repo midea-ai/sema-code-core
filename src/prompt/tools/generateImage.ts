@@ -20,7 +20,7 @@ Cut-out assets (characters and their poses, props, items, icons, UI pieces, anyt
 
 References and output:
 - Pass reference_images to edit an existing image, to keep a character, product or style consistent with an image you generated earlier (use the file path from that result), or to combine subjects from several images. Describe the change relative to the references ("make image 1 nighttime", "put the chair from image 2 into the room of image 1").
-- Reference images must be local files whose path you know (generated results, project assets, files the user named). Some models ignore references or reject them; if the call fails, tell the user instead of retrying without them.
+- Reference images must be local files whose path you know (generated results, project assets, images the user attached, files the user named). Some models ignore references or reject them; if the call fails, tell the user instead of retrying without them.
 - Pass output_path only when the user explicitly said where to save the image. Otherwise omit it and do not mention the file path in your reply.
 - The file extension follows the actual image format returned by the provider, and existing files are never overwritten, so the saved path may differ from output_path. Always use the path from the result.
 `

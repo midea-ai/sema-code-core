@@ -29,7 +29,7 @@ export const TEMP_BASE_PATHS = [
 const TRUSTED_SEMA_SUBDIRS = ['skills', 'commands', 'agents', 'plugins', 'hooks', 'attachments']
 
 /**
- * SEMA_ROOT/attachments：宿主（webui）转存的粘贴文本与模型生成的可视化 html 等附件，目录由宿主退场清理。
+ * SEMA_ROOT/attachments：宿主（webui）转存的粘贴文本、core 落盘的用户附图原图与模型生成的可视化 html 等附件，目录由宿主退场清理。
  * 读取归 trusted（已在 TRUSTED_SEMA_SUBDIRS），编辑也放行——PermissionManager 的文件编辑硬规则与 isTempFile 并列使用。
  */
 export function isAttachmentPath(filePath: string): boolean {

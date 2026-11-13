@@ -21,6 +21,9 @@ const TRANSPARENT_FIELDS: Record<string, unknown> = { background: 'transparent',
 // 参考图单张上限（火山方舟的限制，OpenRouter 未公开数值）
 export const REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024
 export const REFERENCE_IMAGE_MAX_COUNT = 10
+// 本地参考图总体积上限（URL 形式的不读内容、不计入）。按上传耗时估的值，没有服务商依据：
+// 转 base64 后约 67 MB，上行 10 Mbps 时约 1 分钟传完；再大就容易把超时耗在上传上，报出来却是"生成超时"
+export const REFERENCE_IMAGE_MAX_TOTAL_BYTES = 50 * 1024 * 1024
 
 export interface GenerateImageParams {
   profile: ImageModelProfile

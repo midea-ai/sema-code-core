@@ -2,8 +2,9 @@ import { DEFINE_SYSTEM_PROMPT } from '../prompt/define'
 
 export type AgentMode = 'Agent' | 'Plan' | 'Design';
 
-// 系统提示词模式：append=配置的 systemPrompt 叠加在内置提示词前（默认），replace=替换内置提示词（memory/env 上下文仍附加），
-// replaceAll=完全替换（系统提示词仅为 systemPrompt，不附加 memory/env/gitStatus，turn-level reminder 也不注入 MEMORY.md）
+// 系统提示词模式：append=配置的 systemPrompt 叠加在内置提示词前（默认），replace=替换内置提示词；
+// 两种模式都照常附加 memory / env / gitStatus，要关掉用 disableMemory、disableEnvContext。
+// replaceAll 已废弃，等同 replace（保留取值只为兼容已有宿主）
 export type SystemPromptMode = 'append' | 'replace' | 'replaceAll';
 
 // 权限自由度档位（从低到高）
@@ -28,7 +29,7 @@ export interface SemaCoreConfig {
   stream?: boolean;                  // 流式输出ai响应，默认 是
   thinking?: boolean;                // 流式输出ai响应，默认 否
   systemPrompt?: string;             // 系统提示
-  systemPromptMode?: SystemPromptMode; // 系统提示词模式，默认 'append'；'replace'/'replaceAll' 时未配 systemPrompt 则回落 append；仅构造时生效，不支持动态更新
+  systemPromptMode?: SystemPromptMode; // 系统提示词模式，默认 'append'；'replace' 时未配 systemPrompt 则回落 append；'replaceAll' 已废弃，等同 'replace'；仅构造时生效，不支持动态更新
   customRules?: string;              // 用户规则，不传即无规则（无默认值，与 lang 无关）
   skipFileEditPermission?: boolean;  // 是否跳过文件编辑权限检查，默认 否
   skipShellExecPermission?: boolean;  // 是否跳过run_shell执行权限检查，默认 否
@@ -46,6 +47,9 @@ export interface SemaCoreConfig {
   disableMemory?: boolean;           // 是否关闭内置记忆，默认 否；为 true 时系统提示词不拼记忆使用说明、首轮不注入 MEMORY.md、
                                      // 不加载 .sema/memory 目录、记忆文件的编辑豁免失效（记忆改由外部服务经 hook/MCP 提供）；
                                      // core 级配置，仅构造时生效，不支持动态更新
+  disableEnvContext?: boolean;       // 是否关闭环境上下文，默认 否；为 true 时主代理与子代理的系统提示词都不拼 env（工作目录/平台/OS/shell）
+                                     // 与 gitStatus，建会话也不再起 git 进程；适合没有 shell/文件工具的纯对话场景，
+                                     // 仍带这类工具时需由宿主在 systemPrompt 里自行说明工作目录与平台；仅构造时生效，不支持动态更新
   enableToolSearch?: boolean;        // 是否开启工具搜索（延迟加载），默认 否；开启后仅默认工具集进入 LLM tools，
                                      // 其余内置工具与 MCP 工具通过 load_tools 按名加载；
                                      // 运行时更新于下一次用户输入生效，切换后的首次请求前缀缓存会整体失效一次
@@ -66,7 +70,7 @@ export interface SemaCoreConfig {
   skills?: import('./host').SkillsInput;           // 宿主内置的 skill：items 内联（正文只在内存）、dirs 明文目录
   agents?: import('./host').AgentsInput;           // 宿主内置的子代理，结构同 skills
   commands?: import('./host').CommandsInput;       // 宿主内置的命令，结构同 skills
-  scopes?: import('./host').ScopesConfig;          // 各类生效的域，不写 = 全部生效
+  scopes?: import('./host').ScopesConfig;          // 各类生效的域，不写 = 全部生效；含 rules（AGENTS.md 读哪几级，[] 为都不读）
 
   // ---- 持久化保护 ----
   encryption?: import('./host').EncryptionConfig;  // 会话历史、hook 会话记录、快照加密；仅构造时生效，密钥只在内存

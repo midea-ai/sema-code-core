@@ -13,7 +13,7 @@ interface SemaCoreConfig {
   stream?: boolean;                  // 流式输出 AI 响应，默认 否
   thinking?: boolean;                // 流式输出 AI 思考过程，默认 否
   systemPrompt?: string;             // 系统提示
-  systemPromptMode?: 'append' | 'replace' | 'replaceAll'; // 系统提示词模式，默认 'append'（叠加在内置提示词前）；'replace' 替换内置系统提示词（memory/env 上下文仍附加）；'replaceAll' 完全替换（仅 systemPrompt，不附加 memory/env/gitStatus，turn-level reminder 也不注入 MEMORY.md）；未配 systemPrompt 时回落 append，仅构造时生效
+  systemPromptMode?: 'append' | 'replace'; // 系统提示词模式，默认 'append'（叠加在内置提示词前）；'replace' 替换内置系统提示词；两种模式都照常附加 memory / env 上下文，要关掉用 disableMemory、disableEnvContext；未配 systemPrompt 时回落 append，仅构造时生效；'replaceAll' 已废弃，传入等同 'replace'
   customRules?: string;              // 用户规则（内联字符串），不传即无规则
   skipFileEditPermission?: boolean;  // 是否跳过文件编辑权限检查，默认 否
   skipShellExecPermission?: boolean; // 是否跳过 run_shell 执行权限检查，默认 否
@@ -28,6 +28,7 @@ interface SemaCoreConfig {
   enableInputPrediction?: boolean;   // 是否开启用户输入预测（一轮结束后用 quick 模型预测用户下一句，事件 input:predict），默认 否
   disableBackgroundTasks?: boolean;  // 是否禁止后台任务（RunShell 后台 / SubAgent 后台 / 超时转后台），默认 否
   disableMemory?: boolean;           // 是否关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效），默认 否；仅构造时生效
+  disableEnvContext?: boolean;       // 是否关闭环境上下文（主代理与子代理的系统提示词不拼 env / gitStatus，建会话不起 git 进程），默认 否；适合没有 shell / 文件工具的纯对话场景；仅构造时生效
   enableToolSearch?: boolean;        // 是否开启工具搜索（延迟加载），默认 否；开启后仅默认工具集进入 LLM tools，其余内置与 MCP 工具经 load_tools 按名加载；子代理（tools 为 '*' 或未声明）同样按需 load_tools，加载状态子代理私有、不影响父会话；运行时更新于下一次用户输入生效
   toolSearchDefaultTools?: string[] | null; // 工具搜索模式下默认加载的工具白名单，不传用内置默认集；可含内置工具名与 MCP 工具全名（如 'mcp__figma__get_file'），支持 mcp__{server}__* 通配整台 server、mcp__{server}__{prefix}* 前缀通配（须具体到 server，mcp__* 等不合法）；仅构造时生效
   maxSessions?: number;              // 同时存在的会话上限，不传则不限制
@@ -40,7 +41,7 @@ interface SemaCoreConfig {
   skills?: SkillsInput;              // 宿主内置的 skill：items 内联（正文只在内存）、dirs 明文目录
   agents?: AgentsInput;              // 宿主内置的子代理，结构同 skills
   commands?: CommandsInput;          // 宿主内置的命令，结构同 skills
-  scopes?: ScopesConfig;             // 各类生效的域，不写 = 全部生效；写接口落到没生效的域抛 SemaError(SCOPE_DISABLED)
+  scopes?: ScopesConfig;             // 各类生效的域，不写 = 全部生效；写接口落到没生效的域抛 SemaError(SCOPE_DISABLED)；rules 控制 AGENTS.md 读哪几级（user / project），[] 为都不读
 
   // ---- 持久化保护 ----
   encryption?: EncryptionConfig;     // 会话历史、快照、hook 会话记录加密（key 为 32 字节密钥的 base64），密钥只在内存；仅构造时生效

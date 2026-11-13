@@ -9,6 +9,7 @@ import type { ModelConfig } from './index'
 import type { ImageModelConfig } from './imageModel'
 import type { MCPTransportType } from './mcp'
 import type { PluginScopeKind } from './plugin'
+import type { RuleScope } from './rule'
 
 // ==================== host 域内容 ====================
 
@@ -115,6 +116,8 @@ export interface ScopesConfig {
   commands?: CommandScopeKind[]
   /** 插件没有 host 域，值是插件的安装位置；[] 表示不加载任何插件 */
   plugins?: PluginScopeKind[]
+  /** 规则文件 AGENTS.md 读哪几级，没有 host 域（宿主规则走 customRules，不受此项影响）；[] 表示都不读 */
+  rules?: RuleScope[]
 }
 
 // ==================== 持久化保护 ====================

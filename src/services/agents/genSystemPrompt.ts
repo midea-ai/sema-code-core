@@ -54,15 +54,12 @@ export async function formatSystemPrompt(): Promise<TextBlock[]> {
   // disableMemory：不拼内置记忆使用说明（记忆改由外部服务经 hook/MCP 提供）
   const sections = isMemoryDisabled() ? [] : [AUTO_MEMORY_PROMPT(getMemoryManager().getActiveMemoryDir())]
 
-  const { prefixPrompt, corePrompt, full } = resolveMainPrompt()
-  // replaceAll：系统提示词仅为用户配置的 systemPrompt，不附加 memory/env/gitStatus
-  if (full) {
-    return [{ type: 'text', text: corePrompt }]
-  }
+  const { prefixPrompt, corePrompt } = resolveMainPrompt()
   return buildPromptBlocks({
     prefixPrompt,
     corePrompt,
     sections,
+    includeContext: !isEnvContextDisabled(),
   })
 }
 
@@ -73,7 +70,17 @@ export async function buildAgentSystemPrompt(agentPrompt: string): Promise<TextB
   return buildPromptBlocks({
     corePrompt: agentPrompt,
     sections: [SUBAGENT_NOTES],
+    includeContext: !isEnvContextDisabled(),
   })
+}
+
+// disableEnvContext：主代理与子代理的系统提示词都不拼 env/gitStatus，也不起 git 进程
+function isEnvContextDisabled(): boolean {
+  try {
+    return !!getConfManager().getCoreConfig()?.disableEnvContext
+  } catch {
+    return false
+  }
 }
 
 async function getContext(): Promise<Record<string, string>> {
@@ -85,29 +92,15 @@ async function getContext(): Promise<Record<string, string>> {
   return context
 }
 
-// 是否处于完全替换模式（systemPromptMode=replaceAll 且配置了 systemPrompt）；
-// 该模式下系统提示词不附加 memory/env/gitStatus，且 turn-level reminder 也不注入 memory
-export function isFullReplaceMode(): boolean {
-  try {
-    const coreConfig = getConfManager().getCoreConfig();
-    return coreConfig?.systemPromptMode === 'replaceAll' && !!coreConfig?.systemPrompt?.trim();
-  } catch {
-    return false;
-  }
-}
-
-// 按 systemPromptMode 解析主提示词：replace 时配置的 systemPrompt 取代内置 SYSTEM_PROMPT；
-// replaceAll 时额外跳过 memory/env/gitStatus（full=true）；两者未配 systemPrompt 均回落 append
-function resolveMainPrompt(): { prefixPrompt?: string, corePrompt: string, full?: boolean } {
+// 按 systemPromptMode 解析主提示词：replace 时配置的 systemPrompt 取代内置 SYSTEM_PROMPT，未配 systemPrompt 回落 append；
+// replaceAll 已废弃，等同 replace。提示词模式只决定主提示词用谁，memory / env / gitStatus 由 disableMemory、disableEnvContext 控制
+function resolveMainPrompt(): { prefixPrompt?: string, corePrompt: string } {
   try {
     const configManager = getConfManager();
     const coreConfig = configManager.getCoreConfig();
     const customPrompt = coreConfig?.systemPrompt?.trim();
     const mode = coreConfig?.systemPromptMode;
-    if (mode === 'replaceAll' && customPrompt) {
-      return { corePrompt: customPrompt, full: true };
-    }
-    if (mode === 'replace' && customPrompt) {
+    if ((mode === 'replace' || mode === 'replaceAll') && customPrompt) {
       return { corePrompt: customPrompt };
     }
     if (customPrompt) {

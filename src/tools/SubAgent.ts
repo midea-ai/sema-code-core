@@ -89,7 +89,8 @@ export const SubAgent = {
 
       logDebug(`Starting ${agentConfig.name} agent with instructions: ${instructions}`)
 
-      // 3. 准备子代理的系统提示（包含 agentConfig.prompt + notes + env + gitStatus）
+      // 3. 准备子代理的系统提示（包含 agentConfig.prompt + notes + env + gitStatus；
+      //    disableEnvContext 时不带 env + gitStatus）
       const systemPromptContent = await buildAgentSystemPrompt(agentConfig.prompt)
 
       // 4. 获取子代理允许使用的工具（排除嵌套与任务管理工具；core 级 useTools 约束、

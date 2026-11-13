@@ -2,7 +2,7 @@
  * Rule 管理器
  *
  * 管理 Rule 配置的全局加载和查找
- * 实现优先级：用户级(Sema) < 项目级(Sema)
+ * 实现优先级：用户级(Sema) < 项目级(Sema)；两级各自只在对应域生效时读取（scopes.rules，见 conf/hostConfig.ts）
  */
 
 import * as fs from 'fs'
@@ -12,6 +12,7 @@ import { logDebug, logError, logInfo } from '../../util/log'
 import { getSemaRootDir } from '../../util/savePath'
 import { readInitialCwd } from '../../util/cwd'
 import { RuleConfig } from '../../types/rule'
+import { isScopeEnabled } from '../../conf/hostConfig'
 
 const AGENTS_FILE_NAME = 'AGENTS.md'
 
@@ -70,21 +71,26 @@ class RuleManager {
 
   /**
    * 加载 Rule 配置
-   * 按优先级从高到低取第一个存在的：项目级(Sema) > 用户级(Sema)
+   * 按优先级从高到低取第一个存在的：项目级(Sema) > 用户级(Sema)；
+   * 没生效的域（scopes.rules 未包含）不读盘，直接跳过
    */
   private async loadRule(): Promise<RuleConfig | null> {
     // 1. 项目级(Sema) - 最高优先级
-    const semaProjectRule = await this.loadRuleFromFile(this.semaProjectRuleFile, 'project', 'sema')
-    if (semaProjectRule) {
-      logInfo('加载 Rule 配置: sema project')
-      return semaProjectRule
+    if (isScopeEnabled('rules', 'project')) {
+      const semaProjectRule = await this.loadRuleFromFile(this.semaProjectRuleFile, 'project', 'sema')
+      if (semaProjectRule) {
+        logInfo('加载 Rule 配置: sema project')
+        return semaProjectRule
+      }
     }
 
     // 2. 用户级(Sema)
-    const semaUserRule = await this.loadRuleFromFile(this.semaUserRuleFile, 'user', 'sema')
-    if (semaUserRule) {
-      logInfo('加载 Rule 配置: sema user')
-      return semaUserRule
+    if (isScopeEnabled('rules', 'user')) {
+      const semaUserRule = await this.loadRuleFromFile(this.semaUserRuleFile, 'user', 'sema')
+      if (semaUserRule) {
+        logInfo('加载 Rule 配置: sema user')
+        return semaUserRule
+      }
     }
 
     logInfo('加载 Rule 配置: 无')
@@ -124,7 +130,7 @@ class RuleManager {
     if (!rule || !rule.prompt) return ''
     const filePath = rule.filePath ?? ''
     const header = filePath
-      ? `Contents of ${filePath} (user's private global instructions for all projects):`
+      ? `Contents of ${filePath} (user's instructions):`
       : `Project Rule:`
     return `${header}\n\n${rule.prompt}`
   }

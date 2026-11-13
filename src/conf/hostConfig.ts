@@ -2,7 +2,7 @@
  * host 域内容、生效域与加密密钥的唯一存放处。
  *
  * ConfManager.setCoreConfig 开头调用 setHostConfig 做校验并存下来，之后各管理器只读这里：
- * - 模型 / MCP / hook / skill / 子代理 / 命令管理器按 isScopeEnabled 决定读哪些来源，host 内容从 getHostConfig 取
+ * - 模型 / MCP / hook / skill / 子代理 / 命令 / 规则管理器按 isScopeEnabled 决定读哪些来源，host 内容从 getHostConfig 取
  * - 写接口用 assertScopeEnabled 拒绝没生效的域
  * - 密钥只在这里持有：不进 coreConfig（getCoreConfig 拿不到）、不写文件、不进日志
  *
@@ -31,6 +31,7 @@ export interface ResolvedScopes {
   agents: string[]
   commands: string[]
   plugins: string[]
+  rules: string[]
 }
 
 /** 各类允许的域；不写 scopes 时全部生效 */
@@ -42,6 +43,7 @@ const ALL_SCOPES: ResolvedScopes = {
   agents: ['host', 'builtin', 'user', 'project'],
   commands: ['host', 'user', 'project'],
   plugins: ['user', 'project', 'local'],
+  rules: ['user', 'project'],
 }
 
 const KEY_BYTES = 32

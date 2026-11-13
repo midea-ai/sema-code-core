@@ -97,22 +97,6 @@ interface ApiConfig {
   buildCurlHeaders: (apiKey: string) => string;
 }
 
-/**
- * thinking 常开、不接受 { type: "disabled" } 的模型（传了会返回 400）：
- * Claude Fable / Mythos 全系，以及 Opus 5.5 起
- */
-function thinkingAlwaysOn(modelName: string): boolean {
-  const name = modelName.toLowerCase();
-  if (/claude[-_\s]+(fable|mythos)/.test(name)) return true;
-
-  const match = name.match(/claude[-_\s]+opus[-_\s]+(\d+)[-._\s]+(\d+)/);
-  if (!match) return false;
-
-  const majorVersion = Number(match[1]);
-  const minorVersion = Number(match[2]);
-  return majorVersion > 5 || (majorVersion === 5 && minorVersion >= 5);
-}
-
 const API_CONFIGS: Record<string, ApiConfig> = {
   anthropic: {
     endpoint: '/v1/messages',
@@ -120,10 +104,10 @@ const API_CONFIGS: Record<string, ApiConfig> = {
       'Content-Type': 'application/json',
       'x-api-key': apiKey
     }),
+    // 不传 thinking：部分模型思考常开，传 { type: "disabled" } 会返回 400；不传则各服务商按默认处理
     buildBody: (modelName) => ({
       model: modelName,
       max_tokens: 1000,
-      ...(thinkingAlwaysOn(modelName) ? {} : { thinking: { type: "disabled" } }),
       messages: [{ role: 'user', content: API_CONNECTION_TEST_PROMPT }]
     }),
     extractContent: (response) => response.content?.find((b: any) => b.type === 'text')?.text || '',

@@ -32,7 +32,6 @@ interface ProjectDnd {
   onEnd(): void;
   /** 拖到本节点上：before = 指针在项目行上半部 */
   onOver(before: boolean): void;
-  onDrop(): void;
 }
 
 export function Sidebar({ width }: { width: number }) {
@@ -95,9 +94,27 @@ export function Sidebar({ width }: { width: number }) {
     ids.splice(to > dragFrom ? to - 1 : to, 0, id);
     useApp.getState().reorderProjects(ids).catch(e => toast(e.message, 'error'));
   };
+  // 整个侧栏都是落点（松手处不是落点时浏览器不派发 drop）：指针冲出项目列表上 / 下沿时落点钉在首 / 尾；
+  // 移出侧栏则撤掉指示线，那里松手不生效
+  const listRef = useRef<HTMLDivElement>(null);
+  const onAsideDragOver = (e: React.DragEvent) => {
+    if (!dragId) return;
+    e.preventDefault();
+    const r = listRef.current?.getBoundingClientRect();
+    if (!r) return;
+    if (e.clientY < r.top) setDropIdx(0);
+    else if (e.clientY > r.bottom) setDropIdx(shownProjects.length);
+  };
+  const onAsideDragLeave = (e: React.DragEvent) => {
+    if (!dragId) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    if (e.clientX <= r.left || e.clientX >= r.right || e.clientY <= r.top || e.clientY >= r.bottom) setDropIdx(null);
+  };
 
   return (
-    <aside style={{ width }} className="shrink-0 h-full flex flex-col border-r border-border bg-panel">
+    <aside style={{ width }} className="shrink-0 h-full flex flex-col border-r border-border bg-panel"
+      onDragOver={onAsideDragOver} onDragLeave={onAsideDragLeave}
+      onDrop={e => { if (!dragId) return; e.preventDefault(); dropProject(); }}>
       {/* Design 模式会话图标的七彩渐变描边（跨 svg 引用，仅需定义一次） */}
       <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
         <defs>
@@ -137,16 +154,18 @@ export function Sidebar({ width }: { width: number }) {
         } />
         <CreateProjectDialog open={creating} onClose={() => setCreating(false)} onCreated={p => { setProjectsOpen(true); setExpanded(e => ({ ...e, [p.id]: true })); }} />
         {projectsOpen && projects.length === 0 && <div className="px-2 py-1 text-xs text-muted">{t('sidebar.noProjects')}</div>}
-        {projectsOpen && shownProjects.map((p, i) => (
-          <ProjectNode key={p.id} project={p} sessions={byProject[p.id] || []} expanded={!!expanded[p.id]}
-            onToggle={() => setExpanded(e => ({ ...e, [p.id]: !e[p.id] }))} activeId={activeId} onNewSession={() => newSession(p.id)}
-            dnd={{
-              active: !!dragId, dragging: dragId === p.id,
-              mark: markIdx === i ? 'before' : markIdx === i + 1 && i === shownProjects.length - 1 ? 'after' : null,
-              onStart: () => setDragId(p.id), onEnd: endDrag,
-              onOver: before => setDropIdx(before ? i : i + 1), onDrop: dropProject,
-            }} />
-        ))}
+        <div ref={listRef}>
+          {projectsOpen && shownProjects.map((p, i) => (
+            <ProjectNode key={p.id} project={p} sessions={byProject[p.id] || []} expanded={!!expanded[p.id]}
+              onToggle={() => setExpanded(e => ({ ...e, [p.id]: !e[p.id] }))} activeId={activeId} onNewSession={() => newSession(p.id)}
+              dnd={{
+                active: !!dragId, dragging: dragId === p.id,
+                mark: markIdx === i ? 'before' : markIdx === i + 1 && i === shownProjects.length - 1 ? 'after' : null,
+                onStart: () => setDragId(p.id), onEnd: endDrag,
+                onOver: before => setDropIdx(before ? i : i + 1),
+              }} />
+          ))}
+        </div>
         {projectsOpen && projects.length > PROJECTS_PREVIEW && !showAllProjects && (
           <button onClick={() => setShowAllProjects(true)} className="h-7 px-2 text-xs text-dim hover:text-fg text-left w-full">{t('sidebar.showAll')}</button>
         )}
@@ -231,15 +250,14 @@ function ProjectNode({ project, sessions, expanded, onToggle, activeId, onNewSes
     if (ok) app().removeProject(project.id, del.current).catch(e => toast(e.message, 'error'));
   };
   return (
-    // 整个节点（含展开的会话列表）都是落点：指针在项目行上半部插到本项目之前，其余位置插到之后
+    // 整个节点（含展开的会话列表）都参与定位：指针在项目行上半部插到本项目之前，其余位置插到之后；松手由侧栏统一处理
     <div className="relative"
       onDragOver={e => {
         if (!dnd.active) return;
         e.preventDefault();
         const r = headRef.current?.getBoundingClientRect();
         if (r) dnd.onOver(e.clientY < r.top + r.height / 2);
-      }}
-      onDrop={e => { if (!dnd.active) return; e.preventDefault(); dnd.onDrop(); }}>
+      }}>
       {dnd.mark && <div className={cn('absolute left-1 right-1 h-0.5 rounded bg-accent pointer-events-none z-10', dnd.mark === 'before' ? '-top-px' : '-bottom-px')} />}
       {/* 只有项目行可拖（会话行不带 draggable） */}
       <div ref={headRef} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; dnd.onStart(); }} onDragEnd={dnd.onEnd}

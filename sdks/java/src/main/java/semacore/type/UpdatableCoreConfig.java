@@ -5,7 +5,7 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record UpdatableCoreConfig(String lang, Boolean stream, Boolean thinking, String systemPrompt, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, Boolean disableBackgroundTasks, Boolean enableToolSearch, Boolean enableInputPrediction, Boolean disableLLMLog, Boolean disableEventLog) {
+public record UpdatableCoreConfig(String lang, Boolean stream, Boolean thinking, String systemPrompt, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, Boolean disableBackgroundTasks, Boolean enableToolSearch, Boolean enableInputPrediction, Boolean enableInputRetract, Boolean disableLLMLog, Boolean disableEventLog) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private String lang;
@@ -23,6 +23,7 @@ public record UpdatableCoreConfig(String lang, Boolean stream, Boolean thinking,
         private Boolean disableBackgroundTasks;
         private Boolean enableToolSearch;
         private Boolean enableInputPrediction;
+        private Boolean enableInputRetract;
         private Boolean disableLLMLog;
         private Boolean disableEventLog;
         private Builder() {}
@@ -41,8 +42,9 @@ public record UpdatableCoreConfig(String lang, Boolean stream, Boolean thinking,
         public Builder disableBackgroundTasks(Boolean disableBackgroundTasks) { this.disableBackgroundTasks = disableBackgroundTasks; return this; }
         public Builder enableToolSearch(Boolean enableToolSearch) { this.enableToolSearch = enableToolSearch; return this; }
         public Builder enableInputPrediction(Boolean enableInputPrediction) { this.enableInputPrediction = enableInputPrediction; return this; }
+        public Builder enableInputRetract(Boolean enableInputRetract) { this.enableInputRetract = enableInputRetract; return this; }
         public Builder disableLLMLog(Boolean disableLLMLog) { this.disableLLMLog = disableLLMLog; return this; }
         public Builder disableEventLog(Boolean disableEventLog) { this.disableEventLog = disableEventLog; return this; }
-        public UpdatableCoreConfig build() { return new UpdatableCoreConfig(lang, stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, disableBackgroundTasks, enableToolSearch, enableInputPrediction, disableLLMLog, disableEventLog); }
+        public UpdatableCoreConfig build() { return new UpdatableCoreConfig(lang, stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, disableBackgroundTasks, enableToolSearch, enableInputPrediction, enableInputRetract, disableLLMLog, disableEventLog); }
     }
 }

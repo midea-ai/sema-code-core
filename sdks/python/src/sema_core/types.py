@@ -61,7 +61,7 @@ UpdatableCoreConfigKeys = Literal[
     "lang", "stream", "thinking", "systemPrompt", "customRules", "skipFileEditPermission",
     "skipShellExecPermission", "skipSkillPermission", "skipMCPToolPermission",
     "skipFetchUrlPermission", "fetchUrlBrowserUserAgent", "skipExternalFileReadPermission",
-    "disableBackgroundTasks", "enableToolSearch", "enableInputPrediction",
+    "disableBackgroundTasks", "enableToolSearch", "enableInputPrediction", "enableInputRetract",
     "disableLLMLog", "disableEventLog",
 ]
 
@@ -193,6 +193,7 @@ class SemaCoreConfig(TypedDict, total=False):
     agentMode: AgentMode
     disableTopicDetection: bool
     enableInputPrediction: bool  # 一轮结束后用 quick 模型预测用户下一句（事件 input:predict），默认否
+    enableInputRetract: bool  # 输入撤销：模型产出正文前主动中断，本条输入当作没发生（事件 input:retracted），默认否
     disableBackgroundTasks: bool
     disableMemory: bool  # 关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效），仅构造时生效
     disableEnvContext: bool  # 关闭环境上下文（主代理与子代理的系统提示词不拼 env / gitStatus，建会话不起 git 进程），仅构造时生效
@@ -231,6 +232,7 @@ class UpdatableCoreConfig(TypedDict, total=False):
     disableBackgroundTasks: bool
     enableToolSearch: bool
     enableInputPrediction: bool
+    enableInputRetract: bool
     disableLLMLog: bool
     disableEventLog: bool
 

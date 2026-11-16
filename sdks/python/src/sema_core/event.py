@@ -107,6 +107,16 @@ class InputPredictData(TypedDict):
     prediction: str
 
 
+class InputRetractedData(TypedDict):
+    """input:retracted —— 输入撤销（需 enableInputRetract 开启）。
+
+    模型产出正文前用户主动中断，本条输入不进历史；与 session:interrupted 互斥，UI 应删掉该输入气泡并把原文放回输入框。
+    """
+    inputId: str
+    input: str
+    originalInput: NotRequired[str]
+
+
 # ==================== AI 消息 ====================
 
 class ThinkingChunkData(TypedDict):

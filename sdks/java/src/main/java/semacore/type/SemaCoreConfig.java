@@ -10,7 +10,7 @@ import java.util.Map;
  * models / mcpServers / hooks / skills / agents / commands 为宿主传入的 host 域内容（只读、同名盖掉其他域、不落盘），
  * scopes 指定每一类哪些域生效，encryption 开启历史 / 快照 / hook 记录加密；这些都只在构造时生效，校验不通过 start 抛 CONFIG_INVALID。
  */
-public record SemaCoreConfig(String workingDir, String logLevel, String lang, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean enableInputPrediction, Boolean disableBackgroundTasks, Boolean disableMemory, Boolean disableEnvContext, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions, String usageProduct, ModelsInput models, List<MCPServerInput> mcpServers, Map<String, List<HookGroupInput>> hooks, SkillsInput skills, AgentsInput agents, CommandsInput commands, ScopesConfig scopes, EncryptionConfig encryption, Boolean disableLLMLog, Boolean disableEventLog, String configFile) {
+public record SemaCoreConfig(String workingDir, String logLevel, String lang, Boolean stream, Boolean thinking, String systemPrompt, SystemPromptMode systemPromptMode, String customRules, Boolean skipFileEditPermission, Boolean skipShellExecPermission, Boolean skipSkillPermission, Boolean skipMCPToolPermission, Boolean skipFetchUrlPermission, Boolean fetchUrlBrowserUserAgent, Boolean skipExternalFileReadPermission, List<String> useTools, List<String> disabledTools, AgentMode agentMode, Boolean disableTopicDetection, Boolean enableInputPrediction, Boolean enableInputRetract, Boolean disableBackgroundTasks, Boolean disableMemory, Boolean disableEnvContext, Boolean enableToolSearch, List<String> toolSearchDefaultTools, Long maxSessions, String usageProduct, ModelsInput models, List<MCPServerInput> mcpServers, Map<String, List<HookGroupInput>> hooks, SkillsInput skills, AgentsInput agents, CommandsInput commands, ScopesConfig scopes, EncryptionConfig encryption, Boolean disableLLMLog, Boolean disableEventLog, String configFile) {
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private String workingDir;
@@ -33,6 +33,7 @@ public record SemaCoreConfig(String workingDir, String logLevel, String lang, Bo
         private AgentMode agentMode;
         private Boolean disableTopicDetection;
         private Boolean enableInputPrediction;
+        private Boolean enableInputRetract;
         private Boolean disableBackgroundTasks;
         private Boolean disableMemory;
         private Boolean disableEnvContext;
@@ -73,6 +74,8 @@ public record SemaCoreConfig(String workingDir, String logLevel, String lang, Bo
         public Builder disableTopicDetection(Boolean disableTopicDetection) { this.disableTopicDetection = disableTopicDetection; return this; }
         /** 一轮结束后用 quick 模型预测用户下一句（事件 input:predict），默认否。 */
         public Builder enableInputPrediction(Boolean enableInputPrediction) { this.enableInputPrediction = enableInputPrediction; return this; }
+        /** 输入撤销：模型产出正文前主动中断，本条输入当作没发生（事件 input:retracted），默认否。 */
+        public Builder enableInputRetract(Boolean enableInputRetract) { this.enableInputRetract = enableInputRetract; return this; }
         public Builder disableBackgroundTasks(Boolean disableBackgroundTasks) { this.disableBackgroundTasks = disableBackgroundTasks; return this; }
         /** 关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效）。仅构造时生效。 */
         public Builder disableMemory(Boolean disableMemory) { this.disableMemory = disableMemory; return this; }
@@ -105,6 +108,6 @@ public record SemaCoreConfig(String workingDir, String logLevel, String lang, Bo
         public Builder disableEventLog(Boolean disableEventLog) { this.disableEventLog = disableEventLog; return this; }
         /** 构造配置文件路径（~/xx 或绝对路径，由桥进程读取）：严格 JSON，字段同本类型；这里显式传的顶层键整体覆盖文件里的同名键；文件内 {"$file": "路径"} 替换为该文件文本。 */
         public Builder configFile(String configFile) { this.configFile = configFile; return this; }
-        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, lang, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, useTools, disabledTools, agentMode, disableTopicDetection, enableInputPrediction, disableBackgroundTasks, disableMemory, disableEnvContext, enableToolSearch, toolSearchDefaultTools, maxSessions, usageProduct, models, mcpServers, hooks, skills, agents, commands, scopes, encryption, disableLLMLog, disableEventLog, configFile); }
+        public SemaCoreConfig build() { return new SemaCoreConfig(workingDir, logLevel, lang, stream, thinking, systemPrompt, systemPromptMode, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, useTools, disabledTools, agentMode, disableTopicDetection, enableInputPrediction, enableInputRetract, disableBackgroundTasks,disableMemory, disableEnvContext, enableToolSearch, toolSearchDefaultTools, maxSessions, usageProduct, models, mcpServers, hooks, skills, agents, commands, scopes, encryption, disableLLMLog, disableEventLog, configFile); }
     }
 }

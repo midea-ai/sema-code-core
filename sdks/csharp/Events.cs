@@ -99,6 +99,14 @@ public record InputPredictData
     [JsonPropertyName("prediction")] public string? Prediction { get; init; }
 }
 
+/// <summary>input:retracted —— 输入撤销（需 enableInputRetract 开启）：模型产出正文前用户主动中断，本条输入不进历史；与 session:interrupted 互斥，UI 应删掉该输入气泡并把原文放回输入框</summary>
+public record InputRetractedData
+{
+    [JsonPropertyName("inputId")] public string? InputId { get; init; }
+    [JsonPropertyName("input")] public string? Input { get; init; }
+    [JsonPropertyName("originalInput")] public string? OriginalInput { get; init; }
+}
+
 public record MCPServerStatusData
 {
     [JsonPropertyName("config")] public MCPServerConfig? Config { get; init; }

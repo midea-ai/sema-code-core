@@ -84,7 +84,7 @@ public enum GoalStatus { running, paused, completed, blocked }
 public enum ToolStatus { enable, disable }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum UpdatableCoreConfigKeys { lang, stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, disableBackgroundTasks, enableToolSearch, enableInputPrediction, disableLLMLog, disableEventLog }
+public enum UpdatableCoreConfigKeys { lang, stream, thinking, systemPrompt, customRules, skipFileEditPermission, skipShellExecPermission, skipSkillPermission, skipMCPToolPermission, skipFetchUrlPermission, fetchUrlBrowserUserAgent, skipExternalFileReadPermission, disableBackgroundTasks, enableToolSearch, enableInputPrediction, enableInputRetract, disableLLMLog, disableEventLog }
 
 /// <summary>判别联合（≙ core CreateSessionResult）：按 <c>Ok</c> 分派到 CreateSessionResultOk / CreateSessionResultErr。</summary>
 public abstract record CreateSessionResult
@@ -566,6 +566,8 @@ public record SemaCoreConfig
     [JsonPropertyName("disableTopicDetection")] public bool? DisableTopicDetection { get; init; }
     /// <summary>一轮结束后用 quick 模型预测用户下一句（事件 input:predict），默认否。</summary>
     [JsonPropertyName("enableInputPrediction")] public bool? EnableInputPrediction { get; init; }
+    /// <summary>输入撤销：模型产出正文前主动中断，本条输入当作没发生（事件 input:retracted），默认否。</summary>
+    [JsonPropertyName("enableInputRetract")] public bool? EnableInputRetract { get; init; }
     [JsonPropertyName("disableBackgroundTasks")] public bool? DisableBackgroundTasks { get; init; }
     /// <summary>关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效）。仅构造时生效。</summary>
     [JsonPropertyName("disableMemory")] public bool? DisableMemory { get; init; }
@@ -883,6 +885,7 @@ public record UpdatableCoreConfig
     [JsonPropertyName("disableBackgroundTasks")] public bool? DisableBackgroundTasks { get; init; }
     [JsonPropertyName("enableToolSearch")] public bool? EnableToolSearch { get; init; }
     [JsonPropertyName("enableInputPrediction")] public bool? EnableInputPrediction { get; init; }
+    [JsonPropertyName("enableInputRetract")] public bool? EnableInputRetract { get; init; }
     [JsonPropertyName("disableLLMLog")] public bool? DisableLLMLog { get; init; }
     [JsonPropertyName("disableEventLog")] public bool? DisableEventLog { get; init; }
 }

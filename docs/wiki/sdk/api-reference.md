@@ -43,7 +43,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 > - `scopes: ScopesConfig`:每一类哪些域生效(`models`: host/user;`mcp` / `hooks` / `commands`: host/user/project;`skills` / `agents`: host/builtin/user/project;`plugins`: user/project/local,`[]` 表示不加载任何插件;`rules`: user/project,规则文件 AGENTS.md 读哪几级,`[]` 表示都不读,`customRules` 不受影响)。不写 = 全部生效;写接口落到没生效的域抛 `SCOPE_DISABLED`。
 > - `encryption: EncryptionConfig`(`key` 为 32 字节密钥的 base64,`keyId` 可选):会话历史、快照、hook 会话记录加密,密钥只在内存。传了之后 `disableLLMLog` / `disableEventLog` 缺省变为 `true`(可显式传 `false`,且支持运行期更新)。密文格式 `SEMA1:<keyId>:<nonce base64>:<AES-256-GCM 密文+tag base64>`,宿主要读时用同一把密钥自己解,SDK 不提供加解密与 skill 目录打包函数。
 > - `configFile: string`:构造配置文件路径(`~/xx` 或绝对路径,由桥进程读取),内容是严格 JSON,字段同 `SemaCoreConfig`。`start` 里显式传的顶层键整体覆盖文件里的同名键(不深合并);文件内任意位置的 `{ "$file": "路径" }` 替换为该文件文本(`~/xx`、绝对路径,或相对配置文件所在目录)。读不到或内容不合法抛 `CONFIG_INVALID`。SDK 自带的缺省值(`workingDir` 为当前目录、`logLevel` 为 `none`)优先级低于配置文件:文件里写了就用文件的,`start` 里显式传的仍最优先。
-> - 顺带:`enableLLMCache` 已删除;`enableInputPrediction` 补进三端 `SemaCoreConfig` / `UpdatableCoreConfig`。
+> - 顺带:`enableLLMCache` 已删除;`enableInputPrediction`、`enableInputRetract` 补进三端 `SemaCoreConfig` / `UpdatableCoreConfig`。
 >
 > **稳定错误码**:桥 error 帧带 `code`,三端挂在 `SemaBridgeException` 上(Python `.code`、Java `.code()`、C# `.Code`,类型清单里的 `SemaErrorCode`),文案随 `lang` 变而 code 不变;没有对应错误码的普通错误为空。取值:`CONFIG_INVALID`(构造参数或运行期更新校验不通过)、`SCOPE_DISABLED`(写接口的目标域没生效)、`HOST_READONLY`(改的是 host 域条目)、`HISTORY_KEY_REQUIRED`(历史是密文但没传密钥)、`HISTORY_DECRYPT_FAILED`(密钥不对或密文损坏);后两个出现在 `createSession` 失败时。
 
@@ -294,6 +294,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `input:received` | `InputReceivedData` | 收到用户输入(处理中则入队等待);`source` 标记来源(缺省 `user`,`cron`=定时任务自动发送) |
 | `input:processing` | `InputProcessingData` | 开始处理该用户输入;`source` 含义同上;`injected=true` 表示运行中的轮内注入(不开新轮,`inputId` 不能作为 fork / branch 锚点) |
 | `input:predict` | `InputPredictData` | 用户输入预测结果(需 `enableInputPrediction` 开启;`prediction` 空串表示预计不回复,UI 应清空提示) |
+| `input:retracted` | `InputRetractedData` | 输入撤销(需 `enableInputRetract` 开启):模型产出正文前用户主动中断,本条输入不进历史;与 `session:interrupted` 互斥,UI 应删掉该输入气泡并把原文放回输入框 |
 | `message:text:chunk` | `TextChunkData` | 回复文本流式增量 |
 | `message:thinking:chunk` | `ThinkingChunkData` | 思考内容流式增量 |
 | `message:complete` | `MessageCompleteData` | 一条 AI 消息完成(完整内容 + 工具调用) |
@@ -408,7 +409,7 @@ MAIN_AGENT_ID                                                // 常量:主代理
 ```
 SessionReadyData, SessionInterruptedData, SessionErrorData, SessionClearedData  // 会话:就绪/中断/错误/清空
 AppSessionState, StateUpdateData                             // 运行状态:状态枚举 / 更新事件
-InputReceivedData, InputProcessingData, InputPredictData     // 用户输入:已接收 / 开始处理 / 下一句预测
+InputReceivedData, InputProcessingData, InputPredictData, InputRetractedData     // 用户输入:已接收 / 开始处理 / 下一句预测 / 已撤销
 ThinkingChunkData, TextChunkData, MessageCompleteData        // AI 消息:思考增量 / 文本增量 / 完成
 ToolPermissionRequestData, ToolPermissionAutoData, ToolPermissionResponse  // 工具权限:请求 / 自动放行 / 应答
 ToolExecutionCompleteData, ToolExecutionChunkData, ToolExecutionErrorData   // 工具执行:完成 / 中间态 / 错误

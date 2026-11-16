@@ -17,7 +17,7 @@ import { useApp } from '../../store/app';
 import { isLocalHref, isPathCandidate, parsePathRef, rawFileUrl, useFileStats, type PathStat } from './fileRefs';
 
 // remarkBreaks：段落内的单个换行按换行渲染（与参考实现一致，模型输出常依赖单换行分行）
-const remarkPlugins: any[] = [remarkGfm, remarkMath, remarkBreaks];
+const remarkPlugins: any[] = [remarkGfm, remarkMath, remarkDisplayMath, remarkBreaks];
 // KaTeX：公式出错时原样显示而不抛错；trust:false 关闭 \href 等危险命令
 const rehypePlugins: any[] = [[rehypeKatex, { throwOnError: false, strict: 'ignore', trust: false }], rehypeHighlight];
 // 默认 urlTransform 白名单不含 file:，会把 file:// 链接的 href 清空；这里放行 file://（Anchor 里在右栏浏览器打开）。
@@ -338,6 +338,29 @@ function CodeBlock({ children }: any) {
       </div>
     </InPre.Provider>
   );
+}
+
+/** remark-math 只把「$$ 独占一行」的写法当块级公式，开闭都在同一行的 $$...$$ 会解析成行内公式：
+ * 不居中，也用不了 \tag 等仅块级可用的命令（KaTeX 报错后原样标红）。这里把源码以 $$ 起始的行内公式改为块级渲染，
+ * 并去掉紧邻的换行（否则 remarkBreaks 会在公式前后多出 <br>）；须排在 remarkMath 之后、remarkBreaks 之前 */
+function remarkDisplayMath() {
+  return (tree: any, file: any) => {
+    const src = String(file.value ?? '');
+    const walk = (node: any) => {
+      const kids: any[] | undefined = node.children;
+      if (!kids) return;
+      kids.forEach((kid, i) => {
+        const at = kid.position?.start?.offset;
+        if (kid.type !== 'inlineMath' || at == null || !src.startsWith('$$', at)) return walk(kid);
+        kid.data = { ...kid.data, hProperties: { className: ['language-math', 'math-display'] } };
+        const prev = kids[i - 1];
+        const next = kids[i + 1];
+        if (prev?.type === 'text') prev.value = prev.value.replace(/\n$/, '');
+        if (next?.type === 'text') next.value = next.value.replace(/^\n/, '');
+      });
+    };
+    walk(tree);
+  };
 }
 
 function preprocess(text: string): string {

@@ -43,6 +43,8 @@ export interface SemaCoreConfig {
   agentMode?: AgentMode;             // 默认 'Agent'
   disableTopicDetection?: boolean;   // 是否禁用话题检测，默认 否
   enableInputPrediction?: boolean;   // 是否开启用户输入预测（一轮结束后用 quick 模型预测用户下一句，事件 input:predict），默认 否
+  enableInputRetract?: boolean;      // 是否开启输入撤销，默认 否；开启后用户在模型产出正文前主动中断，本条输入当作没发生：
+                                     // 历史不留这条输入与中断提示，发 input:retracted（替代 session:interrupted）由宿主把原文放回输入框
   disableBackgroundTasks?: boolean;  // 是否禁止后台任务（Bash后台/Agent后台/超时转后台），默认 否
   disableMemory?: boolean;           // 是否关闭内置记忆，默认 否；为 true 时系统提示词不拼记忆使用说明、首轮不注入 MEMORY.md、
                                      // 不加载 .sema/memory 目录、记忆文件的编辑豁免失效（记忆改由外部服务经 hook/MCP 提供）；
@@ -98,6 +100,7 @@ export const defaultCoreConfig = {
   disableBackgroundTasks: false,
   enableToolSearch: false,
   enableInputPrediction: false,
+  enableInputRetract: false,
   // 实际缺省由 ConfManager.setCoreConfig 按是否传 encryption 决定，这里只是让字段进入可更新键集合
   disableLLMLog: false,
   disableEventLog: false,

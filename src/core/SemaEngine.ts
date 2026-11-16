@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'crypto'
-import { statSync } from 'fs'
+import { statSync, unlinkSync, rmdirSync } from 'fs'
+import { dirname } from 'path'
 import { logInfo, logDebug, setLogLevel, logWarn } from '../util/log';
 import { getTokens } from '../util/tokens';
 import { loadHistory, saveHistory, resolveHistoryFile } from '../util/history';
@@ -21,7 +22,7 @@ import type { UUID } from '../types/uuid';
 import type { ForkOptions, ForkResult, BranchResult } from '../types/fork';
 import { generateSessionId } from '../util/session';
 import { ReAct } from './Conversation';
-import type { AgentContext } from '../types/agent'
+import type { AgentContext, InputRetractState } from '../types/agent'
 import { getStateManager, MAIN_AGENT_ID, PendingUserInput, SessionRuntime } from '../manager/StateManager';
 import { getCheckpointManager } from '../manager/CheckpointManager';
 import { handleCommand, goalInputMark } from '../services/commands/runCommand';
@@ -39,7 +40,7 @@ import { GOAL_MAX_IDLE_ROUNDS, GOAL_MAX_ROUNDS } from '../conf/config';
 import { CompleteGoal } from '../tools/CompleteGoal';
 import type { Tool } from '../tools/base/Tool';
 import type { GoalState, GoalInputMark } from '../types/goal';
-import type { GoalUpdateData } from '../events/types';
+import type { GoalUpdateData, InputRetractedData } from '../events/types';
 import { fireSessionStart, fireUserPromptSubmit, fireSessionEnd, fireStop } from '../services/hooks/hookTriggers';
 import type { AgentMode, PermissionLevel } from '../types';
 import type { FileReferenceInfo } from '../types/index';
@@ -56,6 +57,9 @@ export class SemaEngine {
 
   /** SessionStart hook 的 additionalContext（首轮 processQuery 消费一次，不阻塞 session:ready） */
   private sessionStartHookPromise: Promise<string | null> | null = null
+
+  /** 当前轮的输入撤销状态（startQuery 每轮重置；不符合撤销条件的轮次为 null） */
+  private currentInputRetract: InputRetractState | null = null
 
   private readonly runtime: SessionRuntime;
 
@@ -219,6 +223,11 @@ export class SemaEngine {
     if (mainAgentState.getCurrentState() === 'processing') {
       const type: PendingUserInput['type'] = trimmedInput.startsWith('/') ? 'command' : 'inject'
       this.runtime.addPendingUserInput({ inputId, input: trimmedInput, originalInput, silent, type, attachments, source })
+      // 用户已经接着发了新输入：当前轮的输入不再可撤销（新输入多半以它为前提，抽走它会让后一条失去上下文）。
+      // 只认真实用户输入；定时任务、后台任务通知等自动来源不依赖当前输入，不关闭撤销窗口
+      if (this.currentInputRetract && !silent && (source ?? 'user') === 'user') {
+        this.currentInputRetract.eligible = false
+      }
       logInfo(`输入已入队(${type})，队列长度: ${this.runtime.getPendingUserInputsLength()}`)
       if (!silent) {
         // 入队输入带上原始附件：真正处理前 UI 只能靠此事件回显排队气泡的缩略图
@@ -271,6 +280,19 @@ export class SemaEngine {
     // 获取工具集（按核心级 useTools 黑名单过滤；工具搜索模式下按会话组装）
     const tools = getAvailableTools(undefined, { sessionId: this.sessionId });
 
+    // 输入撤销资格：配置开启、本批只有一条真实用户输入（非静默、非 / 命令）、当前没有 running 的目标、
+    // 队列里没有排在它后面的用户输入（排队的普通输入后面跟着 / 命令时，命令会留在队列里单独成批）。
+    // 不符合的轮次不带撤销状态，中断走原有逻辑
+    const only = inputs.length === 1 ? inputs[0] : undefined;
+    const retractable = !!only
+      && !!getConfManager().getCoreConfig()?.enableInputRetract
+      && !only.silent
+      && (only.source ?? 'user') === 'user'
+      && !only.input.startsWith('/')
+      && this.runtime.getGoal()?.status !== 'running'
+      && !this.runtime.hasPendingRealUserInput();
+    this.currentInputRetract = retractable ? { eligible: true, userInterrupt: false, hit: false } : null;
+
     // 构建主代理上下文
     const agentContext: AgentContext = {
       sessionId: this.sessionId,
@@ -278,6 +300,7 @@ export class SemaEngine {
       abortController: this.runtime.currentAbortController,
       tools,
       model: 'main',
+      inputRetract: this.currentInputRetract ?? undefined,
     }
 
     // 保存当前的 processQuery Promise，用于等待其完成
@@ -350,6 +373,32 @@ export class SemaEngine {
     let historyLenBefore = -1;
     const goalBefore = this.runtime.getGoal();
 
+    // 输入撤销（仅符合条件的轮次带 inputRetract）：记下回滚所需的本轮现场
+    const inputRetract = agentContext.inputRetract;
+    // 读时间戳快照：@文件 引用在进 ReAct 前就会调读取工具写时间戳，撤销时还原
+    const readTimestampsBeforeTurn = inputRetract ? { ...mainAgentState.getReadFileTimestamps() } : {};
+    // 本轮用户消息写入前的历史（尚未写入时为 undefined，撤销无需动历史）
+    let historyBeforeTurn: Message[] | undefined;
+    // 本轮消费掉的 SessionStart hook 上下文（undefined = 未消费）
+    let consumedSessionStartCtx: string | null | undefined;
+    // 本轮落盘的附图路径
+    const savedImagePaths: string[] = [];
+    // Plan / Design 模式说明的"已发送"标记：本轮首次注入后被撤销时要退回，否则重新提交拿不到模式说明
+    const planInfoSentBeforeTurn = this.runtime.isPlanModeInfoSent();
+    const designInfoSentBeforeTurn = this.runtime.isDesignModeInfoSent();
+    const retractNow = () => this.retractInput(inputs[0], {
+      history: historyBeforeTurn,
+      readFileTimestamps: readTimestampsBeforeTurn,
+      planInfoSent: planInfoSentBeforeTurn,
+      designInfoSent: designInfoSentBeforeTurn,
+      sessionStartCtx: consumedSessionStartCtx,
+      imagePaths: savedImagePaths,
+    });
+    // 模型请求发出前就被用户中断（hook / 命令处理阶段）：没有任何模型产出，仍有资格即撤销
+    const retractOnEarlyAbort = async () => {
+      if (inputRetract?.eligible && inputRetract.userInterrupt) await retractNow();
+    };
+
     try {
       // 将每条用户输入保存到项目配置的 history（静默输入/自动来源输入跳过，避免污染上翻输入历史）
       for (const item of inputs) {
@@ -372,6 +421,7 @@ export class SemaEngine {
       for (const item of inputs) {
         if (agentContext.abortController.signal.aborted) {
           logInfo('processQuery: abort detected during handleCommand loop, skipping remaining');
+          await retractOnEarlyAbort();
           return;
         }
 
@@ -382,6 +432,7 @@ export class SemaEngine {
           // 与循环头的中断处理一致终止本批，避免在已中断的 turn 里继续执行系统命令
           if (promptHook.ran && agentContext.abortController.signal.aborted) {
             logInfo('processQuery: abort detected during UserPromptSubmit hook, skipping remaining');
+            await retractOnEarlyAbort();
             return;
           }
           if (promptHook.blocked) {
@@ -440,6 +491,7 @@ export class SemaEngine {
 
       if (agentContext.abortController.signal.aborted) {
         logInfo('processQuery: abort detected after handleCommand, skipping remaining');
+        await retractOnEarlyAbort();
         return;
       }
 
@@ -498,6 +550,7 @@ export class SemaEngine {
         // race 后复查信号，处理"完成与中断同时发生"的竞态：只要已中断就按中断处理
         if (!abortSignal.aborted) {
           this.sessionStartHookPromise = null
+          consumedSessionStartCtx = sessionStartCtx
           if (sessionStartCtx) {
             turnLevelReminders.push({
               type: 'text' as const,
@@ -506,6 +559,14 @@ export class SemaEngine {
           }
         }
       }
+      // 等 SessionStart hook（或上面几步异步准备）期间被用户中断：用户消息还没写入历史、模型请求还没发出，
+      // 有撤销资格就在这里直接撤销；没有资格的照旧往下走，由 ReAct 的中断路径写中断提示
+      if (agentContext.abortController.signal.aborted && inputRetract?.eligible && inputRetract.userInterrupt) {
+        logInfo('processQuery: abort detected before ReAct, retracting input');
+        await retractNow();
+        return;
+      }
+
       // 打 Fork 锚点：记录本批输入发送时已累积的文件快照数，并开启新的快照 segment
       const checkpointSeq = getCheckpointManager().beginTurn(this.sessionId)
 
@@ -514,7 +575,11 @@ export class SemaEngine {
       // API 调用时由 prepareMessagesForApi 自动合并连续 user 消息
       const userMessages: UserMsg[] = perInput.map((p, idx) => {
         // 图片附件转 image content block；原图同时落盘，每张图前带一段路径说明，模型才能把附图当文件用
-        const imageBlocks: Anthropic.ContentBlockParam[] = toImageContentBlocks(p.attachments, saveAttachedImages(attachmentOriginals.get(p.inputId)))
+        const imagePaths = saveAttachedImages(attachmentOriginals.get(p.inputId))
+        for (const filePath of imagePaths) {
+          if (filePath) savedImagePaths.push(filePath)
+        }
+        const imageBlocks: Anthropic.ContentBlockParam[] = toImageContentBlocks(p.attachments, imagePaths)
         // 存在图片时过滤空文本块（纯截图场景 input 为空，空 text block 会导致 API 报错）
         const textBlocks = imageBlocks.length > 0
           ? p.blocks.filter(b => !(b.type === 'text' && !b.text.trim()))
@@ -551,6 +616,7 @@ export class SemaEngine {
 
       // 进入 ReAct 前先把用户消息同步到内存并落盘：首轮 LLM 请求期间进程意外退出时，
       // 用户输入不至于丢失（恢复时末尾若是孤儿 tool_use 由 prepareMessagesForApi 兜底剔除）
+      historyBeforeTurn = messageHistory
       mainAgentState.setMessageHistory(messages)
 
       // 调用 query 函数
@@ -561,6 +627,9 @@ export class SemaEngine {
       )) {
         // query 生成器会 yield 消息并在内部通过 finalizeMessages 更新历史
       }
+
+      // ReAct 判定命中输入撤销（首次模型请求未产出正文即被用户中断）：回滚本轮并通知宿主
+      if (inputRetract?.hit) await retractNow();
 
     } catch (error) {
       if (isInterruptedException(error)) {
@@ -775,7 +844,79 @@ export class SemaEngine {
    * 中断当前会话
    */
   interruptSession(): void {
+    // 标记本轮中断来自用户主动操作：输入撤销只认这一种，dispose 等直接走 abortCurrentRequest 不置位
+    if (this.currentInputRetract) this.currentInputRetract.userInterrupt = true;
     this.abortCurrentRequest();
+  }
+
+  /**
+   * 输入撤销：把本轮输入当作没发生过。历史回到本轮之前（不留这条输入与中断提示）、还原本轮预读文件写下的读时间戳、
+   * 退回本轮才置上的 Plan / Design 模式说明标记、放回被消费的 SessionStart 上下文、删除本轮落盘的附图，
+   * 最后发 input:retracted 由宿主把原文放回输入框。
+   * 不回滚：上翻输入历史、已执行的 UserPromptSubmit hook、transcript 已追加的行。
+   */
+  private async retractInput(
+    item: { inputId: string; input: string; originalInput?: string },
+    turn: {
+      history?: Message[];
+      readFileTimestamps: Record<string, number>;
+      planInfoSent: boolean;
+      designInfoSent: boolean;
+      sessionStartCtx?: string | null;
+      imagePaths: string[];
+    },
+  ): Promise<void> {
+    const mainAgentState = this.runtime.forAgent(MAIN_AGENT_ID);
+
+    // 模式说明随被撤销的消息一起消失：本轮才标记为已发送的退回未发送，下次输入重新注入
+    if (!turn.planInfoSent) this.runtime.resetPlanModeInfoSent();
+    if (!turn.designInfoSent) this.runtime.resetDesignModeInfoSent();
+
+    // 先还原读时间戳再落盘历史（历史文件里带读时间戳）
+    mainAgentState.setReadFileTimestamps(turn.readFileTimestamps);
+    if (turn.history) {
+      mainAgentState.setMessageHistory(turn.history); // 非空时自动保存
+      if (turn.history.length === 0) await this.saveEmptyHistory();
+    }
+
+    // SessionStart 上下文留给下一轮重新注入
+    if (turn.sessionStartCtx !== undefined) {
+      this.sessionStartHookPromise = Promise.resolve(turn.sessionStartCtx);
+    }
+
+    // 只删本轮记录的附图文件；目录空了才一并删掉，失败只记日志
+    for (const filePath of turn.imagePaths) {
+      try {
+        unlinkSync(filePath);
+      } catch (e) {
+        logWarn(`输入撤销：附图删除失败 ${filePath}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    for (const dir of new Set(turn.imagePaths.map(filePath => dirname(filePath)))) {
+      try {
+        rmdirSync(dir);
+      } catch {
+        // 目录非空或已不存在，保留
+      }
+    }
+
+    const data: InputRetractedData = { inputId: item.inputId, input: item.input, originalInput: item.originalInput };
+    this.emit('input:retracted', data);
+    logInfo(`输入已撤销: ${item.inputId}`);
+  }
+
+  /** 空历史不触发自动保存，强制落盘覆盖旧历史文件（此时目标必为 null，不传） */
+  private async saveEmptyHistory(): Promise<void> {
+    const workingDir = getConfManager().getCoreConfig()?.workingDir;
+    await saveHistory(
+      this.sessionId,
+      [],
+      this.runtime.getTodos(),
+      workingDir,
+      this.runtime.getReadFileTimestamps(),
+      this.runtime.listTodoTasks(MAIN_AGENT_ID),
+      this.runtime.getHistoryNoDate(),
+    );
   }
 
   /**
@@ -838,17 +979,7 @@ export class SemaEngine {
     // 4) 就地截断历史并持久化（同一会话同 id）
     mainAgentState.setMessageHistory(truncated); // 非空时自动保存
     if (truncated.length === 0) {
-      // 空历史不触发自动保存，强制落盘覆盖旧历史（此时目标必为 null，不传）
-      const workingDir = getConfManager().getCoreConfig()?.workingDir;
-      await saveHistory(
-        this.sessionId,
-        [],
-        this.runtime.getTodos(),
-        workingDir,
-        this.runtime.getReadFileTimestamps(),
-        this.runtime.listTodoTasks(MAIN_AGENT_ID),
-        this.runtime.getHistoryNoDate(),
-      );
+      await this.saveEmptyHistory();
     }
     if (goalChanged) this.emitGoalUpdate(goalAfter, goalAfter ? 'paused' : 'cleared');
 

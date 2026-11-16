@@ -144,6 +144,19 @@ export interface InputProcessingData {
   injected?: boolean;         // 仅轮内注入时为 true：输入追加进当前轮的工具结果、不开新轮，在历史里不是独立消息，inputId 不能作为 fork / branch 锚点
 }
 
+/**
+ * 用户输入已撤销事件数据
+ * 事件: `input:retracted`
+ * 说明: enableInputRetract 开启时，用户在模型产出正文前主动中断，本条输入当作没发生：
+ * 历史里不留这条输入与中断提示。与 `session:interrupted` 互斥，一次中断只发其一。
+ * 有排队输入时紧接着开始处理下一批，不会先转 idle。
+ */
+export interface InputRetractedData {
+  inputId: string;            // 被撤销输入的标识，与 input:received / input:processing 中的 inputId 对应
+  input: string;              // 提交时的完整输入内容
+  originalInput?: string;     // 提交时的原始输入内容
+}
+
 // ==================== AI消息事件 ====================
 
 /**

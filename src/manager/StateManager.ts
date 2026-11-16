@@ -513,6 +513,11 @@ export class SessionRuntime {
     return this.pendingUserInputs.length;
   }
 
+  /** 队列里是否还有真实用户输入（非静默、来源为 user）；定时任务、后台任务通知等自动来源不算 */
+  hasPendingRealUserInput(): boolean {
+    return this.pendingUserInputs.some(item => !item.silent && (item.source ?? 'user') === 'user');
+  }
+
   consumeInjectInputsBeforeNextCommand(): PendingUserInput[] {
     const result: PendingUserInput[] = [];
     while (

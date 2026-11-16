@@ -31,7 +31,7 @@
 
 ### `session:interrupted`
 
-用户调用 `session.interrupt()` 中断了当前会话执行。
+用户调用 `session.interrupt()` 中断了当前会话执行。开启 `enableInputRetract` 且命中输入撤销时不发本事件，改发 `input:retracted`。
 
 ```typescript
 {
@@ -120,6 +120,30 @@
 ```
 
 `GoalInputMark` 为 `{ action: 'set' | 'update' | 'round'; round: number; maxRounds: number }`，同样挂在持久化的用户消息上，UI 不用解析输入文本即可打标。
+
+### `input:retracted`
+
+输入撤销：`enableInputRetract` 开启时，用户在模型产出正文前调用 `session.interrupt()`，本条输入当作没发生，历史里不留这条输入与中断提示。与 `session:interrupted` 互斥，一次中断只发其一。
+
+```typescript
+{
+  inputId: string          // 被撤销输入的标识，与 input:received / input:processing 中的 inputId 对应
+  input: string            // 提交时的完整输入内容
+  originalInput?: string   // 提交时的原始输入内容
+}
+```
+
+UI 收到后删除该 `inputId` 的输入气泡和本轮已展示的思考内容，把原文放回输入框。有排队输入时紧接着开始处理下一批，不会先转 idle，所以回填要在本事件到达时做。
+
+撤销需同时满足：
+
+- 中断来自 `session.interrupt()`（关闭会话等其他中断不算）
+- 本批只有一条用户输入，非静默、不以 `/` 开头，且当前没有运行中的长期目标
+- 这条输入处理期间用户没有再提交新输入（定时任务、后台任务通知等自动来源的入队不算）
+- 是本轮第一次模型请求，且本轮没有触发自动压缩
+- 模型尚未产出正文（只有思考内容或还没有任何输出）
+
+不满足时走原有中断逻辑，发 `session:interrupted`。已写入上翻输入历史的记录、已执行的 UserPromptSubmit hook 不回滚。
 
 ## AI 消息
 

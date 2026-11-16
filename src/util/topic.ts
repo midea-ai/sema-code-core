@@ -97,7 +97,8 @@ export async function detectTopicInBackground(
   try {
     const topicResult = await getTopicFromUserInput(userInput, topicAbortController.signal, sessionId)
 
-    if (topicResult) {
+    // 中断后适配器可能返回已累积的内容并解析出结果：本轮已中断（输入可能已撤销），迟到的结果不再应用
+    if (topicResult && !topicAbortController.signal.aborted) {
       logDebug(`话题检测结果: ${JSON.stringify(topicResult)}`)
       onTopic(topicResult)
     }

@@ -63,6 +63,9 @@ export async function* ReAct(
   // 自动压缩检查（子代理不进行压缩）
   // 在处理新消息前检查，如果需要压缩，会分离出最新的用户消息
   if (!isSubagent && await needsAutoCompact(messages, 0, sessionId)) {
+    // 进入压缩分支历史即可能被改写：关闭本轮输入撤销资格（不等结果，失败也不重开）
+    if (agentContext.inputRetract) agentContext.inputRetract.eligible = false
+
     // 第一道防线：micro 清理（本地替换模型已消费的旧工具结果，不调模型）。
     // 清理无条件生效并随历史落盘；估算显示空间足够时直接跳过全量摘要。
     const micro = applyMicroCompact(messages, sessionId)
@@ -114,6 +117,19 @@ export async function* ReAct(
       await agentState.flushHistory()
     }
     throw error
+  }
+
+  // 输入撤销：本轮首次模型请求、用户主动中断、响应里没有可见正文（只有思考或尚未产出）→ 交给引擎回滚，
+  // 不写中断提示、不发 session:interrupted。上方 catch 分支拿不到累积内容，无法确认没出过正文，不撤销
+  const inputRetract = isSubagent ? undefined : agentContext.inputRetract
+  if (inputRetract?.eligible) {
+    // 首次模型请求到此为止，无论是否命中，撤销窗口都关闭（后续工具执行、递归轮次不再可撤销）
+    inputRetract.eligible = false
+    const hasVisibleText = assistantMessage.message.content.some(b => b.type === 'text' && b.text.trim() !== '')
+    if (abortController.signal.aborted && inputRetract.userInterrupt && !hasVisibleText) {
+      inputRetract.hit = true
+      return
+    }
   }
 
   // AI响应完成后工具执行前

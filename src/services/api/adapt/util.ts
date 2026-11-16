@@ -56,6 +56,9 @@ export function withStreamTimeout(signal?: AbortSignal, sessionId?: string, emit
   // 不在此处 armIdle()：空闲计时由第一个流式包（首次 touch）启动
 
   const handleAbortSignal = () => controller.abort()
+  // 传入的信号可能在进来之前就已中断（如等 hook 期间用户点了停止）：已中断的信号不会再触发 abort 事件，
+  // 不在这里同步过去的话，本次请求会不受中断影响一直跑完
+  if (signal?.aborted) controller.abort()
   signal?.addEventListener('abort', handleAbortSignal, { once: true })
 
   const cleanup = () => {

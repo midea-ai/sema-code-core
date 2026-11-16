@@ -16,6 +16,19 @@ export interface AgentConfig {
 }
 
 /**
+ * 输入撤销的本轮状态（enableInputRetract 开启且本批输入符合条件时由引擎创建，仅主代理持有）。
+ * 资格只关不开；判定命中后由引擎统一回滚并发 input:retracted。
+ */
+export interface InputRetractState {
+  /** 是否仍可撤销：进入自动压缩、首次模型请求正常通过后置 false */
+  eligible: boolean
+  /** 本轮中断是否来自显式 interrupt()；dispose 等其他中断不置位，不触发撤销 */
+  userInterrupt: boolean
+  /** ReAct 判定命中撤销（已跳过中断提示与 session:interrupted），等引擎回滚 */
+  hit: boolean
+}
+
+/**
  * 代理上下文
  * 包含代理执行所需的所有上下文信息
  */
@@ -32,4 +45,6 @@ export interface AgentContext {
   model?: 'main' | 'quick'
   /** 当前正在执行的工具调用ID（由 RunTools 注入，供工具内部发送 chunk 事件使用） */
   currentToolUseID?: string
+  /** 输入撤销的本轮状态：不符合撤销条件的轮次与子代理不设置 */
+  inputRetract?: InputRetractState
 }

@@ -26,6 +26,7 @@ interface SemaCoreConfig {
   agentMode?: 'Agent' | 'Plan' | 'Design'; // 会话默认模式，默认 'Agent'
   disableTopicDetection?: boolean;   // 是否禁用话题检测，默认 否
   enableInputPrediction?: boolean;   // 是否开启用户输入预测（一轮结束后用 quick 模型预测用户下一句，事件 input:predict），默认 否
+  enableInputRetract?: boolean;      // 是否开启输入撤销（模型产出正文前主动中断，本条输入当作没发生，事件 input:retracted），默认 否
   disableBackgroundTasks?: boolean;  // 是否禁止后台任务（RunShell 后台 / SubAgent 后台 / 超时转后台），默认 否
   disableMemory?: boolean;           // 是否关闭内置记忆（不拼记忆提示词、不注入 MEMORY.md、不读 .sema/memory、记忆文件编辑豁免失效），默认 否；仅构造时生效
   disableEnvContext?: boolean;       // 是否关闭环境上下文（主代理与子代理的系统提示词不拼 env / gitStatus，建会话不起 git 进程），默认 否；适合没有 shell / 文件工具的纯对话场景；仅构造时生效
@@ -163,7 +164,7 @@ session.on('state:update', ({ state }) => {
 session.interrupt()
 ```
 
-触发 `session:interrupted` 事件，当前工具调用链被取消，AI 停止响应。
+触发 `session:interrupted` 事件，当前工具调用链被取消，AI 停止响应。开启 `enableInputRetract` 后，若模型还没产出正文就中断，改为触发 `input:retracted`：这条输入不进历史，宿主可把原文放回输入框。
 
 ### 6. 释放资源
 

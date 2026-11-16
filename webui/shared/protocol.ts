@@ -6,7 +6,7 @@
 export const SESSION_EVENTS = [
   'session:ready', 'session:error', 'session:interrupted', 'session:cleared',
   'state:update',
-  'input:received', 'input:processing', 'input:predict',
+  'input:received', 'input:processing', 'input:predict', 'input:retracted',
   'message:text:chunk', 'message:thinking:chunk', 'message:complete',
   'tool:permission:request', 'tool:permission:auto',
   'tool:execution:complete', 'tool:execution:chunk', 'tool:execution:error',

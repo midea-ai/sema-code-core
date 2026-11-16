@@ -344,6 +344,21 @@ export function applyEvent(snap: SessionSnapshot, event: string, data: any, seq:
       break;
     }
 
+    // 输入撤销：模型产出正文前被用户中断，这条输入在 core 历史里不存在了。移除它的气泡和本轮已流出的思考块，
+    // 不出「已中断」提示；排队中的输入、通知等其他块保留。原文回填输入框由前端 store 在应用本事件前完成
+    case 'input:retracted': {
+      const inputId = data?.inputId;
+      const idx = snap.blocks.findIndex(b => b.kind === 'user' && b.inputId === inputId);
+      if (idx >= 0) {
+        // 撤销只发生在本轮第一次模型请求，气泡之后的主代理回复块都属于这一轮
+        snap.blocks = snap.blocks.filter((b, i) => i !== idx && !(i > idx && b.kind === 'assistant' && b.agentId === MAIN_AGENT_ID));
+      }
+      snap.streamingId = undefined;
+      if (snap.turn?.inputId === inputId) snap.turn = null;
+      snap.predictedInput = undefined;
+      break;
+    }
+
     case 'message:thinking:chunk':
     case 'message:text:chunk': {
       const id = String(data?.id ?? '');

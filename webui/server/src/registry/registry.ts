@@ -19,7 +19,7 @@ const INDEX_FILE = path.join(WEBUI_HOME, 'index.json');
 const SETTINGS_FILE = path.join(WEBUI_HOME, 'settings.json');
 
 /** 不开放配置、始终生效的 core 选项 */
-const FIXED_CORE_CONFIG = { stream: true, thinking: true } as const;
+const FIXED_CORE_CONFIG = { stream: true, thinking: true, enableInputRetract: true } as const;
 
 export const DEFAULT_SETTINGS: WebUISettings = {
   coreConfig: {

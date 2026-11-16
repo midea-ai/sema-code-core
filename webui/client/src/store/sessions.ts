@@ -2,11 +2,12 @@
 import { create } from 'zustand';
 import { api } from '../api/http';
 import { wsClient } from '../api/ws';
-import type { SessionSnapshot, SessionRecord, AgentMode, PermissionLevel, EventFrame, GoalState, GoalUpdateReason } from '../../../shared/types';
+import type { SessionSnapshot, SessionRecord, AgentMode, PermissionLevel, EventFrame, GoalState, GoalUpdateReason, UserBlock } from '../../../shared/types';
 import { applyEvent, applyLocal, LocalAction } from '../../../shared/transcript';
 import { SERVER_EVENTS } from '../../../shared/protocol';
 import { useApp } from './app';
 import { t, type I18nKey } from '../i18n';
+import { PASTE_RESTORE_MISSING } from '../features/chat/pasteAttachment';
 
 /** 草稿里的超长粘贴：path/preview 发送时拼进 input 模板；text 留一份供「在文本框中显示」展开回输入框（不落快照） */
 export interface DraftPaste { path: string; preview: string; text: string }
@@ -49,6 +50,38 @@ interface SessionsState {
 }
 
 export const emptyDraft = (): Draft => ({ text: '', images: [], pastes: [] });
+
+/**
+ * 把一条用户气泡还原成草稿内容（文字 + 图片 + 长文粘贴），回退与输入撤销共用。
+ * 图片：气泡里的 dataUrl 就是完整 base64，拆回草稿形状；没有 dataUrl 的历史图片无法还原，跳过。
+ * 长文粘贴：转存文件仍在磁盘上，按绝对路径读回正文复用原路径；文件已被退场清理或删除的跳过，计入 missing。
+ */
+export async function draftFromUserBlock(sessionId: string, block: UserBlock): Promise<Draft & { missing: number }> {
+  const images: Draft['images'] = (block.attachments || [])
+    .filter(a => a.dataUrl)
+    .map(a => ({ dataUrl: a.dataUrl!, media_type: a.media_type, data: a.dataUrl!.split(',')[1] || '' }));
+  let missing = 0;
+  const pastes = (await Promise.all((block.pastes || []).map(async (p): Promise<DraftPaste | null> => {
+    try {
+      const r = await api<{ content: string }>('POST', `/api/sessions/${sessionId}/file`, { path: p.path });
+      return { path: p.path, preview: p.preview, text: r.content };
+    } catch { missing++; return null; }
+  }))).filter((p): p is DraftPaste => !!p);
+  return { text: block.text, images, pastes, missing };
+}
+
+/** 输入撤销回填：草稿为空直接填；已有内容时撤销的文字前插并换行，图片和粘贴排在已有内容之前，粘贴按路径去重 */
+function restoreRetractedInput(sessionId: string, block: UserBlock) {
+  draftFromUserBlock(sessionId, block).then(r => {
+    useSessions.getState().setDraft(sessionId, d => ({
+      text: r.text && d.text.trim() ? `${r.text}\n${d.text}` : (r.text || d.text),
+      images: [...r.images, ...d.images],
+      pastes: [...r.pastes.filter(p => !d.pastes.some(x => x.path === p.path)), ...d.pastes],
+    }));
+    if (r.missing) useApp.getState().toast(PASTE_RESTORE_MISSING, 'warn');
+  }).catch(() => undefined);
+}
+
 let wired = false;
 
 export const useSessions = create<SessionsState>((set, get) => ({
@@ -110,6 +143,12 @@ export const useSessions = create<SessionsState>((set, get) => ({
       // 漏帧：回退到重新拉快照
       get().loadSnapshot(frame.sessionId).catch(() => undefined);
       return;
+    }
+    // 输入撤销：气泡随本事件从快照移除，移除前取出内容放回输入框。帧按 seq 去重，只会执行一次；
+    // 有排队输入时 core 不会先转 idle，所以在事件到达时回填，不等状态变化
+    if (frame.event === 'input:retracted') {
+      const retracted = cur.blocks.find(b => b.kind === 'user' && b.inputId === frame.data?.inputId);
+      if (retracted?.kind === 'user') restoreRetractedInput(frame.sessionId, retracted);
     }
     const next = applyEvent({ ...cur }, frame.event, frame.data, frame.seq);
     set(s => ({ snapshots: { ...s.snapshots, [frame.sessionId]: next } }));

@@ -3,8 +3,7 @@ import { FolderOpen, Pencil, ArrowDown, Copy, Check, ThumbsUp, ThumbsDown, GitBr
 import type { Block, SessionSnapshot } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
 import { useApp } from '../../store/app';
-import { useSessions, type Draft, type DraftPaste } from '../../store/sessions';
-import { api } from '../../api/http';
+import { useSessions, draftFromUserBlock } from '../../store/sessions';
 import { PASTE_RESTORE_MISSING } from './pasteAttachment';
 import { BlockRenderer, renderBlockList, htmlFilesOf, HtmlSiteCard, memoryFilesOf, MemoryCard, type BlockCtx } from './Blocks';
 import { ArtifactGroup, OfficeCards } from './OfficeCard';
@@ -123,28 +122,17 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
     // 自动来源（定时任务 / 目标续轮）的气泡文本是固定触发语，不回填
     const found = useSessions.getState().snapshots[sessionId]?.blocks
       .find(b => b.kind === 'user' && b.inputId === rewind.inputId);
-    const src = found?.kind === 'user' && found.source && found.source !== 'user' ? undefined : found;
-    const srcText = src?.kind === 'user' ? src.text : '';
-    // 图片：气泡里的 dataUrl 就是完整 base64，拆回草稿形状；没有 dataUrl 的历史图片无法还原，跳过
-    const srcImages: Draft['images'] = src?.kind === 'user'
-      ? (src.attachments || []).filter(a => a.dataUrl).map(a => ({ dataUrl: a.dataUrl!, media_type: a.media_type, data: a.dataUrl!.split(',')[1] || '' }))
-      : [];
-    // 长文粘贴：转存文件仍在磁盘上，按绝对路径读回正文复用原路径；文件已被退场清理或删除的跳过并提示
-    let pasteMissing = 0;
-    const srcPastes = (await Promise.all((src?.kind === 'user' ? src.pastes || [] : []).map(async (p): Promise<DraftPaste | null> => {
-      try {
-        const r = await api<{ content: string }>('POST', `/api/sessions/${sessionId}/file`, { path: p.path });
-        return { path: p.path, preview: p.preview, text: r.content };
-      } catch { pasteMissing++; return null; }
-    }))).filter((p): p is DraftPaste => !!p);
+    const src = found?.kind === 'user' && !(found.source && found.source !== 'user') ? found : undefined;
+    // 图片与长文粘贴的还原规则见 draftFromUserBlock；粘贴文件已不存在的跳过并提示
+    const restored = src ? await draftFromUserBlock(sessionId, src) : null;
     try {
       const r = await useSessions.getState().fork(sessionId, rewind.inputId, rewind.restore && !!rewind.preview?.canRestoreFiles);
       if (r && r.ok === false) throw new Error(r.error);
       setRewind(null);
-      if (srcText || srcImages.length || srcPastes.length) {
-        useSessions.getState().setDraft(sessionId, d => ({ text: srcText || d.text, images: [...d.images, ...srcImages], pastes: [...d.pastes, ...srcPastes] }));
+      if (restored && (restored.text || restored.images.length || restored.pastes.length)) {
+        useSessions.getState().setDraft(sessionId, d => ({ text: restored.text || d.text, images: [...d.images, ...restored.images], pastes: [...d.pastes, ...restored.pastes] }));
       }
-      if (pasteMissing) toast(PASTE_RESTORE_MISSING, 'warn');
+      if (restored?.missing) toast(PASTE_RESTORE_MISSING, 'warn');
       await useSessions.getState().loadSnapshot(sessionId);
     } catch (e: any) { toast(e.message, 'error'); setRewind(r => r ? { ...r, busy: false } : r); }
   };

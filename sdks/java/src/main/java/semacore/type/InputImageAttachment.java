@@ -5,7 +5,12 @@ package semacore.type;
 import java.util.List;
 import java.util.Map;
 
-public record InputImageAttachment(String type, String data, String media_type) {
+/**
+ * path 仅 input:processing 回吐时由 core 填写：原图落盘的绝对路径（落盘失败时为 null）；入参里传了会被忽略。
+ */
+public record InputImageAttachment(String type, String data, String media_type, String path) {
+    /** 入参用：不带 path。 */
+    public InputImageAttachment(String type, String data, String media_type) { this(type, data, media_type, null); }
     public static Builder builder() { return new Builder(); }
     public static final class Builder {
         private String type;

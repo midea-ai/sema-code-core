@@ -355,6 +355,8 @@ public record InputImageAttachment
     [JsonPropertyName("type")] public string? Type { get; init; }
     [JsonPropertyName("data")] public string? Data { get; init; }
     [JsonPropertyName("media_type")] public string? MediaType { get; init; }
+    /// <summary>仅 input:processing 回吐时由 core 填写：原图落盘的绝对路径（落盘失败时为 null）；入参里传了会被忽略</summary>
+    [JsonPropertyName("path")] public string? Path { get; init; }
 }
 
 public record MCPServerCapabilities

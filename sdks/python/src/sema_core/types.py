@@ -684,6 +684,8 @@ class InputImageAttachment(TypedDict):
     type: Literal["image"]
     data: str  # base64，不含 data: 前缀
     media_type: Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
+    # 仅 input:processing 回吐时由 core 填写：原图落盘的绝对路径（落盘失败时缺省）；入参里传了会被忽略
+    path: NotRequired[str]
 
 
 # ==================== 会话创建 / Fork / 任务 ====================

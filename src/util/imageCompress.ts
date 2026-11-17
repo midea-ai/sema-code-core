@@ -5,6 +5,7 @@ import { logDebug, logInfo, logWarn } from './log'
 import Jimp from 'jimp'
 import type { InputImageAttachment } from '../types/message'
 import { getAttachmentsDir } from './savePath'
+import { registerAttachment } from './attachmentLedger'
 import { sniffImageType } from '../services/image/generateImage'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
 
@@ -213,9 +214,10 @@ export async function normalizeImageAttachments(attachments?: InputImageAttachme
 /**
  * 把用户附图的原图落盘到附件目录（一次调用一个 <uuid> 目录），返回与入参同下标的绝对路径。
  * 模型据此把附图当文件用（生图参考图、复制进项目）；发给模型看的那份经过压缩，不能替代原图。
- * 写盘失败的项为 null，不影响图片本身发给模型
+ * 写盘失败的项为 null，不影响图片本身发给模型。
+ * 落盘的同时登记到 sessionId 名下，附件随该会话退场
  */
-export function saveAttachedImages(originals?: Buffer[]): Array<string | null> {
+export function saveAttachedImages(originals: Buffer[] | undefined, sessionId: string): Array<string | null> {
   if (!originals || originals.length === 0) return []
   const dir = path.join(getAttachmentsDir(), randomUUID())
   return originals.map((buf, index) => {
@@ -225,6 +227,7 @@ export function saveAttachedImages(originals?: Buffer[]): Array<string | null> {
       const filePath = path.join(dir, `attached-${index + 1}${ext}`)
       fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(filePath, buf)
+      registerAttachment(sessionId, filePath)
       return filePath
     } catch (e) {
       logWarn(`附图落盘失败，模型拿不到该图路径: ${e instanceof Error ? e.message : String(e)}`)

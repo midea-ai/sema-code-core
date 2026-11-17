@@ -454,7 +454,7 @@ async function injectPendingInputsIntoToolResult(
         text: `${REMINDER_SYS_OPEN}\nNew user message arrived during your task:\n${injectText}${imageNote}\n\nReminder: Once current task finishes, immediately respond to the user's latest message. Do not skip it.\n${REMINDER_SYS_CLOSE}`,
       })
       // 原图同时落盘，每张图前带一段路径说明（与正常轮次一致）
-      lastResult.message.content.push(...toImageContentBlocks(attachments, saveAttachedImages(originals)))
+      lastResult.message.content.push(...toImageContentBlocks(attachments, saveAttachedImages(originals, agentContext.sessionId)))
     }
   }
 

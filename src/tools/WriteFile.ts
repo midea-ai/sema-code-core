@@ -16,6 +16,7 @@ import { IS_WIN } from '../util/platform'
 import { TOOL_NAME_WRITE_FILE, TOOL_NAME_VIEW_FILE, TOOL_NAME_PATCH_FILE } from '../prompt/tool'
 import { getStateManager } from '../manager/StateManager'
 import { getCheckpointManager } from '../manager/CheckpointManager'
+import { registerAttachment } from '../util/attachmentLedger'
 import { isMemoryFile } from '../services/memory/memManager'
 import { getPatch } from '../util/diff'
 import {
@@ -135,6 +136,8 @@ Rules:
 
     writeTextFile(fullFilePath, normalizedContent, enc, endings!)
     agentState.setReadFileTimestamp(fullFilePath, statSync(fullFilePath).mtimeMs)
+    // 写进附件目录的文件（可视化页面等）登记到本会话名下，随会话退场；其他路径不受影响
+    registerAttachment(agentContext.sessionId, fullFilePath)
 
     if (oldContent) {
       const patch = getPatch({

@@ -36,8 +36,13 @@ export const EVENT_DIR_PATH = 'event'
 export const EVENT_LOG_FILES_RETAIN_COUNT = 10  // 事件日志文件保留数量
 export const EVENT_LOG_CLEANUP_INTERVAL = 60 * 60 * 1000;  // 清理事件日志文件的时间间隔（毫秒）
 
-// 附件（宿主转存的粘贴文本、模型生成的可视化 html 与图片）
+// 附件（宿主转存的粘贴文本、用户附图原图、模型生成的可视化 html 与图片）；归属登记与退场见 util/attachmentLedger.ts
 export const ATTACHMENTS_DIR_PATH = 'attachments'
+export const ATTACHMENTS_RETAIN_COUNT = 100  // 期限兜底：排在最新这么多个之内的附件目录不删
+export const ATTACHMENTS_RETAIN_MS = 30 * 24 * 60 * 60 * 1000  // 期限兜底：这段时间内写入的附件目录不删（毫秒）
+export const ATTACHMENTS_MAX_BYTES = 2 * 1024 * 1024 * 1024  // 体积上限：附件目录总体积超过此值时从最旧的删起（字节）
+export const ATTACHMENTS_EMPTY_DIR_TTL = 60 * 60 * 1000  // 空附件目录保留时长（毫秒）
+export const ATTACHMENT_LEDGER_ORPHAN_TTL = 24 * 60 * 60 * 1000  // 没有对应会话历史的附件清单保留时长（毫秒）
 
 // 使用统计
 export const STATS_DIR_PATH = 'stats'

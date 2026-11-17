@@ -9,6 +9,9 @@ import { getCommandsManager } from './commandsManager';
 import { buildUserMsg } from '../../util/message';
 import { getTokens } from '../../util/tokens';
 import { getTaskManager } from '../../manager/TaskManager';
+import { getConfManager } from '../../manager/ConfManager';
+import { loadHistory, saveHistory } from '../../util/history';
+import { releaseClearedSessionAttachments } from '../../util/attachmentLedger';
 import { getAvailableTools } from '../../tools/base/tools';
 import { TOOL_NAME_SKILL } from '../../prompt/tool';
 import { generatePostCompactReminders } from '../agents/genSystemReminder';
@@ -133,6 +136,13 @@ async function handleClearCommand(sessionId: string): Promise<void> {
   runtime.setGoal(null);
 
   mainAgentState.setMessageHistory([]);
+  // 空历史不触发自动保存：这里强制落盘，否则磁盘上的旧对话要等下一条消息才被覆盖，期间重开会话会恢复出旧对话
+  const workingDir = getConfManager().getCoreConfig()?.workingDir;
+  await saveHistory(sessionId, [], [], workingDir, {}, [], runtime.getHistoryNoDate());
+  // 附件随对话一起清：本会话登记的附件里，没有被其他会话登记的一起删。
+  // saveHistory 写盘失败只记日志，所以读回确认磁盘上确实已空再删；旧对话还在盘上时附件原样保留
+  const persisted = await loadHistory(sessionId, workingDir).catch(() => null);
+  if (persisted && persisted.messages.length === 0) releaseClearedSessionAttachments(sessionId, workingDir);
   mainAgentState.updateState('idle');
   eventBus.emit('session:cleared', { sessionId }, sessionId);
   eventBus.emit('conversation:usage', { usage: getTokens([], sessionId) }, sessionId);

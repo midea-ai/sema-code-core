@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getHistoryDir, getHistoryFilePath, getProjectHistoryDir, getProjectSnapshotsDir, getSnapshotsDir } from './savePath';
 import { cleanupProjectSnapshots } from './snapshotStore';
+import { collectProjectAttachmentIds, evictAttachments, releaseAttachmentIds, releaseSessionAttachments } from './attachmentLedger';
 import {
   PER_PROJECT_HISTORY_LENGTH_LIMIT,
   PROJECT_LENGTH_LIMIT,
@@ -161,6 +162,9 @@ function cleanupProjectHistoryFiles(projectHistoryDir: string): void {
       }
     }
 
+    // 附件跟随会话退场：参与数量淘汰的都是带日期的文件名，去掉 11 位日期前缀即会话 id
+    releaseSessionAttachments(projectHistoryDir, filesToDelete.map(file => historyStem(file.name).slice(11)));
+
     if (filesToDelete.length > 0) {
       logDebug(`项目清理完成，删除了 ${filesToDelete.length} 个旧历史文件`);
     }
@@ -215,9 +219,12 @@ function cleanupInactiveProjects(): void {
     const dirsToDelete = dirsWithStats.slice(PROJECT_LENGTH_LIMIT);
 
     for (const dir of dirsToDelete) {
+      // 附件跟随会话退场：清单在历史目录里，删除前先读出登记的附件；目录删除成功后才释放，删除失败时附件原样保留
+      const attachmentIds = collectProjectAttachmentIds(dir.path);
       try {
         fs.rmSync(dir.path, { recursive: true, force: true });
         logDebug(`删除不活跃项目历史目录: ${dir.name}`);
+        releaseAttachmentIds(attachmentIds);
       } catch (deleteError) {
         logWarn(`删除项目历史目录失败 ${dir.name}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`);
       }
@@ -253,6 +260,8 @@ export async function cleanupOldHistoryFiles(projectPath?: string): Promise<void
     cleanupProjectSnapshots(projectPath);
   }
   cleanupInactiveProjects();
+  // 附件兜底：未登记附件的期限清理与总体积上限
+  evictAttachments();
 }
 
 /**
@@ -273,10 +282,10 @@ export function deleteProjectHistory(projectPath?: string): void {
   const target = resolveProjectPath(projectPath, 'deleteProjectHistory');
   if (!target) return;
   const targets = [
-    { dir: getProjectHistoryDir(target), root: getHistoryDir(), label: '历史' },
-    { dir: getProjectSnapshotsDir(target), root: getSnapshotsDir(), label: '快照' }
+    { dir: getProjectHistoryDir(target), root: getHistoryDir(), label: '历史', holdsLedgers: true },
+    { dir: getProjectSnapshotsDir(target), root: getSnapshotsDir(), label: '快照', holdsLedgers: false }
   ];
-  for (const { dir, root, label } of targets) {
+  for (const { dir, root, label, holdsLedgers } of targets) {
     // 护栏：目标必须严格位于对应根目录之内，防止异常路径误删
     const rel = path.relative(root, dir);
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
@@ -285,8 +294,11 @@ export function deleteProjectHistory(projectPath?: string): void {
     }
     try {
       if (fs.existsSync(dir)) {
+        // 附件跟随会话退场：清单在历史目录里，删除前先读出登记的附件；目录删除成功后才释放，删除失败时附件原样保留
+        const attachmentIds = holdsLedgers ? collectProjectAttachmentIds(dir) : null;
         fs.rmSync(dir, { recursive: true, force: true });
         logInfo(`删除项目${label}目录: ${dir}`);
+        if (attachmentIds) releaseAttachmentIds(attachmentIds);
       }
     } catch (error) {
       logWarn(`删除项目${label}目录失败 ${dir}: ${error instanceof Error ? error.message : String(error)}`);
@@ -318,6 +330,8 @@ export function deleteSessionHistory(sessionId: string, projectPath?: string): v
           logWarn(`删除会话历史文件失败 ${file}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
+      // 附件跟随会话退场：该会话登记的附件里，没有被其他会话登记的一起删
+      releaseSessionAttachments(historyDir, [sessionId]);
     }
     // 项目级快照按剩余 history 做标记清除，会同步移除该会话的 editlog 和无引用 blobs。
     cleanupProjectSnapshots(target);

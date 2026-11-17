@@ -18,6 +18,7 @@ import { SessionEventBus } from '../events/EventSystem';
 import { isInterruptedException } from '../types/errors';
 import type { Message, UserMsg, InputImageAttachment, InputSource } from '../types/message';
 import { normalizeImageAttachments, saveAttachedImages, toImageContentBlocks } from '../util/imageCompress';
+import { copyAttachmentLedger } from '../util/attachmentLedger';
 import type { UUID } from '../types/uuid';
 import type { ForkOptions, ForkResult, BranchResult } from '../types/fork';
 import { generateSessionId } from '../util/session';
@@ -575,7 +576,7 @@ export class SemaEngine {
       // API 调用时由 prepareMessagesForApi 自动合并连续 user 消息
       const userMessages: UserMsg[] = perInput.map((p, idx) => {
         // 图片附件转 image content block；原图同时落盘，每张图前带一段路径说明，模型才能把附图当文件用
-        const imagePaths = saveAttachedImages(attachmentOriginals.get(p.inputId))
+        const imagePaths = saveAttachedImages(attachmentOriginals.get(p.inputId), this.sessionId)
         for (const filePath of imagePaths) {
           if (filePath) savedImagePaths.push(filePath)
         }
@@ -1061,6 +1062,9 @@ export class SemaEngine {
 
     // 复制截断后的 editlog 给新会话（blobs 共享无需复制）
     checkpoint.copyEditLog(this.sessionId, newSessionId, forkSeq);
+
+    // 新会话的历史里带着本会话的附件路径：复制附件清单，本会话被删时这些附件才不会跟着删
+    copyAttachmentLedger(this.sessionId, newSessionId, workingDir);
 
     logInfo(`分支到新聊天: ${this.sessionId} -> ${newSessionId} (anchor=${beforeMessageUuid ?? '末尾'}, 历史 ${branchedMessages.length} 条, editlog seq<${forkSeq})`);
     return { ok: true, sessionId: newSessionId };

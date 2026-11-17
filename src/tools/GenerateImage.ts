@@ -8,6 +8,7 @@ import { generateImage, REFERENCE_IMAGE_MAX_BYTES, REFERENCE_IMAGE_MAX_COUNT, RE
 import type { ImageGenResult } from '../types/imageModel'
 import { getModelManager } from '../manager/ModelManager'
 import { getCheckpointManager } from '../manager/CheckpointManager'
+import { registerAttachment } from '../util/attachmentLedger'
 import { MAIN_AGENT_ID } from '../manager/StateManager'
 import { getEventBus } from '../events/EventSystem'
 import type { ToolExecutionChunkData } from '../events/types'
@@ -183,7 +184,7 @@ export const GenerateImage = {
         transparent,
         referenceImages: refs,
         signal: agentContext.abortController?.signal,
-        // 指定了落盘位置的图片纳入 Fork 快照（fail-closed：捕获失败则不写盘）；附件目录由宿主管理，不纳入
+        // 指定了落盘位置的图片纳入 Fork 快照（fail-closed：捕获失败则不写盘）；附件目录下的随会话退场，不纳入
         beforeWrite: requestedPath
           ? filePath => getCheckpointManager().recordPreEdit(agentContext.sessionId, agentContext.agentId, filePath)
           : undefined,
@@ -201,6 +202,8 @@ export const GenerateImage = {
     }
 
     const output: ToolRes = { ...result, requestedPath, referenceImages: refs }
+    // 落在附件目录的生成图登记到本会话名下，随会话退场；指定了保存位置的不在附件目录下，登记自动忽略
+    for (const image of output.images) registerAttachment(agentContext.sessionId, image.filePath)
     // 透明判定只进给模型的文本，不进 ToolRes
     const first = output.images[0]
     const transparencyNote = transparent && first ? `\n${await describeTransparency(first)}` : ''

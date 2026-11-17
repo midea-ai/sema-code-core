@@ -7,6 +7,7 @@ import { TOOL_NAME_VIEW_FILE, TOOL_NAME_RUN_SHELL } from '../prompt/tool'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
 import { FileReferenceInfo } from '../types/index'
 import { readInitialCwd } from './cwd'
+import { registerAttachment } from './attachmentLedger'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -170,6 +171,8 @@ async function processSingleReference(
   // 解析文件引用
   const parsed = parseFileReference((referenceText ?? match[2])!)
   const fullPath = canonicalizeFilePath(parsed.fileName)
+  // 引用了附件目录下的文件（宿主转存的长粘贴文本）：登记到本会话名下，随会话退场；其他路径不受影响
+  if (!parsed.isDirectory) registerAttachment(agentContext?.sessionId, fullPath)
 
   logInfo(`Processing file reference: ${fullReference} -> ${fullPath}${parsed.startLine ? `:${parsed.startLine}${parsed.endLine !== parsed.startLine ? `-${parsed.endLine}` : ''}` : ''}`)
 

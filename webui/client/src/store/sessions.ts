@@ -9,8 +9,11 @@ import { useApp } from './app';
 import { t, type I18nKey } from '../i18n';
 import { PASTE_RESTORE_MISSING } from '../features/chat/pasteAttachment';
 
-/** 草稿里的超长粘贴：path/preview 发送时拼进 input 模板；text 留一份供「在文本框中显示」展开回输入框（不落快照） */
-export interface DraftPaste { path: string; preview: string; text: string }
+/**
+ * 草稿里的超长粘贴：path/preview 发送时拼进 input 模板；text 留一份供「在文本框中显示」展开回输入框（不落快照）。
+ * sent：回退 / 输入撤销回填的粘贴，文件已经发送过、归会话所有（core 随会话退场），删芯片时不删文件
+ */
+export interface DraftPaste { path: string; preview: string; text: string; sent?: boolean }
 export interface Draft { text: string; images: { dataUrl: string; media_type: string; data: string }[]; pastes: DraftPaste[] }
 
 interface SessionsState {
@@ -64,7 +67,7 @@ export async function draftFromUserBlock(sessionId: string, block: UserBlock): P
   const pastes = (await Promise.all((block.pastes || []).map(async (p): Promise<DraftPaste | null> => {
     try {
       const r = await api<{ content: string }>('POST', `/api/sessions/${sessionId}/file`, { path: p.path });
-      return { path: p.path, preview: p.preview, text: r.content };
+      return { path: p.path, preview: p.preview, text: r.content, sent: true };
     } catch { missing++; return null; }
   }))).filter((p): p is DraftPaste => !!p);
   return { text: block.text, images, pastes, missing };

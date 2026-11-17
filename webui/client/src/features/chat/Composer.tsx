@@ -225,12 +225,15 @@ export function Composer({ sessionId, projectId, active = true }: { sessionId?: 
       .then(r => setDraft(draftKey, d => ({ ...d, pastes: [...d.pastes, { path: r.path, preview: makePastePreview(text), text }] })))
       .catch(() => { toast(PASTE_SAVE_FAILED, 'warn'); insertAtCaret(text); });
   };
-  /** 删芯片：删掉服务端的 uuid 目录并从草稿移除（删除失败不阻塞 UI） */
+  /**
+   * 删芯片：从草稿移除；没发送过的粘贴同时删掉服务端的 uuid 目录（删除失败不阻塞 UI）。
+   * 回填的粘贴（sent）文件归会话所有，分支出去的会话还在引用，不删
+   */
   const removePaste = (p: DraftPaste) => {
     setDraft(draftKey, d => ({ ...d, pastes: d.pastes.filter(x => x.path !== p.path) }));
-    api('POST', '/api/attachments/remove', { path: p.path }).catch(() => undefined);
+    if (!p.sent) api('POST', '/api/attachments/remove', { path: p.path }).catch(() => undefined);
   };
-  /** 「在文本框中显示」：把粘贴内容展开回光标处，再删掉文件与芯片 */
+  /** 「在文本框中显示」：把粘贴内容展开回光标处，再移除芯片（文件是否删除见 removePaste） */
   const showPasteInInput = (p: DraftPaste) => {
     insertAtCaret(p.text);
     removePaste(p);

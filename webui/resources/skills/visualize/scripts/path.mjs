@@ -4,11 +4,11 @@
  *
  *   node path.mjs <title>
  *
- * Creates <root>/attachments/<uuid>/ (root = the .sema directory this skill is installed under) and prints
- * the absolute path <root>/attachments/<uuid>/<title>.html on a single line. The model writes the file there.
+ * Prints the absolute path <root>/attachments/<uuid>/<title>.html on a single line (root = the .sema directory
+ * this skill is installed under). Nothing is created on disk: the file writing tool creates the directory
+ * when the model writes the file, so an unused path leaves no empty directory behind.
  * The title is normalized to ASCII lowercase-hyphenated; a non-ASCII title falls back to `visualization`.
  */
-import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +18,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const raw = process.argv.slice(2).join(' ').trim();
 const title = raw.toLowerCase().replace(/\.html?$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'visualization';
 const dir = path.join(ROOT, 'attachments', randomUUID());
-fs.mkdirSync(dir, { recursive: true });
 // Forward slashes on every platform: the model passes this path to Git Bash on Windows, where
 // an unquoted backslash path would be mangled. Node and the file tools accept C:/... as well.
 console.log(path.join(dir, `${title}.html`).split(path.sep).join('/'));

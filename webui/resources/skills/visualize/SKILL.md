@@ -35,8 +35,8 @@ Verify).
   ```
 
   `<title>` is a short ASCII lowercase-hyphenated name such as `revenue-by-region`.
-  The script creates the directory and prints one absolute path ending in
-  `<title>.html`. Write the file at exactly that path with the file writing tool.
+  The script prints one absolute path ending in `<title>.html`. Write the file at
+  exactly that path with the file writing tool.
 - Updating an existing visualization edits the same file in place. Do not request a
   new path for a revision.
 - Never derive, guess or search for the location yourself: no listing directories,

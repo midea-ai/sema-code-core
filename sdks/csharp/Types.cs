@@ -377,7 +377,7 @@ public record MCPServerConfig
     [JsonPropertyName("headers")] public Dictionary<string, string>? Headers { get; init; }
 }
 
-/// <summary>GetMCPServerInfo 等返回项，亦为 mcp:server:status 事件数据；host 条目的 Config.Env / Headers 值打码为 "***"。</summary>
+/// <summary>GetMCPServerInfo 等返回项，host 条目的 Config.Env / Headers 值打码为 "***"；亦为 mcp:server:status 事件数据，事件里 Config 不带 Env / Headers。</summary>
 public record MCPServerInfo
 {
     [JsonPropertyName("config")] public MCPServerConfig? Config { get; init; }
@@ -582,7 +582,7 @@ public record SemaCoreConfig
     // ---- 来源限定：host 域内容与各类生效的域，仅构造时生效；校验不通过 Start 抛 CONFIG_INVALID ----
     /// <summary>宿主内置的模型与指针；host 模型只读，查询接口不回传 apiKey。</summary>
     [JsonPropertyName("models")] public ModelsInput? Models { get; init; }
-    /// <summary>宿主内置的 MCP 服务；查询接口与状态事件里 env / headers 值打码。</summary>
+    /// <summary>宿主内置的 MCP 服务；查询接口里 env / headers 值打码。</summary>
     [JsonPropertyName("mcpServers")] public List<MCPServerInput>? McpServers { get; init; }
     /// <summary>宿主内置的 hook：即 hooks.json 里 hooks 字段的内容，键为事件名。</summary>
     [JsonPropertyName("hooks")] public Dictionary<string, List<HookGroupInput>>? Hooks { get; init; }

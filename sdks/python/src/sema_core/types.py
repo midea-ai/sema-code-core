@@ -80,7 +80,7 @@ class ModelsInput(TypedDict):
 
 
 class MCPServerInput(TypedDict):
-    """宿主内置的 MCP 服务（字段同 add_mcp_server 入参，去掉 scope）；查询接口与状态事件里 env / headers 值打码。"""
+    """宿主内置的 MCP 服务（字段同 add_mcp_server 入参，去掉 scope）；查询接口里 env / headers 值打码。"""
     name: str
     transport: MCPTransportType
     description: NotRequired[str]
@@ -377,7 +377,7 @@ class MCPServerCapabilities(TypedDict, total=False):
 
 
 class MCPServerInfo(TypedDict):
-    """getMCPServerInfo 等返回项；亦为 mcp:server:status 事件数据。host 条目的 config.env / headers 值打码为 "***"。"""
+    """getMCPServerInfo 等返回项，host 条目的 config.env / headers 值打码为 "***"；亦为 mcp:server:status 事件数据，事件里 config 不带 env / headers。"""
     config: MCPServerConfig
     connectStatus: MCPServerStatus
     status: bool

@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 宿主内置的 MCP 服务（字段同 addMCPServer 入参，去掉 scope）；查询接口与 mcp:server:status 事件里 env / headers 值打码。
+ * 宿主内置的 MCP 服务（字段同 addMCPServer 入参，去掉 scope）；查询接口里 env / headers 值打码。
  * enabled 默认 true，不受 settings 的 disabledMcpServers 影响；useTools 为允许的工具名，null / 缺省表示全部。
  */
 public record MCPServerInput(String name, MCPTransportType transport, String description, String command, List<String> args, Map<String,String> env, String url, Map<String,String> headers, Boolean enabled, List<String> useTools) {

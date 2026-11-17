@@ -88,7 +88,7 @@ public record SemaCoreConfig(String workingDir, String logLevel, String lang, Bo
         public Builder usageProduct(String usageProduct) { this.usageProduct = usageProduct; return this; }
         /** 宿主内置的模型与指针；host 模型只读，查询接口不回传 apiKey。 */
         public Builder models(ModelsInput models) { this.models = models; return this; }
-        /** 宿主内置的 MCP 服务；查询接口与状态事件里 env / headers 值打码。 */
+        /** 宿主内置的 MCP 服务；查询接口里 env / headers 值打码。 */
         public Builder mcpServers(List<MCPServerInput> mcpServers) { this.mcpServers = mcpServers; return this; }
         /** 宿主内置的 hook：即 hooks.json 里 hooks 字段的内容，键为事件名。 */
         public Builder hooks(Map<String, List<HookGroupInput>> hooks) { this.hooks = hooks; return this; }

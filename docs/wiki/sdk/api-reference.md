@@ -151,7 +151,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
 | --- | --- | --- | --- | --- | --- |
-| `await getMCPServerInfo` | `get_mcp_server_info` | `getMCPServerInfo` | `GetMCPServerInfo` | — | host 条目 `scope` 为 `host`、无 `filePath`,`config.env` / `headers` 值打码为 `***`(`mcp:server:status` 事件同) |
+| `await getMCPServerInfo` | `get_mcp_server_info` | `getMCPServerInfo` | `GetMCPServerInfo` | — | host 条目 `scope` 为 `host`、无 `filePath`,`config.env` / `headers` 值打码为 `***` |
 | `await refreshMCPServerInfo` | `refresh_mcp_server_info` | `refreshMCPServerInfo` | `RefreshMCPServerInfo` | — | — |
 | `await addMCPServer` | `add_mcp_server` | `addMCPServer` | `AddMCPServer` | `mcpConfig: MCPServerConfig`(必填) | 目标域没生效抛 `SCOPE_DISABLED`;与 host 条目同名抛 `HOST_READONLY` |
 | `await removeMCPServer` | `remove_mcp_server` | `removeMCPServer` | `RemoveMCPServer` | `name`(必填) | host 条目抛 `HOST_READONLY`(下面三个写接口同) |
@@ -286,7 +286,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | --- | --- | --- |
 | **会话生命周期** | | |
 | `session:ready` | `SessionReadyData` | 会话初始化完成;SDK 缓存重放,晚订阅也不丢 |
-| `session:error` | `SessionErrorData` | 会话出错(api / fatal / 上下文超限 / model_error) |
+| `session:error` | `SessionErrorData` | 会话出错(api / fatal / 上下文超限 / model_error / compact_error) |
 | `session:interrupted` | `SessionInterruptedData` | 会话被中断(如用户取消) |
 | `session:cleared` | `SessionClearedData` | 会话历史被清空 |
 | `state:update` | `StateUpdateData` | `idle` / `processing` |
@@ -334,7 +334,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | 事件名 | 数据(参数) | 说明 |
 | --- | --- | --- |
 | `cron:update` | `CronUpdateData` | 定时任务列表变化 |
-| `mcp:server:status` | `MCPServerStatusData` | MCP server 状态变更 |
+| `mcp:server:status` | `MCPServerStatusData` | MCP server 状态变更;所有条目的 `config` 都不带 `env` / `headers` |
 
 ### 桥合成事件(SDK 专有)
 

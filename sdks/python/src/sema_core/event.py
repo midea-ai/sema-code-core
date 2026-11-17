@@ -64,7 +64,7 @@ class SessionErrorDetail(TypedDict):
 
 
 class SessionErrorData(TypedDict):
-    type: Literal["api_error", "fatal_error", "context_length_exceeded", "model_error"]
+    type: Literal["api_error", "fatal_error", "context_length_exceeded", "model_error", "compact_error"]
     error: SessionErrorDetail
 
 

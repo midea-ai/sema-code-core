@@ -292,7 +292,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `state:update` | `StateUpdateData` | `idle` / `processing` |
 | **输入与消息流** | | |
 | `input:received` | `InputReceivedData` | 收到用户输入(处理中则入队等待);`source` 标记来源(缺省 `user`,`cron`=定时任务自动发送) |
-| `input:processing` | `InputProcessingData` | 开始处理该用户输入;`source` 含义同上;`injected=true` 表示运行中的轮内注入(不开新轮,`inputId` 不能作为 fork / branch 锚点) |
+| `input:processing` | `InputProcessingData` | 开始处理该用户输入;`source` 含义同上;`injected=true` 表示运行中的轮内注入(不开新轮,`inputId` 不能作为 fork / branch 锚点);`attachments` 每项带 `path`(原图落盘的绝对路径),宿主存档可只留 `path` |
 | `input:predict` | `InputPredictData` | 用户输入预测结果(需 `enableInputPrediction` 开启;`prediction` 空串表示预计不回复,UI 应清空提示) |
 | `input:retracted` | `InputRetractedData` | 输入撤销(需 `enableInputRetract` 开启):模型产出正文前用户主动中断,本条输入不进历史;与 `session:interrupted` 互斥,UI 应删掉该输入气泡并把原文放回输入框 |
 | `message:text:chunk` | `TextChunkData` | 回复文本流式增量 |
@@ -388,7 +388,7 @@ TodoItem, TodoTask, TodoTaskStatus                           // 待办:精简项
 GoalState, GoalStatus                                        // 长期目标(/goal):状态对象 / 状态枚举
 CreateSessionOptions, CreateSessionResult                    // 会话创建:选项 / 结果(失败项含 error 与可选 code)
 ForkOptions, ForkPreview, ForkResult, ForkFileChange, ForkFileEffect  // 会话 Fork/撤销:选项/预览/结果/文件改动/改动类型
-InputImageAttachment                                         // 图片附件(processUserInput)
+InputImageAttachment                                         // 图片附件(processUserInput);input:processing 回吐时多带 path(原图落盘路径)
 MAIN_AGENT_ID                                                // 常量:主代理 agentId
 ```
 

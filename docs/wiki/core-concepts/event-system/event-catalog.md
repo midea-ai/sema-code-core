@@ -112,7 +112,7 @@
   inputId: string          // 输入唯一标识，与 input:received 中的 inputId 对应
   input: string            // 正在处理的输入内容
   originalInput?: string   // 原始输入内容
-  attachments?: InputImageAttachment[] // 规范化后的图片附件（已过滤非法类型、已压缩），两条路径都回吐
+  attachments?: InputImageAttachment[] // 规范化后的图片附件（已过滤非法类型、已压缩），两条路径都回吐；每项带 path（原图落盘的绝对路径，落盘失败时缺省），宿主存档可只留 path、显示时按路径读原图
   source?: 'user' | 'cron' | 'goal' // 输入来源，含义同 input:received
   goal?: GoalInputMark     // 长期目标标记：set / update / round，UI 据此给气泡打标
   injected?: boolean       // 仅轮内注入时为 true：输入追加进当前轮的工具结果、不开新轮，在历史里不是独立消息，inputId 不能作为 fork / branch 锚点

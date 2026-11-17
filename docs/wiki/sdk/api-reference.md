@@ -56,8 +56,8 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `listSessions` | `list_sessions` | `listSessions` | `ListSessions` | — | — |
 | `setActiveSession` | `set_active_session` | `setActiveSession` | `SetActiveSession` | `sessionId: string`(必填) | — |
 | `closeSession` | `close_session` | `closeSession` | `CloseSession` | `sessionId: string`(必填) | — |
-| `deleteSessionHistory` | `delete_session_history` | `deleteSessionHistory` | `DeleteSessionHistory` | `sessionId: string`(必填), `projectPath: string` | 删除单个会话的 core 落盘历史文件(宿主删历史条目后同步清理);`projectPath` 缺省回落到 core 的 `workingDir`,仍为空则跳过不操作(不碰全局目录) |
-| `deleteProjectHistory` | `delete_project_history` | `deleteProjectHistory` | `DeleteProjectHistory` | `projectPath: string` | 删除指定项目的全部历史与快照目录;`projectPath` 缺省回落到 core 的 `workingDir`,仍为空则跳过不操作 |
+| `deleteSessionHistory` | `delete_session_history` | `deleteSessionHistory` | `DeleteSessionHistory` | `sessionId: string`(必填), `projectPath: string` | 删除单个会话的 core 落盘历史文件(宿主删历史条目后同步清理),该会话登记的附件里没有被其他会话登记的一并删除;`projectPath` 缺省回落到 core 的 `workingDir`,仍为空则跳过不操作(不碰全局目录) |
+| `deleteProjectHistory` | `delete_project_history` | `deleteProjectHistory` | `DeleteProjectHistory` | `projectPath: string` | 删除指定项目的全部历史与快照目录,各会话登记的附件按同样规则一并删除;`projectPath` 缺省回落到 core 的 `workingDir`,仍为空则跳过不操作 |
 
 ### 进程级事件
 

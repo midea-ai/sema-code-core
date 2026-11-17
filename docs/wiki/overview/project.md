@@ -192,6 +192,7 @@ package.json 提供了多个导出入口：
 | `~/.sema/model.conf` | 模型配置 |
 | `~/.sema/projects.conf` | 项目级配置（含输入历史、`allowedTools` 等） |
 | `~/.sema/history/<project>/` | 会话消息历史（按项目目录隔离） |
+| `~/.sema/attachments/<uuid>/` | 附件（粘贴文本、附图原图、生成图等），登记到会话名下随会话清理 |
 | `~/.sema/logs/` | 服务日志 |
 | `~/.sema/llm_logs/` | LLM 调用日志 |
 | `~/.sema/tracks/` | LLM 调用轨迹归档 |

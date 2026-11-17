@@ -181,10 +181,14 @@ function voidPending(snap: SessionSnapshot) {
   snap.blocks = mark(snap.blocks);
 }
 
-/** 事件里的图片附件 → 气泡回显元数据（input:received 排队回显与 input:processing 共用） */
+/** 事件里的图片附件 → 气泡回显元数据（input:received 排队回显与 input:processing 共用）；path 是 core 带回的原图路径 */
 function toAttachmentMetas(raw: unknown): ImageAttachmentMeta[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  return raw.map((a: any) => ({ media_type: a.media_type, dataUrl: a.data ? `data:${a.media_type};base64,${a.data}` : undefined }));
+  return raw.map((a: any) => ({
+    media_type: a.media_type,
+    ...(a.path ? { path: String(a.path) } : {}),
+    ...(a.data ? { dataUrl: `data:${a.media_type};base64,${a.data}` } : {}),
+  }));
 }
 
 // ==================== 事件应用 ====================

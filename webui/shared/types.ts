@@ -231,7 +231,9 @@ export interface FileChange {
 
 export interface ImageAttachmentMeta {
   media_type: string;
-  /** 前端回显用的 dataURL（可能被裁剪，仅存缩略量级） */
+  /** 原图在 core 附件目录的绝对路径（input:processing 带来） */
+  path?: string;
+  /** 完整图片的 dataURL。有 path 时只在内存里，落盘的快照不带；没有 path 的（旧快照、落盘失败）才写进文件 */
   dataUrl?: string;
 }
 

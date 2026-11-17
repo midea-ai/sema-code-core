@@ -105,9 +105,15 @@ export class SessionManager extends EventEmitter {
 
   private transcriptPath(id: string) { return path.join(TRANSCRIPT_DIR, `${id}.json`); }
 
-  /** 快照落盘。快问记录只留在内存里（服务存活期间可见，重启即清空），不写进文件 */
+  /**
+   * 快照落盘。快问记录只留在内存里（服务存活期间可见，重启即清空），不写进文件；
+   * 附图有原图路径的不写 base64，重新加载后按路径读 core 附件目录里的原图。内存里的快照不动
+   */
   private writeSnapshot(snapshot: SessionSnapshot) {
-    writeJsonAtomic(this.transcriptPath(snapshot.sessionId), { ...snapshot, quickchats: undefined });
+    const blocks = snapshot.blocks.map(b => (b.kind === 'user' && b.attachments?.some(a => a.path && a.dataUrl)
+      ? { ...b, attachments: b.attachments.map(a => (a.path ? { media_type: a.media_type, path: a.path } : a)) }
+      : b));
+    writeJsonAtomic(this.transcriptPath(snapshot.sessionId), { ...snapshot, blocks, quickchats: undefined });
   }
 
   private loadRuntime(id: string): Runtime {

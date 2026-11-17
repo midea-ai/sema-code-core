@@ -13,7 +13,7 @@ import { GEN_IMAGE_TOOL, GenImageCard, isGenImageBlock } from './GenImage';
 import { ArtifactRow } from './OfficeCard';
 import { SkillLabel, matchSkillPrefix } from './skillDisplay';
 import { FileRefChip, refPaths, refStatPath, splitFileRefs } from './fileRefDisplay';
-import { usePathStats } from './fileRefs';
+import { usePathStats, rawFileUrl } from './fileRefs';
 import { PastePill } from './pasteAttachment';
 import { Button, Caret, cn, DiffNums, Spinner, Tip, useCopy } from '../../common/ui';
 import { api, getToken } from '../../api/http';
@@ -126,9 +126,12 @@ function UserBubble({ block, ctx }: { block: UserBlock; ctx: BlockCtx }) {
       <div className="max-w-[90%] min-w-0 flex flex-col items-end gap-1">
         {block.attachments && block.attachments.length > 0 && (
           <div className="flex gap-1.5 flex-wrap justify-end">
+            {/* 有 dataUrl 直接用；从文件加载回来的快照只有路径，按路径读 core 附件目录里的原图，原图被清理后 ImageThumb 显示失效占位 */}
             {block.attachments.map((a, i) => a.dataUrl
               ? <ImageThumb key={i} src={a.dataUrl} className="h-20 w-20" />
-              : <div key={i} className="h-10 px-2 rounded-md border border-border text-xs text-muted flex items-center">{t('common.image')}</div>)}
+              : a.path
+                ? <ImageThumb key={i} src={rawFileUrl(ctx.sessionId, a.path)} className="h-20 w-20" label={a.path.split(/[\\/]/).pop()} title={a.path} />
+                : <div key={i} className="h-10 px-2 rounded-md border border-border text-xs text-muted flex items-center">{t('common.image')}</div>)}
           </div>
         )}
         {/* 粘贴块各占一行胶囊，点击在右栏打开转存文件（预览留在消息文本里，文件被退场清理后由右栏报文件不存在） */}

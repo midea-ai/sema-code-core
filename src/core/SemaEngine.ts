@@ -40,7 +40,7 @@ import { GOAL_MAX_IDLE_ROUNDS, GOAL_MAX_ROUNDS } from '../conf/config';
 import { CompleteGoal } from '../tools/CompleteGoal';
 import type { Tool } from '../tools/base/Tool';
 import type { GoalState, GoalInputMark } from '../types/goal';
-import type { GoalUpdateData, InputRetractedData } from '../events/types';
+import type { GoalUpdateData, InputRetractedData, SessionErrorData } from '../events/types';
 import { fireSessionStart, fireUserPromptSubmit, fireSessionEnd, fireStop } from '../services/hooks/hookTriggers';
 import type { AgentMode, PermissionLevel } from '../types';
 import type { FileReferenceInfo } from '../types/index';
@@ -1117,7 +1117,7 @@ export class SemaEngine {
           message: t('error.modelConfLoad'),
           details: { error: errorMessage }
         }
-      });
+      } satisfies SessionErrorData);
       throw error;
     }
   }

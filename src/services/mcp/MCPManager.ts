@@ -8,7 +8,8 @@
  * - 服务启用/禁用：settings.json -> disabledMcpServers（用户级 ~/.sema + 项目级 .sema 取并集生效；host 条目不受影响）
  * - 可用工具列表：settings.json -> enabledMcpServerUseTools（用户级打底、项目级同名覆盖；host 条目取构造入参）
  *
- * 对外视图：host 条目的 env / headers 值打码（查询接口与 mcp:server:status 事件），内部缓存保持真实值
+ * 对外视图：查询接口里 host 条目的 env / headers 值打码；mcp:server:status 事件所有条目都不带 env / headers。
+ * 内部缓存保持真实值
  *
  * 变量展开：.mcp.json 条目的 command / args / env / url / headers 支持
  * - ${SEMA_PLUGIN_ROOT}：该 .mcp.json 所属根目录（插件目录；<project>/.sema/.mcp.json 为 <project>）；
@@ -396,8 +397,8 @@ class MCPManager {
   // ==================== 对外视图 ====================
 
   /**
-   * host 条目的 env / headers 值打码后的副本；其他条目原样。
-   * 查询接口返回值与 mcp:server:status 事件都走这里，内部缓存与连接用的是真实值
+   * 查询接口视图：host 条目的 env / headers 值打码后的副本；其他条目原样。
+   * 内部缓存与连接用的是真实值
    */
   private toPublic(info: MCPServerInfo): MCPServerInfo {
     if (info.config.scope !== 'host') return info
@@ -409,6 +410,17 @@ class MCPManager {
 
   private toPublicList(list: MCPServerInfo[] | null): MCPServerInfo[] {
     return (list ?? []).map(info => this.toPublic(info))
+  }
+
+  /**
+   * mcp:server:status 事件视图：所有条目都去掉 env / headers。
+   * 事件是广播，只表达状态；要看配置走查询接口
+   */
+  private toEvent(info: MCPServerInfo): MCPServerInfo {
+    const config = { ...info.config }
+    delete config.env
+    delete config.headers
+    return { ...info, config }
   }
 
   /**
@@ -433,7 +445,7 @@ class MCPManager {
     const eventBus = EventBus.getInstance()
     info.connectStatus = 'connecting'
     info.error = undefined
-    eventBus.emit('mcp:server:status', this.toPublic(info))
+    eventBus.emit('mcp:server:status', this.toEvent(info))
     // 连接期间可能发生过刷新，缓存里已是新建的条目（复制了 connecting 状态），结果要写到当前条目上，
     // 否则界面永远看到 connecting。条目已不存在（被移除或 dispose）、已禁用或配置已变时，这次连接就过期了：
     // 不写缓存、不进 clients
@@ -458,7 +470,7 @@ class MCPManager {
       cur.connectedAt = Date.now()
       cur.error = undefined
       logDebug(`MCP Server [${name}] 连接成功`)
-      eventBus.emit('mcp:server:status', this.toPublic(cur))
+      eventBus.emit('mcp:server:status', this.toEvent(cur))
     } catch (err) {
       const cur = target()
       // 条目已变，或已有别的连接落地（同配置的重复连接后失败）：不把 error 写到别人的结果上
@@ -466,7 +478,7 @@ class MCPManager {
       cur.connectStatus = 'error'
       cur.error = String(err)
       logError(`连接 MCP Server [${name}] 失败: ${err}`)
-      eventBus.emit('mcp:server:status', this.toPublic(cur))
+      eventBus.emit('mcp:server:status', this.toEvent(cur))
     }
   }
 

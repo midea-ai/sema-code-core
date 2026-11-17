@@ -23,7 +23,7 @@ const { updateInitialCwd } = require('../../src/util/cwd') as typeof import('../
 updateInitialCwd(project)
 setHostConfig({
   mcpServers: [
-    // cad 启用：会真的去连，命令不存在连接失败，但状态事件里凭证必须打码
+    // cad 启用：会真的去连，命令不存在连接失败，状态事件里不能带 env / headers
     { name: 'cad', transport: 'stdio', command: '/nonexistent/acme/cad-mcp', env: { CAD_TOKEN: 'top-secret' } },
     { name: 'rules', transport: 'http', url: 'https://mcp.acme.com/rules', headers: { Authorization: 'Bearer top-secret' }, enabled: false, useTools: ['check'] },
   ],
@@ -54,7 +54,7 @@ test('列表：宿主条目优先且不受 settings 禁用影响，同名用户�
   assert.equal(byName['user-srv'].scope, 'user')
 })
 
-test('凭证打码：查询接口与状态事件里 env / headers 只剩键名', async () => {
+test('凭证：查询接口里 env / headers 只剩键名，状态事件不带这两个字段', async () => {
   const list = await mcp.getMCPServerConfigs()
   const cad = list.find(s => s.config.name === 'cad')!
   const rules = list.find(s => s.config.name === 'rules')!
@@ -66,7 +66,12 @@ test('凭证打码：查询接口与状态事件里 env / headers 只剩键名',
   for (let i = 0; i < 30 && !statusEvents.some(e => e.config?.name === 'cad'); i++) await wait(100)
   const cadEvents = statusEvents.filter(e => e.config?.name === 'cad')
   assert.ok(cadEvents.length > 0, '应收到 cad 的状态事件')
-  for (const e of cadEvents) assert.deepEqual(e.config.env, { CAD_TOKEN: '***' })
+  for (const e of cadEvents) {
+    assert.equal('env' in e.config, false)
+    assert.equal('headers' in e.config, false)
+    assert.equal(e.config.command, '/nonexistent/acme/cad-mcp', '其余配置字段照常带')
+  }
+  assert.equal(JSON.stringify(statusEvents).includes('top-secret'), false)
 })
 
 test('写接口：与宿主同名报 HOST_READONLY，项目级报 SCOPE_DISABLED，用户级照常写进 ~/.sema/.mcp.json', async () => {

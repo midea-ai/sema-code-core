@@ -46,11 +46,11 @@
 
 ```typescript
 {
-  type: 'api_error' | 'fatal_error' | 'context_length_exceeded' | 'model_error'
+  type: 'api_error' | 'fatal_error' | 'context_length_exceeded' | 'model_error' | 'compact_error'
   error: {
     code: string
     message: string
-    details?: any
+    details?: { error?: string; reason?: string }  // 只有文本：原始错误文本 / 原因码
   }
 }
 ```
@@ -620,7 +620,7 @@ interface GoalState {
 
 ### `mcp:server:status`
 
-MCP 服务器状态变更。事件数据为 `MCPServerInfo` 对象（详见 `src/types/mcp.ts`）。
+MCP 服务器状态变更。事件数据为 `MCPServerInfo` 对象（详见 `src/types/mcp.ts`），其中 `config` 不带 `env` / `headers`，要看配置用 `getMCPServerInfo`。
 
 > 进程级事件，通过 `SemaCore.on` 订阅。
 

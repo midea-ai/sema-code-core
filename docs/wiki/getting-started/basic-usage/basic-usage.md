@@ -37,7 +37,7 @@ interface SemaCoreConfig {
 
   // ---- 来源限定：宿主内置的 host 域内容与各类生效的域，仅构造时生效（类型见 sema-core/types 的 ModelsInput 等）----
   models?: ModelsInput;              // 宿主内置的模型与指针；只读，查询接口不回传 apiKey
-  mcpServers?: MCPServerInput[];     // 宿主内置的 MCP 服务；查询接口与状态事件里 env / headers 值打码
+  mcpServers?: MCPServerInput[];     // 宿主内置的 MCP 服务；查询接口里 env / headers 值打码
   hooks?: HooksInput;                // 宿主内置的 hook（hooks.json 的 hooks 字段）
   skills?: SkillsInput;              // 宿主内置的 skill：items 内联（正文只在内存）、dirs 明文目录
   agents?: AgentsInput;              // 宿主内置的子代理，结构同 skills

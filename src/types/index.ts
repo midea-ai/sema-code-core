@@ -67,7 +67,7 @@ export interface SemaCoreConfig {
 
   // ---- 来源限定（见 types/host.ts）：host 域内容与各类生效的域，都只在构造时生效；插件没有 host 域，只有 scopes.plugins ----
   models?: import('./host').ModelsInput;           // 宿主内置的模型与指针；host 模型只读，查询接口不回传 apiKey
-  mcpServers?: import('./host').MCPServerInput[];  // 宿主内置的 MCP 服务；查询接口与状态事件里 env / headers 值打码
+  mcpServers?: import('./host').MCPServerInput[];  // 宿主内置的 MCP 服务；查询接口里 env / headers 值打码
   hooks?: import('./host').HooksInput;             // 宿主内置的 hook（hooks.json 的 hooks 字段）
   skills?: import('./host').SkillsInput;           // 宿主内置的 skill：items 内联（正文只在内存）、dirs 明文目录
   agents?: import('./host').AgentsInput;           // 宿主内置的子代理，结构同 skills

@@ -182,7 +182,8 @@ function emitSessionError(error: any, type: SessionErrorData['type'] = 'api_erro
     error: {
       code: errorCode,
       message: errorMessage,
-      details: error
+      // 只带原始错误文本：错误对象本身可能挂着响应头、响应体等内容，不外发
+      details: { error: error instanceof Error ? error.message : String(error) }
     }
   }
 

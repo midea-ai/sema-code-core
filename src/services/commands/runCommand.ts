@@ -3,7 +3,7 @@ import { logInfo, logDebug, logError } from '../../util/log';
 import { EventBus } from '../../events/EventSystem';
 import { getStateManager, MAIN_AGENT_ID } from '../../manager/StateManager';
 import { compactMessages, collectSkillActivations } from '../../util/compact';
-import { CompactExecData } from '../../events/types';
+import { CompactExecData, SessionErrorData } from '../../events/types';
 import { isInterruptedException } from '../../types/errors';
 import { getCommandsManager } from './commandsManager';
 import { buildUserMsg } from '../../util/message';
@@ -191,10 +191,10 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
           code: 'COMPACT_FAILED',
           message: errorMsg,
           details: result.kind === 'failed'
-            ? { error: result.error }
+            ? { error: result.error instanceof Error ? result.error.message : String(result.error) }
             : { reason: result.reason },
         },
-      }, sessionId);
+      } satisfies SessionErrorData, sessionId);
       return;
     }
 
@@ -224,12 +224,13 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
       logInfo('压缩操作被用户中断');
       return;
     }
-    const errorMsg = t('error.compactFailed', { error: error instanceof Error ? error.message : String(error) });
+    const rawMsg = error instanceof Error ? error.message : String(error);
+    const errorMsg = t('error.compactFailed', { error: rawMsg });
     logError(errorMsg);
     eventBus.emit('session:error', {
       type: 'compact_error',
-      error: { code: 'COMPACT_FAILED', message: errorMsg, details: { error } },
-    }, sessionId);
+      error: { code: 'COMPACT_FAILED', message: errorMsg, details: { error: rawMsg } },
+    } satisfies SessionErrorData, sessionId);
   } finally {
     runtime.currentAbortController = null;
     mainAgentState.updateState('idle');

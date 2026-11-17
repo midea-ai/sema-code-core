@@ -73,15 +73,15 @@ export interface SessionInterruptedData {
  */
 export interface SessionErrorData {
   /** 错误类型 */
-  type: 'api_error' | 'fatal_error' | 'context_length_exceeded' | 'model_error';
+  type: 'api_error' | 'fatal_error' | 'context_length_exceeded' | 'model_error' | 'compact_error';
   /** 错误详情 */
   error: {
     /** 错误代码 */
     code: string;
     /** 错误描述信息 */
     message: string;
-    /** 错误详细信息（可选） */
-    details?: any;
+    /** 错误详细信息（可选）：只放文本（原始错误文本 / 原因码），不放原始错误对象 */
+    details?: { error?: string; reason?: string };
   };
 }
 
@@ -595,6 +595,7 @@ import type { MCPServerInfo } from '../types/mcp';
 /**
  * mcp状态变更事件数据
  * 事件: `mcp:server:status`
+ * 说明: 所有条目的 config 都不带 env / headers，要看配置走查询接口
  */
 export type MCPServerStatusData = MCPServerInfo;
 

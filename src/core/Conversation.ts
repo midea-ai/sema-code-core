@@ -10,7 +10,7 @@ import {
 import { logWarn, logInfo } from '../util/log'
 import { needsAutoCompact, autoCompact, applyMicroCompact } from '../util/compact'
 import { firePreCompact } from '../services/hooks/hookTriggers'
-import { MessageCompleteData } from '../events/types'
+import { MessageCompleteData, SessionErrorData } from '../events/types'
 import { getTokens } from '../util/tokens'
 import { REQ_INTERRUPT_MSG, TOOL_INTERRUPT_MSG } from '../util/message'
 import { getStateManager, MAIN_AGENT_ID } from '../manager/StateManager'
@@ -163,7 +163,7 @@ export async function* ReAct(
     getEventBus().emit('session:error', {
       type: 'api_error',
       error: { code: 'API_RESPONSE_ERROR', message: errorMsg, details: {} }
-    }, sessionId)
+    } satisfies SessionErrorData, sessionId)
     if (hasToolCallsInContent) {
       // 不保存包含不完整工具调用的assistantMessage，避免破坏消息历史的完整性
       const truncationNotice = buildUserMsg([{

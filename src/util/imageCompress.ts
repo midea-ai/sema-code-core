@@ -236,6 +236,17 @@ export function saveAttachedImages(originals: Buffer[] | undefined, sessionId: s
   })
 }
 
+/**
+ * input:processing 回吐用：规范化后的附件带上原图落盘路径（与 saveAttachedImages 的返回同下标）。
+ * 宿主可以只存路径、显示时读原图，不必在自己的存档里再留一份 base64；落盘失败的项不带 path
+ */
+export function withAttachmentPaths(attachments: InputImageAttachment[], paths: Array<string | null>): InputImageAttachment[] {
+  return attachments.map((a, index) => {
+    const savedPath = paths[index]
+    return { type: 'image', data: a.data, media_type: a.media_type, ...(savedPath ? { path: savedPath } : {}) }
+  })
+}
+
 type AttachmentImageBlock = { type: 'image'; source: { type: 'base64'; media_type: InputImageAttachment['media_type']; data: string } }
 type AttachmentTextBlock = { type: 'text'; text: string }
 

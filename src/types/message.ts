@@ -25,6 +25,7 @@ export interface InputImageAttachment {
   type: 'image';
   data: string;          // base64，不含 data: 前缀
   media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+  path?: string;         // 仅 input:processing 回吐时由 core 填写：原图落盘的绝对路径（落盘失败时缺省）；入参里传了会被忽略
 }
 
 export type UserMsg = {

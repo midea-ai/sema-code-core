@@ -138,7 +138,7 @@ export interface InputProcessingData {
   inputId: string;            // 输入唯一标识，与 input:received 中的 inputId 对应
   input: string;              // 正在处理的输入内容
   originalInput?: string;     // 原始输入内容
-  attachments?: InputImageAttachment[]; // 该输入规范化后的图片附件（已过滤非法类型、已压缩），用于气泡回显
+  attachments?: InputImageAttachment[]; // 该输入规范化后的图片附件（已过滤非法类型、已压缩），用于气泡回显；每项带 path（原图落盘路径），宿主存档可只留 path
   source?: InputSource;       // 输入来源，缺省 'user'；非 user 来源（如 'cron'）由系统自动发送，UI 按用户输入渲染并加来源标签
   goal?: GoalInputMark;       // 长期目标标记：set / update / round，UI 据此给气泡打标
   injected?: boolean;         // 仅轮内注入时为 true：输入追加进当前轮的工具结果、不开新轮，在历史里不是独立消息，inputId 不能作为 fork / branch 锚点

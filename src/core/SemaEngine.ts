@@ -17,7 +17,7 @@ import { getModelManager } from '../manager/ModelManager';
 import { SessionEventBus } from '../events/EventSystem';
 import { isInterruptedException } from '../types/errors';
 import type { Message, UserMsg, InputImageAttachment, InputSource } from '../types/message';
-import { normalizeImageAttachments, saveAttachedImages, toImageContentBlocks } from '../util/imageCompress';
+import { normalizeImageAttachments, saveAttachedImages, toImageContentBlocks, withAttachmentPaths } from '../util/imageCompress';
 import { copyAttachmentLedger } from '../util/attachmentLedger';
 import type { UUID } from '../types/uuid';
 import type { ForkOptions, ForkResult, BranchResult } from '../types/fork';
@@ -336,12 +336,13 @@ export class SemaEngine {
     // 先按 inputId 规范化各输入的图片附件（过滤非法类型、超限压缩），
     // 以便 input:processing 事件直接回吐与该消息绑定的最终附件，气泡回显无需 UI 暂存或队列对齐
     const normalizedAttachments = new Map<string, InputImageAttachment[]>();
-    // 归一化前的原图字节：等输入通过 hook、确定进入对话后再落盘（见下方 userMessages 构建），被拦截的输入不留盘
-    const attachmentOriginals = new Map<string, Buffer[]>();
+    // 原图在发事件之前落盘，路径随 input:processing 一起回吐，宿主据此只存路径不存 base64。
+    // 之后被 hook 拦截或中断的输入也会留下原图：已登记在会话名下，随会话退场
+    const attachmentPaths = new Map<string, Array<string | null>>();
     for (const item of inputs) {
       const normalized = await normalizeImageAttachments(item.attachments);
       normalizedAttachments.set(item.inputId, normalized.attachments);
-      attachmentOriginals.set(item.inputId, normalized.originals);
+      attachmentPaths.set(item.inputId, saveAttachedImages(normalized.originals, this.sessionId));
     }
 
     // 为每条输入发送独立的 input:processing 事件（静默输入跳过）
@@ -357,7 +358,9 @@ export class SemaEngine {
           input: item.input,
           originalInput: item.originalInput,
           source: item.source ?? 'user',
-          attachments: attachments && attachments.length > 0 ? attachments : undefined,
+          attachments: attachments && attachments.length > 0
+            ? withAttachmentPaths(attachments, attachmentPaths.get(item.inputId) ?? [])
+            : undefined,
           goal,
         })
       }
@@ -383,7 +386,7 @@ export class SemaEngine {
     // 本轮消费掉的 SessionStart hook 上下文（undefined = 未消费）
     let consumedSessionStartCtx: string | null | undefined;
     // 本轮落盘的附图路径
-    const savedImagePaths: string[] = [];
+    const savedImagePaths: string[] = [...attachmentPaths.values()].flat().filter((p): p is string => !!p);
     // Plan / Design 模式说明的"已发送"标记：本轮首次注入后被撤销时要退回，否则重新提交拿不到模式说明
     const planInfoSentBeforeTurn = this.runtime.isPlanModeInfoSent();
     const designInfoSentBeforeTurn = this.runtime.isDesignModeInfoSent();
@@ -575,12 +578,8 @@ export class SemaEngine {
       // 文件引用提醒挂在各自输入消息上，回合级提醒只挂首条；
       // API 调用时由 prepareMessagesForApi 自动合并连续 user 消息
       const userMessages: UserMsg[] = perInput.map((p, idx) => {
-        // 图片附件转 image content block；原图同时落盘，每张图前带一段路径说明，模型才能把附图当文件用
-        const imagePaths = saveAttachedImages(attachmentOriginals.get(p.inputId), this.sessionId)
-        for (const filePath of imagePaths) {
-          if (filePath) savedImagePaths.push(filePath)
-        }
-        const imageBlocks: Anthropic.ContentBlockParam[] = toImageContentBlocks(p.attachments, imagePaths)
+        // 图片附件转 image content block；每张图前带一段原图路径说明（原图已在本轮开头落盘），模型才能把附图当文件用
+        const imageBlocks: Anthropic.ContentBlockParam[] = toImageContentBlocks(p.attachments, attachmentPaths.get(p.inputId))
         // 存在图片时过滤空文本块（纯截图场景 input 为空，空 text block 会导致 API 报错）
         const textBlocks = imageBlocks.length > 0
           ? p.blocks.filter(b => !(b.type === 'text' && !b.text.trim()))
@@ -608,9 +607,6 @@ export class SemaEngine {
         if (goalMark) msg.goal = goalMark
         return msg
       })
-
-      // 原图已落盘，释放字节，不随本轮 ReAct 长驻内存
-      attachmentOriginals.clear()
 
       const messages: Message[] = [...messageHistory, ...userMessages]
       historyLenBefore = messages.length

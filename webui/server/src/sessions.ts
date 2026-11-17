@@ -95,7 +95,9 @@ export class SessionManager extends EventEmitter {
     // 启动即跑一轮：服务重启期间临近触发的持久化任务尽快接管
     setTimeout(() => { void this.cronKeeperTick().catch(() => undefined); }, 2_000).unref?.();
     this.pool.on('event', (dir: string, sid: string, event: string, data: any) => this.onEvent(sid, event, data));
-    this.pool.on('proc-event', (workingDir: string, event: string, data: any) => this.broadcastAll({ event, data, workingDir }));
+    // mcp:server:status 前端只当「有变化」的信号（收到后重拉接口），不带 payload
+    this.pool.on('proc-event', (workingDir: string, event: string, data: any) =>
+      this.broadcastAll(event === 'mcp:server:status' ? { event, workingDir } : { event, data, workingDir }));
     this.pool.on('exit', (dir: string, sids: string[], code: number | null) => this.onWorkerExit(sids, code));
   }
 
@@ -236,6 +238,11 @@ export class SessionManager extends EventEmitter {
     try { rt = this.loadRuntime(sid); } catch { return; }
     this.backfillNewFilePatch(sid, event, data);
     this.updateReviewDiff(sid, rt, event, data);
+    // readFileTimestamps 只有上面建 diff 基线用（全部读过的文件路径），不进缓冲、不推给浏览器
+    if (event === 'session:ready' && data?.readFileTimestamps) {
+      const { readFileTimestamps: _stamps, ...rest } = data;
+      data = rest;
+    }
     const seq = rt.snapshot.seq + 1;
     applyEvent(rt.snapshot, event, data, seq);
     const frame: EventFrame = { event, sessionId: sid, seq, data };

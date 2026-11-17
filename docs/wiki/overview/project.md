@@ -184,7 +184,6 @@ package.json 提供了多个导出入口：
 - `.` - 主入口，导出 SemaCore / SemaSession
 - `./types` - 类型定义
 - `./event` - 事件类型
-- `./mcp` - MCP 相关模块
 
 ## 持久化路径
 

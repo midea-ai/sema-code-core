@@ -19,11 +19,6 @@
       "types": "./dist/events/types.d.ts",
       "require": "./dist/events/types.js",
       "import": "./dist/events/types.js"
-    },
-    "./mcp": {
-      "types": "./dist/services/mcp/index.d.ts",
-      "require": "./dist/services/mcp/index.js",
-      "import": "./dist/services/mcp/index.js"
     }
   },
   "scripts": {

@@ -4,7 +4,6 @@ import { z } from 'zod'
 import { nanoid } from 'nanoid'
 import { Tool } from './base/Tool'
 import { resolveSubAgentDescription } from '../prompt/tools/subAgent'
-import { DEFAULT_BUILT_IN_AGENTS_CONFS } from '../prompt/agents'
 import { buildSubagentToolset } from './base/subagentTools'
 import { ReAct } from '../core/Conversation'
 import type { AgentContext } from '../types/agent'
@@ -72,13 +71,17 @@ export const SubAgent = {
 
     try {
       // 1. 查找对应的 AgentConfig
-      const AgentsConfs = await getAgentsManager().getAgentsInfo()
-      const agentConfig = AgentsConfs.find(
+      //    getAgentsInfo 用来等首次加载完成并按名字做大小写不敏感匹配；它返回的是查询用数据
+      //    （内联 agent 的 prompt 为 ''），执行必须用 getAgentConfig 取完整配置
+      const agentsManager = getAgentsManager()
+      const agentInfos = await agentsManager.getAgentsInfo()
+      const matched = agentInfos.find(
         agent => agent.name.toLowerCase() === agent_type.toLowerCase()
       )
+      const agentConfig = matched && agentsManager.getAgentConfig(matched.name)
 
       if (!agentConfig) {
-        const errorMsg = `Unrecognized agent type: "${agent_type}". Available: ${DEFAULT_BUILT_IN_AGENTS_CONFS.map(a => a.name).join(', ')}`
+        const errorMsg = `Unrecognized agent type: "${agent_type}". Available: ${agentInfos.map(a => a.name).join(', ')}`
         yield {
           type: 'result',
           data: { agentType: agent_type, result: errorMsg, durationMs: Date.now() - start },

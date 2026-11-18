@@ -69,7 +69,7 @@ textarea, input, select { outline: none; }
 .md .md-link { text-decoration: none; }
 .md .md-link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .md .md-link-icon { display: inline-block; width: 13px; height: 13px; vertical-align: -0.15em; margin-right: .25em; border-radius: 2px; }
-/* 文件引用：外形由 FileLabel 统一（inline-flex 占满 1lh 行框居中），这里只管颜色与悬停 */
+/* 文件引用：链接写法外形由 FileLabel 统一（inline-flex 占满 1lh 行框居中），行内代码写法是不带图标的普通行内文字；这里只管颜色与悬停 */
 .md .md-file { cursor: pointer; color: var(--color-accent); text-decoration: none; }
 .md .md-file:hover { text-decoration: underline; text-underline-offset: 2px; }
 .md .md-local-img { max-height: 360px; border: 1px solid var(--color-border); }

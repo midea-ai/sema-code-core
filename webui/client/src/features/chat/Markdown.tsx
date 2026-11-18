@@ -141,12 +141,18 @@ function tableHtml(el: HTMLTableElement): string {
   return table.outerHTML;
 }
 
-/** 可点击的文件引用（行内代码 / 链接共用，两种写法渲染完全一致）：外形走统一的 FileLabel，名字保持原文 */
-function FileRef({ path, line, endLine, label }: { path: string; line?: number; endLine?: number; label: ReactNode }) {
+/**
+ * 可点击的文件引用（行内代码 / 链接共用），名字保持原文。
+ * 链接写法（[text](path)）外形走统一的 FileLabel（图标 + 名字）；
+ * 行内代码写法（`src/a.ts:10-12`）出现得密，icon=false 只上高亮色不放图标，避免满屏图标，长路径可任意位置折行。
+ */
+function FileRef({ path, line, endLine, label, icon = true }: { path: string; line?: number; endLine?: number; label: ReactNode; icon?: boolean }) {
   const { sessionId } = useContext(Ctx);
   const openFileRef = useApp(s => s.openFileRef);
   const onClick = (e: MouseEvent) => { e.preventDefault(); if (sessionId) openFileRef(sessionId, path, line, endLine); };
-  return <FileLabel path={path} label={label} className="md-file" title={`${t('md.openFile')}: ${path}`} onClick={onClick} />;
+  const title = `${t('md.openFile')}: ${path}`;
+  if (!icon) return <span className="md-file font-medium [overflow-wrap:anywhere]" title={title} onClick={onClick}>{label}</span>;
+  return <FileLabel path={path} label={label} className="md-file" title={title} onClick={onClick} />;
 }
 
 /** http(s) 链接点击分流（链接 / 行内代码 URL 共用）：有会话走 openLink（本机/局域网右栏内嵌，其他系统浏览器），无会话直接外开 */
@@ -179,7 +185,7 @@ function InlineCode({ children, className, ...rest }: any) {
     if (sessionId && isPathCandidate(raw)) {
       const ref = parsePathRef(raw);
       const s = stat(ref.path);
-      if (s?.exists && !s.isDir) return <FileRef path={ref.path} line={ref.line} endLine={ref.endLine} label={raw} />;
+      if (s?.exists && !s.isDir) return <FileRef path={ref.path} line={ref.line} endLine={ref.endLine} label={raw} icon={false} />;
     }
   }
   return <code className={className} {...rest}>{children}</code>;

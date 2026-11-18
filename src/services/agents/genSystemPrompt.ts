@@ -4,17 +4,14 @@ import { getConfManager } from '../../manager/ConfManager'
 import { getMemoryManager, isMemoryDisabled } from '../memory/memManager'
 import { DEFINE_SYSTEM_PROMPT } from '../../prompt/define'
 import { AUTO_MEMORY_PROMPT } from '../../prompt/memory'
-import {
-  SYSTEM_PROMPT,
-  SUBAGENT_NOTES
-} from '../../prompt/system'
+import { SYSTEM_PROMPT } from '../../prompt/system'
 
 type TextBlock = { type: 'text', text: string }
 
 interface PromptBuildOptions {
   prefixPrompt?: string    // 前置提示（独立 text block，如产品级身份定义）
   corePrompt: string       // 核心提示词
-  sections?: string[]      // 额外段落（memory、subagent notes 等）
+  sections?: string[]      // 额外段落（如 memory）
   includeContext?: boolean  // 是否附加 env/gitStatus，默认 true
 }
 
@@ -69,7 +66,6 @@ export async function formatSystemPrompt(): Promise<TextBlock[]> {
 export async function buildAgentSystemPrompt(agentPrompt: string): Promise<TextBlock[]> {
   return buildPromptBlocks({
     corePrompt: agentPrompt,
-    sections: [SUBAGENT_NOTES],
     includeContext: !isEnvContextDisabled(),
   })
 }

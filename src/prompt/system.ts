@@ -79,11 +79,3 @@ Use \`${TOOL_NAME_SUB_AGENT}\` to parallelize independent research or shield the
 
 \`/<agent-name>\` invokes a subagent via the \`${TOOL_NAME_SUB_AGENT}\` tool, passing the name as \`agent_type\`. Only use agent types listed in the tool's Available types.
 `
-
-export const SUBAGENT_NOTES = `
-Notes:
-- In agent threads, the shell's working directory persists across bash calls and starts at the project root. Use paths relative to it for in-project files; use absolute paths only for files outside the project.
-- When delivering your final response, always include the relevant file names and code snippets. Any file paths you return must be absolute — do not use relative paths.
-- To ensure clear communication, the assistant must not use emojis.
-- Do not place a colon before a tool call. For example, instead of writing “Let me read the file:” followed by a read tool call, write “Let me read the file.” (ending with a period).
-`

@@ -9,6 +9,7 @@ import { dropDanglingParts } from './sanitize';
 
 const BASE_W = 960; // 幻灯片统一按这个宽度渲染一次，之后的缩放全靠 CSS
 const THUMB_W = 120;
+const PAD_Y = 16, PAD_X = 36; // 左右留白比上下宽：窄模式左缘的导航短横线落在留白里，适应缩放时不压幻灯片
 const NARROW_IN = 560, NARROW_OUT = 600; // 窄模式阈值带滞回，拖分隔条经过临界宽度时不来回闪
 const OPEN_DELAY = 80, CLOSE_DELAY = 250;
 const CHART_SETTLE = 1500; // 图表入场动画时长：动画期间克隆的缩略图是半截的，到点重新克隆
@@ -99,7 +100,7 @@ export function PptxView({ buf, zoom, tabId, onFitPct, onError }: {
     return () => ro.disconnect();
   }, [deck]);
 
-  const fit = deck && stage.w && stage.h ? Math.min(3, Math.max(0.1, Math.min((stage.w - 32) / BASE_W, (stage.h - 32) / deck.slideH))) : 1;
+  const fit = deck && stage.w && stage.h ? Math.min(3, Math.max(0.1, Math.min((stage.w - PAD_X * 2) / BASE_W, (stage.h - PAD_Y * 2) / deck.slideH))) : 1;
   const z = zoom === 'fit' ? fit : Number(zoom) / 100;
   useEffect(() => { if (deck) onFitPct(zoom === 'fit' ? Math.round(z * 100) : null); }, [deck, zoom, z, onFitPct]);
 
@@ -196,7 +197,7 @@ export function PptxView({ buf, zoom, tabId, onFitPct, onError }: {
         </div>
       )}
       <div className="flex-1 min-w-0 flex flex-col">
-        <div ref={stageRef} className="flex-1 min-h-0 overflow-auto flex p-4">
+        <div ref={stageRef} className="flex-1 min-h-0 overflow-auto flex" style={{ padding: `${PAD_Y}px ${PAD_X}px` }}>
           {!deck && <div className="text-sm text-muted flex items-center gap-2 self-start"><Spinner />{t('office.loading')}</div>}
           {/* 库的样式假定宿主没有改过行高 / 对齐，这里把继承来的全局排版属性还原 */}
           <div ref={hostRef} className={cn('relative m-auto shrink-0 overflow-hidden rounded-lg bg-white shadow-md', !deck && 'invisible absolute')}

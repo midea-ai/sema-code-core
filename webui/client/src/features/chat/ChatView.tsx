@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type AnimationEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent } from 'react';
 import { FolderOpen, Pencil, ArrowDown, Copy, Check, ThumbsUp, ThumbsDown, GitBranch, Target } from 'lucide-react';
 import type { Block, SessionSnapshot } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
@@ -17,6 +17,9 @@ import { usePausableElapsed } from '../../common/useElapsed';
 import { t, useLang } from '../../i18n';
 import { collapsedHeaderPad, panelCollapsedHeaderPad } from '../../common/desktop';
 import { fmtTime, displayPath } from '../../common/text';
+
+// 会话视图超过常驻上限后会卸载；滚动位置仍按会话保留到本次页面关闭。
+const scrollPositions = new Map<string, { top: number; stick: boolean }>();
 
 /**
  * 会话视图。常驻实例（App 的 chatKeep）在非当前会话时以 active=false 隐藏挂载：
@@ -37,13 +40,25 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
   const panelCollapsed = useApp(s => s.panels[sessionId]?.collapsed ?? true);
   const dialog = useDialog();
   const listRef = useRef<HTMLDivElement>(null);
-  const [stick, setStick] = useState(true);
+  const [stick, setStick] = useState(() => scrollPositions.get(sessionId)?.stick ?? true);
   // 程序性回底标记：贴底跟随写 scrollTop 也会触发 scroll 事件，需跳过不参与贴底判定
   const progScroll = useRef(false);
   const lastTop = useRef(0);
+  const restoreScroll = useRef(true);
   const [overflow, setOverflow] = useState(false);
   const [rewind, setRewind] = useState<{ inputId: string; preview?: any; restore: boolean; busy: boolean } | null>(null);
   const [branching, setBranching] = useState(false);
+
+  // 浏览器可能在隐藏滚动容器时把 scrollTop 归零。切回时在绘制前显式恢复；
+  // 首次打开则等快照渲染后再恢复，兼顾超过常驻上限而重新挂载的会话。
+  useLayoutEffect(() => {
+    if (!active) { restoreScroll.current = true; return; }
+    const el = listRef.current;
+    if (!el || !snap || !restoreScroll.current) return;
+    el.scrollTop = scrollPositions.get(sessionId)?.top ?? 0;
+    lastTop.current = el.scrollTop;
+    restoreScroll.current = false;
+  }, [active, sessionId, snap]);
 
   // 首次挂载：拉快照 + 订阅 + 预热；常驻实例切回时只补一次预热（订阅一直在，快照已随事件更新）。
   // 拉快照失败则清掉标记，下次切回重新完整打开，否则输入框会一直停在禁用态；请求在飞期间切走再切回只补预热，不重复拉
@@ -90,13 +105,20 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
   // dist>1 排除 macOS 橡皮筋回弹被误判为向上滚。
   const onScroll = () => {
     const el = listRef.current; if (!el) return;
+    // 隐藏导致的浏览器滚动事件不能覆盖离开时保存的位置。
+    if (!active) return;
     const top = el.scrollTop;
     const up = top < lastTop.current;
     lastTop.current = top;
-    if (progScroll.current) { progScroll.current = false; return; }
+    if (progScroll.current) {
+      progScroll.current = false;
+      scrollPositions.set(sessionId, { top, stick });
+      return;
+    }
     const dist = el.scrollHeight - top - el.clientHeight;
-    if (up && dist > 1) setStick(false);
-    else if (!up && dist < 80) setStick(true);
+    const nextStick = up && dist > 1 ? false : !up && dist < 80 ? true : stick;
+    scrollPositions.set(sessionId, { top, stick: nextStick });
+    if (nextStick !== stick) setStick(nextStick);
   };
   const scrollToBottom = () => {
     const el = listRef.current; if (!el) return;
@@ -104,6 +126,7 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
       progScroll.current = true;
       el.scrollTop = el.scrollHeight;
     }
+    scrollPositions.set(sessionId, { top: el.scrollTop, stick: true });
     setStick(true);
   };
 
@@ -250,7 +273,7 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
         </div>
       </div>
       {/* 左缘轮次指示条：输入轮数够多时才显示，悬停单条短横线弹出该轮小面板，点击跳到该轮用户输入 */}
-      {nav.items.length >= MIN_TURNS && <TurnNav listRef={listRef} items={nav.items} />}
+      {nav.items.length >= MIN_TURNS && <TurnNav listRef={listRef} items={nav.items} active={active} />}
       {/* 底部渐隐：内容滚到输入框上方时淡出，而非被硬边切断；右侧让出滚动条，层级低于回到底部按钮（z-20） */}
       <div className="pointer-events-none absolute z-10 left-0 right-2 bottom-0 h-8 bg-linear-to-t from-bg to-transparent" />
       {/* 回到底部：内容超出一屏且离底时悬浮显示；运行中图标换成三点动画表示进行中 */}
@@ -485,4 +508,3 @@ function TurnDivider({ start, end, active, pausedAt, pausedMs, collapsible, expa
     </div>
   );
 }
-

@@ -50,7 +50,7 @@ export function turnNavItem(turn: Turn): TurnNavItem | null {
  * 悬停某条短横线在其右侧弹出该轮的小面板（单行输入 + 可选结论最多三行），移开即消失；点击跳到该轮用户输入。
  * 当前轮按列表里的 [data-turn] 零高标记算：最后一个顶边不低于滚动位置的标记；滚到底时取最后一轮（末轮太短时顶边永远到不了视口顶）。
  */
-export function TurnNav({ listRef, items }: { listRef: React.RefObject<HTMLDivElement | null>; items: TurnNavItem[] }) {
+export function TurnNav({ listRef, items, active }: { listRef: React.RefObject<HTMLDivElement | null>; items: TurnNavItem[]; active: boolean }) {
   const [cur, setCur] = useState(0);
   const [hovered, setHovered] = useState<number | null>(null);
   // 点击钉住的轮：目标轮顶边滚不到视口顶（已到底、末尾内容不足一屏）时按滚动位置算出的仍是别的轮，
@@ -91,7 +91,7 @@ export function TurnNav({ listRef, items }: { listRef: React.RefObject<HTMLDivEl
     ro.observe(list);
     if (list.firstElementChild) ro.observe(list.firstElementChild);
     return () => { list.removeEventListener('scroll', schedule); ro.disconnect(); cancelAnimationFrame(raf); };
-  }, [listRef, count]);
+  }, [listRef, count, active]);
 
   const go = (idx: number) => {
     const list = listRef.current;

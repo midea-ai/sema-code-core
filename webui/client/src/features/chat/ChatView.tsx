@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent } from 'react';
 import { FolderOpen, Pencil, ArrowDown, Copy, Check, ThumbsUp, ThumbsDown, GitBranch, Target } from 'lucide-react';
 import type { Block, SessionSnapshot } from '../../../../shared/types';
 import { pendingBlocks, waitedMsIn } from '../../../../shared/transcript';
@@ -19,7 +19,35 @@ import { collapsedHeaderPad, panelCollapsedHeaderPad } from '../../common/deskto
 import { fmtTime, displayPath } from '../../common/text';
 
 // 会话视图超过常驻上限后会卸载；滚动位置仍按会话保留到本次页面关闭。
-const scrollPositions = new Map<string, { top: number; stick: boolean }>();
+// 除像素位置外另记轮次锚点：重挂时列表只加载尾部页，像素位置会对不上，锚点按内容定位
+interface ScrollAnchor { turnId: string; delta: number }
+const scrollPositions = new Map<string, { top: number; stick: boolean; anchor?: ScrollAnchor }>();
+
+/** 标记相对滚动内容顶部的位置（同 TurnNav：标记的 offsetParent 不在滚动内容上，不能用 offsetTop） */
+const markerOffset = (list: HTMLDivElement, m: Element) =>
+  m.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+
+/** 视口顶部所在的轮 + 轮内偏移 */
+const anchorAt = (list: HTMLDivElement, turns: Turn[], idx: number[], top: number) => {
+  const markers = [...list.querySelectorAll('[data-turn]')];
+  let anchor: ScrollAnchor | undefined;
+  let j = 0;
+  for (let i = 0; i < turns.length && j < markers.length; i++) {
+    if (idx[i] < 0) continue;
+    const off = markerOffset(list, markers[j++]);
+    if (off > top + 1) break;
+    anchor = { turnId: turns[i].blocks[0].id, delta: top - off };
+  }
+  return anchor;
+};
+
+/** 锚点当前的像素位置：那轮还没加载进列表时返回 undefined（调用方继续往前翻页） */
+const anchorOffset = (list: HTMLDivElement, turns: Turn[], idx: number[], a: ScrollAnchor) => {
+  const i = turns.findIndex(t => t.blocks[0].id === a.turnId);
+  if (i < 0 || idx[i] < 0) return undefined;
+  const m = list.querySelector(`[data-turn="${idx[i]}"]`);
+  return m ? markerOffset(list, m) + a.delta : undefined;
+};
 
 /**
  * 会话视图。常驻实例（App 的 chatKeep）在非当前会话时以 active=false 隐藏挂载：
@@ -34,6 +62,8 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
   const snap = useSessions(s => active ? s.snapshots[sessionId] : frozen.current);
   useEffect(() => { if (active) frozen.current = snap; }, [active, snap]);
   const loading = useSessions(s => s.loading[sessionId]);
+  const loadingOlder = useSessions(s => !!s.loadingOlder[sessionId]);
+  const loadOlder = useSessions(s => s.loadOlder);
   const open = useSessions(s => s.open);
   const toast = useApp(s => s.toast);
   const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
@@ -45,20 +75,13 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
   const progScroll = useRef(false);
   const lastTop = useRef(0);
   const restoreScroll = useRef(true);
+  // 重挂后按锚点恢复：保存的位置在尾部页之外时，继续往前翻到那轮再落位
+  const pendingAnchor = useRef<ScrollAnchor | null>(null);
+  // 向上翻页时记下翻页前的高度与位置，前插完成后按高度差把视口钉回原处，读历史时内容不跳
+  const olderAnchor = useRef<{ height: number; top: number; oldestBlockId: string } | null>(null);
   const [overflow, setOverflow] = useState(false);
   const [rewind, setRewind] = useState<{ inputId: string; preview?: any; restore: boolean; busy: boolean } | null>(null);
   const [branching, setBranching] = useState(false);
-
-  // 浏览器可能在隐藏滚动容器时把 scrollTop 归零。切回时在绘制前显式恢复；
-  // 首次打开则等快照渲染后再恢复，兼顾超过常驻上限而重新挂载的会话。
-  useLayoutEffect(() => {
-    if (!active) { restoreScroll.current = true; return; }
-    const el = listRef.current;
-    if (!el || !snap || !restoreScroll.current) return;
-    el.scrollTop = scrollPositions.get(sessionId)?.top ?? 0;
-    lastTop.current = el.scrollTop;
-    restoreScroll.current = false;
-  }, [active, sessionId, snap]);
 
   // 首次挂载：拉快照 + 订阅 + 预热；常驻实例切回时只补一次预热（订阅一直在，快照已随事件更新）。
   // 拉快照失败则清掉标记，下次切回重新完整打开，否则输入框会一直停在禁用态；请求在飞期间切走再切回只补预热，不重复拉
@@ -91,15 +114,51 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', rewarm); };
   }, [sessionId, active]);
 
-  // 自动滚动：贴底时跟随（已在底部时不写 scrollTop——写同值不触发 scroll 事件，会留下悬空标记吞掉用户下一次滚动）
+  // 自动滚动：贴底时跟随（已在底部时不写 scrollTop——写同值不触发 scroll 事件，会留下悬空标记吞掉用户下一次滚动）。
+  // 合批到下一帧：流式期间 blocks 每秒变几十次，同步读 scrollHeight + 写 scrollTop 每次都强制一次布局，且前一次结果还没绘制就作废
   const blocks = snap?.blocks;
   useEffect(() => {
+    if (!stick) return;
     const el = listRef.current;
-    if (stick && el && el.scrollHeight - el.scrollTop - el.clientHeight > 1) {
-      progScroll.current = true;
-      el.scrollTop = el.scrollHeight;
-    }
+    if (!el) return;
+    const raf = requestAnimationFrame(() => {
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) {
+        progScroll.current = true;
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+    return () => cancelAnimationFrame(raf);
   }, [blocks, stick]);
+  // 加载更早的轮次（快照分页）：记下翻页前的高度与位置，前插完成后由下面的 layout effect 钉回视口
+  const requestOlder = () => {
+    if (!active || !snap?.page?.hasMore || loadingOlder) return;
+    const el = listRef.current;
+    if (el && snap.page.oldestBlockId) olderAnchor.current = {
+      height: el.scrollHeight, top: el.scrollTop, oldestBlockId: snap.page.oldestBlockId,
+    };
+    loadOlder(sessionId).catch(() => undefined);
+  };
+
+  // 前插了更早的轮次：按高度差把视口钉回原处，读历史时内容不跳
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    const anchor = olderAnchor.current;
+    // 流式增量也会更新 blocks；只有分页游标前移，才说明旧页真正插入了列表。
+    if (!active || !el || !anchor || snap?.page?.oldestBlockId === anchor.oldestBlockId
+      || !blocks?.some((b, i) => i > 0 && b.id === anchor.oldestBlockId)) return;
+    olderAnchor.current = null;
+    el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+    lastTop.current = el.scrollTop;
+    scrollPositions.set(sessionId, { top: el.scrollTop, stick });
+  }, [blocks, snap?.page?.oldestBlockId, active, sessionId, stick]);
+
+  // 尾部页不足一屏时滚不动、触发不了翻页：直接继续往前取，直到能滚动或没有更早的轮次
+  useEffect(() => {
+    if (!active || !snap?.page?.hasMore || loadingOlder) return;
+    const el = listRef.current; if (!el) return;
+    if (el.scrollHeight <= el.clientHeight + 40) requestOlder();
+  }, [active, blocks, snap?.page?.hasMore, loadingOlder, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 贴底判定按用户滚动方向：向上滚立即离底，不设距离阈值——流式高频回底时，
   // 小步上滑在两次更新间滚不出阈值会被反复拽回底部（页面抽搐）；向下滚回到底部附近才恢复贴底。
   // dist>1 排除 macOS 橡皮筋回弹被误判为向上滚。
@@ -115,10 +174,14 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
       scrollPositions.set(sessionId, { top, stick });
       return;
     }
+    // 用户自己滚动后放弃按锚点恢复，别再把他拽回原来那轮
+    pendingAnchor.current = null;
     const dist = el.scrollHeight - top - el.clientHeight;
     const nextStick = up && dist > 1 ? false : !up && dist < 80 ? true : stick;
     scrollPositions.set(sessionId, { top, stick: nextStick });
     if (nextStick !== stick) setStick(nextStick);
+    // 接近顶部且还有更早的轮次：继续往前翻页
+    if (top < 240) requestOlder();
   };
   const scrollToBottom = () => {
     const el = listRef.current; if (!el) return;
@@ -172,6 +235,61 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
     }
     return { items, idx };
   }, [turns, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 程序性写 scrollTop：值真的变了才置 progScroll，免得留下吞掉用户下一次滚动的悬空标记
+  const setTop = (el: HTMLDivElement, top: number) => {
+    if (Math.abs(el.scrollTop - top) < 1) return;
+    progScroll.current = true;
+    el.scrollTop = top;
+    lastTop.current = el.scrollTop;
+  };
+
+  // 浏览器可能在隐藏滚动容器时把 scrollTop 归零。切回时在绘制前显式恢复；
+  // 首次打开则等快照渲染后再恢复，兼顾超过常驻上限而重新挂载的会话。
+  // 重挂的会话快照只有尾部页，保存的像素位置对不上，改按轮次锚点恢复（锚点不在尾部页就继续往前翻）。
+  useLayoutEffect(() => {
+    if (!active) {
+      restoreScroll.current = true;
+      pendingAnchor.current = null;
+      // 离开前记下视口顶部所在的轮：重挂后按内容定位，不受列表只剩尾部页影响
+      const el = listRef.current;
+      const saved = scrollPositions.get(sessionId);
+      if (el && saved) {
+        scrollPositions.set(sessionId, saved.stick
+          ? { top: saved.top, stick: true }
+          : { top: saved.top, stick: false, anchor: anchorAt(el, turns, nav.idx, saved.top) });
+      }
+      return;
+    }
+    const el = listRef.current;
+    if (!el || !snap || !restoreScroll.current) return;
+    restoreScroll.current = false;
+    const saved = scrollPositions.get(sessionId);
+    setTop(el, saved?.top ?? 0);
+    lastTop.current = el.scrollTop;
+    // 像素位置被钳位（重挂的会话只有尾部页，内容比保存的位置短）：改用轮次锚点往前翻，翻到那轮再落位
+    pendingAnchor.current = saved && saved.top - el.scrollTop > 1 ? saved.anchor ?? null : null;
+  }, [active, sessionId, snap]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 锚点那轮还没在列表里（保存的位置在尾部页之外）：继续往前翻页，加载出来后落位
+  useLayoutEffect(() => {
+    const a = pendingAnchor.current;
+    const el = listRef.current;
+    if (!active || !el || !a || !snap) return;
+    const at = anchorOffset(el, turns, nav.idx, a);
+    if (at != null) {
+      pendingAnchor.current = null;
+      setTop(el, at);
+      scrollPositions.set(sessionId, { top: el.scrollTop, stick });
+      return;
+    }
+    if (snap.page?.hasMore && !loadingOlder) {
+      // 还没翻到：先停在已加载内容的底部（前插不带得视口乱跳），继续取更早的轮次
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) setTop(el, el.scrollHeight);
+      loadOlder(sessionId).catch(() => undefined);
+    } else pendingAnchor.current = null; // 翻到底也没有这轮（已不存在）：停在能滚到的位置
+  }, [active, turns, nav, snap, loadingOlder, sessionId, stick]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 正在运行的一轮：最后一个非排队的轮次开头（用户消息，或计划实施后的合成开头）所在组
   const runningIdx = useMemo(() => {
     for (let i = turns.length - 1; i >= 0; i--) {
@@ -220,7 +338,7 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
     const nextOpener = last ? undefined : turns[i + 1]?.opener;
     const anchor = nextOpener?.kind === 'user' ? nextOpener.inputId : undefined;
     const el = (
-      <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx}
+      <TurnGroup key={turn.blocks[0].id} turn={turn} ctx={ctx} lang={lang}
         active={snap?.state === 'processing' && i === runningIdx}
         awaitingTs={i === runningIdx ? awaitingTs : undefined}
         canBranch={canBranchNow && (last || !!anchor)}
@@ -254,6 +372,7 @@ export function ChatView({ sessionId, active = true }: { sessionId: string; acti
         {/* pb-8：底部留白与下方渐隐条等高，滚到底时最后一行内容不落进渐隐区 */}
         <div className="max-w-3xl mx-auto px-10 pt-4 pb-8">
           {!snap && loading && <div className="flex items-center gap-2 text-muted text-sm"><Spinner />{t('common.loading')}</div>}
+          {loadingOlder && <div className="flex items-center justify-center gap-2 text-muted text-xs py-2"><Spinner />{t('chat.loadingEarlier')}</div>}
           {snap && snap.blocks.length === 0 && (snap.agentMode === 'Design' ? (
             // Design 空会话：对齐默认新会话页（DraftView）的居中大字样式，与普通会话的小字提示区分
             <div className="min-h-[60vh] flex flex-col items-center justify-center text-center gap-3">
@@ -370,10 +489,14 @@ const isInjected = (b: Block) => b.kind === 'user' && !!b.injected;
  * 展开时按原顺序显示全部块（组头为类别文案），与运行中渲染仅差组名与状态行。
  * 运行中轮内注入的用户气泡算过程：运行中 / 展开时留在注入位置，折叠后随过程收起。
  */
-function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, branching, onBranch }: {
+interface TurnGroupProps {
   turn: Turn; ctx: BlockCtx; active: boolean; awaitingTs?: number;
   canBranch?: boolean; branchAnchor?: string; branching?: boolean; onBranch?: (beforeMessageUuid?: string) => void;
-}) {
+  /** 轮内文案（耗时分隔、操作行）不走 useLang 订阅，语言切换靠父级传下来参与比较 */
+  lang: string;
+}
+
+function TurnGroupImpl({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, branching, onBranch }: TurnGroupProps) {
   const [expanded, setExpanded] = useState(false);
   const opener = turn.opener;
   // 本轮是否宣告目标达成：goal:update(completed) 落的 goal-achieved 块（不渲染，text 为 summary），由轮末操作行标记；受阻不标，状态条可见
@@ -444,6 +567,23 @@ function TurnGroup({ turn, ctx, active, awaitingTs, canBranch, branchAnchor, bra
         branching={branching} goalAchieved={goalAchieved} />}
     </div>
   );
+}
+
+/**
+ * 状态分片：流式期间快照每帧换新、turns 随之重建，但没改动的块仍是同一批对象引用
+ * （shared/transcript 约定所有更新返回新对象）。逐块比较引用，未变的轮次整轮跳过重渲染——
+ * 轮内的时间格式化、产物扫描、Markdown 解析都不再按帧重跑；正在输出的那一轮照常重渲染。
+ */
+const TurnGroup = memo(TurnGroupImpl, (a, b) =>
+  a.lang === b.lang && a.ctx === b.ctx && a.active === b.active && a.awaitingTs === b.awaitingTs
+  && a.canBranch === b.canBranch && a.branchAnchor === b.branchAnchor && a.branching === b.branching
+  && a.onBranch === b.onBranch && sameTurn(a.turn, b.turn));
+
+function sameTurn(a: Turn, b: Turn) {
+  if (a === b) return true;
+  if (a.opener !== b.opener || a.blocks.length !== b.blocks.length) return false;
+  for (let i = 0; i < a.blocks.length; i++) if (a.blocks[i] !== b.blocks[i]) return false;
+  return true;
 }
 
 function StatusLine({ text }: { text: string }) {

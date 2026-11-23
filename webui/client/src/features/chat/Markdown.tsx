@@ -41,7 +41,37 @@ const Ctx = createContext<MdCtx>({ stat: () => undefined, done: true, renderImag
  *   renderImages=true（.md 文件预览、记忆页）时经服务端 raw 接口内嵌显示，点击在右栏打开
  * done=false（流式中）不发起文件确认，避免半截路径抖动
  */
+const STREAM_THROTTLE_MS = 100;
+/**
+ * 流式节流：done=false 时按固定间隔放行文本，done 后立即同步到全文。
+ * 每个 text 变化都整段重新解析 remark/rehype，一条长回答的累计成本是平方级的；节流把它拉回线性。
+ * 配合下面的两层 memo：节流窗口内文本不变，内层组件整体跳过重渲染与重解析。
+ */
+function useThrottledText(text: string, done: boolean): string {
+  const [shown, setShown] = useState(text);
+  const last = useRef(0);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (done) {
+      if (timer.current) { clearTimeout(timer.current); timer.current = undefined; }
+      setShown(text);
+      return;
+    }
+    const wait = Math.max(0, STREAM_THROTTLE_MS - (Date.now() - last.current));
+    if (wait === 0) { last.current = Date.now(); setShown(text); return; }
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => { last.current = Date.now(); timer.current = undefined; setShown(text); }, wait);
+  }, [text, done]);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  return done ? text : shown;
+}
+
 export const Markdown = memo(function Markdown({ text, sessionId, className, done = true, renderImages = false }: { text: string; sessionId?: string; className?: string; done?: boolean; renderImages?: boolean }) {
+  const visible = useThrottledText(text, done);
+  return <MarkdownBody text={visible} sessionId={sessionId} className={className} done={done} renderImages={renderImages} />;
+});
+
+const MarkdownBody = memo(function MarkdownBody({ text, sessionId, className, done = true, renderImages = false }: { text: string; sessionId?: string; className?: string; done?: boolean; renderImages?: boolean }) {
   useLang(); // memo 组件自行订阅语言
   const stat = useFileStats(sessionId, text, done);
   const src = useMemo(() => preprocess(text), [text]);

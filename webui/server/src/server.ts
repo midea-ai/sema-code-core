@@ -18,6 +18,7 @@ import { TerminalManager } from './terminal/manager';
 import { attachTermWs } from './ws/terminal';
 import { isVizPath } from '../../shared/viz';
 import { logErr } from './errlog';
+import { startPerf } from './perf';
 import type { PreventSleepMode } from '../../shared/types';
 
 export interface StartServerOptions {
@@ -159,10 +160,22 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
     socket.destroy();
   });
 
+  // 性能采样（SEMA_WEBUI_PERF=1 才启动）：待发送字节堆在服务端说明浏览器侧消费不过来
+  const stopPerf = startPerf(() => {
+    let total = 0, max = 0;
+    for (const ws of wss.clients) {
+      const n = ws.bufferedAmount;
+      total += n;
+      if (n > max) max = n;
+    }
+    return { total, max };
+  });
+
   let closed = false;
   async function close() {
     if (closed) return;
     closed = true;
+    stopPerf();
     tm.killAll();
     await sm.dispose(); // 内部等待全部 worker 真正退出（5 秒超时 SIGKILL）
     // server.close() 要等所有连接断开，而浏览器的 WS 长连接不会自己断：先把 WS 与 keep-alive 连接全部关掉，

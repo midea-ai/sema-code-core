@@ -8,17 +8,38 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import { WorkerPool, WorkerHandle } from './workers/pool';
-import { RegistryStore, TRANSCRIPT_DIR, CONFIG_WORKSPACE, SEMA_DOCS_ROOT, writeJsonAtomic, removeEmptyDateParent } from './registry/registry';
-import type { CronGroup, CronTask, EventFrame, SessionRecord, SessionSnapshot } from '../../shared/types';
+import { RegistryStore, TRANSCRIPT_DIR, CONFIG_WORKSPACE, SEMA_DOCS_ROOT, writeJsonAtomicAsync, removeEmptyDateParent } from './registry/registry';
+import type { CronGroup, CronTask, EventFrame, ReviewTurn, SessionRecord, SessionSnapshot } from '../../shared/types';
 import { PROJECTS_PREVIEW } from '../../shared/types';
-import { applyEvent, applyLocal, createSnapshot, pendingBlocks } from '../../shared/transcript';
+import { applyEvent, applyLocal, createSnapshot, pendingBlocks, reviewTurns, snapshotPage } from '../../shared/transcript';
 import { FILE_EDIT_TOOLS, SERVER_EVENTS } from '../../shared/protocol';
 import { DiffBaselines, createBaselines, resetTurn, resetAll, captureOnRead, computeCumulative, NEW_FILE_MAX_LINES, NEW_FILE_MAX_BYTES } from './turnDiff';
 import { readPersistedCron, readPersistedTasks } from './workers/cronFile';
 import { logErr } from './errlog';
+import { perfEvent, perfWrite } from './perf';
+import { performance } from 'perf_hooks';
 
-const BUFFER_MAX = 3000;
+/**
+ * 断线补发缓冲上限：按字节封顶，不再按帧数。
+ * 每帧带完整工具输出，帧数封顶时「3000 帧」可能是一百多 MB；按 MB 封顶更贴近真实占用。
+ * 单帧开销常量用来计帧对象本身（seq/json 引用、数组项），避免大量小帧只按内容体积算。
+ */
+const BUFFER_MAX_BYTES = 8 * 1024 * 1024;
+const FRAME_OVERHEAD_BYTES = 128;
+/** 空闲期改动的落盘防抖窗口 */
 const SAVE_DEBOUNCE_MS = 500;
+/** 流式期间最多多久补写一次快照（整轮不落盘的话，进程被强杀会丢这一轮） */
+const SAVE_MAX_STALE_MS = 30_000;
+/** 快照分页：一页的估算体积上限与轮数上限（单轮超限时独自成页） */
+const SNAPSHOT_PAGE_BYTES = 400 * 1024;
+const SNAPSHOT_PAGE_TURNS = 10;
+/**
+ * 流式 chunk 合并窗口：窗口内同一条消息/同一个工具的增量拼成一帧再应用与广播。
+ * 取一帧的时长，合并对观感无影响；帧数直接决定前端每帧的渲染次数。
+ */
+const CHUNK_COALESCE_MS = Math.max(0, Number(process.env.SEMA_WEBUI_CHUNK_MS ?? 16) || 0);
+/** 可合并的事件：都是「往同一块里追加内容」的增量事件，拼接后语义等价 */
+const COALESCE_EVENTS = new Set(['message:text:chunk', 'message:thinking:chunk', 'tool:execution:chunk']);
 /** 空闲会话回收阈值：超时的常驻 SemaSession 关闭（历史已落盘，下次操作自动恢复） */
 const SESSION_IDLE_MS = 20 * 60_000;
 /** warm（打开会话预热）宽限期：期间没有真实输入即可回收，避免纯浏览历史会话长期续命 */
@@ -41,14 +62,41 @@ const SESSIONS_PER_PROJECT_LIMIT = 30;
 const STANDALONE_SESSION_LIMIT = 30;
 
 export interface Subscriber {
+  /** 收一帧：事件帧是已序列化的字符串（服务端只序列化一次，多订阅者共用），其余广播是对象 */
   send(frame: any): void;
+}
+
+/** 断线补发缓冲里的一帧：seq 用于游标判断，json 是可直接下发的文本 */
+interface BufferedFrame { seq: number; json: string; bytes: number }
+
+/**
+ * 图片附件只留路径：有原图路径的不再带 base64（写盘与下发都走这里），前端按 raw 接口读原图；
+ * 没有路径的（旧快照 / core 落盘失败）只能留 base64，去掉图就没了。
+ */
+function stripImageData(blocks: SessionSnapshot['blocks']): SessionSnapshot['blocks'] {
+  return blocks.map(b => (b.kind === 'user' && b.attachments?.some(a => a.path && a.dataUrl)
+    ? { ...b, attachments: b.attachments.map(a => (a.path && a.dataUrl ? { media_type: a.media_type, path: a.path } : a)) }
+    : b));
 }
 
 interface Runtime {
   snapshot: SessionSnapshot;
-  buffer: EventFrame[];
+  /**
+   * 断线补发缓冲：只留已序列化的帧（重发不再各订阅者各序列化一次），按字节封顶丢最旧。
+   * 补不齐时 subscribe 返回 resync，前端重拉快照。
+   */
+  buffer: BufferedFrame[];
+  bufferBytes: number;
   subscribers: Set<Subscriber>;
   saveTimer?: NodeJS.Timeout;
+  /** 快照有改动待落盘：流式期间只标脏，回到空闲再写 */
+  dirty?: boolean;
+  /** 进行中的异步写（同一会话串行，写期间的改动合并成下一轮） */
+  saving?: Promise<void>;
+  /** 最近一次落盘完成时间：长轮次里超时补写一次，避免整轮只留在内存 */
+  savedAt?: number;
+  /** 运行时已删除（删会话 / 回退建分支失败）：在飞的写不要再落盘 */
+  dead?: boolean;
   /** 落盘失败已记过一次日志（磁盘满/无权限时每轮事件都会失败，只记首次） */
   saveFailed?: boolean;
   /** 正在拉起 worker/创建会话的 promise（去重） */
@@ -59,6 +107,8 @@ interface Runtime {
   lastWarmAt?: number;
   /** 审阅总 diff 的轮级/会话级基线（内存态，丢失只是降级为拼接展示） */
   diffBase?: DiffBaselines;
+  /** 待合并的流式 chunk：key → 已拼接的事件，order 保留首次出现顺序 */
+  chunks?: { items: Map<string, { event: string; data: any }>; order: string[]; timer?: NodeJS.Timeout };
 }
 
 export class SessionManager extends EventEmitter {
@@ -70,6 +120,8 @@ export class SessionManager extends EventEmitter {
   killTerminals?: (sid: string) => void;
   private evicting = false;
   private branching = new Set<string>();
+  /** 每个会话的事件串行队列（见 enqueueEvent） */
+  private eventQueues = new Map<string, Promise<void>>();
   /** 独立会话备用 worker：草稿页未选项目时预先占好目录并拉起 worker，首条消息直接复用，免冷启动 */
   private spare?: { id: string; workingDir: string };
   private sparing?: Promise<void>;
@@ -109,11 +161,10 @@ export class SessionManager extends EventEmitter {
    * 快照落盘。快问记录只留在内存里（服务存活期间可见，重启即清空），不写进文件；
    * 附图有原图路径的不写 base64，重新加载后按路径读 core 附件目录里的原图。内存里的快照不动
    */
-  private writeSnapshot(snapshot: SessionSnapshot) {
-    const blocks = snapshot.blocks.map(b => (b.kind === 'user' && b.attachments?.some(a => a.path && a.dataUrl)
-      ? { ...b, attachments: b.attachments.map(a => (a.path ? { media_type: a.media_type, path: a.path } : a)) }
-      : b));
-    writeJsonAtomic(this.transcriptPath(snapshot.sessionId), { ...snapshot, blocks, quickchats: undefined });
+  private async writeSnapshot(snapshot: SessionSnapshot) {
+    // 快照只被本服务读取，紧凑写：带缩进的格式化会多花约两成序列化时间和一成体积。
+    // 写盘走异步：序列化后的 JSON 交给 libuv 线程池，同步占用只剩序列化本身
+    await writeJsonAtomicAsync(this.transcriptPath(snapshot.sessionId), { ...snapshot, blocks: stripImageData(snapshot.blocks), quickchats: undefined }, false);
   }
 
   private loadRuntime(id: string): Runtime {
@@ -141,32 +192,116 @@ export class SessionManager extends EventEmitter {
       const m = legacyBg.exec(b.text);
       return m ? { ...b, noticeType: 'bg-task' as const, taskStatus: m[1] as 'completed' | 'failed' | 'killed', text: b.text.slice(m[0].length) } : b;
     });
-    // 服务端重启后：上次若停在 processing，标为中断
-    if (snapshot.state === 'processing') {
+    // 服务端重启后：上次若停在 processing，标为中断（并补一次落盘，磁盘上的状态别停在 processing）
+    const interrupted = snapshot.state === 'processing';
+    if (interrupted) {
       applyEvent(snapshot, 'session:interrupted', { agentId: 'main', content: '服务已重启，本轮已中断' }, snapshot.seq + 1);
       applyEvent(snapshot, 'state:update', { state: 'idle' }, snapshot.seq + 1);
     }
     snapshot.workingDir = rec.workingDir;
-    rt = { snapshot, buffer: [], subscribers: new Set() };
+    rt = { snapshot, buffer: [], bufferBytes: 0, subscribers: new Set(), savedAt: Date.now() };
     this.runtimes.set(id, rt);
+    if (interrupted) this.afterChange(rt);
     return rt;
   }
 
+  /**
+   * 快照有改动：标脏。流式期间不落盘（现在每秒 1–2 次、每次二十多毫秒占住主线程），
+   * 回到空闲那一拍立即写一次；空闲期的偶发改动按防抖写。
+   * 长轮次里超过 {@link SAVE_MAX_STALE_MS} 补写一次，避免整轮只留在内存里。
+   */
+  private afterChange(rt: Runtime, turnEnd = false) {
+    rt.dirty = true;
+    if (turnEnd) { this.flushSaveNow(rt); return; }
+    if (rt.snapshot.state === 'processing') {
+      if (Date.now() - (rt.savedAt ?? 0) > SAVE_MAX_STALE_MS) this.flushSaveNow(rt);
+      return;
+    }
+    this.scheduleSave(rt);
+  }
+
   private scheduleSave(rt: Runtime) {
-    if (rt.saveTimer) return;
+    if (rt.saveTimer || rt.saving || rt.dead) return;
     rt.saveTimer = setTimeout(() => {
       rt.saveTimer = undefined;
-      try {
-        this.writeSnapshot(rt.snapshot);
-        rt.saveFailed = false;
-      } catch (e: any) {
-        if (!rt.saveFailed) logErr('transcript', `会话 ${rt.snapshot.sessionId} 落盘失败（后续同类失败不再记录）:`, e?.message || e);
-        rt.saveFailed = true;
-      }
+      void this.flushSave(rt);
     }, SAVE_DEBOUNCE_MS);
   }
 
-  getSnapshot(id: string): SessionSnapshot { return this.loadRuntime(id).snapshot; }
+  /** 立刻写（不等防抖）：轮末、超时补写、退出前用 */
+  private flushSaveNow(rt: Runtime) {
+    if (rt.saveTimer) { clearTimeout(rt.saveTimer); rt.saveTimer = undefined; }
+    void this.flushSave(rt);
+  }
+
+  /** 串行写：同一会话同一时刻只有一次；写期间来的改动合并成下一轮，不排队成多次写 */
+  private flushSave(rt: Runtime): Promise<void> {
+    if (rt.saving) return rt.saving;
+    if (rt.dead || !rt.dirty) return Promise.resolve();
+    rt.dirty = false;
+    const t0 = performance.now();
+    rt.saving = (async () => {
+      try {
+        await this.writeSnapshot(rt.snapshot);
+        rt.saveFailed = false;
+        rt.savedAt = Date.now();
+      } catch (e: any) {
+        rt.dirty = true;
+        if (!rt.saveFailed) logErr('transcript', `会话 ${rt.snapshot.sessionId} 落盘失败（后续同类失败不再记录）:`, e?.message || e);
+        rt.saveFailed = true;
+      } finally {
+        perfWrite(performance.now() - t0);
+        rt.saving = undefined;
+      }
+    })();
+    // 写期间的改动：空闲时补一次防抖写，流式中的等轮末
+    void rt.saving.then(() => { if (rt.dirty && !rt.dead && rt.snapshot.state !== 'processing') this.scheduleSave(rt); });
+    return rt.saving;
+  }
+
+  /** 退出时等待在飞的写，并把写入期间产生的改动继续写完；写失败则不无限重试。 */
+  private async flushPendingSave(rt: Runtime): Promise<void> {
+    do {
+      if (rt.saveTimer) { clearTimeout(rt.saveTimer); rt.saveTimer = undefined; }
+      await this.flushSave(rt);
+    } while (rt.dirty && !rt.dead && !rt.saveFailed);
+  }
+
+  /** 先等已开始的原子写完成，再删除正式文件，避免 rename 把文件写回来。 */
+  private async discardRuntime(sid: string): Promise<void> {
+    const rt = this.runtimes.get(sid);
+    if (rt?.saveTimer) { clearTimeout(rt.saveTimer); rt.saveTimer = undefined; }
+    if (rt) {
+      rt.dead = true;
+      if (rt.saving) await rt.saving;
+    }
+    this.runtimes.delete(sid);
+    try { fs.unlinkSync(this.transcriptPath(sid)); } catch { /* ignore */ }
+  }
+
+  /**
+   * 分页快照（HTTP 下发用）：只带尾部若干轮的块，向上滚动时按 page.oldestBlockId 往前翻。
+   * 图片附件只下发路径（原图走 raw 接口），审阅索引也不随快照走——它是全部轮次的文件改动，
+   * 长会话里有几百 KB，改由 getReview 在打开审阅面板时按需取。
+   * before 为上一页首块 id；不带则取尾部。
+   */
+  getSnapshot(id: string, opts: { before?: string } = {}): SessionSnapshot {
+    const snap = this.loadRuntime(id).snapshot;
+    const { blocks, page } = snapshotPage(snap.blocks, { before: opts.before, maxBytes: SNAPSHOT_PAGE_BYTES, maxTurns: SNAPSHOT_PAGE_TURNS });
+    const tail = blocks.length === snap.blocks.length;
+    return {
+      ...snap,
+      blocks: stripImageData(blocks),
+      // 当前轮次状态与流式消息只属于尾部那一页
+      ...(tail ? {} : { turn: null, streamingId: undefined }),
+      page,
+    };
+  }
+
+  /** 审阅索引（全部轮次的文件改动，含未加载的轮次）：打开审阅面板时取，轮次号从会话开头稳定编号 */
+  getReview(id: string): ReviewTurn[] {
+    return reviewTurns(this.loadRuntime(id).snapshot.blocks);
+  }
 
   // ==================== 事件 ====================
 
@@ -201,7 +336,7 @@ export class SessionManager extends EventEmitter {
    * 编辑完成事件读盘重算「轮前→当前」「会话首次触及前→当前」的总 diff，附加到 data.cumulative
    * （不动 data.content，聊天流工具卡片仍显示单步 diff）。
    */
-  private updateReviewDiff(sid: string, rt: Runtime, event: string, data: any) {
+  private async updateReviewDiff(sid: string, rt: Runtime, event: string, data: any): Promise<void> {
     // 轮内注入（injected）不是轮次边界：不重置轮级基线，同一文件注入前后的改动仍算进同一轮的总 diff
     if (event === 'input:processing') { if (rt.diffBase && !data?.injected) resetTurn(rt.diffBase); return; }
     if (event === 'state:update') { if (rt.diffBase && data?.state !== 'processing') resetTurn(rt.diffBase); return; }
@@ -212,7 +347,7 @@ export class SessionManager extends EventEmitter {
       const stamps = data?.readFileTimestamps;
       if (rec && stamps && typeof stamps === 'object') {
         const b = rt.diffBase ??= createBaselines();
-        for (const p of Object.keys(stamps)) captureOnRead(b, rec.workingDir, p);
+        await Promise.all(Object.keys(stamps).map(p => captureOnRead(b, rec.workingDir, p)));
       }
       return;
     }
@@ -221,9 +356,9 @@ export class SessionManager extends EventEmitter {
       const rec = this.registry.getSession(sid);
       if (rec && Array.isArray(data?.references)) {
         const b = rt.diffBase ??= createBaselines();
-        for (const ref of data.references) {
-          if (ref?.type === 'file' && ref.name) captureOnRead(b, rec.workingDir, String(ref.name));
-        }
+        await Promise.all(data.references
+          .filter((ref: any) => ref?.type === 'file' && ref.name)
+          .map((ref: any) => captureOnRead(b, rec.workingDir, String(ref.name))));
       }
       return;
     }
@@ -232,18 +367,85 @@ export class SessionManager extends EventEmitter {
     const title = String(data?.title || '');
     if (!rec || !title) return;
     const b = rt.diffBase ??= createBaselines();
-    if (data?.toolName === 'view_file') { captureOnRead(b, rec.workingDir, title); return; }
+    if (data?.toolName === 'view_file') { await captureOnRead(b, rec.workingDir, title); return; }
     if (!FILE_EDIT_TOOLS.has(data?.toolName)) return;
     // 总 diff 不依赖事件里的 hunks（core 强制改前必读，基线由 lastKnown 提供），content 只用来识别新建
-    const cum = computeCumulative(b, rec.workingDir, title, data?.content);
+    const cum = await computeCumulative(b, rec.workingDir, title, data?.content);
     if (cum) data.cumulative = cum;
   }
 
+  /**
+   * 流式增量进合并缓冲：同一条消息（或同一个工具）在一个窗口内的多个 chunk 拼成一帧。
+   * 返回 true 表示已被缓冲，调用方不要再处理本条事件。
+   */
+  private bufferChunk(rt: Runtime, event: string, data: any): boolean {
+    // 0 = 关闭合帧（对照测使用，与改前行为一致）
+    if (!CHUNK_COALESCE_MS || !COALESCE_EVENTS.has(event)) return false;
+    // 工具输出不是字符串（对象 / 结构化数据）时不参与拼接，交给调用方按原路径处理
+    if (event === 'tool:execution:chunk' && typeof data?.content !== 'string') return false;
+    const id = String(event === 'tool:execution:chunk' ? data?.toolId ?? '' : data?.id ?? '');
+    const key = `${event}:${id}`;
+    const c = rt.chunks ??= { items: new Map<string, { event: string; data: any }>(), order: [] as string[] };
+    const cur = c.items.get(key);
+    if (cur) {
+      cur.data = event === 'tool:execution:chunk'
+        ? { ...cur.data, content: String(cur.data.content || '') + data.content }
+        : { ...cur.data, delta: String(cur.data.delta || '') + String(data?.delta ?? '') };
+    } else {
+      c.items.set(key, { event, data: { ...data } });
+      c.order.push(key);
+    }
+    if (!c.timer) {
+      const sid = rt.snapshot.sessionId;
+      c.timer = setTimeout(() => { c.timer = undefined; void this.enqueueEvent(sid, () => this.flushChunks(rt)); }, CHUNK_COALESCE_MS);
+      c.timer.unref?.();
+    }
+    return true;
+  }
+
+  /** 把合并缓冲按首次出现顺序依次应用并广播；seq 在这里连续分配，前端看到的语义不变 */
+  private async flushChunks(rt: Runtime): Promise<void> {
+    const c = rt.chunks;
+    if (!c) return;
+    if (c.timer) { clearTimeout(c.timer); c.timer = undefined; }
+    if (!c.order.length) return;
+    const items = c.order.map(k => c.items.get(k)).filter((x): x is { event: string; data: any } => !!x);
+    c.items.clear();
+    c.order = [];
+    for (const it of items) await this.emitEvent(rt, it.event, it.data);
+  }
+
+  /**
+   * 同一会话的事件串行处理：读盘改异步后，「应用事件」与「广播」之间出现了 await，
+   * 不排队的话后到的事件会插到前面去（seq 顺序、以及依赖前一事件的 diff 基线都会错）。
+   */
+  private enqueueEvent(sid: string, task: () => Promise<void>): Promise<void> {
+    const prev = this.eventQueues.get(sid) ?? Promise.resolve();
+    const next = prev.then(task).catch((e: any) => logErr('sessions', `会话 ${sid} 事件处理异常:`, e?.message || e));
+    this.eventQueues.set(sid, next);
+    void next.then(() => { if (this.eventQueues.get(sid) === next) this.eventQueues.delete(sid); });
+    return next;
+  }
+
   private onEvent(sid: string, event: string, data: any) {
+    void this.enqueueEvent(sid, () => this.processEvent(sid, event, data));
+  }
+
+  private async processEvent(sid: string, event: string, data: any) {
     let rt: Runtime;
     try { rt = this.loadRuntime(sid); } catch { return; }
+    if (this.bufferChunk(rt, event, data)) return;
+    // 非流式事件（complete / state / 工具结果…）到达前先冲刷：保证前端看到的顺序与产生顺序一致
+    await this.flushChunks(rt);
+    await this.emitEvent(rt, event, data);
+  }
+
+  private async emitEvent(rt: Runtime, event: string, data: any) {
+    // 在合并之后计数：ev 反映实际应用并广播的帧数，合帧的效果直接体现在这个值上
+    perfEvent();
+    const sid = rt.snapshot.sessionId;
     this.backfillNewFilePatch(sid, event, data);
-    this.updateReviewDiff(sid, rt, event, data);
+    await this.updateReviewDiff(sid, rt, event, data);
     // readFileTimestamps 只有上面建 diff 基线用（全部读过的文件路径），不进缓冲、不推给浏览器
     if (event === 'session:ready' && data?.readFileTimestamps) {
       const { readFileTimestamps: _stamps, ...rest } = data;
@@ -251,11 +453,19 @@ export class SessionManager extends EventEmitter {
     }
     const seq = rt.snapshot.seq + 1;
     applyEvent(rt.snapshot, event, data, seq);
-    const frame: EventFrame = { event, sessionId: sid, seq, data };
-    rt.buffer.push(frame);
-    if (rt.buffer.length > BUFFER_MAX) rt.buffer.splice(0, rt.buffer.length - BUFFER_MAX);
-    for (const s of rt.subscribers) s.send(frame);
-    this.scheduleSave(rt);
+    // 序列化一次：进补发缓冲、发给所有订阅者都用这一份文本（多标签页不再各序列化一遍）
+    const json = JSON.stringify({ event, sessionId: sid, seq, data } as EventFrame);
+    const bytes = json.length + FRAME_OVERHEAD_BYTES;
+    rt.buffer.push({ seq, json, bytes });
+    rt.bufferBytes += bytes;
+    // 按字节封顶丢最旧：单帧就超上限时缓冲清空，重连的客户端走重拉快照
+    while (rt.bufferBytes > BUFFER_MAX_BYTES && rt.buffer.length) {
+      const old = rt.buffer.shift()!;
+      rt.bufferBytes -= old.bytes;
+    }
+    for (const s of rt.subscribers) s.send(json);
+    // 回到空闲的那一拍立即写；流式期间只标脏（长轮次按超时补写）
+    this.afterChange(rt, event === 'state:update' && rt.snapshot.state !== 'processing');
 
     // 副作用：注册表标题 / 活跃时间
     if (event === 'topic:update' && data?.title) {
@@ -276,9 +486,20 @@ export class SessionManager extends EventEmitter {
       }
       this.registry.touchSession(sid);
       this.broadcastRegistry();
+      this.broadcastStatus();
     } else if (event === 'permissionLevel:update' && data?.level) {
       this.registry.updateSession(sid, { permissionLevel: data.level });
+    } else if (event === 'state:update') {
+      this.broadcastStatus();
     }
+  }
+
+  /**
+   * 会话状态摘要：侧栏圆点与后台完成提示用。
+   * 前端可以释放不常驻的会话快照，靠这条广播维持状态，不需要为此保留整份快照。
+   */
+  private broadcastStatus() {
+    this.broadcastAll({ event: SERVER_EVENTS.statusUpdate, data: this.statusMap() });
   }
 
   private onWorkerExit(sids: string[], code: number | null) {
@@ -319,7 +540,7 @@ export class SessionManager extends EventEmitter {
     if (afterSeq === undefined || afterSeq >= rt.snapshot.seq) return { seq: rt.snapshot.seq, resync: false };
     const oldest = rt.buffer[0]?.seq;
     if (oldest === undefined || oldest > afterSeq + 1) return { seq: rt.snapshot.seq, resync: true };
-    for (const f of rt.buffer) if (f.seq > afterSeq) sub.send(f);
+    for (const f of rt.buffer) if (f.seq > afterSeq) sub.send(f.json);
     return { seq: rt.snapshot.seq, resync: false };
   }
 
@@ -491,24 +712,24 @@ export class SessionManager extends EventEmitter {
       case 'session.updateAgentMode':
         applyLocal(rt.snapshot, { type: 'agentMode', mode: payload.mode });
         this.registry.updateSession(sid, { agentMode: payload.mode });
-        this.scheduleSave(rt);
+        this.afterChange(rt);
         break;
       case 'session.updatePermissionLevel':
         applyLocal(rt.snapshot, { type: 'permissionLevel', level: payload.level });
         this.registry.updateSession(sid, { permissionLevel: payload.level });
-        this.scheduleSave(rt);
+        this.afterChange(rt);
         break;
       case 'session.respondToToolPermission':
         applyLocal(rt.snapshot, { type: 'permission', toolId: payload.response?.toolId, selected: payload.response?.selected });
-        this.scheduleSave(rt);
+        this.afterChange(rt);
         break;
       case 'session.respondToPickOption':
         applyLocal(rt.snapshot, { type: 'pick', id: payload.blockId, answers: payload.response?.answers ?? null });
-        this.scheduleSave(rt);
+        this.afterChange(rt);
         break;
       case 'session.respondToPlanExit':
         applyLocal(rt.snapshot, { type: 'plan-exit', id: payload.blockId, selected: payload.response?.selected });
-        this.scheduleSave(rt);
+        this.afterChange(rt);
         break;
       case 'session.processUserInput':
         this.registry.touchSession(sid);
@@ -535,10 +756,10 @@ export class SessionManager extends EventEmitter {
           resetTurn(rt.diffBase);
           const rec = this.registry.getSession(sid);
           if (rec && Array.isArray(result?.restoredFiles)) {
-            for (const p of result.restoredFiles) captureOnRead(rt.diffBase, rec.workingDir, String(p));
+            await Promise.all(result.restoredFiles.map((p: string) => captureOnRead(rt.diffBase!, rec.workingDir, String(p))));
           }
         }
-        this.scheduleSave(rt);
+        this.afterChange(rt);
         for (const s of rt.subscribers) s.send({ event: SERVER_EVENTS.sessionResync, data: { sessionId: sid } });
       }
     }
@@ -556,10 +777,8 @@ export class SessionManager extends EventEmitter {
     try {
       await this.ensureLive(rec.id);
     } catch (e) {
-      if (rt.saveTimer) clearTimeout(rt.saveTimer);
-      this.runtimes.delete(rec.id);
+      await this.discardRuntime(rec.id);
       this.registry.removeSession(rec.id);
-      try { fs.unlinkSync(this.transcriptPath(rec.id)); } catch { /* ignore */ }
       // 独立会话独占目录：本次刚创建的空目录，直接删除（不进废纸篓）
       if (!rec.projectId) { try { fs.rmSync(rec.workingDir, { recursive: true, force: true }); } catch { /* ignore */ } }
       this.broadcastRegistry();
@@ -567,7 +786,7 @@ export class SessionManager extends EventEmitter {
     }
     // 新会话就绪后异步检查超限退场（新会话 lastActiveAt 最新，不会被淘汰）
     void this.evictOverflow();
-    return { record: rec, snapshot: rt.snapshot };
+    return { record: rec, snapshot: { ...rt.snapshot, blocks: stripImageData(rt.snapshot.blocks) } };
   }
 
   /** 分支到新聊天：core 复制模型历史，WebUI 复制展示快照，并在同目录 worker 中创建新的 SemaSession。
@@ -619,22 +838,19 @@ export class SessionManager extends EventEmitter {
         historyLoaded: true,
         quickchats: undefined,
       };
-      const targetRt: Runtime = { snapshot, buffer: [], subscribers: new Set() };
+      const targetRt: Runtime = { snapshot, buffer: [], bufferBytes: 0, subscribers: new Set(), savedAt: Date.now() };
       this.runtimes.set(record.id, targetRt);
-      this.writeSnapshot(snapshot);
+      await this.writeSnapshot(snapshot);
 
       // record 与 runtime 已建立，session:ready 等事件可安全落入目标快照。
       await this.ensureLive(record.id);
       this.broadcastRegistry();
       void this.evictOverflow();
-      return { record, snapshot: targetRt.snapshot };
+      return { record, snapshot: { ...targetRt.snapshot, blocks: stripImageData(targetRt.snapshot.blocks) } };
     } catch (error) {
       if (targetId && targetOwned) {
-        const targetRt = this.runtimes.get(targetId);
-        if (targetRt?.saveTimer) clearTimeout(targetRt.saveTimer);
-        this.runtimes.delete(targetId);
+        await this.discardRuntime(targetId);
         this.registry.removeSession(targetId);
-        try { fs.unlinkSync(this.transcriptPath(targetId)); } catch { /* ignore */ }
         const worker = this.pool.get(source.workingDir);
         if (worker?.alive && worker.sessions.has(targetId)) {
           await this.pool.request(worker, 'session.close', targetId, {}).catch(() => null);
@@ -663,10 +879,7 @@ export class SessionManager extends EventEmitter {
       if (w?.alive && (rec.managedWorkingDir ?? !rec.projectId)
         && !this.registry.hasWorkingDirReference(rec.workingDir, sid)) await this.pool.kill(w);
     }
-    const rt = this.runtimes.get(sid);
-    if (rt?.saveTimer) clearTimeout(rt.saveTimer);
-    this.runtimes.delete(sid);
-    try { fs.unlinkSync(this.transcriptPath(sid)); } catch { /* ignore */ }
+    await this.discardRuntime(sid);
   }
 
   isBusy(sid: string) {
@@ -981,9 +1194,15 @@ export class SessionManager extends EventEmitter {
     clearInterval(this.sessionReapTimer);
     clearInterval(this.cronKeeperTimer);
     for (const rt of this.runtimes.values()) {
-      if (rt.saveTimer) { clearTimeout(rt.saveTimer); try { this.writeSnapshot(rt.snapshot); } catch { /* ignore */ } }
+      if (rt.chunks?.timer) { clearTimeout(rt.chunks.timer); rt.chunks.timer = undefined; }
+      if (rt.saveTimer) { clearTimeout(rt.saveTimer); rt.saveTimer = undefined; }
     }
+    // 先把合并缓冲里未发出的增量（以及在飞的事件处理）按序落进快照，否则关服会丢掉最后一小段流式输出
+    await Promise.all([...this.runtimes.entries()].map(([sid, rt]) => this.enqueueEvent(sid, () => this.flushChunks(rt))));
+    // worker 退出期间还可能送来最后几个事件，收进快照后再统一落盘（异步写要等它写完）
     await this.pool.disposeAll();
+    await Promise.all([...this.runtimes.entries()].map(([sid, rt]) => this.enqueueEvent(sid, () => this.flushChunks(rt))));
+    await Promise.all([...this.runtimes.values()].map(rt => this.flushPendingSave(rt)));
     this.discardSpare();
   }
 }

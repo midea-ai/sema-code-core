@@ -4,6 +4,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import { SessionManager, Subscriber } from '../sessions';
+import { perfBytes } from '../perf';
 import { CORE_ACTIONS, PROJECT_ACTIONS, SESSION_ACTIONS } from '../../../shared/protocol';
 import type { ReqFrame } from '../../../shared/types';
 
@@ -12,7 +13,13 @@ const ALLOWED = new Set<string>([...CORE_ACTIONS, ...PROJECT_ACTIONS, ...SESSION
 export function attachWs(wss: WebSocketServer, sm: SessionManager) {
   wss.on('connection', (ws: WebSocket, _req: IncomingMessage) => {
     const sub: Subscriber = {
-      send: (frame) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame)); },
+      send: (frame) => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        // 事件帧在 SessionManager 里已序列化（补发缓冲复用同一份文本），这里只序列化其余广播对象
+        const data = typeof frame === 'string' ? frame : JSON.stringify(frame);
+        perfBytes(data.length);
+        ws.send(data);
+      },
     };
     sm.globalSubscribers.add(sub);
 

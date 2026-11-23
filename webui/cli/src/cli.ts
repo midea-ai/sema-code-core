@@ -9,6 +9,7 @@
  *
  * 实例检测：启动时写 ~/.sema/webui/run.json（pid/port/url/version/startedAt），退出时删除；
  * 真正判定以 GET /api/health 为准（返回 name=semawork 才算本服务），记录残留而接口不通视为僵尸记录清掉。
+ * 版本提示：启动时并行查 npm registry 上 sema-code-ui 的最新版本，有新版本在输出开头提示安装与启动命令。
  * 服务本体与 npm start / 桌面版共用 webui/server/src/server.ts。
  */
 import fs from 'fs';
@@ -19,6 +20,7 @@ import { openExternal } from '../../server/src/http/router';
 import { startServer, type ServerHandle } from '../../server/src/server';
 import { arg, loadOrCreateToken } from '../../server/src/cliUtil';
 import { initErrorLog, installProcessTraps } from '../../server/src/errlog';
+import { checkLatestVersion } from './versionCheck';
 
 // 同 server/src/index.ts：core worker 是线程，共用进程的 libuv 线程池，缺省 4 放宽到 16；须早于任何异步 fs 调用
 if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = '16';
@@ -99,14 +101,24 @@ function open(url: string) {
   return openExternal(url).catch((e: any) => console.warn('打开浏览器失败，请手动访问：', e?.message || e));
 }
 
+/** 有新版本时打到启动输出开头；查询失败或已是最新静默（checkLatestVersion 自身带超时） */
+async function announceUpdate(latest: Promise<string | null>): Promise<void> {
+  const v = await latest;
+  if (!v) return;
+  console.log(`有新版本 ${v} 可用（当前 ${VERSION}）\n  安装：npm i -g sema-code-ui@latest\n`);
+}
+
 // ---- 子命令 ----
 
 async function start() {
   const port = Number(arg('port', process.env.PORT || '3210'));
   const noOpen = arg('no-open') === 'true';
+  // 与启动流程并行查最新版本，打印前再等结果，网络慢也最多多等 1.5 秒
+  const latest = checkLatestVersion(VERSION);
 
   const running = await findRunning(port);
   if (running) {
+    await announceUpdate(latest);
     console.log(`SemaWork 已在运行，不重复启动。\n${describe(running)}`);
     if (running.version && running.version !== VERSION) console.log(`\n注意：运行中的版本 ${running.version} 与当前命令 ${VERSION} 不一致，可先 sema-ui stop 再重新运行 sema-ui。`);
     if (!noOpen) await open(running.url);
@@ -147,7 +159,8 @@ async function start() {
     process.exit(1);
   }
   writeRecord({ pid: process.pid, port: handle.port, url: handle.url, version: VERSION, startedAt: new Date().toISOString() });
-  console.log(`\nSemaWork ${VERSION} 已启动：${handle.url}\n按 Ctrl+C 停止。\n`);
+  await announceUpdate(latest);
+  console.log(`SemaWork ${VERSION} 已启动：${handle.url}\n按 Ctrl+C 停止。\n`);
   if (!noOpen) await open(handle.url);
 }
 

@@ -16,6 +16,8 @@ sema-ui stop                  # 结束运行中的实例
 
 启动参数：`--port 3210` 改端口；`--token xxx` 指定 token；`--no-open` 不打开浏览器，可直接跟在 `sema-ui` 后。Ctrl+C 或关闭终端即停止服务，正在运行的任务会被中断。终端只打启动地址与关闭提示；服务内部错误写 `~/.sema/webui/error.log`（每次启动清空），core 运行日志在 `~/.sema/logs/`。
 
+启动时会向 npm registry 查询 `sema-code-ui` 的最新版本（沿用 `~/.npmrc` 或 `npm_config_registry` 配置的源），有新版本就在终端开头提示安装与启动命令；查询超时或失败静默跳过，不影响启动。设置 `SEMA_UI_NO_UPDATE_CHECK=1` 可关闭。
+
 数据目录 `~/.sema/webui/`（项目 / 会话索引、设置、token、运行记录 `run.json`），与 `npm start`、桌面版共用，详见 `webui/README.md`「数据位置」。实例检测、关闭链与打包布局的设计见 [docs/design.md](docs/design.md)。
 
 ## 构建与发布

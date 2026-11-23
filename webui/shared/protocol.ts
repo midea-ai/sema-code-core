@@ -30,6 +30,8 @@ export const SERVER_EVENTS = {
   sessionResync: 'session:resync',
   /** 存活会话列表变化（worker 拉起/退出/会话回收） */
   livenessUpdate: 'liveness:update',
+  /** 会话状态摘要变化（处理中 / 未决交互数）：快照已释放或页面在后台时，侧栏圆点仍要准 */
+  statusUpdate: 'session:status',
 } as const;
 
 /** 进程级（core.*）action：直接映射 SemaCore 同名方法 */

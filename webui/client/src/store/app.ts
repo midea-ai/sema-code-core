@@ -192,6 +192,17 @@ export const useApp = create<AppState>((set, get) => ({
       }
       else if (frame.event === SERVER_EVENTS.modelUpdate) set({ modelData: frame.data });
       else if (frame.event === SERVER_EVENTS.livenessUpdate) set({ liveSessions: toLiveMap(frame.data?.sessions) });
+      else if (frame.event === SERVER_EVENTS.statusUpdate) {
+        const next = (frame.data || {}) as Record<string, { state: string; pending: number }>;
+        const prev = get().status;
+        const view = get().view;
+        for (const [id, st] of Object.entries(next)) {
+          // 处理中 → 空闲且用户没在看：标记后台完成。快照已释放或页面在后台时同样生效
+          if (prev[id]?.state === 'processing' && st.state !== 'processing'
+            && !(view.type === 'chat' && view.sessionId === id && !document.hidden)) get().markDoneUnread(id);
+        }
+        set({ status: next });
+      }
       else if (frame.event === 'cron:update') {
         const dir = (frame as any).workingDir || '';
         set(s => ({ cronUpdates: { ...s.cronUpdates, [dir]: (s.cronUpdates[dir] || 0) + 1 } }));

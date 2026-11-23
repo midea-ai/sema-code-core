@@ -259,11 +259,17 @@ async function fetchRemoteSkill(r: SkillRes): Promise<void> {
     fs.writeFileSync(tarFile, tarball);
     const out = path.join(tmp, 'out');
     fs.mkdirSync(out);
-    await execFileP('tar', ['-xzf', tarFile, '-C', out]);
-    // tarball 顶层是 <repo>-<ref> 单目录，名字随 ref 形态变化，取解出来的唯一目录即可
-    const top = fs.readdirSync(out, { withFileTypes: true }).find(e => e.isDirectory());
-    const srcDir = top ? path.join(out, top.name, source.path) : '';
-    if (!srcDir || !fs.existsSync(path.join(srcDir, 'SKILL.md'))) throw new Error(`资源包中未找到 ${source.path}/SKILL.md，清单的 path 可能有误`);
+    // GitHub tarball 的顶层目录随 ref 变化，先从清单定位目标技能，再只解压该目录。
+    // 整包解压会在 Windows 上碰到仓库其他位置的符号链接，导致无关技能安装失败。
+    const { stdout: listing } = await execFileP('tar', ['-tzf', tarFile], { maxBuffer: 32 * 1024 * 1024 });
+    const suffix = `/${source.path}/SKILL.md`;
+    const top = listing.split(/\r?\n/)
+      .filter(entry => entry.endsWith(suffix))
+      .map(entry => entry.slice(0, -suffix.length))
+      .find(entry => !!entry && !entry.includes('/') && entry !== '.' && entry !== '..');
+    if (!top) throw new Error(`资源包中未找到 ${source.path}/SKILL.md，清单的 path 可能有误`);
+    await execFileP('tar', ['-xzf', tarFile, '-C', out, `${top}/${source.path}`]);
+    const srcDir = path.join(out, top, source.path);
     const dest = userSkillDir(r.id);
     fs.rmSync(dest, { recursive: true, force: true });
     fs.mkdirSync(path.dirname(dest), { recursive: true });

@@ -3,7 +3,7 @@
  * 只影响显示，发给 core 的文本仍是 `/<斜杠名> ...`。要增删映射只需改 SKILL_DISPLAY / COMMAND_DISPLAY。
  * 技能名直接写英文（办公软件名各语言通用）；命令名与所有描述走 i18n，只写 zh / en，其他语言兜底英文。
  */
-import { ChartColumn, Chrome, Database, Eraser, MessageCircleQuestion, Puzzle, Target, Telescope, type LucideIcon } from 'lucide-react';
+import { ChartColumn, Chrome, Database, Eraser, MessageCircleQuestion, NotebookText, Puzzle, Target, Telescope, type LucideIcon } from 'lucide-react';
 import { FileIcon } from '../../common/fileicon/FileIcon';
 import { FILE_LABEL_ICON } from './fileRefDisplay';
 import { cn } from '../../common/ui';
@@ -30,6 +30,7 @@ export const SKILL_DISPLAY: Record<string, SkillDisplay> = {
   'visualize':      { icon: ChartColumn, color: '#4285F4', name: 'Visualize',  descKey: 'skill.visualize.desc' },
   'chrome-use':     { icon: Chrome,    color: '#fabd15', name: 'Chrome',     descKey: 'skill.chrome-use.desc' },
   'deep-research':  { icon: Telescope, color: '#2A9D8F', name: 'Research',   descKey: 'skill.deep-research.desc' },
+  'tech-design-doc': { icon: NotebookText, color: '#519ABA', name: 'TechDoc', descKey: 'skill.tech-design-doc.desc' },
   'sema-extend':    { icon: Puzzle,    color: '#A074C4', name: 'SemaExtend', descKey: 'skill.sema-extend.desc' },
 };
 

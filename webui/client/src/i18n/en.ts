@@ -141,6 +141,7 @@ export const en = {
   'skill.visualize.desc': 'Create visual views in the chat',
   'skill.chrome-use.desc': 'Control the browser to operate web pages',
   'skill.deep-research.desc': 'Research a topic in depth and write a report',
+  'skill.tech-design-doc.desc': 'Write tech design docs from the code',
   'skill.sema-extend.desc': 'Install and manage skills and MCP servers',
   'card.review': 'Review',
   'card.undo': 'Undo',

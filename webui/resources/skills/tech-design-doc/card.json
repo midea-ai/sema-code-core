@@ -1,0 +1,7 @@
+{
+  "name": "技术文档",
+  "description": "为代码编写技术设计文档：先读代码、出大纲，再产出带取舍分析和架构图的设计文档。",
+  "category": "insight",
+  "order": 70,
+  "defaultInstall": true
+}

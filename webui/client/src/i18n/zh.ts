@@ -138,6 +138,7 @@ export const zh = {
   'skill.visualize.desc': '在对话里创建可视化视图',
   'skill.chrome-use.desc': '控制浏览器操作网页',
   'skill.deep-research.desc': '深度调研并生成报告',
+  'skill.tech-design-doc.desc': '为代码编写技术设计文档',
   'skill.sema-extend.desc': '安装和管理技能、MCP 服务',
   'card.review': '审阅',
   'card.undo': '撤销',

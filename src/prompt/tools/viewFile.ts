@@ -12,7 +12,7 @@ Rules:
 
 Supported formats:
 - Text, code, config files
-- Images (PNG, JPG, etc.) — ALWAYS read when user provides a screenshot path
+- Images (PNG, JPG, etc.) — read images that are not already visible in the conversation
 - PDF — large PDFs (>10 pages) MUST use the pdf_page_range parameter (e.g., "1-3"), max 20 pages per call
 - Jupyter notebooks (.ipynb) — returns all cells with outputs
 

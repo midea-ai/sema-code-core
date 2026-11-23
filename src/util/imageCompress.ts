@@ -264,7 +264,7 @@ export function toImageContentBlocks(attachments?: InputImageAttachment[], paths
     const savedPath = paths?.[index]
     if (!savedPath) return [image]
     return [
-      { type: 'text', text: `${REMINDER_SYS_OPEN}\nAttached image saved at ${savedPath}\n${REMINDER_SYS_CLOSE}` },
+      { type: 'text', text: `${REMINDER_SYS_OPEN}\nImage is shown below; ${savedPath} is the original file — use only when the file itself is needed\n${REMINDER_SYS_CLOSE}` },
       image,
     ]
   })

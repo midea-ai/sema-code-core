@@ -528,6 +528,26 @@ export interface SessionSnapshot {
   predictedInput?: string;
   /** 长期目标（/goal）：session:ready 回填，goal:update 同步；null / 缺省表示无目标 */
   goal?: GoalState | null;
+  /** 分页信息：只有 GET snapshot 的分页结果带；缺省 = blocks 已是全部（分支返回、预览 mock、旧快照） */
+  page?: SnapshotPage;
+}
+
+/** 快照分页：hasMore 时用 oldestBlockId 继续向更早的轮次翻页 */
+export interface SnapshotPage {
+  hasMore: boolean;
+  /** 本页首块的 id（翻页游标）；没有更多时缺省 */
+  oldestBlockId?: string;
+}
+
+/** 审阅面板的一轮文件改动：n 为稳定的轮次号（从会话开头算，翻页不改变） */
+export interface ReviewTurn {
+  id: string;
+  n: number;
+  ts: number;
+  inputId?: string;
+  /** 该轮用户输入首行 */
+  summary?: string;
+  files: FileChange[];
 }
 
 /** quickchat 旁路问答一条记录 */

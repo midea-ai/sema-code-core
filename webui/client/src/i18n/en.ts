@@ -63,6 +63,7 @@ export const en = {
   'chat.historyExpired': 'History expired; continuing as a new conversation',
   'chat.queued': 'Queued',
   'chat.scrollBottom': 'Scroll to bottom',
+  'chat.loadingEarlier': 'Loading earlier messages',
   'chat.sourceCron': 'Sent by scheduled task',
   'chat.sourceGoalSet': 'Goal set',
   'chat.sourceGoalUpdate': 'Goal updated',

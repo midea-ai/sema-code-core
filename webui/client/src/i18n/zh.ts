@@ -60,6 +60,7 @@ export const zh = {
   'chat.historyExpired': '历史已过期，将作为新对话继续',
   'chat.queued': '排队中',
   'chat.scrollBottom': '回到底部',
+  'chat.loadingEarlier': '正在加载更早的消息',
   'chat.sourceCron': '由定时任务发送',
   'chat.sourceGoalSet': '设定目标',
   'chat.sourceGoalUpdate': '更新目标',

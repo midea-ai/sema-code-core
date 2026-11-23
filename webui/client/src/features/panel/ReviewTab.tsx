@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GitCompare, Copy, Check, FolderOpen, ChevronsDownUp, ChevronsUpDown, SquareArrowOutUpRight, RotateCw } from 'lucide-react';
-import type { FileChange, FileChangesBlock, UserBlock } from '../../../../shared/types';
-import { countPatch } from '../../../../shared/transcript';
+import type { FileChange, ReviewTurn } from '../../../../shared/types';
+import { countPatch, reviewTurns } from '../../../../shared/transcript';
 import { isAttachmentPath } from '../../../../shared/viz';
 import { useApp, PanelTab } from '../../store/app';
 import { useSessions } from '../../store/sessions';
@@ -14,44 +14,61 @@ import { t } from '../../i18n';
 const ALL = '__all__';
 const GIT = 'git:uncommitted';
 const IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i;
+/** 索引未到时的占位（保持引用稳定，避免每帧重建 turns） */
+const NO_TURNS: ReviewTurn[] = [];
 
-interface Turn { block: FileChangesBlock; index: number; summary: string }
 interface GitData { gitRepo: boolean; files: FileChange[]; ts: number }
 
 /** 「审阅」标签：轮次视图（事件流的历史总 diff）+ Git 视图（未暂存/未提交，实时现算） */
 export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab }) {
-  const blocks = useSessions(s => s.snapshots[sessionId]?.blocks);
+  const snap = useSessions(s => s.snapshots[sessionId]);
   const updatePanel = useApp(s => s.updatePanel);
   const toast = useApp(s => s.toast);
 
-  // 所有轮次（按出现顺序）；摘要取同 inputId 的用户消息首行
-  const turns = useMemo<Turn[]>(() => {
-    const out: Turn[] = [];
-    const users = new Map<string, UserBlock>();
-    for (const b of blocks || []) {
-      if (b.kind === 'user' && b.inputId) users.set(b.inputId, b);
-      if (b.kind === 'file-changes') {
-        // attachments/<uuid>/ 下的文件（可视化产物等）不进审阅；该轮只改了这类文件则整轮不列
-        const files = b.files.filter(f => !isAttachmentPath(f.path));
-        if (!files.length) continue;
-        const u = b.inputId ? users.get(b.inputId) : undefined;
-        const summary = (u?.text || '').split('\n')[0].trim();
-        out.push({ block: { ...b, files }, index: out.length + 1, summary });
-      }
-    }
-    return out;
-  }, [blocks]);
+  // 轮次列表：服务端索引含全部轮次的文件改动（分页后未加载的轮次也在），打开面板时按需取，不随快照下发。
+  // 分页快照在索引到达前不给本地现算——本地只有尾部几轮，轮次号会从 1 重新编号；非分页快照
+  // （分支返回、预览 mock）本来就是全量，直接用本地块。两种来源的轮次号都由同一份块序列决定。
+  const blocks = snap?.blocks;
+  const localTurns = useMemo<ReviewTurn[]>(() => reviewTurns(blocks || []), [blocks]);
+  // 分页尾页是滑动窗口：新结束一轮时尾部页的轮数不变，只有最后一轮的 id 会变，用它当刷新信号
+  const latestLocalId = localTurns[localTurns.length - 1]?.id;
+  const [index, setIndex] = useState<ReviewTurn[] | null>(null);
+  useEffect(() => {
+    // 快照还没到就不取：首屏快照落库会带来本地轮数从 0 变 N，先取一次只会白跑一遍
+    if (!snap) return;
+    let alive = true;
+    api<ReviewTurn[]>('GET', `/api/sessions/${sessionId}/review`)
+      .then(t => { if (alive) setIndex(t); })
+      .catch(() => { /* 取不到就沿用本地现算 */ });
+    return () => { alive = false; };
+    // latestLocalId：面板开着时又结束一轮（或回退截断），重新取索引，不必刷新页面
+  }, [sessionId, latestLocalId, !!snap]);
+  // 索引是否可信：取到了，或者本来就该用本地块
+  const ready = index !== null || !snap?.page;
+  const turns = useMemo<ReviewTurn[]>(() => {
+    const src = index ?? (snap?.page ? NO_TURNS : localTurns);
+    return src
+      .map(t => ({ ...t, files: t.files.filter(f => !isAttachmentPath(f.path)) }))
+      .filter(t => t.files.length > 0);
+  }, [index, snap?.page, localTurns]);
 
-  const latestId = turns[turns.length - 1]?.block.id;
+  const latestId = turns[turns.length - 1]?.id;
   const [selected, setSelected] = useState<string>(tab.blockId || latestId || ALL);
   const isGit = selected === GIT;
   // 卡片「审阅」跳转 → 定位到该轮
   useEffect(() => { if (tab.blockId) setSelected(tab.blockId); }, [tab.blockId]);
+  // 索引回来之前只能落在「本次会话」：用户没手动选过、卡片也没指定轮次时，落到最新一轮（与改造前一致）
+  const picked = useRef(false);
+  useEffect(() => {
+    if (!ready || picked.current || tab.blockId) return;
+    if (selected === ALL && latestId) setSelected(latestId);
+  }, [ready, selected, latestId, tab.blockId]);
   // 选中项已不存在（回退截断/旧版 git 视图值）→ 回到最新；Git 视图不受轮次影响
   useEffect(() => {
+    if (!ready) return;
     if (selected.startsWith('git:') && selected !== GIT) { setSelected(GIT); return; }
-    if (selected !== ALL && selected !== GIT && !turns.some(x => x.block.id === selected)) setSelected(latestId || ALL);
-  }, [turns, selected, latestId]);
+    if (selected !== ALL && selected !== GIT && !turns.some(x => x.id === selected)) setSelected(latestId || ALL);
+  }, [ready, turns, selected, latestId]);
 
   // 是否 Git 仓库：决定下拉里显示不显示 Git 视图选项（每次打开面板探测一次）
   const [gitRepo, setGitRepo] = useState<boolean | null>(null);
@@ -85,11 +102,11 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
   }, [sessionId, toast]);
   useEffect(() => { if (isGit) loadGit(); }, [isGit, latestId, loadGit]);
 
-  const allFiles = useMemo(() => mergeAll(turns.map(x => x.block.files)), [turns]);
+  const allFiles = useMemo(() => mergeAll(turns.map(x => x.files)), [turns]);
   const files = useMemo<FileChange[]>(() => {
     if (isGit) return gitData?.files || [];
     if (selected === ALL) return allFiles;
-    return turns.find(x => x.block.id === selected)?.block.files || [];
+    return turns.find(x => x.id === selected)?.files || [];
   }, [turns, selected, isGit, gitData, allFiles]);
 
   // 「未提交」视图用左右分栏：左侧单文件详情（按需取 diff）+ 右侧文件树；轮次/本次会话仍为列表
@@ -131,6 +148,7 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
   };
 
   const onSelect = (v: string) => {
+    picked.current = true;
     setSelected(v);
     // 同步到标签状态，刷新后保留定位
     updatePanel(sessionId, p => ({ ...p, tabs: p.tabs.map(x => x.id === tab.id ? { ...x, blockId: v === ALL ? undefined : v } : x) }));
@@ -140,17 +158,17 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
   const options: DropdownOption<string>[] = [
     { value: ALL, label: t('review.all'), desc: statNode(allFiles) },
     ...turns.slice().reverse().map(x => ({
-      value: x.block.id,
-      label: `${t('review.turn', { n: x.index })}${x.summary ? ` · ${x.summary}` : ''}`,
-      desc: <>{fmtTime(x.block.ts)} · {statNode(x.block.files)}</>,
+      value: x.id,
+      label: `${t('review.turn', { n: x.n })}${x.summary ? ` · ${x.summary}` : ''}`,
+      desc: <>{fmtTime(x.ts)} · {statNode(x.files)}</>,
     })),
     // Git 视图仅在会话目录处于 Git 仓库内时提供，与轮次组之间画分割线
     ...(gitRepo ? [{ value: GIT, label: t('review.uncommitted'), sepAbove: true }] : []),
   ];
-  const curTurn = turns.find(x => x.block.id === selected);
+  const curTurn = turns.find(x => x.id === selected);
   const selectedLabel = isGit
     ? t('review.uncommitted')
-    : selected === ALL ? t('review.all') : t('review.turn', { n: curTurn?.index ?? 0 });
+    : selected === ALL ? t('review.all') : t('review.turn', { n: curTurn?.n ?? 0 });
 
   return (
     <>

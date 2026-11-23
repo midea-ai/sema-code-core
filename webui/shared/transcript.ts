@@ -5,10 +5,11 @@
  * 约定：所有更新返回新的对象/数组（不原地改旧引用），便于前端按引用做渲染优化。
  */
 import type {
-  AgentBlock, Block, FileChange, ImageAttachmentMeta, NoticeBlock, PermissionBlock, SessionSnapshot, ToolBlock,
+  AgentBlock, Block, FileChange, ImageAttachmentMeta, NoticeBlock, PermissionBlock, ReviewTurn, SessionSnapshot, SnapshotPage, ToolBlock,
 } from './types';
 import { CRON_TOOLS, FILE_EDIT_TOOLS, MAIN_AGENT_ID } from './protocol';
 import { parsePasteInput } from './paste';
+import { isAttachmentPath } from './viz';
 
 /** 每个会话的快问记录保留条数上限（只在内存里，不落盘） */
 const QUICKCHAT_KEEP = 10;
@@ -181,13 +182,15 @@ function voidPending(snap: SessionSnapshot) {
   snap.blocks = mark(snap.blocks);
 }
 
-/** 事件里的图片附件 → 气泡回显元数据（input:received 排队回显与 input:processing 共用）；path 是 core 带回的原图路径 */
+/**
+ * 事件里的图片附件 → 气泡回显元数据（input:received 排队回显与 input:processing 共用）；path 是 core 带回的原图路径。
+ * 有路径就只留路径：base64 只在这一帧里传一次，气泡、快照、回填都按路径读原图，进程里不再常驻一份。
+ */
 function toAttachmentMetas(raw: unknown): ImageAttachmentMeta[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
   return raw.map((a: any) => ({
     media_type: a.media_type,
-    ...(a.path ? { path: String(a.path) } : {}),
-    ...(a.data ? { dataUrl: `data:${a.media_type};base64,${a.data}` } : {}),
+    ...(a.path ? { path: String(a.path) } : a.data ? { dataUrl: `data:${a.media_type};base64,${a.data}` } : {}),
   }));
 }
 
@@ -676,4 +679,65 @@ export function firstUserText(snap: SessionSnapshot): string | undefined {
   // findBlock 从后往前，这里需要第一个
   const first = snap.blocks.find(x => x.kind === 'user') || b;
   return first && first.kind === 'user' ? first.text : undefined;
+}
+
+// ==================== 分页 ====================
+
+/** 轮次边界：用户输入（轮内注入不算）、计划实施后的合成开头、分支起点 */
+function isPageBoundary(b: Block): boolean {
+  return (b.kind === 'user' && !b.injected) || (b.kind === 'notice' && b.noticeType === 'plan-implement') || b.kind === 'branch-origin';
+}
+
+/**
+ * 按轮边界切一页快照：从 before 之前（缺省为末尾）往前取轮。
+ * 尽量不越过 maxBytes / maxTurns；一轮自身就超预算时单独成页，保证一页至少带走一轮。
+ * 轮次不跨页切分——前端按轮分组、轮次导航、审阅都依赖完整的轮。
+ */
+export function snapshotPage(
+  blocks: Block[],
+  opts: { before?: string; maxBytes?: number; maxTurns?: number } = {},
+): { blocks: Block[]; page: SnapshotPage } {
+  const maxBytes = opts.maxBytes ?? 400 * 1024;
+  const maxTurns = opts.maxTurns ?? 10;
+  let end = blocks.length;
+  if (opts.before) {
+    const i = blocks.findIndex(b => b.id === opts.before);
+    // 游标已不存在（块被撤销/清空）：返回空页让前端停止翻页，避免把尾部页当成历史重复拼
+    if (i <= 0) return { blocks: [], page: { hasMore: false } };
+    end = i;
+  }
+  // 每一轮的起始下标；没有开头块的前置块并入第一轮
+  const starts: number[] = [];
+  for (let i = 0; i < end; i++) if (isPageBoundary(blocks[i])) starts.push(i);
+  if (starts[0] !== 0) starts.unshift(0);
+
+  let from = end, bytes = 0, turns = 0;
+  for (let t = starts.length - 1; t >= 0 && starts[t] < end; t--) {
+    const s = starts[t];
+    const e = Math.min(t + 1 < starts.length ? starts[t + 1] : blocks.length, end);
+    let size = 0;
+    for (let i = s; i < e; i++) size += JSON.stringify(blocks[i]).length;
+    // 已有一轮兜底后就不再超预算/超轮数（单轮过大时独自成页）
+    if (turns > 0 && (bytes + size > maxBytes || turns >= maxTurns)) break;
+    bytes += size;
+    turns++;
+    from = s;
+  }
+  return { blocks: blocks.slice(from, end), page: { hasMore: from > 0, ...(from > 0 ? { oldestBlockId: blocks[from]?.id } : {}) } };
+}
+
+/** 审阅索引：全部轮次的文件改动（宿主 attachments 目录下的产物不算），轮次号从会话开头稳定编号 */
+export function reviewTurns(blocks: Block[]): ReviewTurn[] {
+  const out: ReviewTurn[] = [];
+  const summaries = new Map<string, string>();
+  for (const b of blocks) {
+    if (b.kind === 'user' && b.inputId && !summaries.has(b.inputId)) summaries.set(b.inputId, String(b.text || '').split('\n')[0].trim());
+    else if (b.kind === 'file-changes') {
+      const files = b.files.filter(f => !isAttachmentPath(f.path));
+      if (!files.length) continue;
+      const summary = b.inputId ? summaries.get(b.inputId) : undefined;
+      out.push({ id: b.id, n: out.length + 1, ts: b.ts, ...(b.inputId ? { inputId: b.inputId } : {}), ...(summary ? { summary } : {}), files });
+    }
+  }
+  return out;
 }

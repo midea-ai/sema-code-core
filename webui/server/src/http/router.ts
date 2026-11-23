@@ -260,7 +260,11 @@ export class Router {
     this.add('POST', '/api/sessions', async (_r, _s, _p, body) => sm.createSession({ projectId: body?.projectId || undefined }));
     this.add('POST', '/api/sessions/:id/branch', async (_r, _s, p, body) =>
       sm.branchSession(p.id, typeof body?.beforeMessageUuid === 'string' ? body.beforeMessageUuid : undefined));
-    this.add('GET', '/api/sessions/:id/snapshot', (_r, _s, p) => sm.getSnapshot(p.id));
+    // 分页快照：不带 before 取尾部若干轮；带 before（上一页首块 id）继续往前翻
+    this.add('GET', '/api/sessions/:id/snapshot', (r, _s, p) =>
+      sm.getSnapshot(p.id, { before: new URL(r.url || '/', 'http://x').searchParams.get('before') || undefined }));
+    // 审阅索引（全部轮次的文件改动，含未加载的轮次）：打开「审阅」面板时才取，不随每次快照下发
+    this.add('GET', '/api/sessions/:id/review', (_r, _s, p) => sm.getReview(p.id));
     this.add('PATCH', '/api/sessions/:id', (_r, _s, p, body) => {
       const r = reg.updateSession(p.id, { title: String(body?.title || '') }); sm.broadcastRegistry(); return r;
     });

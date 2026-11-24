@@ -2,7 +2,8 @@
  * 可视化页内 runtime：由服务端本地代理注入到 attachments/<uuid>/*.html 的 <head>（见 server.ts serveLocalFile），
  * 在聊天内联 iframe 里跑（不透明源，宿主拿不到页面 DOM）。三件事：
  *   1. 把文档高度、标题与页面声明的设计宽度 postMessage 给宿主，宿主据此定 iframe 尺寸与标题；
- *   2. 收到宿主的截图请求时，用 html-to-image 把整页渲染成 png Blob 回传（「复制为图像」）；
+ *   2. 收到宿主的截图请求时，用 html-to-image 把页面渲染成 png Blob 回传（「复制为图像」；
+ *      窄组件样机只保留组件本身，四周透明，不带走衬底与留白）；
  *   3. 页面是居中的窄组件样机时，给它铺一层点阵衬底。
  * 独立打包成固定文件名 /viz-runtime.js（vite.config.ts），不与主应用共享代码。不在 iframe 里（直接用浏览器打开）时静默退出。
  */
@@ -33,13 +34,47 @@ if (window.parent !== window) {
 
   // 是不是居中的窄组件：只看宽度，不依赖页面里写了什么——左右两侧各有一条空白，
   // 即在距两边 12% 处沿高度取几个点，点下都没有内容（图表、表格、整页样机都是铺满宽度的，天然不满足）。
-  // 宽度变化后结论会变，每次尺寸变化都重判
-  const markDotted = () => {
-    if (!document.body) return;
+  // 宽度变化后结论会变，每次尺寸变化都重判；点阵与截图共用这一判据
+  const isNarrow = () => {
+    if (!document.body) return false;
     const w = window.innerWidth;
     const h = Math.min(window.innerHeight, document.documentElement.getBoundingClientRect().height);
-    const narrow = [0.12, 0.88].every(rx => [0.1, 0.3, 0.5, 0.7, 0.9].every(ry => blankAt(w * rx, h * ry)));
-    document.body.classList.toggle('viz-dotted', narrow);
+    return [0.12, 0.88].every(rx => [0.1, 0.3, 0.5, 0.7, 0.9].every(ry => blankAt(w * rx, h * ry)));
+  };
+
+  const markDotted = () => {
+    if (document.body) document.body.classList.toggle('viz-dotted', isNarrow());
+  };
+
+  // 裁掉四周全透明的像素：窄组件样机截出来只有中间一块内容，四周留白在导出图里没有意义
+  const cropTransparent = async (blob: Blob) => {
+    const bmp = await createImageBitmap(blob);
+    const full = document.createElement('canvas');
+    full.width = bmp.width;
+    full.height = bmp.height;
+    const ctx = full.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return blob;
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close?.();
+    const { data } = ctx.getImageData(0, 0, full.width, full.height);
+    let x0 = full.width, y0 = full.height, x1 = -1, y1 = -1;
+    for (let y = 0; y < full.height; y++) {
+      for (let x = 0; x < full.width; x++) {
+        if (data[(y * full.width + x) * 4 + 3] === 0) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    if (x1 < 0 || (x0 === 0 && y0 === 0 && x1 === full.width - 1 && y1 === full.height - 1)) return blob;
+    const out = document.createElement('canvas');
+    out.width = x1 - x0 + 1;
+    out.height = y1 - y0 + 1;
+    const octx = out.getContext('2d');
+    if (!octx) return blob;
+    octx.drawImage(full, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+    return (await new Promise<Blob | null>(res => out.toBlob(b => res(b), 'image/png'))) || blob;
   };
 
   // 页面声明的设计宽度：宿主据此把内嵌框加宽到消息列以外；未声明或值非法时不带
@@ -77,12 +112,26 @@ if (window.parent !== window) {
   window.addEventListener('message', async (e: MessageEvent<VizMessage>) => {
     const m = e.data;
     if (!m || m.type !== VIZ_MSG_TYPE || m.kind !== 'snapshot' || 'blob' in m || 'error' in m) return;
+    // 点阵衬底只用于内嵌展示，导出的图像不要它：截图期间用内联样式压掉背景图（压过 .viz-dotted 的类规则），
+    // 结束后还原内联原值；不走摘 class，避免截图过程中尺寸观察回调又把类加回来。
+    // 窄组件样机连 html / body 自身的底色也去掉，组件四周导出为透明，再按内容裁掉留白
+    const roots = [document.documentElement, document.body];
+    const saved = roots.map(el => el.style.cssText);
+    const narrow = isNarrow();
+    document.body.style.backgroundImage = 'none';
+    if (narrow) roots.forEach(el => {
+      el.style.backgroundColor = 'transparent';
+      el.style.backgroundImage = 'none';
+    });
     try {
-      const blob = await toBlob(document.body, { pixelRatio: 2, backgroundColor: getComputedStyle(document.body).backgroundColor || '#fff', cacheBust: false });
+      let blob = await toBlob(document.body, { pixelRatio: 2, cacheBust: false });
       if (!blob) throw new Error('empty');
+      if (narrow) blob = await cropTransparent(blob);
       post({ type: VIZ_MSG_TYPE, kind: 'snapshot', id: m.id, blob });
     } catch (err) {
       post({ type: VIZ_MSG_TYPE, kind: 'snapshot', id: m.id, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      roots.forEach((el, i) => { el.style.cssText = saved[i]; });
     }
   });
 }

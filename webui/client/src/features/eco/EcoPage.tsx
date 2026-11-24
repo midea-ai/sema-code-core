@@ -54,11 +54,31 @@ function GithubIcon({ size = 12, className }: { size?: number; className?: strin
   );
 }
 
+// 首字母背景色板：同色相低饱和，浅色相单独压暗，保证白字对比度（与 vscode 插件页一致）
+const NAME_BG_COLORS = [
+  'hsl(239 40% 47%)', // indigo
+  'hsl(262 40% 49%)', // violet
+  'hsl(292 40% 47%)', // purple
+  'hsl(330 42% 47%)', // pink
+  'hsl(350 45% 47%)', // rose
+  'hsl(4 45% 47%)',   // red
+  'hsl(24 48% 42%)',  // orange
+  'hsl(40 50% 36%)',  // amber
+  'hsl(152 40% 38%)', // green
+  'hsl(175 42% 36%)', // teal
+  'hsl(190 45% 38%)', // cyan
+  'hsl(217 45% 48%)', // blue
+];
+
 /** 名称哈希出稳定颜色的首字母图标（对齐 vscode 插件页样式） */
 function NameIcon({ name }: { name: string }) {
-  const hue = useMemo(() => { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }, [name]);
+  const color = useMemo(() => {
+    let h = 0;
+    for (const c of name) h = ((h << 5) - h + c.charCodeAt(0)) | 0;
+    return NAME_BG_COLORS[Math.abs(h) % NAME_BG_COLORS.length];
+  }, [name]);
   return (
-    <div className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center text-white text-sm font-semibold" style={{ backgroundColor: `hsl(${hue} 55% 55%)` }}>
+    <div className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center text-white text-sm font-semibold" style={{ backgroundColor: color }}>
       {(name[0] || '?').toUpperCase()}
     </div>
   );

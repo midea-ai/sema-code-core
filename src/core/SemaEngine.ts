@@ -4,7 +4,7 @@ import { statSync, unlinkSync, rmdirSync } from 'fs'
 import { dirname } from 'path'
 import { logInfo, logDebug, setLogLevel, logWarn } from '../util/log';
 import { getTokens } from '../util/tokens';
-import { loadHistory, saveHistory, resolveHistoryFile } from '../util/history';
+import { loadHistory, saveHistory, resolveHistoryFile, closeHistory, deleteSessionHistory } from '../util/history';
 import { detectTopicInBackground } from '../util/topic';
 import { predictNextInputInBackground } from '../util/inputPredict';
 import { processFileReferences } from '../util/fileReference';
@@ -63,6 +63,12 @@ export class SemaEngine {
   private currentInputRetract: InputRetractState | null = null
 
   private readonly runtime: SessionRuntime;
+
+  /**
+   * 会话是否已初始化完成（createSession 走到末尾）。
+   * 创建中途失败（模型名不存在、历史读取失败等）时运行时仍是空状态，dispose 不得把它当作会话内容落盘。
+   */
+  private sessionStarted = false
 
   // 公共事件接口（会话级，自动按 sessionId 路由）
   emit = <T>(event: string, data: T) => this.bus.emit(event, data);
@@ -187,6 +193,8 @@ export class SemaEngine {
 
     // SessionStart hook：后台触发，additionalContext 在首轮 processQuery 时消费
     this.sessionStartHookPromise = fireSessionStart(this.sessionId);
+
+    this.sessionStarted = true;
 
     // 延迟一拍发送 session:ready：调用方需先拿到 createSession 返回的 SemaSession
     // 并在其上注册监听器，再收到首个事件
@@ -850,7 +858,7 @@ export class SemaEngine {
    * 输入撤销：把本轮输入当作没发生过。历史回到本轮之前（不留这条输入与中断提示）、还原本轮预读文件写下的读时间戳、
    * 退回本轮才置上的 Plan / Design 模式说明标记、放回被消费的 SessionStart 上下文、删除本轮落盘的附图，
    * 最后发 input:retracted 由宿主把原文放回输入框。
-   * 不回滚：上翻输入历史、已执行的 UserPromptSubmit hook、transcript 已追加的行。
+   * 不回滚：上翻输入历史、已执行的 UserPromptSubmit hook。
    */
   private async retractInput(
     item: { inputId: string; input: string; originalInput?: string },
@@ -869,11 +877,10 @@ export class SemaEngine {
     if (!turn.planInfoSent) this.runtime.resetPlanModeInfoSent();
     if (!turn.designInfoSent) this.runtime.resetDesignModeInfoSent();
 
-    // 先还原读时间戳再落盘历史（历史文件里带读时间戳）
-    mainAgentState.setReadFileTimestamps(turn.readFileTimestamps);
     if (turn.history) {
-      mainAgentState.setMessageHistory(turn.history); // 非空时自动保存
-      if (turn.history.length === 0) await this.saveEmptyHistory();
+      this.runtime.replaceMessageHistory(turn.history, undefined, turn.readFileTimestamps);
+    } else {
+      mainAgentState.setReadFileTimestamps(turn.readFileTimestamps);
     }
 
     // SessionStart 上下文留给下一轮重新注入
@@ -900,20 +907,6 @@ export class SemaEngine {
     const data: InputRetractedData = { inputId: item.inputId, input: item.input, originalInput: item.originalInput };
     this.emit('input:retracted', data);
     logInfo(`输入已撤销: ${item.inputId}`);
-  }
-
-  /** 空历史不触发自动保存，强制落盘覆盖旧历史文件（此时目标必为 null，不传） */
-  private async saveEmptyHistory(): Promise<void> {
-    const workingDir = getConfManager().getCoreConfig()?.workingDir;
-    await saveHistory(
-      this.sessionId,
-      [],
-      this.runtime.getTodos(),
-      workingDir,
-      this.runtime.getReadFileTimestamps(),
-      this.runtime.listTodoTasks(MAIN_AGENT_ID),
-      this.runtime.getHistoryNoDate(),
-    );
   }
 
   /**
@@ -962,21 +955,17 @@ export class SemaEngine {
         }
       }
     }
-
-    // 2) 截断 editlog 到 forkSeq（被撤销的快照记录丢弃）
-    checkpoint.truncateEditLog(this.sessionId, forkSeq);
-
-    // 3) 长期目标跟历史走：先于历史落盘更新，让自动保存带上回滚后的目标；状态有变才发事件
+    // 长期目标和截断历史一起提交，提交成功后再更新内存和发事件
     const goalBefore = this.runtime.getGoal();
     const goalAfter = this.deriveGoalFromHistory(truncated);
     const goalChanged = !goalBefore !== !goalAfter
       || (!!goalBefore && !!goalAfter && (goalBefore.status !== goalAfter.status || goalBefore.round !== goalAfter.round || goalBefore.summary !== goalAfter.summary));
-    if (goalChanged) this.runtime.setGoal(goalAfter);
-
-    // 4) 就地截断历史并持久化（同一会话同 id）
-    mainAgentState.setMessageHistory(truncated); // 非空时自动保存
-    if (truncated.length === 0) {
-      await this.saveEmptyHistory();
+    try {
+      this.runtime.replaceMessageHistory(truncated, goalAfter);
+      // Keep rollback material until the history commit has succeeded.
+      checkpoint.truncateEditLog(this.sessionId, forkSeq);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
     if (goalChanged) this.emitGoalUpdate(goalAfter, goalAfter ? 'paused' : 'cleared');
 
@@ -1043,24 +1032,31 @@ export class SemaEngine {
       ? this.deriveGoalFromHistory(branchedMessages)
       : currentGoal?.status === 'running' ? { ...currentGoal, status: 'paused', updatedAt: Date.now() } : currentGoal;
 
-    // 新会话历史落盘（带日期命名，与随机新会话一致）；
-    // todos / readFileTimestamps 与 fork 行为一致不回退，直接复制当前值
-    await saveHistory(
-      newSessionId,
-      branchedMessages,
-      this.runtime.getTodos(),
-      workingDir,
-      this.runtime.getReadFileTimestamps(),
-      this.runtime.listTodoTasks(MAIN_AGENT_ID),
-      false,
-      branchedGoal ?? undefined,
-    );
+    try {
+      // 新会话历史落盘（带日期命名，与随机新会话一致）；
+      // todos / readFileTimestamps 与 fork 行为一致不回退，直接复制当前值
+      await saveHistory(
+        newSessionId,
+        branchedMessages,
+        this.runtime.getTodos(),
+        workingDir,
+        this.runtime.getReadFileTimestamps(),
+        this.runtime.listTodoTasks(MAIN_AGENT_ID),
+        false,
+        branchedGoal ?? undefined,
+      );
 
-    // 复制截断后的 editlog 给新会话（blobs 共享无需复制）
-    checkpoint.copyEditLog(this.sessionId, newSessionId, forkSeq);
+      // 复制截断后的 editlog 给新会话（blobs 共享无需复制）
+      checkpoint.copyEditLog(this.sessionId, newSessionId, forkSeq);
 
-    // 新会话的历史里带着本会话的附件路径：复制附件清单，本会话被删时这些附件才不会跟着删
-    copyAttachmentLedger(this.sessionId, newSessionId, workingDir);
+      // 新会话的历史里带着本会话的附件路径：复制附件清单，本会话被删时这些附件才不会跟着删
+      copyAttachmentLedger(this.sessionId, newSessionId, workingDir, true);
+    } catch (error) {
+      closeHistory(newSessionId, workingDir);
+      deleteSessionHistory(newSessionId, workingDir);
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    closeHistory(newSessionId, workingDir);
 
     logInfo(`分支到新聊天: ${this.sessionId} -> ${newSessionId} (anchor=${beforeMessageUuid ?? '末尾'}, 历史 ${branchedMessages.length} 条, editlog seq<${forkSeq})`);
     return { ok: true, sessionId: newSessionId };
@@ -1142,12 +1138,15 @@ export class SemaEngine {
    */
   dispose(): void {
     logInfo(`清理 SemaEngine 资源: ${this.sessionId}`);
-    // SessionEnd hook：fire-and-forget，不阻塞清理流程
-    fireSessionEnd(this.sessionId);
+    // 会话没初始化成功（没有 SessionStart 可配对，运行时也还是空状态）：跳过 SessionEnd 与落盘，
+    // 否则保存会用空消息、空状态覆盖磁盘上已有的历史
+    if (this.sessionStarted) {
+      // SessionEnd hook：fire-and-forget，不阻塞清理流程
+      fireSessionEnd(this.sessionId);
+      // 退出前同步提交；错误已由 runtime 报告，仍继续释放会话资源。
+      try { this.runtime.saveSessionHistory(); } catch (error) { logWarn(`关闭时保存历史失败: ${error}`); }
+    }
     this.abortCurrentRequest();
-    // 同步 flush 内存历史：dispose 不等待中断路径的异步落盘（进程级退出时 process.exit
-    // 会抢先），saveHistory 内部首个 await 前即完成 writeFileSync，此调用返回时已写盘
-    void this.runtime.saveSessionHistory();
     this.runtime.clearPendingUserInputs();
     // 移除本会话在 Task/Cron 管理器上的通知回调
     getTaskManager().removeNotifyCallback(this.sessionId);

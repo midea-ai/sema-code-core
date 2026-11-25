@@ -9,6 +9,8 @@
  * 加密：传了 encryption 时 editlog 与 blob 都写成 <原名>.enc（整个文件一行密文，blob 的 hash 仍按明文算），
  * 读时密文优先；清理按去掉 .enc 后的名字判断
  */
+import { historySessionIds } from './historyFiles';
+
 
 import { createHash } from 'crypto';
 import { existsSync, readFileSync, readdirSync, unlinkSync } from 'fs';
@@ -113,16 +115,11 @@ export function cleanupProjectSnapshots(projectPath: string): void {
     if (!existsSync(snapDir)) return;
 
     // 1) 从剩余历史文件中收集仍存活的 sessionId
-    //    文件名两种格式：带日期 YYYY-MM-DD_<sessionId>.json，或无日期 <sessionId>.json（固定会话），均可带 .enc
+    //    兼容带日期/固定会话的旧 JSON、新 meta 与待恢复事务，均可带 .enc
     const liveSessions = new Set<string>();
     const histDir = getProjectHistoryDir(projectPath);
     if (existsSync(histDir)) {
-      for (const file of readdirSync(histDir)) {
-        const name = stripEnc(file);
-        const dated = /^\d{4}-\d{2}-\d{2}_(.+)\.json$/.exec(name);
-        if (dated) { liveSessions.add(dated[1]); continue; }
-        if (name.endsWith('.json')) liveSessions.add(name.slice(0, -'.json'.length));
-      }
+      for (const id of historySessionIds(readdirSync(histDir))) liveSessions.add(id);
     }
 
     // 2) 删除非存活会话的 editlog

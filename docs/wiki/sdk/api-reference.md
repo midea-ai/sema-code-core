@@ -45,7 +45,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 > - `configFile: string`:构造配置文件路径(`~/xx` 或绝对路径,由桥进程读取),内容是严格 JSON,字段同 `SemaCoreConfig`。`start` 里显式传的顶层键整体覆盖文件里的同名键(不深合并);文件内任意位置的 `{ "$file": "路径" }` 替换为该文件文本(`~/xx`、绝对路径,或相对配置文件所在目录)。读不到或内容不合法抛 `CONFIG_INVALID`。SDK 自带的缺省值(`workingDir` 为当前目录、`logLevel` 为 `none`)优先级低于配置文件:文件里写了就用文件的,`start` 里显式传的仍最优先。
 > - 顺带:`enableLLMCache` 已删除;`enableInputPrediction`、`enableInputRetract` 补进三端 `SemaCoreConfig` / `UpdatableCoreConfig`。
 >
-> **稳定错误码**:桥 error 帧带 `code`,三端挂在 `SemaBridgeException` 上(Python `.code`、Java `.code()`、C# `.Code`,类型清单里的 `SemaErrorCode`),文案随 `lang` 变而 code 不变;没有对应错误码的普通错误为空。取值:`CONFIG_INVALID`(构造参数或运行期更新校验不通过)、`SCOPE_DISABLED`(写接口的目标域没生效)、`HOST_READONLY`(改的是 host 域条目)、`HISTORY_KEY_REQUIRED`(历史是密文但没传密钥)、`HISTORY_DECRYPT_FAILED`(密钥不对或密文损坏);后两个出现在 `createSession` 失败时。
+> **稳定错误码**:桥 error 帧带 `code`,三端挂在 `SemaBridgeException` 上(Python `.code`、Java `.code()`、C# `.Code`,类型清单里的 `SemaErrorCode`),文案随 `lang` 变而 code 不变;没有对应错误码的普通错误为空。取值:`CONFIG_INVALID`(构造参数或运行期更新校验不通过)、`SCOPE_DISABLED`(写接口的目标域没生效)、`HOST_READONLY`(改的是 host 域条目)、`HISTORY_KEY_REQUIRED`(历史是密文但没传密钥)、`HISTORY_DECRYPT_FAILED`(密钥不对或密文损坏)、`HISTORY_CORRUPT`(历史文件损坏或格式不支持)、`HISTORY_BUSY`(历史已被其他写入者占用)、`HISTORY_WRITE_FAILED`(写历史失败);`HISTORY_*` 系列出现在 `createSession` 失败时。
 
 ### 会话池
 

@@ -4,7 +4,8 @@ package semacore.protocol;
  * 桥返回 error 帧、或连接中断导致指令失败时抛出。
  * <p>
  * {@link #code()} 为 core 的稳定错误码（≙ semacore.type.SemaErrorCode：CONFIG_INVALID / SCOPE_DISABLED /
- * HOST_READONLY / HISTORY_KEY_REQUIRED / HISTORY_DECRYPT_FAILED），文案随 lang 变化而 code 不变；
+ * HOST_READONLY / HISTORY_KEY_REQUIRED / HISTORY_DECRYPT_FAILED / HISTORY_CORRUPT / HISTORY_BUSY /
+ * HISTORY_WRITE_FAILED），文案随 lang 变化而 code 不变；
  * 没有对应错误码（普通错误、连接中断）时为 null。
  */
 public class SemaBridgeException extends RuntimeException {

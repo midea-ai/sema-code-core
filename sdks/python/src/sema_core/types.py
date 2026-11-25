@@ -48,6 +48,9 @@ SemaErrorCode = Literal[
     "HOST_READONLY",           # 要改的是宿主传入的 host 域条目
     "HISTORY_KEY_REQUIRED",    # 历史文件是密文但没传密钥
     "HISTORY_DECRYPT_FAILED",  # 密钥不对或密文损坏
+    "HISTORY_CORRUPT",         # 历史文件损坏或格式不支持
+    "HISTORY_BUSY",            # 历史已被其他写入者占用
+    "HISTORY_WRITE_FAILED",    # 写历史失败
 ]
 HookEntryStatus = Literal["ok", "skipped", "invalid"]
 ToolStatus = Literal["enable", "disable"]

@@ -5,27 +5,17 @@ import { GoalState } from '../types/goal';
 import { logDebug, logInfo, logWarn } from './log';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getHistoryDir, getHistoryFilePath, getProjectHistoryDir, getProjectSnapshotsDir, getSnapshotsDir } from './savePath';
+import { getHistoryDir, getHistoryStem, getProjectHistoryDir, getProjectSnapshotsDir, getSnapshotsDir } from './savePath';
 import { cleanupProjectSnapshots } from './snapshotStore';
 import { collectProjectAttachmentIds, evictAttachments, releaseAttachmentIds, releaseSessionAttachments } from './attachmentLedger';
-import {
-  PER_PROJECT_HISTORY_LENGTH_LIMIT,
-  PROJECT_LENGTH_LIMIT,
-  HISTORY_CLEANUP_INTERVAL
-} from '../conf/config';
+import { PER_PROJECT_HISTORY_LENGTH_LIMIT, PROJECT_LENGTH_LIMIT, HISTORY_CLEANUP_INTERVAL } from '../conf/config';
 import { nowMillis } from './time';
 import { getConfManager } from '../manager/ConfManager';
-import { openLine, resolveSecurePath, stripEnc, writeSecureFile } from './cipher';
-import { SemaError } from './errors';
+import { resolveSecurePath, stripEnc } from './cipher';
+import { HistoryStore, releaseLock, tryLockHistory } from './historyStore';
+import { belongsToHistory, historyGroups, historyStemOf, sessionIdOfStem } from './historyFiles';
 
-// 清理历史文件的时间间隔（毫秒）
-let lastHistoryCleanupTime: number = 0;
-
-// 加密：传了 encryption 时历史写成 <原名>.json.enc（整个文件一行密文），读时密文优先；
-// 清理与删除按去掉 .enc 后的名字判断文件类型
-
-// 历史数据结构
-interface HistoryData {
+export interface HistoryData {
   messages: Message[];
   todos: TodoItem[];
   todoTasks?: TodoTask[];
@@ -34,148 +24,174 @@ interface HistoryData {
 }
 
 export interface ResolvedHistoryFile {
-  /** 实际存在的文件路径；不存在时为将要写入的路径（开启加密时带 .enc） */
   path: string;
+  stem: string;
   noDate: boolean;
   exists: boolean;
-  /** 文件是密文（.enc） */
   encrypted: boolean;
 }
 
-/**
- * 解析会话当前应使用的历史文件路径与命名格式。
- * 优先级：无日期 会话id.json > 当天带日期 日期_会话id.json > 目录扫描任意日期 日期_会话id.json（跨天恢复）；
- * 每一级密文（.json.enc）优先于明文。
- * 都不存在时返回当天带日期路径，exists=false（由调用方决定新会话的命名格式）。
- */
-export function resolveHistoryFile(sessionId: string, projectPath?: string): ResolvedHistoryFile {
-  const noDate = resolveSecurePath(getHistoryFilePath(sessionId, projectPath, true));
-  if (noDate.exists) return { path: noDate.path, noDate: true, exists: true, encrypted: noDate.encrypted };
+const stores = new Map<string, HistoryStore>();
+const readers = new Map<string, number>();
+const deferredRemovals = new Map<string, Array<() => void>>();
+let lastHistoryCleanupTime = 0;
+const directory = (projectPath?: string) => projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
+const keyOf = (id: string, projectPath?: string) => path.join(directory(projectPath), id);
 
-  const dated = resolveSecurePath(getHistoryFilePath(sessionId, projectPath, false));
-  if (dated.exists) return { path: dated.path, noDate: false, exists: true, encrypted: dated.encrypted };
-
-  // 带日期文件的日期是创建当天的，跨天恢复时上面拼"今天"必然落空，需扫描目录匹配任意日期
-  const historyDir = projectPath ? getProjectHistoryDir(projectPath) : getHistoryDir();
-  try {
-    // 文件名固定为 YYYY-MM-DD_会话id.json[.enc]（前缀 11 字符），用字符串比较而非拼正则，兼容含特殊字符的会话 id
-    const candidates = fs.readdirSync(historyDir).filter(file =>
-      /^\d{4}-\d{2}-\d{2}_/.test(file) && stripEnc(file).slice(11) === `${sessionId}.json`
-    );
-    if (candidates.length > 0) {
-      const latest = candidates
-        .map(file => {
-          const filePath = path.join(historyDir, file);
-          return { path: filePath, mtime: fs.statSync(filePath).mtime.getTime() };
-        })
-        .sort((a, b) => b.mtime - a.mtime)[0];
-      return { path: latest.path, noDate: false, exists: true, encrypted: latest.path !== stripEnc(latest.path) };
-    }
-  } catch {
-    // 目录不存在或读取失败，按未命中处理
-  }
-
-  return { path: dated.path, noDate: false, exists: false, encrypted: dated.encrypted };
+function validateId(id: string): void {
+  if (!id || id === '.' || id === '..' || /[\\/]/.test(id)) throw new Error('Invalid history session ID');
 }
 
-/**
- * 加载历史消息和todos。
- * 密文无密钥抛 HISTORY_KEY_REQUIRED、解不开抛 HISTORY_DECRYPT_FAILED（createSession 据此失败，文件原样保留），
- * 其余读取 / 解析错误按空会话继续
- */
+/** Resolve the logical stem once; a transaction takes precedence over either format. */
+export function resolveHistoryFile(sessionId: string, projectPath?: string): ResolvedHistoryFile {
+  validateId(sessionId);
+  const inspect = (stem: string, noDate: boolean): ResolvedHistoryFile | undefined => {
+    for (const suffix of ['.rewrite.json', '.meta.json', '.json', '.jsonl']) {
+      const result = resolveSecurePath(stem + suffix);
+      if (result.exists) return { ...result, stem, noDate };
+    }
+    return undefined;
+  };
+  const plain = getHistoryStem(sessionId, projectPath, true);
+  const today = getHistoryStem(sessionId, projectPath, false);
+  const direct = inspect(plain, true) ?? inspect(today, false);
+  if (direct) return direct;
+  const dir = directory(projectPath);
+  let files: string[] = [];
+  // 目录不存在或扫描途中被其他进程清理时按未命中处理，不让读取异常挡住会话创建
+  try { files = fs.readdirSync(dir); } catch { /* 按未命中处理 */ }
+  // Include orphan JSONL so missing metadata is reported, even across dates.
+  const candidates = files.map(file => {
+    const name = stripEnc(file);
+    return { stem: name.endsWith('.jsonl') ? name.slice(0, -6) : historyStemOf(file), file };
+  }).filter((g): g is { stem: string; file: string } => g.stem !== null && /^\d{4}-\d{2}-\d{2}_/.test(g.stem) && sessionIdOfStem(g.stem) === sessionId)
+    // 条目在扫描途中被删除或不可读：跳过它，其他候选照常比较
+    .flatMap(g => {
+      try { return [{ ...g, mtime: fs.statSync(path.join(dir, g.file)).mtimeMs }]; } catch { return []; }
+    }).sort((a, b) => b.mtime - a.mtime);
+  for (const candidate of candidates) {
+    const result = inspect(path.join(dir, candidate.stem), false);
+    if (result) return result;
+  }
+  return { ...resolveSecurePath(today + '.meta.json'), stem: today, noDate: false };
+}
+
+export function getHistoryStore(sessionId: string, projectPath?: string, noDate = false): HistoryStore {
+  validateId(sessionId);
+  const key = keyOf(sessionId, projectPath);
+  let store = stores.get(key);
+  if (!store) {
+    const resolved = resolveHistoryFile(sessionId, projectPath);
+    const stem = resolved.exists ? resolved.stem : getHistoryStem(sessionId, projectPath, noDate);
+    store = new HistoryStore(stem, sessionId);
+    stores.set(key, store);
+  }
+  return store;
+}
+
+export function closeHistory(sessionId: string, projectPath?: string): void {
+  const key = keyOf(sessionId, projectPath);
+  const store = stores.get(key);
+  if (store) { store.close(); stores.delete(key); }
+}
+
 export async function loadHistory(sessionId?: string, projectPath?: string): Promise<HistoryData> {
   if (!sessionId) return { messages: [], todos: [] };
+  try { return getHistoryStore(sessionId, projectPath, true).load(); }
+  catch (error) { closeHistory(sessionId, projectPath); throw error; }
+}
 
-  const { path: historyPath, exists, encrypted } = resolveHistoryFile(sessionId, projectPath);
-
-  try {
-    if (exists) {
-      const raw = fs.readFileSync(historyPath, 'utf-8');
-      const historyData: HistoryData = JSON.parse(encrypted ? openLine(raw).toString('utf8') : raw);
-      const messages = historyData.messages || [];
-      const todos = historyData.todos || [];
-      const todoTasks = historyData.todoTasks || [];
-      const readFileTimestamps = historyData.readFileTimestamps || {};
-      logInfo(`加载历史消息 ${messages.length} 条，todos ${todos.length} 项，todoTasks ${todoTasks.length} 项，readFileTimestamps ${Object.keys(readFileTimestamps).length} 项`);
-      return { messages, todos, todoTasks, readFileTimestamps, ...(historyData.goal && { goal: historyData.goal }) };
-    } else {
-      logInfo(`未找到历史文件: ${historyPath}，开始新会话`);
-      return { messages: [], todos: [] };
-    }
-  } catch (error) {
-    // 密钥对不上不能当空会话继续：下一次保存会把原文件覆盖掉
-    if (error instanceof SemaError) throw error;
-    logWarn(`加载历史失败: ${error instanceof Error ? error.message : String(error)}`);
-    return { messages: [], todos: [] };
+/** Synchronous commit: callers may await it, but dispose does not need an async queue. */
+export function saveHistory(sessionId: string, messages: Message[], todos?: TodoItem[], projectPath?: string, readFileTimestamps?: Record<string, number>, todoTasks?: TodoTask[], noDate?: boolean, goal?: GoalState, replace = false): void {
+  getHistoryStore(sessionId, projectPath, noDate).save({ messages, todos: todos ?? [], readFileTimestamps, todoTasks, goal }, replace);
+  const now = nowMillis();
+  if (now - lastHistoryCleanupTime > HISTORY_CLEANUP_INTERVAL) {
+    lastHistoryCleanupTime = now;
+    setImmediate(() => { void cleanupOldHistoryFiles(projectPath); });
   }
 }
 
-/**
- * 会话记录文件（<主干>.jsonl / <主干>.agent-<agentId>.jsonl，可带 .enc）是否属于指定历史主干。
- * transcript 退场跟随历史 JSON：删某个 .json 时顺带删同主干的全部 .jsonl；数量上限只数 .json
- */
-function isTranscriptOf(file: string, stem: string): boolean {
-  const name = stripEnc(file);
-  return name === `${stem}.jsonl` || (name.startsWith(`${stem}.agent-`) && name.endsWith('.jsonl'));
-}
-
-/** 历史 JSON 文件名（可带 .enc）的主干：去掉 .enc 与 .json */
-function historyStem(file: string): string {
-  return stripEnc(file).slice(0, -'.json'.length);
-}
-
-/**
- * 清理指定项目目录下的旧历史文件，只保留最新的指定数量
- */
-function cleanupProjectHistoryFiles(projectHistoryDir: string): void {
-  try {
-    if (!fs.existsSync(projectHistoryDir)) {
-      return;
-    }
-
-    const files = fs.readdirSync(projectHistoryDir);
-    const historyFiles = files.filter(file => /^\d{4}-\d{2}-\d{2}_.+\.json$/.test(stripEnc(file)));
-
-    if (historyFiles.length <= PER_PROJECT_HISTORY_LENGTH_LIMIT) {
-      return;
-    }
-
-    const filesWithStats = historyFiles.map(file => {
-      const filePath = path.join(projectHistoryDir, file);
-      const stats = fs.statSync(filePath);
-      return { name: file, path: filePath, mtime: stats.mtime };
-    });
-
-    filesWithStats.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-    const filesToDelete = filesWithStats.slice(PER_PROJECT_HISTORY_LENGTH_LIMIT);
-
-    for (const file of filesToDelete) {
-      const stem = historyStem(file.name);
-      const targets = [file.name, ...files.filter(name => isTranscriptOf(name, stem))];
-      for (const name of targets) {
-        try {
-          fs.unlinkSync(path.join(projectHistoryDir, name));
-          logDebug(`删除旧历史文件: ${name}`);
-        } catch (deleteError) {
-          logWarn(`删除历史文件失败 ${name}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`);
-        }
+/** Prevent cleanup while an external hook is still reading the supplied paths. */
+export function retainHistoryReader(stem: string): () => void {
+  readers.set(stem, (readers.get(stem) ?? 0) + 1);
+  return () => {
+    const n = (readers.get(stem) ?? 1) - 1;
+    if (n) readers.set(stem, n);
+    else {
+      readers.delete(stem);
+      const removals = deferredRemovals.get(stem) ?? [];
+      deferredRemovals.delete(stem);
+      for (const remove of removals) {
+        try { remove(); } catch (error) { logWarn(`清理子代理历史失败: ${error}`); }
       }
     }
-
-    // 附件跟随会话退场：参与数量淘汰的都是带日期的文件名，去掉 11 位日期前缀即会话 id
-    releaseSessionAttachments(projectHistoryDir, filesToDelete.map(file => historyStem(file.name).slice(11)));
-
-    if (filesToDelete.length > 0) {
-      logDebug(`项目清理完成，删除了 ${filesToDelete.length} 个旧历史文件`);
-    }
-  } catch (error) {
-    logWarn(`清理项目历史文件失败: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  };
 }
 
+export function afterHistoryReaders(stem: string, remove: () => void): void {
+  if (!readers.has(stem)) { remove(); return; }
+  const pending = deferredRemovals.get(stem) ?? [];
+  pending.push(remove);
+  deferredRemovals.set(stem, pending);
+}
+
+type HeldLock = [stem: string, token: string];
+
 /**
- * 清理不活跃的项目目录，只保留最新的指定数量
+ * 接管目录里所有主干的写入锁：拿不到说明有活跃写入者（含正在重写事务中途的会话），返回 null。
+ * 崩溃遗留的锁与重写意图不会被当成占用；成功后锁随目录一起删除，失败时调用 unlockDirectory 释放。
  */
+function lockDirectory(dir: string): HeldLock[] | null {
+  const held: HeldLock[] = [];
+  const locked = new Set<string>();
+  // 第二轮捡起拿到锁之后才出现的会话，缩小“新会话在删除途中开始写”的窗口
+  for (let round = 0; round < 2; round++) {
+    for (const file of fs.readdirSync(dir)) {
+      const stem = file.endsWith('.lock') ? file.slice(0, -'.lock'.length) : historyStemOf(file);
+      if (!stem || locked.has(stem)) continue;
+      const fullStem = path.join(dir, stem);
+      const token = tryLockHistory(fullStem);
+      if (!token) { unlockDirectory(held); return null; }
+      locked.add(stem);
+      held.push([fullStem, token]);
+    }
+  }
+  return held;
+}
+
+function unlockDirectory(held: HeldLock[]): void {
+  for (const [stem, token] of held) releaseLock(stem + '.lock', token);
+}
+
+function removeGroup(dir: string, stem: string): boolean {
+  const fullStem = path.join(dir, stem);
+  if (readers.has(fullStem)) return false;
+  // 删除期间持锁，别的进程既写不进这个会话，也删不掉它
+  const token = tryLockHistory(fullStem);
+  if (!token) return false;
+  const lock = path.basename(fullStem) + '.lock';
+  try {
+    // Remove data before the root metadata, so a failed delete keeps ownership alive.
+    const files = fs.readdirSync(dir).filter(f => f !== lock && belongsToHistory(f, stem));
+    files.sort((a, b) => Number(historyStemOf(a) !== null) - Number(historyStemOf(b) !== null));
+    for (const file of files) fs.rmSync(path.join(dir, file), { recursive: true, force: true });
+  } finally { releaseLock(fullStem + '.lock', token); }
+  return true;
+}
+
+function cleanupProjectHistoryFiles(dir: string): void {
+  try {
+    const groups = historyGroups(dir).filter(g => /^\d{4}-\d{2}-\d{2}_/.test(g.stem)).sort((a, b) => b.mtime - a.mtime);
+    const deleted: string[] = [];
+    for (const group of groups.slice(PER_PROJECT_HISTORY_LENGTH_LIMIT)) {
+      const stem = path.join(dir, group.stem);
+      if ([...stores.values()].some(s => s.stem === stem)) continue;
+      if (removeGroup(dir, group.stem)) deleted.push(sessionIdOfStem(group.stem));
+    }
+    releaseSessionAttachments(dir, deleted);
+  } catch (error) { logWarn(`清理历史失败: ${error}`); }
+}
+
 function cleanupInactiveProjects(): void {
   const historyDir = getHistoryDir();
 
@@ -185,9 +201,7 @@ function cleanupInactiveProjects(): void {
     }
 
     const entries = fs.readdirSync(historyDir, { withFileTypes: true });
-    const projectDirs = entries.filter(entry =>
-      entry.isDirectory() && entry.name.startsWith('-')
-    );
+    const projectDirs = entries.filter(entry => entry.isDirectory() && entry.name.startsWith('-'));
 
     if (projectDirs.length <= PROJECT_LENGTH_LIMIT) {
       return;
@@ -216,9 +230,12 @@ function cleanupInactiveProjects(): void {
     });
 
     dirsWithStats.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-    const dirsToDelete = dirsWithStats.slice(PROJECT_LENGTH_LIMIT);
+    const dirsToDelete = dirsWithStats.slice(PROJECT_LENGTH_LIMIT).filter(dir =>
+      ![...stores.values()].some(s => path.dirname(s.stem) === dir.path) && ![...readers.keys()].some(s => path.dirname(s) === dir.path));
 
     for (const dir of dirsToDelete) {
+      const held = lockDirectory(dir.path);
+      if (!held) continue;
       // 附件跟随会话退场：清单在历史目录里，删除前先读出登记的附件；目录删除成功后才释放，删除失败时附件原样保留
       const attachmentIds = collectProjectAttachmentIds(dir.path);
       try {
@@ -226,7 +243,9 @@ function cleanupInactiveProjects(): void {
         logDebug(`删除不活跃项目历史目录: ${dir.name}`);
         releaseAttachmentIds(attachmentIds);
       } catch (deleteError) {
+        unlockDirectory(held);
         logWarn(`删除项目历史目录失败 ${dir.name}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`);
+        continue;
       }
 
       // 同步删除对应的同名快照目录，避免遗留无主 editlog / blob
@@ -250,130 +269,56 @@ function cleanupInactiveProjects(): void {
   }
 }
 
-/**
- * 清理旧的历史文件
- */
 export async function cleanupOldHistoryFiles(projectPath?: string): Promise<void> {
   if (projectPath) {
     cleanupProjectHistoryFiles(getProjectHistoryDir(projectPath));
-    // 历史清理后回收对应快照（删除无主 editlog + blob 标记清除）
     cleanupProjectSnapshots(projectPath);
   }
   cleanupInactiveProjects();
-  // 附件兜底：未登记附件的期限清理与总体积上限
   evictAttachments();
 }
 
-/**
- * 删除类接口的项目路径解析：显式传入优先，缺省回落到 core 配置的 workingDir；
- * 仍为空则返回 undefined 并告警，调用方跳过不操作（不碰全局目录）。
- */
-function resolveProjectPath(projectPath: string | undefined, caller: string): string | undefined {
-  const target = projectPath || getConfManager().getCoreConfig()?.workingDir;
-  if (!target) logWarn(`${caller}: 未指定项目路径且 core 无 workingDir，跳过`);
-  return target || undefined;
+function resolveProjectPath(projectPath: string | undefined): string | undefined {
+  return projectPath || getConfManager().getCoreConfig()?.workingDir || undefined;
 }
 
-/**
- * 删除指定项目的全部历史与快照目录（~/.sema/history/<项目目录名> + ~/.sema/snapshots/<项目目录名>）。
- * 供外部（如 webui 会话级项目退场）主动清理使用。
- */
 export function deleteProjectHistory(projectPath?: string): void {
-  const target = resolveProjectPath(projectPath, 'deleteProjectHistory');
-  if (!target) return;
-  const targets = [
-    { dir: getProjectHistoryDir(target), root: getHistoryDir(), label: '历史', holdsLedgers: true },
-    { dir: getProjectSnapshotsDir(target), root: getSnapshotsDir(), label: '快照', holdsLedgers: false }
-  ];
-  for (const { dir, root, label, holdsLedgers } of targets) {
-    // 护栏：目标必须严格位于对应根目录之内，防止异常路径误删
-    const rel = path.relative(root, dir);
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
-      logWarn(`删除项目${label}目录被拒绝（路径越界）: ${dir}`);
-      continue;
+  try {
+    const target = resolveProjectPath(projectPath);
+    if (!target) return;
+    const dir = getProjectHistoryDir(target);
+    if ([...readers.keys()].some(s => path.dirname(s) === dir)) throw new Error('History is being read by a hook');
+    for (const [key, store] of stores) {
+      if (path.dirname(store.stem) === dir) { store.close(); stores.delete(key); }
     }
+    const held = fs.existsSync(dir) ? lockDirectory(dir) : [];
+    if (!held) throw new Error('Project history is still in use');
+    const ids = collectProjectAttachmentIds(dir);
     try {
-      if (fs.existsSync(dir)) {
-        // 附件跟随会话退场：清单在历史目录里，删除前先读出登记的附件；目录删除成功后才释放，删除失败时附件原样保留
-        const attachmentIds = holdsLedgers ? collectProjectAttachmentIds(dir) : null;
-        fs.rmSync(dir, { recursive: true, force: true });
-        logInfo(`删除项目${label}目录: ${dir}`);
-        if (attachmentIds) releaseAttachmentIds(attachmentIds);
-      }
+      fs.rmSync(dir, { recursive: true, force: true });
+      releaseAttachmentIds(ids);
     } catch (error) {
-      logWarn(`删除项目${label}目录失败 ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+      unlockDirectory(held);
+      throw error;
     }
-  }
+    fs.rmSync(getProjectSnapshotsDir(target), { recursive: true, force: true });
+  } catch (error) { logWarn(`删除历史失败: ${error}`); }
 }
 
-/**
- * 删除单个会话的历史文件（无日期 会话id.json 与任意日期 日期_会话id.json 全部清理），
- * 连同同主干的会话记录（.jsonl 与子代理 .agent-*.jsonl）。
- * 供外部（如 webui 项目内会话退场）主动清理使用。
- */
 export function deleteSessionHistory(sessionId: string, projectPath?: string): void {
-  const target = resolveProjectPath(projectPath, 'deleteSessionHistory');
-  if (!target) return;
-  const historyDir = getProjectHistoryDir(target);
   try {
-    if (fs.existsSync(historyDir)) {
-      const isSessionFile = (name: string) => stripEnc(name) === `${sessionId}.json` || isTranscriptOf(name, sessionId);
-      const targets = fs.readdirSync(historyDir).filter(file =>
-        isSessionFile(file) ||
-        (/^\d{4}-\d{2}-\d{2}_/.test(file) && isSessionFile(file.slice(11)))
-      );
-      for (const file of targets) {
-        try {
-          fs.unlinkSync(path.join(historyDir, file));
-          logInfo(`删除会话历史文件: ${file}`);
-        } catch (error) {
-          logWarn(`删除会话历史文件失败 ${file}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      // 附件跟随会话退场：该会话登记的附件里，没有被其他会话登记的一起删
-      releaseSessionAttachments(historyDir, [sessionId]);
+    const target = resolveProjectPath(projectPath);
+    if (!target) return;
+    validateId(sessionId);
+    const dir = directory(target);
+    if (!fs.existsSync(dir)) return;
+    const stems = new Set([sessionId, ...historyGroups(dir).map(g => g.stem).filter(s => sessionIdOfStem(s) === sessionId)]);
+    if ([...stems].some(s => readers.has(path.join(dir, s)))) throw new Error('History is being read by a hook');
+    closeHistory(sessionId, target);
+    for (const stem of stems) {
+      if (!removeGroup(dir, stem)) logWarn(`会话历史仍被其他进程写入，保留: ${path.join(dir, stem)}`);
     }
-    // 项目级快照按剩余 history 做标记清除，会同步移除该会话的 editlog 和无引用 blobs。
+    releaseSessionAttachments(dir, [sessionId]);
     cleanupProjectSnapshots(target);
-  } catch (error) {
-    logWarn(`删除会话历史失败 ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  } catch (error) { logWarn(`删除历史失败: ${error}`); }
 }
-
-/**
- * 保存历史消息和todos
- */
-export async function saveHistory(sessionId: string, messages: Message[], todos?: TodoItem[], projectPath?: string, readFileTimestamps?: Record<string, number>, todoTasks?: TodoTask[], noDate?: boolean, goal?: GoalState): Promise<void> {
-  // 已有历史文件时写回原文件（旧日期文件跨天/跨零点继续沿用，不按今天日期另起新文件），
-  // 不存在时才按 noDate 决定新文件命名格式。按明文名定位，开启加密时 writeSecureFile 写 .enc 并删掉同名明文
-  const resolved = resolveHistoryFile(sessionId, projectPath);
-  const historyPath = stripEnc(resolved.exists ? resolved.path : getHistoryFilePath(sessionId, projectPath, noDate));
-
-  try {
-    const historyData: HistoryData = {
-      messages,
-      todos: todos || [],
-      ...(todoTasks && todoTasks.length > 0 && { todoTasks }),
-      ...(readFileTimestamps && Object.keys(readFileTimestamps).length > 0 && { readFileTimestamps }),
-      ...(goal && { goal })
-    };
-
-    writeSecureFile(historyPath, JSON.stringify(historyData, null, 2));
-    logInfo(`保存历史消息 ${messages.length} 条，todos ${(todos || []).length} 项，readFileTimestamps ${Object.keys(readFileTimestamps || {}).length} 项到 ${historyPath}`);
-
-    // 定时清理历史文件（每小时最多执行一次）
-    const nowTimestamp = nowMillis();
-    if (nowTimestamp - lastHistoryCleanupTime > HISTORY_CLEANUP_INTERVAL) {
-      lastHistoryCleanupTime = nowTimestamp;
-      setImmediate(() => {
-        cleanupOldHistoryFiles(projectPath);
-      });
-    }
-
-  } catch (error) {
-    logWarn(`保存历史失败: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-// 导出类型
-export type { HistoryData };

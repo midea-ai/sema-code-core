@@ -2,7 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { logInfo, logDebug, logError } from '../../util/log';
 import { EventBus } from '../../events/EventSystem';
 import { getStateManager, MAIN_AGENT_ID } from '../../manager/StateManager';
-import { compactMessages, collectSkillActivations } from '../../util/compact';
+import { compactMessages, collectSkillActivations, emitCompactUsage } from '../../util/compact';
 import { CompactExecData, SessionErrorData } from '../../events/types';
 import { isInterruptedException } from '../../types/errors';
 import { getCommandsManager } from './commandsManager';
@@ -10,13 +10,12 @@ import { buildUserMsg } from '../../util/message';
 import { getTokens } from '../../util/tokens';
 import { getTaskManager } from '../../manager/TaskManager';
 import { getConfManager } from '../../manager/ConfManager';
-import { loadHistory, saveHistory } from '../../util/history';
+import { saveHistory } from '../../util/history';
 import { releaseClearedSessionAttachments } from '../../util/attachmentLedger';
 import { getAvailableTools } from '../../tools/base/tools';
 import { TOOL_NAME_SKILL } from '../../prompt/tool';
 import { generatePostCompactReminders } from '../agents/genSystemReminder';
 import { wrapCompactSummary } from '../../prompt/compact';
-import { markCompactSummary } from '../../util/transcript';
 import { firePreCompact } from '../hooks/hookTriggers';
 import { GOAL_START_PROMPT, GOAL_UPDATE_PROMPT } from '../../prompt/goal';
 import { GOAL_MAX_ROUNDS } from '../../conf/config';
@@ -129,20 +128,14 @@ async function handleClearCommand(sessionId: string): Promise<void> {
   const runtime = getStateManager().session(sessionId);
   const mainAgentState = runtime.forAgent(MAIN_AGENT_ID);
 
-  // 先清空 todos 和 readFileTimestamps，确保保存到文件时也是空的
+  const workingDir = getConfManager().getCoreConfig()?.workingDir;
+  saveHistory(sessionId, [], [], workingDir, {}, [], runtime.getHistoryNoDate(), undefined, true);
+  runtime.clearAgentHistories();
+  runtime.setGoal(null, true);
+  mainAgentState.setMessageHistory([], true);
   mainAgentState.updateTodosIntelligently([]);
   mainAgentState.setReadFileTimestamps({});
-  // 长期目标随 /clear 一并清除（clearAllState 不碰 goal，只在这里清）
-  runtime.setGoal(null);
-
-  mainAgentState.setMessageHistory([]);
-  // 空历史不触发自动保存：这里强制落盘，否则磁盘上的旧对话要等下一条消息才被覆盖，期间重开会话会恢复出旧对话
-  const workingDir = getConfManager().getCoreConfig()?.workingDir;
-  await saveHistory(sessionId, [], [], workingDir, {}, [], runtime.getHistoryNoDate());
-  // 附件随对话一起清：本会话登记的附件里，没有被其他会话登记的一起删。
-  // saveHistory 写盘失败只记日志，所以读回确认磁盘上确实已空再删；旧对话还在盘上时附件原样保留
-  const persisted = await loadHistory(sessionId, workingDir).catch(() => null);
-  if (persisted && persisted.messages.length === 0) releaseClearedSessionAttachments(sessionId, workingDir);
+  releaseClearedSessionAttachments(sessionId, workingDir);
   mainAgentState.updateState('idle');
   eventBus.emit('session:cleared', { sessionId }, sessionId);
   eventBus.emit('conversation:usage', { usage: getTokens([], sessionId) }, sessionId);
@@ -184,6 +177,7 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
 
     const result = await compactMessages(messages, runtime.currentAbortController, sessionId, {
       allowTruncationFallback: false,
+      emitUsageEvent: false,
       customInstructions,
     });
 
@@ -210,8 +204,6 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
 
     // 压缩后清空 readFileTimestamps（促使模型重新读取文件）；todos 不清空：
     // 模型侧 todo 工具读 todoTasksMap（从未被清），清 UI 投影只造成面板闪空的不一致
-    mainAgentState.setReadFileTimestamps({});
-
     // 与自动压缩路径同口径：重新注入被压掉的 skill 原文与 skills/rules reminder。
     // 手动压缩替换全部历史，被压区间即完整消息列表，无需幸存过滤
     const hasSkillTool = getAvailableTools(undefined, { sessionId })
@@ -225,8 +217,8 @@ async function handleCompactCommand(sessionId: string, customInstructions?: stri
 
     // reminder 前置，摘要带续接包装（来源说明 + 直接续做指示）
     const summaryMessage = buildUserMsg([...reminders, { type: 'text', text: wrapCompactSummary(result.summary) }]);
-    markCompactSummary(summaryMessage);
-    mainAgentState.setMessageHistory([summaryMessage]);
+    runtime.replaceMessageHistory([summaryMessage], undefined, {});
+    emitCompactUsage(messages, [summaryMessage], sessionId, 'summary');
 
     logDebug('压缩完成，已替换为 local-command 格式消息历史');
   } catch (error) {

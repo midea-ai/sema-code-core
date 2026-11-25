@@ -87,12 +87,16 @@ export function getProjectSnapshotsDir(projectPath: string): string {
 }
 
 /**
- * 获取历史记录文件路径
- * @param noDate 为 true 时文件名不带日期前缀（会话id.json），用于固定会话持久化；
- *               默认带日期（日期_会话id.json）。
+ * 获取主会话消息路径（不含可选 .enc 后缀）。
+ * @param noDate 为 true 时使用固定会话名，否则带日期前缀。
  */
 export function getHistoryFilePath(sessionId: string, projectPath?: string, noDate?: boolean): string {
-  const filename = noDate ? `${sessionId}.json` : `${getDayTimeString()}_${sessionId}.json`;
+  return getHistoryStem(sessionId, projectPath, noDate) + '.jsonl';
+}
+
+/** Shared stem for messages, metadata and the optional agent directory. */
+export function getHistoryStem(sessionId: string, projectPath?: string, noDate?: boolean): string {
+  const filename = noDate ? sessionId : `${getDayTimeString()}_${sessionId}`;
 
   if (projectPath) {
     return path.join(getProjectHistoryDir(projectPath), filename);

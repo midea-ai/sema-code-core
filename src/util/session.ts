@@ -35,7 +35,7 @@ export function validateSessionId(sessionId: string): boolean {
 export function generateHistoryPath(sessionId: string, baseDir?: string): string {
   if (baseDir) {
     const today = getDayTimeString(); // YYYY-MM-DD 格式
-    const fileName = `${today}_${sessionId}.json`;
+    const fileName = `${today}_${sessionId}.jsonl`;
     return path.join(baseDir, fileName);
   }
 

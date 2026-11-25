@@ -15,9 +15,10 @@ Sema Core 的所有持久化数据存储在用户主目录的 `~/.sema/` 下，�
 ├── AGENTS.md                     # 全局 Agent 提示词/规则配置
 ├── history/                      # 会话历史
 │   └── -Users-dev-my-project/    # 项目目录（路径分隔符替换为 -）
-│       ├── 2024-01-15_[sessionId-1].json
-│       ├── [sessionId-1].attachments  # 该会话登记的附件清单
-│       └── 2024-01-15_[sessionId-2].json
+│       ├── 2026-11-25_[sessionId].jsonl
+│       ├── 2026-11-25_[sessionId].meta.json
+│       ├── 2026-11-25_[sessionId]/   # 按需创建，内部为 [agentId].jsonl
+│       └── [sessionId].attachments  # 该会话登记的附件清单
 ├── attachments/                  # 附件（粘贴文本、附图原图、生成图等）
 │   └── [uuid]/                   # 每次写入一个目录
 ├── logs/                         # 服务运行日志
@@ -175,77 +176,61 @@ MCP 加载优先级：**插件 MCP < 用户级 < 项目级**，项目级配置�
 - `enabledMcpServerUseTools`：按服务名指定的可用工具白名单（仅项目级）
 - `disabledHooks`：已禁用的 hook 条目 id 列表（用户级与项目级取并集），由 `disableHook` / `enableHook` 写入，id 见 `getHooksInfo` 的条目
 
-### 会话历史`~/.sema/history/[project-dir]/[date]_[sessionId].json`
+### 会话历史 `~/.sema/history/[project-dir]/`
 
-会话历史文件，按项目目录分组存储，由 `saveHistory()` 自动保存。项目目录名由工作目录路径转换而来（路径分隔符替换为 `-`，如 `/Users/dev/my-project` → `-Users-dev-my-project`）：
+主会话用一份 JSONL 保存有效消息，用同名 `.meta.json` 保存状态和提交边界。例如用户连续追问十轮，普通保存只追加新消息；用户回退或压缩后，JSONL 被替换为剩下的有效历史。项目目录名由工作目录路径转换而来，如 `/Users/dev/my-project` 对应 `-Users-dev-my-project`。
+
+```text
+history/-Users-dev-my-project/
+├── 2026-11-25_a1b2c3d4.jsonl
+├── 2026-11-25_a1b2c3d4.meta.json
+├── 2026-11-25_a1b2c3d4/                 # 有子代理消息才创建
+│   └── V1StGXR8_Z5jdHi6B-myT.jsonl     # 实际 agentId，也就是任务 ID
+├── a1b2c3d4.attachments                # 附件登记清单
+├── dailybot.jsonl                     # 固定会话不带日期
+└── dailybot.meta.json
+```
+
+消息文件每行保存一条完整 Message，保留图片、工具结果、usage 和消息自带的扩展字段；不会为 hooks 再写一份 transcript。以下两行演示正文内换行如何转义：
+
+```jsonl
+{"type":"user","uuid":"u1","checkpointSeq":0,"message":{"role":"user","content":"介绍自己"}}
+{"type":"user","uuid":"u2","checkpointSeq":0,"message":{"role":"user","content":"用中文回答\n列出主要能力"}}
+```
+
+同名 meta 的结构如下；`committedBytes` 是实际 JSONL 前缀的 UTF-8 字节数，示例中的数值需按消息文件计算：
 
 ```json
 {
-  "messages": [
-    {
-      "type": "user",
-      "message": {
-        "role": "user",
-        "content": [
-          {
-            "type": "text",
-            "text": "介绍自己"
-          }
-        ]
-      },
-      "uuid": "22141e63-95cf-40c1-95f2-eaaff7c6751c"
-    },
-    {
-      "type": "assistant",
-      "uuid": "336af515-e64b-4620-978f-72786d450485",
-      "durationMs": 5717,
-      "message": {
-        "id": "ed584aae-a462-416b-8630-613ced0f8c1c",
-        "type": "message",
-        "role": "assistant",
-        "model": "deepseek-chat",
-        "content": [
-          {
-            "type": "text",
-            "text": "我是 Sema，AIRC 的代码助手 AI。"
-          }
-        ],
-        "stop_reason": "end_turn",
-        "stop_sequence": null,
-        "usage": {
-          "input_tokens": 0,
-          "output_tokens": 140,
-          "cache_creation_input_tokens": 0,
-          "cache_read_input_tokens": 0
-        }
-      }
-    }
-  ],
+  "version": 2,
+  "sessionId": "a1b2c3d4",
+  "revision": 2,
+  "historyEpoch": 1,
+  "committedBytes": 256,
+  "messageCount": 2,
+  "lastMessageUuid": "u2",
+  "updatedAt": 1795564800000,
   "todos": [],
   "todoTasks": [],
   "readFileTimestamps": {},
-  "goal": {
-    "text": "把测试覆盖率提到 80%",
-    "status": "paused",
-    "round": 3,
-    "maxRounds": 10,
-    "idleRounds": 0,
-    "createdAt": 1760000000000,
-    "updatedAt": 1760000500000
-  }
+  "goal": null
 }
 ```
 
-通过 `loadHistory(sessionId, projectPath)` 可恢复指定会话的历史。
+| 数据 | 保存时机 | 替换与恢复规则 |
+| --- | --- | --- |
+| 主消息 | 新输入、轮末、关闭及需要读取历史的 hook 前 | 常规仅追加新增消息；修改已有消息时重写，包含微压缩、摘要、回退、清空和输入撤销 |
+| 元信息 | 消息提交或状态变化 | 原子替换；`revision` 每次提交递增，`historyEpoch` 仅在历史重写时递增 |
+| 子代理消息 | 启动、轮末、结束与关闭 | 使用实际 agentId，不依赖 hooks 开关；只供查看和脚本读取，不恢复任务执行 |
+| 旧版 JSON | 兼容加载，首次保存时迁移 | 以旧 JSON 为准替换同名旧 transcript，成功后删除旧 JSON |
 
-`goal` 为长期目标（`/goal`），无目标时不写。重开会话时 `running`（以及旧版本落盘的未知状态）降为 `paused`，不自动接续；与目标相关的用户消息上带 `goal` 标记（`set` / `update` / `round`），回滚时据此推导目标状态。
+`goal` 保存长期目标，无目标时为 `null`。重开会话时运行中的目标降为暂停，不自动接续；回退时从剩余用户消息的目标标记推导目标状态。分支创建新的主文件组，并复制附件登记和所需快照，不复制子代理文件。
 
-**保存时自动去重 usage**：多个 assistant 消息只保留最后一条有实际 token 用量的消息的 usage 字段，其余消息剥离 usage 以节省空间。
+**提交与读取**：先追加并同步消息，再原子替换 meta；恢复时只接受 `committedBytes` 内的完整记录，超出的尾部不算已提交。重写通过 `.txn-<id>.*.tmp` 暂存文件与 `.rewrite.json` 安装清单恢复，成功后清理临时文件；已提交区损坏会报错，不作为空会话覆盖。同一会话的第二个进程写入者会收到 `HISTORY_BUSY`。
 
-**自动清理**：
-- 每个项目目录最多保留 **50 个**历史文件（`PER_PROJECT_HISTORY_LENGTH_LIMIT`）
-- 全局最多保留 **100 个**项目目录，超过时删除最久未活跃的（`PROJECT_LENGTH_LIMIT`）
-- 清理每 **1 小时**最多触发一次（`HISTORY_CLEANUP_INTERVAL`）
+**加密**：启用后主、子消息每行独立加密，meta 和事务清单整体加密，文件名均追加 `.enc`。`committedBytes` 按密文字节计算，读取者须先截取有效前缀再逐行解密。
+
+**自动清理**：按逻辑会话计数，每项目最多保留 50 个参与淘汰的带日期会话，全局最多保留 100 个项目，每小时最多触发一次。固定无日期会话不参与数量淘汰；活动写入者、正在读取的 hooks 和未恢复事务会被保留。删除会话时一起删除主文件组、子目录及旧 transcript，历史删除成功后才释放附件和无主快照。
 
 ### 附件 `~/.sema/attachments/[uuid]/`
 

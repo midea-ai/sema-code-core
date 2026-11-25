@@ -135,6 +135,7 @@ export const SubAgent = {
           }
           const bgResultMessages: any[] = []
           try {
+            runtime.setMessageHistory([userMessage], taskId)
             await fireSubagentStart(sessionId, taskId, agentConfig.name)
             for await (const message of ReAct([userMessage], systemPromptContent, bgContext)) {
               bgResultMessages.push(message)
@@ -234,6 +235,7 @@ export const SubAgent = {
 
       const executionPromise = (async () => {
         try {
+          runtime.setMessageHistory([userMessage], taskId)
           await fireSubagentStart(sessionId, taskId, agentConfig.name)
           for await (const message of ReAct([userMessage], systemPromptContent, subagentContext)) {
             resultMessages.push(message)

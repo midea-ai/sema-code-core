@@ -8,7 +8,7 @@ import { ToolControlSignal } from '../types/message'
 import { getEventBus } from '../events/EventSystem'
 import { PlanExitRequestData, PlanExitResponseData } from '../events/types'
 import { checkAbortSignal } from '../types/errors'
-import { getStateManager, MAIN_AGENT_ID } from '../manager/StateManager'
+import { getStateManager } from '../manager/StateManager'
 import { buildUserMsg } from '../util/message'
 import { t } from '../util/i18n'
 
@@ -129,29 +129,20 @@ export const PlanToAgent = {
 
     const runtime = getStateManager().session(agentContext.sessionId)
 
-    // 退出Plan模式，切换回Agent模式（会话级）
-    runtime.agentMode = 'Agent'
-
     // 计划实施提示：作为新的首条用户消息，UI 也按用户输入回显，故随 lang 输出
     const implementPrompt = `${t('plan.implementPrompt')}\n\n${content}`
 
     // 如果选择清理上下文
     if (selected === 'clearContextAndStart') {
-      // 清空 plan 阶段所有上下文
-      runtime.clearAllState()
+      const newUserMessage = buildUserMsg([{ type: 'text', text: implementPrompt }])
+      // 先提交新上下文，再清运行状态；写入失败时保留原计划历史和状态。
+      runtime.replaceMessageHistory([newUserMessage], undefined, {}, true)
       // clearAllState 会把生命周期状态和当前请求的 abort 句柄一并清掉，
       // 但工具仍在执行中，需立刻还原回 processing 态
       runtime.updateState('processing')
       runtime.currentAbortController = abortController
 
-      // 设置新的用户消息
-      const newUserMessage = buildUserMsg([
-        {
-          type: 'text',
-          text: implementPrompt,
-        },
-      ])
-      runtime.setMessageHistory([newUserMessage], MAIN_AGENT_ID)
+      runtime.agentMode = 'Agent'
 
       // 触发 plan:implement 事件
       eventBus.emit('plan:implement', {
@@ -159,6 +150,9 @@ export const PlanToAgent = {
         planContent: content,
       }, agentContext.sessionId)
     }
+
+    // 退出 Plan 模式，切换回 Agent 模式（会话级）。
+    runtime.agentMode = 'Agent'
 
     const data: PlanToAgentOutput = {
       planFilePath: plan_file_path,

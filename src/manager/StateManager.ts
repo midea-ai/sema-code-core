@@ -18,8 +18,8 @@ import * as crypto from 'crypto';
 import { getEventBus } from '../events/EventSystem';
 import { StateUpdateData, AppSessionState, TodoItem, PermissionLevelUpdateData } from '../events/types';
 import { logInfo } from '../util/log';
-import { saveHistory } from '../util/history';
-import { TranscriptWriter } from '../util/transcript';
+import { saveHistory, getHistoryStore, closeHistory, retainHistoryReader, afterHistoryReaders } from '../util/history';
+import type { HistoryStore } from '../util/historyStore';
 import { Message, InputImageAttachment, InputSource } from '../types/message';
 import { getConfManager } from './ConfManager';
 import { TodoTask, TodoTaskStatus } from '../types/todoTask';
@@ -120,7 +120,7 @@ export class SessionRuntime {
   // 项目外读取已授权的父目录集合（会话级，不持久化）
   private allowedExternalReadDirs = new Set<string>();
 
-  // 历史文件命名格式：true 表示本会话使用无日期文件名（会话id.json），用于固定会话持久化
+  // 历史文件命名格式：true 表示本会话使用无日期文件名（会话id.jsonl + 会话id.meta.json），用于固定会话持久化
   private historyNoDate = false;
 
   // 当前正在运行的前台 agent taskId 集合
@@ -146,20 +146,55 @@ export class SessionRuntime {
   // 长期目标（/goal）：随会话历史落盘；只由 /clear、clearGoal、/goal <文本> 清除或改写，clearAllState 不碰
   private goal: GoalState | null = null;
 
-  // 会话记录（只写不读的追加式 JSONL，供 hook 脚本读取；门控与懒创建在 writer 内处理）
-  private readonly transcript: TranscriptWriter;
+  private historyStore?: HistoryStore;
+  private disposed = false;
+  private retiredAgents = new Set<string>();
 
-  constructor(public readonly sessionId: string) {
-    this.transcript = new TranscriptWriter(sessionId);
+  constructor(public readonly sessionId: string) {}
+
+  private store(): HistoryStore {
+    return this.historyStore ??= getHistoryStore(this.sessionId, getConfManager().getCoreConfig()?.workingDir, this.historyNoDate);
+  }
+
+  prepareHistoryForHook(agentId?: string): { transcriptPath: string; agentPath?: string; release: () => void } {
+    this.saveSessionHistory();
+    if (agentId && agentId !== MAIN_AGENT_ID) this.saveSessionHistory(agentId);
+    const store = this.store();
+    return { transcriptPath: store.messagePath, agentPath: agentId ? store.agentPath(agentId) : undefined, release: retainHistoryReader(store.stem) };
+  }
+
+  clearAgentHistories(): void {
+    for (const id of this.messageHistoryMap.keys()) if (id !== MAIN_AGENT_ID) this.retiredAgents.add(id);
+    const store = this.store();
+    store.clearAgents(remove => afterHistoryReaders(store.stem, remove));
+  }
+
+  disposeHistory(): void {
+    for (const id of this.messageHistoryMap.keys()) {
+      if (id !== MAIN_AGENT_ID) {
+        try { this.saveSessionHistory(id); } catch { /* saveSessionHistory already reports failure */ }
+      }
+    }
+    this.disposed = true;
+    closeHistory(this.sessionId, getConfManager().getCoreConfig()?.workingDir);
+  }
+
+  replaceMessageHistory(messages: Message[], goal: GoalState | null = this.goal, readFileTimestamps = this.getReadFileTimestamps(), resetState = false): void {
+    const workingDir = getConfManager().getCoreConfig()?.workingDir;
+    saveHistory(this.sessionId, messages, resetState ? [] : this.getTodos(), workingDir, readFileTimestamps, resetState ? [] : this.listTodoTasks(MAIN_AGENT_ID), this.historyNoDate, goal ?? undefined, true);
+    if (resetState) this.clearAllState();
+    this.goal = goal;
+    this.setReadFileTimestamps(readFileTimestamps);
+    this.messageHistoryMap.set(MAIN_AGENT_ID, messages);
   }
 
   getGoal(): GoalState | null {
     return this.goal;
   }
 
-  setGoal(goal: GoalState | null): void {
+  setGoal(goal: GoalState | null, skipSave = false): void {
     this.goal = goal;
-    this.saveSessionHistory();
+    if (!skipSave) this.saveSessionHistory();
   }
 
   // ============================================================
@@ -167,18 +202,13 @@ export class SessionRuntime {
   // ============================================================
 
   setMessageHistory(messages: Message[], agentId: string = MAIN_AGENT_ID, skipAutoSave = false): void {
+    if (this.disposed || this.retiredAgents.has(agentId)) return;
     this.messageHistoryMap.set(agentId, messages);
-    // 主代理设置消息历史时自动保存
-    if (!skipAutoSave && agentId === MAIN_AGENT_ID && messages.length > 0) {
-      this.saveSessionHistory();
-    }
-    // 会话记录追加（主/子代理共用此入口）。放在历史落盘之后：首个 .json 已存在时主干名跟它走
-    this.transcript.sync(agentId, messages, getConfManager().getCoreConfig()?.workingDir, this.historyNoDate);
+    if (!skipAutoSave) this.saveSessionHistory(agentId);
   }
 
-  /** 本会话 transcript（JSONL）路径，可选子代理；文件不一定已创建 */
   getTranscriptPath(agentId: string = MAIN_AGENT_ID): string {
-    return this.transcript.getPath(getConfManager().getCoreConfig()?.workingDir, this.historyNoDate, agentId);
+    return agentId === MAIN_AGENT_ID ? this.store().messagePath : this.store().agentPath(agentId);
   }
 
   getMessageHistory(agentId: string = MAIN_AGENT_ID): Message[] {
@@ -626,7 +656,8 @@ export class SessionRuntime {
       this.todoTasksMap.delete(agentId);
       this.fileLineEndingsMap.delete(agentId);
       this.agentLoadedToolNamesMap.delete(agentId);
-      this.transcript.dropAgent(agentId);
+      this.retiredAgents.add(agentId);
+      this.historyStore?.retireAgent(agentId);
       logInfo(`[${agentId}] 所有隔离状态已清理`);
     }
   }
@@ -634,24 +665,26 @@ export class SessionRuntime {
   /**
    * 保存会话历史到文件
    */
-  async saveSessionHistory(): Promise<void> {
+  saveSessionHistory(agentId: string = MAIN_AGENT_ID): void {
+    if (this.disposed || this.retiredAgents.has(agentId)) return;
     try {
-      const messageHistory = this.getMessageHistory();
-      const todos = this.getTodos();
-      const todoTasks = this.listTodoTasks(MAIN_AGENT_ID);
-      const readFileTimestamps = this.getReadFileTimestamps(MAIN_AGENT_ID);
-      const workingDir = getConfManager().getCoreConfig()?.workingDir;
-      // 有目标时即使尚无消息也写盘：新会话刚设目标就能持久化
-      if (messageHistory.length > 0 || this.goal) {
-        await saveHistory(this.sessionId, messageHistory, todos, workingDir, readFileTimestamps, todoTasks, this.historyNoDate, this.goal ?? undefined);
-        logInfo(`会话历史已保存: ${this.sessionId}`);
+      const messages = this.getMessageHistory(agentId);
+      if (agentId !== MAIN_AGENT_ID) {
+        this.store().saveAgent(agentId, messages);
+        return;
       }
+      saveHistory(this.sessionId, messages, this.getTodos(), getConfManager().getCoreConfig()?.workingDir,
+        this.getReadFileTimestamps(), this.listTodoTasks(MAIN_AGENT_ID), this.historyNoDate, this.goal ?? undefined);
     } catch (error) {
-      logInfo(`保存会话历史失败: ${error instanceof Error ? error.message : String(error)}`);
+      getEventBus().emit('session:error', {
+        type: 'fatal_error',
+        error: { code: 'HISTORY_WRITE_FAILED', message: error instanceof Error ? error.message : String(error) },
+      }, this.sessionId);
+      throw error;
     }
   }
 
-  /** 设置本会话历史文件是否使用无日期命名（会话id.json） */
+  /** 设置本会话历史文件是否使用无日期命名（会话id.jsonl + 会话id.meta.json） */
   setHistoryNoDate(noDate: boolean): void {
     this.historyNoDate = noDate;
   }
@@ -793,7 +826,7 @@ export class SessionRuntime {
         this.setMessageHistory(messages, agentId);
         this.updateState('idle', agentId);
       },
-      flushHistory: () => this.saveSessionHistory(),
+      flushHistory: async () => this.saveSessionHistory(agentId),
 
       getReadFileTimestamps: () => this.getReadFileTimestamps(agentId),
       getReadFileTimestamp: (filePath: string) => this.getReadFileTimestamp(filePath, agentId),
@@ -886,6 +919,7 @@ export class StateManager {
   removeSession(sessionId: string): void {
     const runtime = this.sessions.get(sessionId);
     if (runtime) {
+      runtime.disposeHistory();
       runtime.clearAllState();
       this.sessions.delete(sessionId);
       logInfo(`SessionRuntime 已移除: ${sessionId}`);
@@ -901,6 +935,7 @@ export class StateManager {
    */
   clearAll(): void {
     for (const runtime of this.sessions.values()) {
+      runtime.disposeHistory();
       runtime.clearAllState();
     }
     this.sessions.clear();

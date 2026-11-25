@@ -10,6 +10,8 @@
  * - 期限兜底：未登记的附件，超过期限且排在最新若干个之外才删（evictAttachments）
  * - 体积上限：总体积超限时从最旧的删起，先删未登记的（evictAttachments）
  */
+import { historySessionIds } from './historyFiles';
+
 import * as fs from 'fs';
 import * as path from 'path';
 import { getAttachmentsDir, getHistoryDir, getProjectHistoryDir } from './savePath';
@@ -92,7 +94,7 @@ export function registerAttachment(sessionId: string | undefined, filePath: stri
 }
 
 /** 分支出新会话时复制清单：新会话的历史里带着原会话的附件路径 */
-export function copyAttachmentLedger(fromSessionId: string, toSessionId: string, projectPath?: string): void {
+export function copyAttachmentLedger(fromSessionId: string, toSessionId: string, projectPath?: string, strict = false): void {
   try {
     const dir = ledgerDir(projectPath ?? currentProjectPath());
     const ids = readLedger(path.join(dir, `${fromSessionId}${LEDGER_EXT}`));
@@ -103,20 +105,13 @@ export function copyAttachmentLedger(fromSessionId: string, toSessionId: string,
     known.set(target, merged);
   } catch (error) {
     logWarn(`复制附件清单失败 ${fromSessionId} -> ${toSessionId}: ${error instanceof Error ? error.message : String(error)}`);
+    if (strict) throw error;
   }
 }
 
-/** 历史目录里有历史文件的会话 id：<会话id>.json 或 YYYY-MM-DD_<会话id>.json，均可带 .enc */
+/** 由旧 JSON、新 meta 或待恢复事务识别会话归属，兼容 .enc。 */
 function sessionsWithHistory(files: string[]): Set<string> {
-  const sessions = new Set<string>();
-  for (const file of files) {
-    const name = stripEnc(file);
-    if (!name.endsWith('.json')) continue;
-    const stem = name.slice(0, -'.json'.length);
-    sessions.add(stem);
-    if (/^\d{4}-\d{2}-\d{2}_/.test(stem)) sessions.add(stem.slice(11));
-  }
-  return sessions;
+  return historySessionIds(files);
 }
 
 /**

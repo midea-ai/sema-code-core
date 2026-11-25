@@ -40,7 +40,7 @@ class SessionPool {
       return { ok: true, session };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      // 历史密文解不开等失败带稳定错误码（HISTORY_KEY_REQUIRED / HISTORY_DECRYPT_FAILED），宿主据此提示
+      // 读历史失败带稳定错误码（HISTORY_* 系列），宿主据此提示
       return { ok: false, error: t('session.initFailed', { error: msg }), code: errorCodeOf(error) };
     }
   };

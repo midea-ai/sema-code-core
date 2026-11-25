@@ -64,10 +64,11 @@ public enum SkillScope { host, user, project, plugin, builtin }
 /// <summary>
 /// 稳定错误码（≙ core SemaErrorCode）：桥 error 帧的 code，挂在 SemaBridgeException.Code 上；文案随 lang 变化而 code 不变。
 /// CONFIG_INVALID=构造参数或运行期更新的配置校验不通过；SCOPE_DISABLED=要写的域没有生效；HOST_READONLY=要改的是宿主传入的 host 域条目；
-/// HISTORY_KEY_REQUIRED=历史文件是密文但没传密钥；HISTORY_DECRYPT_FAILED=密钥不对或密文损坏。
+/// HISTORY_KEY_REQUIRED=历史文件是密文但没传密钥；HISTORY_DECRYPT_FAILED=密钥不对或密文损坏；
+/// HISTORY_CORRUPT=历史文件损坏或格式不支持；HISTORY_BUSY=历史已被其他写入者占用；HISTORY_WRITE_FAILED=写历史失败。
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum SemaErrorCode { CONFIG_INVALID, SCOPE_DISABLED, HOST_READONLY, HISTORY_KEY_REQUIRED, HISTORY_DECRYPT_FAILED }
+public enum SemaErrorCode { CONFIG_INVALID, SCOPE_DISABLED, HOST_READONLY, HISTORY_KEY_REQUIRED, HISTORY_DECRYPT_FAILED, HISTORY_CORRUPT, HISTORY_BUSY, HISTORY_WRITE_FAILED }
 
 /// <summary>replaceAll 已废弃，等同 replace。</summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]

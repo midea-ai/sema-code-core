@@ -148,14 +148,10 @@ const checkpointSeq = getCheckpointManager().beginTurn(this.sessionId);
 
 `SemaEngine.rewind()`（经 `SemaSession.fork` 委托）：
 
-1. **idle 守卫**：主 Agent 非 idle 直接返回 `会话忙`（处理中回退会导致 editlog / history / 磁盘不一致）。
-2. **校验 fork 点**：必须是 `type==='user'` 且带 `checkpointSeq` 的真实用户输入，否则报错。
-3. 计算 `forkSeq` 与 `truncated = history.slice(0, idx)`（移除该消息及其之后）。
-4. （仅 `restoreFiles`）`computeRestorePlan` → `applyRestore` 回滚文件，并刷新被回滚文件的读时间戳（避免触发"先重读"）。
-5. `truncateEditLog(forkSeq)` 丢弃被撤销轮次的快照记录。
-6. 长期目标按截断后的历史推导：剩余历史没有目标标记则清除；有则轮数回到最后一个标记的轮数、状态置 `paused`、summary 丢弃，文本沿用当前值。先于历史落盘更新，有变化时在落盘后发 `goal:update`（`paused` / `cleared`）。
-7. `setMessageHistory(truncated)` 并持久化（空历史时强制落盘覆盖）。
-8. 重发一次 `todos:update`（todos 不随回档回退，重发让 UI 面板同步）。
+- **可回退边界**：主代理必须空闲，只接受带 `checkpointSeq` 的真实用户输入，保留该输入之前的历史。
+- **工作区还原**：选择 `restoreFiles` 时先还原文件并刷新读取时间戳；历史提交与工作区文件写入不组成跨资源事务。
+- **历史提交**：将截断消息和推导出的长期目标一起提交为 JSONL + meta，空历史也必须提交。成功后才截断 editlog，避免写历史失败时先丢掉回滚材料。
+- **状态通知**：提交失败返回 `ok:false`；成功后重发目标、todos 和 usage。todos 不随回退变化，目标按剩余消息标记恢复为暂停。
 
 **回滚执行 `applyRestore`**：`existedBefore=false`（fork 后才新建）→ 删除文件（已被删则忽略 ENOENT）；`existedBefore=true` → `readBlob` 取回旧字节，递归建目录后 `writeFileSync` 字节级整文件还原。
 
@@ -212,8 +208,8 @@ sequenceDiagram
                 CM->>FS: writeFileSync（字节级还原）
             end
         end
-        EN->>CM: truncateEditLog(forkSeq)
-        EN->>EN: setMessageHistory(truncated) 持久化
+        EN->>EN: 提交截断消息与 meta
+        EN->>CM: 提交成功后 truncateEditLog(forkSeq)
         EN-->>Host: { ok:true, sessionId, restoredFiles }
     end
 ```
@@ -235,7 +231,7 @@ sequenceDiagram
 
 `cleanupProjectSnapshots()` 由 `history.cleanupOldHistoryFiles` 在历史文件清理之后调用（`saveHistory` 内每小时最多触发一次），采用**标记清除**：
 
-1. 扫描剩余历史文件，收集仍存活的 `sessionId`（文件名形如 `YYYY-MM-DD_<sessionId>.json`）。
+1. 扫描剩余历史文件，收集仍存活的 `sessionId`（识别旧 `.json`、新版 `.meta.json` 和待恢复 `.rewrite.json`，均兼容 `.enc`）。
 2. 删除非存活会话的 `<sessionId>.editlog.json`（无主 editlog）。
 3. 收集剩余 editlog 引用到的 `blobHash` 集合，删除 `blobs/` 下无引用的 blob。
 

@@ -51,7 +51,7 @@ interface SemaCoreConfig {
 }
 ```
 
-> 构造参数校验不通过、写接口落到没生效的域或 host 条目时抛 `SemaError`（`code` 为 `CONFIG_INVALID` / `SCOPE_DISABLED` / `HOST_READONLY`）；`createSession` 遇到解不开的加密历史返回 `{ ok: false, error, code: 'HISTORY_KEY_REQUIRED' | 'HISTORY_DECRYPT_FAILED' }`。
+> 构造参数校验不通过、写接口落到没生效的域或 host 条目时抛 `SemaError`（`code` 为 `CONFIG_INVALID` / `SCOPE_DISABLED` / `HOST_READONLY`）；`createSession` 读历史失败时返回 `{ ok: false, error, code }`，`code` 为 `HISTORY_KEY_REQUIRED`（历史是密文但没传密钥）、`HISTORY_DECRYPT_FAILED`（密钥不对或密文损坏）、`HISTORY_CORRUPT`（历史损坏）、`HISTORY_BUSY`（历史已被其他写入者占用）或 `HISTORY_WRITE_FAILED`（写历史失败）。
 
 > 可通过 `sema.updateCoreConfByKey(key, value)` 或 `sema.updateCoreConfig(partial)` 在运行时更新 `UpdatableCoreConfigKeys` 中定义的字段。`disabledTools` 通过 `sema.updateDisabledTools()` 更新；`agentMode` 是会话级配置，创建会话时通过 `createSession({ agentMode })` 指定，运行中通过 `session.updateAgentMode()` 更新。
 

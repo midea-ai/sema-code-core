@@ -109,19 +109,30 @@ hook 子进程的工作目录是项目根，环境变量 `SEMA_PROJECT_DIR` 指�
 
 ## 会话记录（transcript）
 
-只供 hook 脚本读取的追加式 JSONL，core 只写不读，会话恢复仍走历史 JSON。`Stop` / `PreCompact` / `SubagentStart` / `SubagentStop` 任一配置了 hook 才写，没配的用户零开销。
+`transcript_path` 直接指向用于恢复主会话的 JSONL；没有配置 hooks 时，也保存这份历史。压缩、回退、清空和输入撤销会替换已有内容，因此脚本只能读取当前有效历史，不能把它当作永久审计日志。
 
-- 路径：与历史 JSON 同目录、同主干名，扩展名 `.jsonl`，如 `~/.sema/history/<项目目录名>/2026-11-03_<会话id>.jsonl`；子 agent 为 `<主干>.agent-<agent_id>.jsonl`。
-- 每行一条消息，字段 `type`（`user` / `assistant`）、`uuid`、`parentUuid`（上一行的 uuid，首行 `null`）、`timestamp`、`sessionId`、`cwd`、`message`（`user` 为 `{role, content}`，`assistant` 为完整 API 响应对象）。图片块替换为 `[image omitted]` 占位文本。
-- 只追加不回改，行数只增不减：压缩时只追加一行摘要消息（带 `isCompactSummary: true`），之前的行不动；脚本可按行数记游标做增量读取。
-- 首次需要时创建并用当时的完整历史补种；恢复的会话已有文件则继续追加。
-- 不随会话结束删除，删历史 JSON（单会话删除、按数量清理）时顺带删同主干的 `.jsonl`。
+```text
+history/<项目目录>/
+├── 2026-11-25_a1b2c3d4.jsonl
+├── 2026-11-25_a1b2c3d4.meta.json
+└── 2026-11-25_a1b2c3d4/                # 运行过子代理才出现
+    └── V1StGXR8_Z5jdHi6B-myT.jsonl    # 实际 agent_id
+```
+
+- **内容**：每行一个完整 Message，保留 `type`、`uuid`、`message` 及消息已有字段，保留图片数据和 usage；不额外补旧 transcript 的 `parentUuid`、`timestamp`、`cwd`、`sessionId` 或 `isCompactSummary`。
+- **主会话读取**：从路径推导同名 `.meta.json`，只读取 `committedBytes` 指定的字节前缀。先检查无 `.rewrite.json`，读取 meta、消息前缀，再读 meta 并复查无事务；`revision` 变化、事务出现或读取失败时有界重试，不接收混合版本。
+- **增量读取**：记录 `historyEpoch` 与字节游标；epoch 变化表示旧内容被替换，必须从头读取。异步 hooks 得到可读取的当前历史，不保证永久保留触发瞬间的内容。
+- **子代理读取**：`agent_transcript_path` 指向 `<主会话主干>/<agent_id>.jsonl`，没有单独 meta。只接收以换行结束的合法完整行，忽略未完成尾行；不据此恢复子代理执行。
+- **文件生命周期**：发送相关 hook 前先提交可见消息，`PreCompact` 等待脚本完成后才进行摘要。子代理文件随主会话清空或删除；正在运行的 hook 读取期间延后清除子文件，正常结束和回退保留子文件。
+
+开启加密后，消息、meta 与事务文件都追加 `.enc`，消息每行独立加密，meta 整份加密；主会话提交边界按密文字节数计算。脚本需使用宿主相同密钥解密，不能直接按明文 JSON 解析。
 
 ```jsonl
-{"type":"user","uuid":"u1","parentUuid":null,"timestamp":"2026-11-03T08:00:00.000Z","sessionId":"s1","cwd":"/proj","message":{"role":"user","content":"以后用 pnpm"}}
-{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-11-03T08:00:03.000Z","sessionId":"s1","cwd":"/proj","message":{"id":"msg_x","type":"message","role":"assistant","model":"...","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"pnpm i"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}}
-{"type":"user","uuid":"u2","parentUuid":"a1","timestamp":"2026-11-03T08:00:04.000Z","sessionId":"s1","cwd":"/proj","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"..."}]}}
+{"type":"user","uuid":"u1","checkpointSeq":0,"message":{"role":"user","content":"以后用 pnpm"}}
+{"type":"user","uuid":"u2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"安装完成"}]}}
 ```
+
+旧脚本迁移时，移除“只按行数递增”的假设，改用提交边界和 epoch；需要长期保存操作记录的脚本自行归档读取结果。
 
 ## 输出协议
 
@@ -344,13 +355,20 @@ require('fs').appendFileSync('/tmp/sema_session_end.log', new Date().toISOString
 ```
 
 ```js
-// pre-compact.js：压缩前把会话记录整份备份
+// pre-compact.js：明文历史示例，按提交边界归档有效消息（加密时路径以 .jsonl.enc 结尾，先去掉 .enc）
 const fs = require('fs');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
-fs.copyFileSync(input.transcript_path, `${input.transcript_path}.${input.trigger}.${Date.now()}.bak`);
+const stem = input.transcript_path.replace(/\.enc$/, '').slice(0, -'.jsonl'.length);
+const meta = JSON.parse(fs.readFileSync(stem + '.meta.json', 'utf8'));
+const data = fs.readFileSync(input.transcript_path);
+const latest = JSON.parse(fs.readFileSync(stem + '.meta.json', 'utf8'));
+if (fs.existsSync(stem + '.rewrite.json') || latest.revision !== meta.revision
+    || data.length < meta.committedBytes) throw new Error('历史正在变化，请重试');
+fs.writeFileSync(`${input.transcript_path}.${input.trigger}.${Date.now()}.bak`,
+  data.subarray(0, meta.committedBytes));
 ```
 
-压缩只会在会话记录里追加一行摘要，但脚本若想保留"压缩那一刻"的完整快照，在这里做。hook 跑完才开始压缩。
+压缩会替换旧消息；需要保留压缩前内容时，在这个 hook 内归档有效历史。hook 跑完才开始压缩，加密场景下 meta 名为 `.meta.json.enc`、正文名为 `.jsonl.enc`，都要按同一密钥解码。
 
 ### SubagentStart / SubagentStop —— 子 agent 审计
 
@@ -367,7 +385,7 @@ const fs = require('fs');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 let line = `${new Date().toISOString()} ${input.hook_event_name} ${input.agent_type} ${input.agent_id}`;
 if (input.hook_event_name === 'SubagentStop') {
-  const lines = fs.readFileSync(input.agent_transcript_path, 'utf8').split('\n').filter(Boolean);
+  const lines = fs.readFileSync(input.agent_transcript_path, 'utf8').split('\n').slice(0, -1).filter(Boolean);
   line += ` messages=${lines.length}`;
 }
 fs.appendFileSync('/tmp/sema_subagent.log', line + '\n');

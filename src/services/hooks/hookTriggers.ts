@@ -360,27 +360,28 @@ export async function firePermissionRequest(
 export function fireStop(sessionId: string): void {
   void safeRun(null, async () => {
     const manager = getHooksManager()
-    await manager.ready()
+    if (!manager.isReady()) await manager.ready()
     const entries = manager.getMatchedEntries('Stop')
     if (entries.length === 0) return null
 
     // stop_hook_active 对齐通用 hooks 字段形状（无续驱恒为 false），方便脚本跨端复用
-    const payload = {
-      ...buildCommonPayload('Stop', sessionId, MAIN_AGENT),
-      transcript_path: transcriptPath(sessionId),
-      stop_hook_active: false,
-    }
-    await runEventHooks('Stop', sessionId, payload, entries)
-    return null
+    return withHistory(sessionId, undefined, async paths => {
+      const payload = {
+        ...buildCommonPayload('Stop', sessionId, MAIN_AGENT),
+        transcript_path: paths.transcriptPath,
+        stop_hook_active: false,
+      }
+      await runEventHooks('Stop', sessionId, payload, entries)
+      return null
+    })
   })
 }
 
-/**
- * 会话记录（JSONL）路径：Stop / PreCompact / SubagentStart / SubagentStop 任一配置了 hook 即开始写入，
- * 所以这四个事件触发时路径对应的文件已在写。取路径不触碰文件
- */
-function transcriptPath(sessionId: string, agentId?: string): string {
-  return getStateManager().session(sessionId).getTranscriptPath(agentId)
+async function withHistory<T>(sessionId: string, agentId: string | undefined, run: (paths: { transcriptPath: string; agentPath?: string }) => Promise<T>): Promise<T> {
+  const state = getStateManager()
+  if (!state.hasSession(sessionId)) throw new Error('Session has already closed')
+  const snapshot = state.session(sessionId).prepareHistoryForHook(agentId)
+  try { return await run(snapshot) } finally { snapshot.release() }
 }
 
 /**
@@ -399,13 +400,15 @@ export async function firePreCompact(
     const entries = manager.getMatchedEntries('PreCompact')
     if (entries.length === 0) return
 
-    const payload = {
-      ...buildCommonPayload('PreCompact', sessionId, MAIN_AGENT),
-      transcript_path: transcriptPath(sessionId),
-      trigger,
-      custom_instructions: customInstructions,
-    }
-    await runEventHooks('PreCompact', sessionId, payload, entries, signal)
+    return withHistory(sessionId, undefined, async paths => {
+      const payload = {
+        ...buildCommonPayload('PreCompact', sessionId, MAIN_AGENT),
+        transcript_path: paths.transcriptPath,
+        trigger,
+        custom_instructions: customInstructions,
+      }
+      await runEventHooks('PreCompact', sessionId, payload, entries, signal)
+    })
   })
 }
 
@@ -419,12 +422,14 @@ export async function fireSubagentStart(sessionId: string, agentId: string, agen
     const entries = manager.getMatchedEntries('SubagentStart')
     if (entries.length === 0) return
 
-    const payload = {
-      ...buildCommonPayload('SubagentStart', sessionId, agentId),
-      transcript_path: transcriptPath(sessionId),
-      agent_type: agentType,
-    }
-    await runEventHooks('SubagentStart', sessionId, payload, entries)
+    return withHistory(sessionId, undefined, async paths => {
+      const payload = {
+        ...buildCommonPayload('SubagentStart', sessionId, agentId),
+        transcript_path: paths.transcriptPath,
+        agent_type: agentType,
+      }
+      await runEventHooks('SubagentStart', sessionId, payload, entries)
+    })
   })
 }
 
@@ -435,19 +440,21 @@ export async function fireSubagentStart(sessionId: string, agentId: string, agen
 export function fireSubagentStop(sessionId: string, agentId: string, agentType: string): void {
   void safeRun(null, async () => {
     const manager = getHooksManager()
-    await manager.ready()
+    if (!manager.isReady()) await manager.ready()
     const entries = manager.getMatchedEntries('SubagentStop')
     if (entries.length === 0) return null
 
-    const payload = {
-      ...buildCommonPayload('SubagentStop', sessionId, agentId),
-      transcript_path: transcriptPath(sessionId),
-      agent_transcript_path: transcriptPath(sessionId, agentId),
-      agent_type: agentType,
-      stop_hook_active: false,
-    }
-    await runEventHooks('SubagentStop', sessionId, payload, entries)
-    return null
+    return withHistory(sessionId, agentId, async paths => {
+      const payload = {
+        ...buildCommonPayload('SubagentStop', sessionId, agentId),
+        transcript_path: paths.transcriptPath,
+        agent_transcript_path: paths.agentPath!,
+        agent_type: agentType,
+        stop_hook_active: false,
+      }
+      await runEventHooks('SubagentStop', sessionId, payload, entries)
+      return null
+    })
   })
 }
 

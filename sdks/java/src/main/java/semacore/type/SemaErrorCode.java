@@ -15,5 +15,11 @@ public enum SemaErrorCode {
     /** 历史文件是密文但没传密钥 */
     HISTORY_KEY_REQUIRED,
     /** 密钥不对或密文损坏 */
-    HISTORY_DECRYPT_FAILED
+    HISTORY_DECRYPT_FAILED,
+    /** 历史文件损坏或格式不支持 */
+    HISTORY_CORRUPT,
+    /** 历史已被其他写入者占用 */
+    HISTORY_BUSY,
+    /** 写历史失败 */
+    HISTORY_WRITE_FAILED
 }

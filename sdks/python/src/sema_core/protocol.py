@@ -20,7 +20,8 @@ class SemaBridgeException(Exception):
     """桥返回的 error 帧（≙ Java SemaBridgeException）。
 
     code：core 的稳定错误码（≙ types.SemaErrorCode：CONFIG_INVALID / SCOPE_DISABLED / HOST_READONLY /
-    HISTORY_KEY_REQUIRED / HISTORY_DECRYPT_FAILED），文案随 lang 变化而 code 不变；没有对应错误码时为 None。
+    HISTORY_KEY_REQUIRED / HISTORY_DECRYPT_FAILED / HISTORY_CORRUPT / HISTORY_BUSY / HISTORY_WRITE_FAILED），
+    文案随 lang 变化而 code 不变；没有对应错误码时为 None。
     """
 
     def __init__(self, action: str, message: str, code: Optional[str] = None) -> None:

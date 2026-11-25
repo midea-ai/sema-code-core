@@ -143,7 +143,7 @@ Hooks run shell commands automatically on lifecycle events, without asking each 
 \`\`\`
 
 - Events: \`SessionStart\`, \`UserPromptSubmit\`, \`PreToolUse\`, \`PostToolUse\`, \`PostToolUseFailure\`, \`PermissionRequest\`, \`Stop\`, \`SessionEnd\`, \`PreCompact\`, \`SubagentStart\`, \`SubagentStop\`. \`matcher\` only applies to the four tool events; omit it elsewhere.
-- \`Stop\`, \`PreCompact\`, \`SubagentStart\` and \`SubagentStop\` receive \`transcript_path\`: an append-only JSONL of the conversation (one message per line); \`SubagentStop\` also receives \`agent_transcript_path\`. Scripts should track their own line cursor.
+- \`Stop\`, \`PreCompact\`, \`SubagentStart\` and \`SubagentStop\` receive \`transcript_path\`: the effective conversation history as JSONL (one full message per line); \`SubagentStop\` also receives \`agent_transcript_path\`. Compaction and rewind replace old history. Read only the committedBytes prefix declared by the sibling .meta.json (or .meta.json.enc), retry if a .rewrite.json transaction exists or revision changes, and reset incremental cursors when historyEpoch changes. Child files are <main-stem>/<agent_id>.jsonl and have no meta; read complete lines only.
 - \`type\` must be \`command\`. \`timeout\` is in seconds, at most 60 (120 for \`PermissionRequest\`). Entries containing an \`if\` field are skipped.
 - The working directory is the project root, and \`SEMA_PROJECT_DIR\` holds the same path. A project-level hook may reference its script relative to the project root; a user-level hook runs in every project, so it must use an absolute path. Keep scripts next to \`hooks.json\`.
 - Hooks bundled inside a plugin are activated by enabling that plugin. Do not copy them out.

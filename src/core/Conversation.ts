@@ -68,24 +68,24 @@ export async function* ReAct(
 
     // 第一道防线：micro 清理（本地替换模型已消费的旧工具结果，不调模型）。
     // 清理无条件生效并随历史落盘；估算显示空间足够时直接跳过全量摘要。
-    const micro = applyMicroCompact(messages, sessionId)
+    const micro = applyMicroCompact(messages, sessionId, false)
     messages = micro.messages
+    if (micro.changed) {
+      stateManager.session(sessionId).replaceMessageHistory(messages)
+      getEventBus().emit('compact:micro', micro.stats!, sessionId)
+    }
 
     if (micro.needFullCompact) {
       // PreCompact hook：同步等待跑完再压缩（脚本需在历史改写前读完 transcript）；微压缩是原地改写，不触发
+      agentState.setMessageHistory(messages, true)
       await firePreCompact(sessionId, 'auto', '', abortController.signal)
 
       // 不清后台任务：保留区仍含最近工具轮次，摘要也会记录任务状态，任务 ID 可继续查询
       const compactResult = await autoCompact(messages, abortController, sessionId, {
         hasSkillTool: tools.some(tool => tool.name === TOOL_NAME_SKILL),
+        commit: next => stateManager.session(sessionId).replaceMessageHistory(next, undefined, {}),
       })
       messages = compactResult.messages
-
-      if (compactResult.changed) {
-        // todos 不清空：模型侧 todo 工具读的是 todoTasksMap（压缩从未清过它），
-        // 清 UI 投影只会造成面板闪空后复活的不一致，摘要中的 open items 与 todos 互相印证
-        agentState.setReadFileTimestamps({});
-      }
     }
   }
 
@@ -386,6 +386,9 @@ async function handleControlSignalRebuild(
       ...additionalReminders,
       ...rebuildSignal.rebuildMessage
     ])]
+    const runtime = getStateManager().session(currentAgentContext.sessionId)
+    if (currentAgentContext.agentId === MAIN_AGENT_ID) runtime.replaceMessageHistory(nextMessages)
+    else runtime.setMessageHistory(nextMessages, currentAgentContext.agentId)
   } else {
     nextMessages = [...messages, assistantMessage, ...orderedToolResults]
   }

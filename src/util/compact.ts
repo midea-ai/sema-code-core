@@ -23,7 +23,6 @@ import {
 import { generatePostCompactReminders } from '../services/agents/genSystemReminder'
 import { TOOL_NAME_SKILL } from '../prompt/tool'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
-import { markCompactSummary } from './transcript'
 
 const defaultCompactDependencies = {
   queryLLM,
@@ -249,7 +248,7 @@ function extractSummaryText(response: AiMessage): string {
   return ''
 }
 
-function emitCompactUsage(
+export function emitCompactUsage(
   messagesBefore: Message[],
   messagesAfter: Message[] | null,
   sessionId: string | undefined,
@@ -329,7 +328,7 @@ export type MicroCompactApplyResult = {
  *
  * 任何异常均退回旧行为（needFullCompact: true，消息原样返回）。
  */
-export function applyMicroCompact(messages: Message[], sessionId?: string): MicroCompactApplyResult {
+export function applyMicroCompact(messages: Message[], sessionId?: string, emitEvent = true): MicroCompactApplyResult {
   try {
     const result = microCompactMessages(messages)
     if (!result.changed) {
@@ -351,7 +350,7 @@ export function applyMicroCompact(messages: Message[], sessionId?: string): Micr
 
     // 独立事件：绝不复用 compact:exec（该事件语义是"历史已被摘要替换"，下游会隐藏 transcript）
     try {
-      compactDependencies.getEventBus().emit('compact:micro', microData, sessionId)
+      if (emitEvent) compactDependencies.getEventBus().emit('compact:micro', microData, sessionId)
     } catch (emitError) {
       logError(`[MicroCompact] Failed to emit compact:micro: ${emitError}`)
     }
@@ -789,7 +788,7 @@ export async function autoCompact(
   messages: Message[],
   abortController: AbortController,
   sessionId?: string,
-  options: { hasSkillTool?: boolean } = {}
+  options: { hasSkillTool?: boolean; commit?: (messages: Message[]) => void } = {}
 ): Promise<AutoCompactResult> {
   const { cutIdx, lastRealUserIdx } = findCompactCut(messages)
 
@@ -852,7 +851,6 @@ export async function autoCompact(
         { type: 'text', text: wrapCompactSummary(compactResult.summary) },
         ...instructionBlocks,
       ])]
-      markCompactSummary(compactedMessages[0])
     } else {
       // 截断兜底：前置拼进首条截断通知 user 消息，不新增消息
       const extraBlocks = [...reminders, ...instructionBlocks]
@@ -868,6 +866,8 @@ export async function autoCompact(
     const finalMessages = [...compactedMessages, ...messagesToKeep]
 
     logDebug(`[Compact] Final messages count: ${finalMessages.length}, kept: ${messagesToKeep.length} messages`)
+
+    options.commit?.(finalMessages)
 
     emitAutoCompactUsage(
       tokenBefore,

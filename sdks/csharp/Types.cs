@@ -600,9 +600,9 @@ public record SemaCoreConfig
     // ---- 持久化保护 ----
     /// <summary>会话历史、hook 会话记录、快照加密；密钥只在内存。仅构造时生效。</summary>
     [JsonPropertyName("encryption")] public EncryptionConfig? Encryption { get; init; }
-    /// <summary>不写模型调用日志；缺省：没传 Encryption 为 false，传了为 true。支持运行期更新。</summary>
+    /// <summary>不写模型调用日志；缺省为 true（调试时传 false 打开）。支持运行期更新。</summary>
     [JsonPropertyName("disableLLMLog")] public bool? DisableLLMLog { get; init; }
-    /// <summary>不写事件日志；缺省规则同 DisableLLMLog。支持运行期更新。</summary>
+    /// <summary>不写事件日志；缺省：没传 Encryption 为 false，传了为 true。支持运行期更新。</summary>
     [JsonPropertyName("disableEventLog")] public bool? DisableEventLog { get; init; }
 }
 

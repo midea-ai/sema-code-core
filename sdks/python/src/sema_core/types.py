@@ -211,8 +211,8 @@ class SemaCoreConfig(TypedDict, total=False):
     scopes: ScopesConfig
     # ---- 持久化保护 ----
     encryption: EncryptionConfig  # 仅构造时生效
-    disableLLMLog: bool  # 不写模型调用日志；缺省：没传 encryption 为 False，传了为 True；支持运行期更新
-    disableEventLog: bool  # 不写事件日志；缺省规则同上；支持运行期更新
+    disableLLMLog: bool  # 不写模型调用日志；缺省为 True（调试时传 False 打开）；支持运行期更新
+    disableEventLog: bool  # 不写事件日志；缺省：没传 encryption 为 False，传了为 True；支持运行期更新
 
 
 class UpdatableCoreConfig(TypedDict, total=False):

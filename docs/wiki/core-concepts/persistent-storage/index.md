@@ -276,8 +276,11 @@ MCP 加载优先级：**插件 MCP < 用户级 < 项目级**，项目级配置�
 服务运行日志，按天分割，记录 debug/info/warn/error 级别消息。格式：
 
 ```
-[HH:MM:SS] [INFO] [file.ts:line]: 消息内容
+[HH:MM:SS] [INFO]: 消息内容
+[HH:MM:SS] [WARN] [file.ts:line]: 消息内容
 ```
+
+info 级不带调用位置（取调用栈较贵），warn / error 级带 `[file.ts:line]`。
 
 **自动清理**：最多保留最近 **7 个**日志文件（`SERVICE_LOG_FILES_RETAIN_COUNT`）。
 
@@ -288,6 +291,8 @@ LLM 请求和响应的原始日志，按会话分文件存储。格式：
 ```
 [HH:MM:SS]{请求或响应的 JSON}
 ```
+
+**缺省不写**：每条请求都要把整份历史序列化落盘，代价大；调试时在构造配置里显式传 `disableLLMLog: false` 打开（也支持运行期 `updateCoreConfig` 打开）。关闭时连目录都不建。
 
 **自动清理**：最多保留最近 **10 个**日志文件（`LLM_LOG_FILES_RETAIN_COUNT`），超出的文件在删除前会被归档到 `tracks/`。
 

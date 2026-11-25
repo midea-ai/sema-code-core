@@ -36,15 +36,24 @@ const shouldLog = (level: LogLevel): boolean => {
   return LOG_LEVELS[level] >= LOG_LEVELS[globalLogLevel];
 };
 
+/** 当前是否输出 debug 级日志：调用方据此决定是否拼装昂贵的日志内容（如整份历史序列化） */
+export const isDebugLogEnabled = (): boolean => shouldLog('debug');
+
+// 当天日志文件路径缓存：目录只建一次，不逐行 existsSync + mkdir
+let cachedLogFile: { day: string; path: string } | null = null;
+
 /**
  * 获取当前日期的日志文件路径
  */
 const getLogFilePath = (): string => {
   const dateStr = getDayTimeString(); // 只取日期部分 YYYY-MM-DD
+  if (cachedLogFile?.day === dateStr) return cachedLogFile.path;
 
-  // 如果有sessionId，则在文件名中包含它
-  const filename = `${dateStr}.log`;
-  return path.join(getLogsDir(), filename);
+  const logsDir = getLogsDir();
+  fs.mkdirSync(logsDir, { recursive: true });
+  const filePath = path.join(logsDir, `${dateStr}.log`);
+  cachedLogFile = { day: dateStr, path: filePath };
+  return filePath;
 };
 
 
@@ -95,8 +104,9 @@ const getCallerInfo = (): string => {
 const formatMessage = (level: LogLevel, message: string): string => {
   const timestamp = getTimeString(); // 使用时分秒格式
   const levelStr = level.toUpperCase();
-  const callerInfo = getCallerInfo();
-  return `[${timestamp}] [${levelStr}] [${callerInfo}]: ${message}`;
+  // 取调用栈较贵（new Error + 三次正则），只在 warn / error 下带上
+  const callerInfo = LOG_LEVELS[level] >= LOG_LEVELS.warn ? ` [${getCallerInfo()}]` : '';
+  return `[${timestamp}] [${levelStr}]${callerInfo}: ${message}`;
 };
 
 /**
@@ -114,14 +124,14 @@ const writeLog = (level: LogLevel, message: string, consoleMethod: (...args: any
 
   // 写入文件
   try {
-    // 确保日志目录存在
-    const logsDir = getLogsDir();
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
-    }
-
     const logFilePath = getLogFilePath();
-    fs.appendFileSync(logFilePath, formattedMessage + '\n', 'utf8');
+    try {
+      fs.appendFileSync(logFilePath, formattedMessage + '\n', 'utf8');
+    } catch {
+      // 日志目录被删时补建后重试一次
+      fs.mkdirSync(path.dirname(logFilePath), { recursive: true });
+      fs.appendFileSync(logFilePath, formattedMessage + '\n', 'utf8');
+    }
 
     // 定时清理日志文件（每小时最多执行一次）
     const nowTimestamp = nowMillis();

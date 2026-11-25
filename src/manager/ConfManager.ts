@@ -43,13 +43,14 @@ export class ConfigManager {
 
   private async applyCoreConfig(config: SemaCoreConfig): Promise<void> {
     const { encryption, ...rest } = config;
-    // 模型调用日志与事件日志缺省跟随是否加密：没传密钥照常写，传了就不写
+    // 模型调用日志缺省不写：每条请求都要把整份历史序列化落盘，代价大，调试时显式传 false 打开。
+    // 事件日志缺省跟随是否加密：没传密钥照常写，传了就不写
     const disableLogs = encryption !== undefined && encryption !== null;
     // lang 归一化：不在 SUPPORTED_LANGUAGES 内一律 'zh'
     this.coreConfig = this.applyDisabledTools({
       ...rest,
       lang: normalizeLang(config.lang),
-      disableLLMLog: rest.disableLLMLog ?? disableLogs,
+      disableLLMLog: rest.disableLLMLog ?? true,
       disableEventLog: rest.disableEventLog ?? disableLogs,
     });
 

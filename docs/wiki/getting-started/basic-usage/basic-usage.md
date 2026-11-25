@@ -46,8 +46,8 @@ interface SemaCoreConfig {
 
   // ---- 持久化保护 ----
   encryption?: EncryptionConfig;     // 会话历史、快照、hook 会话记录加密（key 为 32 字节密钥的 base64），密钥只在内存；仅构造时生效
-  disableLLMLog?: boolean;           // 不写模型调用日志；缺省：没传 encryption 为 false，传了为 true；支持运行期更新
-  disableEventLog?: boolean;         // 不写事件日志；缺省规则同上；支持运行期更新
+  disableLLMLog?: boolean;           // 不写模型调用日志；缺省为 true（调试时传 false 打开）；支持运行期更新
+  disableEventLog?: boolean;         // 不写事件日志；缺省：没传 encryption 为 false，传了为 true；支持运行期更新
 }
 ```
 

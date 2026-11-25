@@ -76,8 +76,8 @@ export interface SemaCoreConfig {
 
   // ---- 持久化保护 ----
   encryption?: import('./host').EncryptionConfig;  // 会话历史、hook 会话记录、快照加密；仅构造时生效，密钥只在内存
-  disableLLMLog?: boolean;           // 不写模型调用日志（llm_logs 与 tracks 归档）；缺省：没传 encryption 为 false，传了为 true；支持运行期更新
-  disableEventLog?: boolean;         // 不写事件日志（event 目录）；缺省规则同上；支持运行期更新
+  disableLLMLog?: boolean;           // 不写模型调用日志（llm_logs 与 tracks 归档）；缺省为 true（调试时传 false 打开）；支持运行期更新
+  disableEventLog?: boolean;         // 不写事件日志（event 目录）；缺省：没传 encryption 为 false，传了为 true；支持运行期更新
 }
 
 // 支持动态更新的核心配置字段（从默认配置派生）
@@ -101,7 +101,8 @@ export const defaultCoreConfig = {
   enableToolSearch: false,
   enableInputPrediction: false,
   enableInputRetract: false,
-  // 实际缺省由 ConfManager.setCoreConfig 按是否传 encryption 决定，这里只是让字段进入可更新键集合
+  // 实际缺省由 ConfManager.setCoreConfig 决定（LLM 日志恒为 true，事件日志按是否传 encryption），
+  // 这里只是让字段进入可更新键集合
   disableLLMLog: false,
   disableEventLog: false,
 };

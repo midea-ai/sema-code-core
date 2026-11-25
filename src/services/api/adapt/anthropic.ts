@@ -5,7 +5,7 @@ import { ModelProfile } from '../../../types/model'
 import { Tool } from '../../../tools/base/Tool'
 import { buildTools } from '../../../tools/base/tools'
 import { logLLMRequest } from '../../../util/logLLM'
-import { logDebug, logError } from '../../../util/log'
+import { logDebug, logError, isDebugLogEnabled } from '../../../util/log'
 import { emitChunkEvent, getChunkEventBus, withStreamTimeout } from './util'
 
 // --- Types ---
@@ -333,6 +333,9 @@ function buildAnthropicMessages(
     }
   })
 
-  logDebug(`转换后的 Anthropic Messages: ${JSON.stringify(result, null, 2)}`)
+  // debug 级才拼装：整份历史序列化很贵，info 级别下算完就丢
+  if (isDebugLogEnabled()) {
+    logDebug(`转换后的 Anthropic Messages: ${JSON.stringify(result, null, 2)}`)
+  }
   return result
 }

@@ -35,6 +35,7 @@ import { deleteProjectHistory, deleteSessionHistory } from '../util/history';
 import { getEventBus } from '../events/EventSystem';
 import { ProcessEvent } from '../events/types';
 import { logInfo } from '../util/log';
+import { flushLinesSync } from '../util/lineWriter';
 import { getShellRuntimeInfoAsync, PersistentShell } from '../util/shell';
 import { maskForLog } from '../conf/hostConfig';
 import { errorCodeOf } from '../util/errors';
@@ -244,5 +245,8 @@ export class SemaCore {
     getRuleManager().dispose();
     getDesignManager().dispose();
     getHooksManager().dispose();
+
+    // 事件 / LLM 日志是异步批量写的，退出前把队列收口，避免最后几行丢失
+    flushLinesSync();
   };
 }

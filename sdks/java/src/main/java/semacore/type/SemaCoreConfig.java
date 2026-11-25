@@ -102,9 +102,9 @@ public record SemaCoreConfig(String workingDir, String logLevel, String lang, Bo
         public Builder scopes(ScopesConfig scopes) { this.scopes = scopes; return this; }
         /** 会话历史、hook 会话记录、快照加密；密钥只在内存。仅构造时生效。 */
         public Builder encryption(EncryptionConfig encryption) { this.encryption = encryption; return this; }
-        /** 不写模型调用日志；缺省：没传 encryption 为 false，传了为 true。支持运行期更新。 */
+        /** 不写模型调用日志；缺省为 true（调试时传 false 打开）。支持运行期更新。 */
         public Builder disableLLMLog(Boolean disableLLMLog) { this.disableLLMLog = disableLLMLog; return this; }
-        /** 不写事件日志；缺省规则同 disableLLMLog。支持运行期更新。 */
+        /** 不写事件日志；缺省：没传 encryption 为 false，传了为 true。支持运行期更新。 */
         public Builder disableEventLog(Boolean disableEventLog) { this.disableEventLog = disableEventLog; return this; }
         /** 构造配置文件路径（~/xx 或绝对路径，由桥进程读取）：严格 JSON，字段同本类型；这里显式传的顶层键整体覆盖文件里的同名键；文件内 {"$file": "路径"} 替换为该文件文本。 */
         public Builder configFile(String configFile) { this.configFile = configFile; return this; }

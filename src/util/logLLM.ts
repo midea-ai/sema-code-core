@@ -7,6 +7,7 @@ import { LLM_LOG_FILES_RETAIN_COUNT, TRACKS_FILES_RETAIN_COUNT, LLM_LOG_CLEANUP_
 import { getLLMLogsDir, getTracksDir, getEventDir } from './savePath';
 import { logError } from './log';
 import { getConfManager } from '../manager/ConfManager';
+import { appendLine, flushLinesSync } from './lineWriter';
 
 // 清理LLM日志文件的时间间隔（毫秒）
 let lastLLMCleanupTime: number = 0;
@@ -14,7 +15,9 @@ let lastEventCleanupTime: number = 0;
 
 // ============================================================
 // 开关：disableLLMLog / disableEventLog 为 true 时不建目录不写文件
-// 缺省由 ConfManager 按是否传 encryption 决定；支持运行期更新，下一次写入生效
+// 缺省：LLM 日志恒为不写（调试时显式传 false 打开），事件日志按是否传 encryption 决定；
+// 支持运行期更新，下一次写入生效
+// 写入走 lineWriter 异步批量 append，不阻塞事件循环
 // ============================================================
 
 const isLogDisabled = (field: 'disableLLMLog' | 'disableEventLog'): boolean => {
@@ -42,16 +45,24 @@ const getProjectName = (): string => {
 };
 
 /**
+ * 目录存在性缓存：每写一行都 existsSync + mkdir 太贵，目录建过一次就跳过；
+ * 目录被外部删掉时由 lineWriter 的写入失败分支补建
+ */
+const ensuredDirs = new Set<string>();
+
+const ensureDir = (dir: string): void => {
+  if (ensuredDirs.has(dir)) return;
+  fs.mkdirSync(dir, { recursive: true });
+  ensuredDirs.add(dir);
+};
+
+/**
  * 获取LLM日志文件路径
  */
 const getLLMLogFilePath = (sessionId?: string): string => {
   const dateStr = getDayTimeString(); // 只取日期部分 YYYY-MM-DD
   const llmLogsDir = getLLMLogsDir();
-
-  // 确保目录存在
-  if (!fs.existsSync(llmLogsDir)) {
-    fs.mkdirSync(llmLogsDir, { recursive: true });
-  }
+  ensureDir(llmLogsDir);
 
   // 有 sessionId 时按会话拆分日志文件
   const filename = sessionId ? `${dateStr}_${sessionId}.log` : `${dateStr}.log`;
@@ -173,7 +184,7 @@ export const logLLMRequest = (body: any, sessionId?: string): void => {
     const logLine = `[${timeStr}]${bodyStr}`;
 
     const logFilePath = getLLMLogFilePath(sessionId);
-    fs.appendFileSync(logFilePath, logLine + '\n', 'utf8');
+    appendLine(logFilePath, logLine + '\n');
 
     // 定时清理LLM日志文件（每小时最多执行一次）
     const nowTimestamp = nowMillis();
@@ -227,7 +238,7 @@ export const logLLMResponse = (assistantMessage: any, sessionId?: string): void 
     const logLine = `[${timeStr}]${JSON.stringify(responseData)}`;
 
     const logFilePath = getLLMLogFilePath(sessionId);
-    fs.appendFileSync(logFilePath, logLine + '\n', 'utf8');
+    appendLine(logFilePath, logLine + '\n');
 
     // 定时清理LLM日志文件（每小时最多执行一次）
     const nowTimestamp = nowMillis();
@@ -410,6 +421,8 @@ const cleanupFiles = (dir: string, extension: string, maxFiles: number = 30): vo
  */
 const cleanupLLMLogFiles = async (): Promise<void> => {
   try {
+    // 先写完队列：归档要读到刚入队的请求 / 响应行
+    flushLinesSync();
     const llmLogsDir = getLLMLogsDir();
     if (!fs.existsSync(llmLogsDir)) {
       return;
@@ -452,10 +465,7 @@ const cleanupLLMLogFiles = async (): Promise<void> => {
 const getEventLogFilePath = (sessionId?: string): string => {
   const dateStr = getDayTimeString();
   const eventDir = getEventDir();
-
-  if (!fs.existsSync(eventDir)) {
-    fs.mkdirSync(eventDir, { recursive: true });
-  }
+  ensureDir(eventDir);
 
   // 有 sessionId 时按会话拆分日志文件
   const filename = sessionId ? `${dateStr}_${sessionId}.log` : `${dateStr}.log`;
@@ -474,7 +484,7 @@ export const logEvent = (event: string, data: any, sessionId?: string): void => 
     const logLine = `[${timeStr}]${event}|${dataStr}`;
 
     const logFilePath = getEventLogFilePath(sessionId);
-    fs.appendFileSync(logFilePath, logLine + '\n', 'utf8');
+    appendLine(logFilePath, logLine + '\n');
 
     // 定时清理事件日志文件
     const nowTimestamp = nowMillis();
@@ -494,6 +504,9 @@ export const logEvent = (event: string, data: any, sessionId?: string): void => 
  */
 const cleanupEventLogFiles = (): void => {
   try {
+    // 先写完队列：按 mtime 淘汰前要让刚入队的事件先落盘，
+    // 否则仍在使用的会话日志可能因 mtime 未更新被当成过期文件删掉
+    flushLinesSync();
     const eventDir = getEventDir();
     if (!fs.existsSync(eventDir)) {
       return;

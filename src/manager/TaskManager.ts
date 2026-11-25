@@ -688,9 +688,12 @@ export class TaskManager {
   }
 
   private _formatTaskSummary(record: TaskRecord, status: string): string {
-    const cmd = record.command.length > 50
-      ? record.command.slice(0, 50) + '...'
-      : record.command
+    // 摘要是一行纯文本（前端按原样渲染），而命令常是多行内联脚本 / heredoc：
+    // 先折叠空白成单行再截断，否则换行会原样透出、截断点落在语句中间，一行摘要被撑成两行
+    const oneLine = record.command.replace(/\s+/g, ' ').trim()
+    const cmd = oneLine.length > 50
+      ? oneLine.slice(0, 50) + '...'
+      : oneLine
     return `${record.type} "${cmd}" ${status}`
   }
 

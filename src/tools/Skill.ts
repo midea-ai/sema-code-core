@@ -162,7 +162,7 @@ export const Skill = {
 
     if (trimmedArgs) {
       if (textContent.includes('$ARGUMENTS')) {
-        textContent = textContent.replaceAll('$ARGUMENTS', trimmedArgs)
+        textContent = textContent.replaceAll('$ARGUMENTS', () => trimmedArgs)
       } else {
         textContent = `${textContent}\n\nARGUMENTS: ${trimmedArgs}`
       }

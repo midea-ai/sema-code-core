@@ -11,7 +11,7 @@ import {
   inferLineEndings,
   execFileSafely,
 } from '../util/file'
-import { TOOL_NAME_VIEW_FILE } from '../prompt/tool'
+import { TOOL_NAME_VIEW_FILE, TOOL_NAME_SEARCH_FILES } from '../prompt/tool'
 import { TOOL_DESCRIPTION, VIEW_FILE_MAX_LINES, VIEW_FILE_MAX_LINE_LENGTH } from '../prompt/tools/viewFile'
 import { safeGetFileInfo } from '../util/secureFile'
 import { getStateManager } from '../manager/StateManager'
@@ -217,6 +217,13 @@ export const ViewFile = {
 
     const stats = fileCheck.stats!
     const fileSize = stats.size
+
+    if (stats.isDirectory) {
+      return {
+        result: false,
+        message: `'${getDisplayPath(fullFilePath)}' is a directory. Use ${TOOL_NAME_SEARCH_FILES} to list its contents.`,
+      }
+    }
 
     const lowerExtForDoc = extname(fullFilePath).toLowerCase()
     if (lowerExtForDoc === '.doc' || lowerExtForDoc === '.docx') {

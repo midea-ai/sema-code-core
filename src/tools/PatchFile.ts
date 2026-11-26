@@ -14,7 +14,7 @@ import {
 } from '../util/file'
 import { getPatch, getUpdateSummary } from '../util/diff'
 import { TOOL_NAME_PATCH_FILE, TOOL_NAME_EDIT_NOTEBOOK } from '../prompt/tool'
-import { applyEdit, normalizeLF } from '../util/edit'
+import { applyEdit, findOccurrences, normalizeLF } from '../util/edit'
 import { getStateManager } from '../manager/StateManager'
 import { getCheckpointManager } from '../manager/CheckpointManager'
 import { isMemoryFile } from '../services/memory/memManager'
@@ -163,34 +163,26 @@ Always edit existing files rather than creating new ones. Never add emojis unles
     }
 
     const enc = inferFileEncoding(fullFilePath)
-    const rawFile = readFileSync(fullFilePath, enc)
-    const file = normalizeLF(rawFile)
+    const file = normalizeLF(readFileSync(fullFilePath, enc))
     const normalizedSearchText = normalizeLF(search_text)
     if (!file.includes(normalizedSearchText)) {
-      // 生成诊断信息：显示 search_text 的前 100 个字符和文件开头 500 字符
-      const searchTextPreview = normalizedSearchText.slice(0, 100).replace(/\n/g, '\\n')
-      const filePreview = file.slice(0, 500).replace(/\n/g, '\\n')
-      const fileLineEnding = rawFile.includes('\r\n') ? 'CRLF' : rawFile.includes('\r') ? 'CR' : 'LF'
+      // 行尾已统一为 LF，不会造成未命中；回文件开头或猜"最近似行"都可能是错的线索，让模型自己重读更可靠
       return {
         result: false,
-        message: `The specified search_text does not exist in the file.\n\nDiagnostics:\n- Line endings: ${fileLineEnding}\n- search_text preview (100 chars): ${searchTextPreview}\n- File preview (500 chars): ${filePreview}`,
-        meta: {
-          isFilePathAbsolute: String(isAbsolute(file_path)),
-          fileLineEnding,
-          searchTextLength: search_text.length,
-          normalizedSearchTextLength: normalizedSearchText.length,
-          fileLength: file.length,
-        },
+        message: 'The specified search_text does not exist in the file.',
       }
     }
 
-    const matches = file.split(normalizedSearchText).length - 1
-    if (matches > 1 && !global_replace) {
+    const { count, lines } = findOccurrences(file, normalizedSearchText)
+    if (count > 1 && !global_replace) {
+      const where = lines.length ? ` at lines ${lines.join(', ')}` : ''
+      const more = count > lines.length ? ` (first ${lines.length} shown)` : ''
       return {
         result: false,
-        message: `Detected ${matches} occurrences of search_text. By default only a single unique match is allowed. Either include more surrounding context to narrow it down, or set global_replace to true.`,
+        message: `Detected ${count} occurrences of search_text${where}${more}. By default only a single unique match is allowed. Either include more surrounding context to narrow it down, or set global_replace to true.`,
         meta: {
           isFilePathAbsolute: String(isAbsolute(file_path)),
+          occurrences: lines,
         },
       }
     }
@@ -198,7 +190,6 @@ Always edit existing files rather than creating new ones. Never add emojis unles
     return { result: true }
   },
   async *call({ file_path, search_text, replacement, global_replace }, agentContext: any) {
-    const { patch, updatedFile } = applyEdit(file_path, search_text, replacement, global_replace)
     const stateManager = getStateManager()
     const agentState = stateManager.forAgent(agentContext)
 
@@ -206,13 +197,9 @@ Always edit existing files rather than creating new ones. Never add emojis unles
     const dir = dirname(fullFilePath)
     mkdirSync(dir, { recursive: true })
     const fileExists = existsSync(fullFilePath)
-    const enc = fileExists ? inferFileEncoding(fullFilePath) : 'utf8'
-    const endings = fileExists ? (agentState.getFileLineEnding(fullFilePath) ?? inferLineEndings(fullFilePath)) : 'LF'
-    const originalFile = fileExists
-      ? normalizeLF(readFileSync(fullFilePath, enc))
-      : ''
 
-    // 权限确认后二次校验时间戳，防止用户在权限对话框期间修改文件
+    // 权限确认后二次校验时间戳，防止用户在权限对话框期间修改文件。
+    // 必须放在应用编辑之前：文件已被外部改掉时先算编辑会抛 "No changes detected"，掩盖真实原因
     if (fileExists && !isMemoryFile(fullFilePath)) {
       const readTimestamp = agentState.getReadFileTimestamps()[fullFilePath]
       const currentMtime = statSync(fullFilePath).mtimeMs
@@ -220,6 +207,13 @@ Always edit existing files rather than creating new ones. Never add emojis unles
         throw new Error('The file changed while awaiting permission. Please re-read it before editing.')
       }
     }
+
+    const { patch, updatedFile } = applyEdit(file_path, search_text, replacement, global_replace)
+    const enc = fileExists ? inferFileEncoding(fullFilePath) : 'utf8'
+    const endings = fileExists ? (agentState.getFileLineEnding(fullFilePath) ?? inferLineEndings(fullFilePath)) : 'LF'
+    const originalFile = fileExists
+      ? normalizeLF(readFileSync(fullFilePath, enc))
+      : ''
 
     // 写盘前捕获改动前快照（fail-closed：捕获失败则不写盘）
     getCheckpointManager().recordPreEdit(agentContext.sessionId, agentContext.agentId, fullFilePath)
@@ -249,7 +243,7 @@ Always edit existing files rather than creating new ones. Never add emojis unles
       ? 0
       : file.substring(0, targetIdx).split(/\r?\n/).length - 1
 
-    const allLines = file.replace(oldString, newString).split(/\r?\n/)
+    const allLines = file.replace(oldString, () => newString).split(/\r?\n/)
     const replacementLineCount = newString ? newString.split(/\r?\n/).length : 0
     const start = Math.max(0, Math.min(targetLine - CONTEXT_LINES, allLines.length))
     const end = Math.max(0, Math.min(targetLine + CONTEXT_LINES + replacementLineCount, allLines.length))

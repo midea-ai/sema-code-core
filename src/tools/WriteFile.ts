@@ -139,7 +139,8 @@ Rules:
     // 写进附件目录的文件（可视化页面等）登记到本会话名下，随会话退场；其他路径不受影响
     registerAttachment(agentContext.sessionId, fullFilePath)
 
-    if (oldContent) {
+    // 用 !== null 判定：旧文件内容为空字符串时也必须走 update，否则会丢掉 diff 与覆盖语义
+    if (oldContent !== null) {
       const patch = getPatch({
         filePath: fullFilePath,
         fileContents: oldContent,

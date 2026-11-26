@@ -105,7 +105,7 @@ interface Runtime {
   keepUntil?: number;
   /** 最近一次拉活（warm/任何会话动作）时间：只提供 WARM_GRACE_MS 的短宽限，不改 lastActiveAt 以免影响侧边栏排序 */
   lastWarmAt?: number;
-  /** 审阅总 diff 的轮级/会话级基线（内存态，丢失只是降级为拼接展示） */
+  /** 审阅总 diff 的轮级基线（内存态，丢失只是降级为拼接展示） */
   diffBase?: DiffBaselines;
   /** 待合并的流式 chunk：key → 已拼接的事件，order 保留首次出现顺序 */
   chunks?: { items: Map<string, { event: string; data: any }>; order: string[]; timer?: NodeJS.Timeout };
@@ -333,8 +333,8 @@ export class SessionManager extends EventEmitter {
 
   /**
    * 审阅总 diff 维护：轮次边界重置轮级基线（与 shared/transcript 的轮次逻辑对齐），
-   * 编辑完成事件读盘重算「轮前→当前」「会话首次触及前→当前」的总 diff，附加到 data.cumulative
-   * （不动 data.content，聊天流工具卡片仍显示单步 diff）。
+   * 编辑完成事件读盘重算「轮前→当前」的总 diff，附加到 data.cumulative
+   * （不动 data.content，聊天流工具卡片仍显示单步 diff；「全部」视图改由 core 会话基线查询提供）。
    */
   private async updateReviewDiff(sid: string, rt: Runtime, event: string, data: any): Promise<void> {
     // 轮内注入（injected）不是轮次边界：不重置轮级基线，同一文件注入前后的改动仍算进同一轮的总 diff

@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { api } from '../api/http';
 import { wsClient } from '../api/ws';
-import type { SessionSnapshot, SessionRecord, AgentMode, PermissionLevel, EventFrame, GoalState, GoalUpdateReason, UserBlock, ImageAttachmentMeta } from '../../../shared/types';
+import type { SessionSnapshot, SessionRecord, AgentMode, PermissionLevel, EventFrame, GoalState, GoalUpdateReason, UserBlock, ImageAttachmentMeta, FileChangeItem, FileDiffResult, RevertFileResult } from '../../../shared/types';
 import { applyEvent, applyLocal, LocalAction } from '../../../shared/transcript';
 import { SERVER_EVENTS } from '../../../shared/protocol';
 import { useApp } from './app';
@@ -60,6 +60,12 @@ interface SessionsState {
   setPermissionLevel(sessionId: string, level: PermissionLevel): Promise<void>;
   getForkPreview(sessionId: string, messageUuid: string): Promise<any>;
   fork(sessionId: string, messageUuid: string, restoreFiles: boolean): Promise<any>;
+  /** 会话级「全部」视图：本会话受控写入过、已过滤与基线一致的文件 */
+  getFileChanges(sessionId: string): Promise<FileChangeItem[]>;
+  /** 单文件基线 diff（展开时按需取） */
+  getFileDiff(sessionId: string, filePath: string): Promise<FileDiffResult>;
+  /** 放弃修改：不传 filePaths 则恢复全部会话基线文件 */
+  revertFileChanges(sessionId: string, filePaths?: string[]): Promise<RevertFileResult[]>;
   branchToNewChat(sessionId: string, beforeMessageUuid?: string): Promise<SessionRecord>;
 }
 
@@ -346,6 +352,9 @@ export const useSessions = create<SessionsState>((set, get) => ({
   },
   async getForkPreview(sessionId, messageUuid) { return wsClient.request('session.getForkPreview', sessionId, { messageUuid }); },
   async fork(sessionId, messageUuid, restoreFiles) { return wsClient.request('session.fork', sessionId, { messageUuid, options: { restoreFiles } }); },
+  async getFileChanges(sessionId) { return wsClient.request('session.getFileChanges', sessionId, {}); },
+  async getFileDiff(sessionId, filePath) { return wsClient.request('session.getFileDiff', sessionId, { filePath }); },
+  async revertFileChanges(sessionId, filePaths) { return wsClient.request('session.revertFileChanges', sessionId, { filePaths }); },
   async branchToNewChat(sessionId, beforeMessageUuid) {
     const result = await api<{ record: SessionRecord; snapshot: SessionSnapshot }>('POST', `/api/sessions/${sessionId}/branch`,
       beforeMessageUuid !== undefined ? { beforeMessageUuid } : undefined);

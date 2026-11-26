@@ -123,8 +123,6 @@ function mergeFileChange(snap: SessionSnapshot, toolName: string, title: string,
     const change: FileChange = {
       path: title, toolName, type: cum.type === 'new' ? 'new' : 'diff', additions, removals,
       patch: cum.patch, cumulative: true,
-      ...(cum.sessionPatch ? { sessionPatch: cum.sessionPatch, sessionType: cum.sessionType === 'new' ? 'new' as const : 'diff' as const } : {}),
-      ...(cum.sessionDropped || prev?.sessionDropped ? { sessionDropped: true } : {}),
     };
     snap.turn = { ...snap.turn, files: { ...snap.turn.files, [title]: change } };
     return;
@@ -144,11 +142,8 @@ function mergeFileChange(snap: SessionSnapshot, toolName: string, title: string,
       patch: [...prev.patch, ...(diff?.patch || [])],
       diffText: prev.diffText || diffText,
       cumulative: undefined,
-      sessionPatch: undefined,
-      sessionType: undefined,
-      sessionDropped: true,
     }
-    : { path: title, toolName, type: diff?.type === 'new' ? 'new' : 'diff', additions, removals, patch: diff?.patch || [], diffText, sessionDropped: true };
+    : { path: title, toolName, type: diff?.type === 'new' ? 'new' : 'diff', additions, removals, patch: diff?.patch || [], diffText };
   snap.turn = { ...snap.turn, files: { ...snap.turn.files, [title]: change } };
 }
 

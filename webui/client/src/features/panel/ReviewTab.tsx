@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GitCompare, Copy, Check, FolderOpen, ChevronsDownUp, ChevronsUpDown, SquareArrowOutUpRight, RotateCw } from 'lucide-react';
-import type { FileChange, ReviewTurn } from '../../../../shared/types';
-import { countPatch, reviewTurns } from '../../../../shared/transcript';
+import type { FileChange, FileChangeItem, FileChangeStatus, Hunk, ReviewTurn } from '../../../../shared/types';
+import { reviewTurns } from '../../../../shared/transcript';
 import { isAttachmentPath } from '../../../../shared/viz';
 import { useApp, PanelTab } from '../../store/app';
 import { useSessions } from '../../store/sessions';
@@ -9,7 +9,7 @@ import { api, getToken } from '../../api/http';
 import { DiffView } from '../chat/DiffView';
 import { Caret, DiffNums, Dropdown, DropdownOption, Spinner, cn, useCopy } from '../../common/ui';
 import { displayPath } from '../../common/text';
-import { t } from '../../i18n';
+import { t, type I18nKey } from '../../i18n';
 
 const ALL = '__all__';
 const GIT = 'git:uncommitted';
@@ -43,6 +43,43 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
     return () => { alive = false; };
     // latestLocalId：面板开着时又结束一轮（或回退截断），重新取索引，不必刷新页面
   }, [sessionId, latestLocalId, !!snap]);
+
+  // 「全部」视图：会话级基线 diff 由 core 现算（本会话受控写入过的文件，已过滤与基线一致的文件）。
+  // 轮次结束（latestLocalId 变化）/ fork 截断后重拉快照时重取；seq 保证旧请求的结果不会覆盖新结果，
+  // cleanup 让切换会话 / 卸载时在途请求作废。
+  const [sessionItems, setSessionItems] = useState<FileChangeItem[] | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const sessionSeq = useRef(0);
+  const itemsFor = useRef<string | null>(null);
+  const getFileChanges = useSessions(s => s.getFileChanges);
+  useEffect(() => {
+    if (!snap) return;
+    // 切换会话时先清掉上一个会话的列表，避免在途期间串台
+    if (itemsFor.current !== sessionId) { itemsFor.current = sessionId; setSessionItems(null); }
+    const seq = ++sessionSeq.current;
+    let alive = true;
+    setSessionLoading(true);
+    getFileChanges(sessionId)
+      .then(list => { if (alive && sessionSeq.current === seq) setSessionItems(Array.isArray(list) ? list : []); })
+      .catch(() => { if (alive && sessionSeq.current === seq) setSessionItems([]); })
+      .finally(() => { if (alive && sessionSeq.current === seq) setSessionLoading(false); });
+    return () => { alive = false; };
+  }, [sessionId, latestLocalId, !!snap, getFileChanges]);
+  // core 条目 → 现有渲染结构：path 用展示路径，patch 留空（展开时按需取），统计直接用净值
+  const sessionFiles = useMemo<FileChange[]>(() => (sessionItems || [])
+    .filter(f => !isAttachmentPath(f.displayPath))
+    .map((f): FileChange => ({
+      path: f.displayPath,
+      toolName: '',
+      type: f.state === 'added' ? 'new' : 'diff',
+      additions: f.additions ?? 0,
+      removals: f.removals ?? 0,
+      patch: [],
+      ...(f.state === 'deleted' ? { deleted: true } : {}),
+      state: f.state,
+      status: f.status,
+      ...(f.rawChanged ? { rawChanged: true } : {}),
+    })), [sessionItems]);
   // 索引是否可信：取到了，或者本来就该用本地块
   const ready = index !== null || !snap?.page;
   const turns = useMemo<ReviewTurn[]>(() => {
@@ -102,12 +139,11 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
   }, [sessionId, toast]);
   useEffect(() => { if (isGit) loadGit(); }, [isGit, latestId, loadGit]);
 
-  const allFiles = useMemo(() => mergeAll(turns.map(x => x.files)), [turns]);
   const files = useMemo<FileChange[]>(() => {
     if (isGit) return gitData?.files || [];
-    if (selected === ALL) return allFiles;
+    if (selected === ALL) return sessionFiles;
     return turns.find(x => x.id === selected)?.files || [];
-  }, [turns, selected, isGit, gitData, allFiles]);
+  }, [turns, selected, isGit, gitData, sessionFiles]);
 
   // 「未提交」视图用左右分栏：左侧单文件详情（按需取 diff）+ 右侧文件树；轮次/本次会话仍为列表
   const split = isGit;
@@ -130,6 +166,16 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
   const allOpened = (fs: FileChange[]) => { const o: Record<string, boolean> = {}; fs.forEach(f => { o[f.path] = true; }); return o; };
   const [opened, setOpened] = useState<Record<string, boolean>>(() => allOpened(files));
   useEffect(() => { setOpened(allOpened(files)); }, [selected, gitData]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 会话级列表异步到达 / 刷新出新文件时默认展开；已在列表里的文件保持用户当前的展开状态
+  useEffect(() => {
+    if (selected !== ALL || !sessionFiles.length) return;
+    setOpened(o => {
+      const next = { ...o };
+      let changed = false;
+      for (const f of sessionFiles) if (!(f.path in next)) { next[f.path] = true; changed = true; }
+      return changed ? next : o;
+    });
+  }, [selected, sessionFiles]);
   // 从消息流的文件汇总点进来：分栏时选中该文件；列表时只展开该文件并滚动到它
   const focusHandled = useRef<number | undefined>(undefined);
   useEffect(() => {
@@ -156,7 +202,7 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
 
   const total = files.reduce((acc, f) => ({ a: acc.a + f.additions, r: acc.r + f.removals }), { a: 0, r: 0 });
   const options: DropdownOption<string>[] = [
-    { value: ALL, label: t('review.all'), desc: statNode(allFiles) },
+    { value: ALL, label: t('review.all'), desc: statNode(sessionFiles) },
     ...turns.slice().reverse().map(x => ({
       value: x.id,
       label: `${t('review.turn', { n: x.n })}${x.summary ? ` · ${x.summary}` : ''}`,
@@ -196,7 +242,9 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
           <EmptyHint title={t('review.notGit')} hint={t('review.notGitHint')} />
         ) : isGit && !gitLoading && gitData && files.length === 0 ? (
           <EmptyHint title={t('review.gitClean')} hint={t('review.gitCleanHint')} />
-        ) : !isGit && !turns.length ? (
+        ) : !isGit && selected === ALL && sessionLoading && !files.length ? (
+          <div className="h-full flex items-center justify-center gap-2 text-xs text-muted"><Spinner />{t('common.loading')}</div>
+        ) : !isGit && !files.length ? (
           <EmptyHint title={t('review.empty')} hint={t('review.emptyHint')} />
         ) : split ? (
           <>
@@ -206,7 +254,7 @@ export function ReviewTab({ sessionId, tab }: { sessionId: string; tab: PanelTab
           </>
         ) : (
           <ul className="px-1 py-1">
-            {files.map(f => <FileRow key={f.path} sessionId={sessionId} file={f} open={!!opened[f.path]} onToggle={() => setOpened(o => ({ ...o, [f.path]: !o[f.path] }))} />)}
+            {files.map(f => <FileRow key={f.path} sessionId={sessionId} file={f} open={!!opened[f.path]} sessionLevel={selected === ALL} refreshKey={sessionItems} onToggle={() => setOpened(o => ({ ...o, [f.path]: !o[f.path] }))} />)}
           </ul>
         )}
       </div>
@@ -224,7 +272,21 @@ function EmptyHint({ title, hint }: { title: string; hint: string }) {
   );
 }
 
-function FileRow({ sessionId, file, open, onToggle }: { sessionId: string; file: FileChange; open: boolean; onToggle: () => void }) {
+/** 无法做文本比较时的状态文案（不显示增删数字） */
+const STATUS_TEXT: Record<Exclude<FileChangeStatus, 'ok'>, I18nKey> = {
+  binary: 'review.statusBinary',
+  tooLarge: 'review.statusTooLarge',
+  baselineUnavailable: 'review.statusBaselineUnavailable',
+  currentUnreadable: 'review.statusCurrentUnreadable',
+};
+
+function FileRow({ sessionId, file, open, onToggle, sessionLevel, refreshKey }: {
+  sessionId: string; file: FileChange; open: boolean; onToggle: () => void;
+  /** 会话级列表条目：patch 为空，展开时按需向 core 取该文件的基线 diff */
+  sessionLevel?: boolean;
+  /** 会话级列表刷新信号：变化时已展开的文件重新取 diff（轮次结束 / fork 后） */
+  refreshKey?: unknown;
+}) {
   const { copied, copy } = useCopy();
   const toast = useApp(s => s.toast);
   const revealFile = useApp(s => s.revealFile);
@@ -233,29 +295,66 @@ function FileRow({ sessionId, file, open, onToggle }: { sessionId: string; file:
   const i = disp.lastIndexOf('/');
   const dir = i >= 0 ? disp.slice(0, i + 1) : '';
   const base = i >= 0 ? disp.slice(i + 1) : disp;
+
+  // 展开时按需取单文件 diff；折叠、切换会话或卸载后到达的结果丢弃
+  const [loaded, setLoaded] = useState<{ patch: Hunk[]; loading?: boolean; status?: FileChangeStatus } | null>(null);
+  useEffect(() => {
+    if (!sessionLevel || !open) return;
+    let alive = true;
+    setLoaded({ patch: [], loading: true });
+    useSessions.getState().getFileDiff(sessionId, file.path)
+      .then(r => {
+        if (!alive) return;
+        setLoaded(r.status === 'ok' ? { patch: r.hunks || [] } : { patch: [], status: r.status });
+      })
+      .catch(() => { if (alive) setLoaded({ patch: [], status: 'baselineUnavailable' }); });
+    return () => { alive = false; };
+  }, [sessionLevel, open, sessionId, file.path, refreshKey]);
+
+  // 列表条目已带状态时先按它渲染，取回详情后以详情为准（文件可能在这期间变成不可读）
+  const rawStatus = sessionLevel ? (loaded?.status ?? file.status) : file.status;
+  const badStatus = rawStatus && rawStatus !== 'ok' ? rawStatus : undefined;
+  const patch = sessionLevel ? loaded?.patch : file.patch;
+
   return (
     <li id={`review-file-${file.path}`}>
       <div className="group relative flex items-center gap-2 px-2 h-8 rounded-md hover:bg-black/[0.04] cursor-pointer" onClick={onToggle}>
         <Caret open={open} size={13} className="text-muted" />
         <span className="truncate flex-1 text-[13px]" title={file.path}><span className="text-muted">{dir}</span><span className="text-fg">{base}</span></span>
+        {/* 会话级列表标出新增 / 删除（修改是常态，不标） */}
+        {sessionLevel && (file.deleted || file.type === 'new') && (
+          <span className="shrink-0 text-[11px] text-muted">{file.deleted ? t('review.deleted') : t('review.added')}</span>
+        )}
         {/* 统计贴最右；悬停时淡出，由悬浮的操作按钮覆盖（按钮平时不占布局空间） */}
-        <DiffNums additions={file.additions} removals={file.removals} className="group-hover:opacity-0" />
+        {badStatus
+          ? <span className="shrink-0 text-[11px] text-muted group-hover:opacity-0">{t(STATUS_TEXT[badStatus])}</span>
+          : <DiffNums additions={file.additions} removals={file.removals} className="group-hover:opacity-0" />}
         <span className="absolute right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-          <button onClick={e => { e.stopPropagation(); openFileTab(sessionId, file.path); }} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.06]" title={t('review.openFile')}><SquareArrowOutUpRight size={12} /></button>
+          {!file.deleted && (
+            <button onClick={e => { e.stopPropagation(); openFileTab(sessionId, file.path); }} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.06]" title={t('review.openFile')}><SquareArrowOutUpRight size={12} /></button>
+          )}
           <button onClick={e => { e.stopPropagation(); copy(file.path); }} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.06]" title={copied ? t('review.copied') : t('review.copyPath')}>{copied ? <Check size={12} className="text-ok" /> : <Copy size={12} />}</button>
           <button onClick={e => { e.stopPropagation(); revealFile(sessionId, file.path).catch(err => toast(err.message, 'error')); }} className="p-1 rounded text-muted hover:text-fg hover:bg-black/[0.06]" title={t('review.revealFile')}><FolderOpen size={12} /></button>
         </span>
       </div>
-      {open && (file.patch.length ? <DiffView patch={file.patch} path={file.path} sessionId={sessionId} diffText={file.diffText} className="mx-2 mb-2" /> : <div className="mx-2 mb-2 text-xs text-muted">{t('review.noDiff')}</div>)}
+      {open && (badStatus ? (
+        <div className="mx-2 mb-2 text-xs text-muted">{t(STATUS_TEXT[badStatus])}</div>
+      ) : sessionLevel && loaded?.loading ? (
+        <div className="mx-2 mb-2 flex items-center gap-2 text-xs text-muted"><Spinner />{t('common.loading')}</div>
+      ) : patch && patch.length ? (
+        <DiffView patch={patch} path={file.path} sessionId={sessionId} diffText={file.diffText} className="mx-2 mb-2" />
+      ) : (
+        <div className="mx-2 mb-2 text-xs text-muted">{t('review.noDiff')}</div>
+      ))}
     </li>
   );
 }
 
 /** 文件状态字母：U 新增 / D 删除 / M 修改，配 VS Code 风格语义色 */
-function statusOf(f: FileChange): { ch: string; cls: string } {
-  if (f.deleted) return { ch: 'D', cls: 'text-danger' };
-  if (f.type === 'new') return { ch: 'U', cls: 'text-ok' };
-  return { ch: 'M', cls: 'text-warn' };
+function statusOf(f: FileChange): { ch: string; cls: string; label: string } {
+  if (f.deleted) return { ch: 'D', cls: 'text-danger', label: t('review.deleted') };
+  if (f.type === 'new') return { ch: 'U', cls: 'text-ok', label: t('review.added') };
+  return { ch: 'M', cls: 'text-warn', label: t('review.modified') };
 }
 
 /** 分栏左侧：单文件详情。diff 按选中文件即时向服务端取（列表不带 patch），图片直接展示当前内容 */
@@ -370,35 +469,12 @@ function FileTree({ files, selected, onSelect, width }: { files: FileChange[]; s
           <button key={r.key} style={{ paddingLeft: 16 + r.depth * 10 }} onClick={() => onSelect(path)} title={path}
             className={cn('w-full h-6 flex items-center gap-1.5 pr-2 text-[12px] text-left hover:bg-black/[0.04]', selected === path && 'bg-black/[0.06]')}>
             <span className="truncate flex-1 text-fg">{r.name}</span>
-            <span className={cn('shrink-0 text-[11px]', st.cls)}>{st.ch}</span>
+            <span className={cn('shrink-0 text-[11px]', st.cls)} title={st.label}>{st.ch}</span>
           </button>
         );
       })}
     </div>
   );
-}
-
-/**
- * 「全部」视图：优先取每个文件最后一轮的会话级总 diff（会话首次触及前 → 最新，服务端事件时刻算好）；
- * 最后一轮无总 diff（降级/老快照）则回退为逐轮拼接（patch 顺序拼、+/− 累加）。
- */
-function mergeAll(groups: FileChange[][]): FileChange[] {
-  const map = new Map<string, { concat: FileChange; last: FileChange }>();
-  for (const files of groups) for (const f of files) {
-    const prev = map.get(f.path);
-    const concat: FileChange = prev
-      ? { ...prev.concat, type: prev.concat.type === 'new' || f.type === 'new' ? 'new' : 'diff', additions: prev.concat.additions + f.additions, removals: prev.concat.removals + f.removals, patch: [...prev.concat.patch, ...f.patch], diffText: prev.concat.diffText || f.diffText }
-      : { ...f };
-    map.set(f.path, { concat, last: f });
-  }
-  return [...map.values()].map(({ concat, last }) => {
-    if (last.cumulative && !last.sessionDropped) {
-      const patch = last.sessionPatch ?? last.patch;
-      const { additions, removals } = countPatch(patch);
-      return { ...last, type: last.sessionPatch ? (last.sessionType ?? last.type) : last.type, patch, additions, removals };
-    }
-    return concat;
-  });
 }
 
 /** 「N 个文件 +a -r」，增删数带颜色 */

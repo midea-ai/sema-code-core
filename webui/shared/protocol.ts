@@ -81,6 +81,10 @@ export const SESSION_ACTIONS = [
   'session.updatePermissionLevel',
   'session.getForkPreview',
   'session.fork',
+  // 会话基线 diff（「全部」审阅视图）：文件清单 / 单文件 diff / 放弃修改
+  'session.getFileChanges',
+  'session.getFileDiff',
+  'session.revertFileChanges',
   'session.getCommandsInfo',
   'session.getCronTasks',
   'session.getMemoryInfo',

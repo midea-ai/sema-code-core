@@ -287,6 +287,10 @@ async function handle(action: string, sessionId: string | undefined, payload: an
     case 'session.updatePermissionLevel': s.updatePermissionLevel(p.level); return true;
     case 'session.getForkPreview': return s.getForkPreview(p.messageUuid);
     case 'session.fork': return s.fork(p.messageUuid, p.options);
+    // 会话基线 diff：本会话受控写入过的文件清单 / 单文件 diff / 放弃修改
+    case 'session.getFileChanges': return s.getFileChanges();
+    case 'session.getFileDiff': return s.getFileDiff(p.filePath);
+    case 'session.revertFileChanges': return s.revertFileChanges(p.filePaths);
     case 'session.branch': return s.branch(p.beforeMessageUuid);
     case 'session.getTaskList': return s.getTaskList();
     case 'session.stopTask': return s.stopTask(p.taskId);

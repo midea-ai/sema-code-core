@@ -209,6 +209,50 @@ export interface DiffContent {
   diffText?: string;
 }
 
+/** 相对会话基线的文件状态；'unchanged' 与基线一致、'unknown' 无法判断（与 sema-core FileChangeItem 同构） */
+export type FileChangeState = 'modified' | 'added' | 'deleted' | 'unchanged' | 'unknown';
+
+/** 能否做文本比较；非 'ok' 时只展示状态文案、不给增删数字 */
+export type FileChangeStatus = 'ok' | 'binary' | 'tooLarge' | 'baselineUnavailable' | 'currentUnreadable';
+
+/** 会话级文件变更条目（core getFileChanges）：本会话受控写入过、已过滤与基线一致的文件 */
+export interface FileChangeItem {
+  /** 绝对路径 */
+  filePath: string;
+  /** 展示路径：项目内相对、项目外绝对 */
+  displayPath: string;
+  state: FileChangeState;
+  status: FileChangeStatus;
+  /** 基线侧文件是否存在（新建文件为 false） */
+  baselineExists: boolean;
+  /** status === 'ok' 时的净增行数 */
+  additions?: number;
+  /** status === 'ok' 时的净删行数 */
+  removals?: number;
+  /** status === 'ok' 时的首个变更行（新文件侧 1-based），仅用于滚动定位 */
+  line?: number;
+  /** 文本增删为零但原始字节变了（编码 / BOM / 换行形式变化） */
+  rawChanged?: boolean;
+}
+
+/** 单文件基线 diff（core getFileDiff）：在条目基础上带当前是否存在与文本/hunk */
+export interface FileDiffResult extends FileChangeItem {
+  currentExists: boolean;
+  baselineText?: string;
+  currentText?: string;
+  /** status === 'ok' 时的 hunk，WebUI 用它渲染彩色代码 */
+  hunks?: Hunk[];
+}
+
+/** 「放弃修改」单文件结果 */
+export interface RevertFileResult {
+  filePath: string;
+  displayPath: string;
+  /** restored 写回基线内容；deleted 删除基线不存在的文件；failed 失败，其余文件继续处理 */
+  action: 'restored' | 'deleted' | 'failed';
+  error?: string;
+}
+
 export interface FileChange {
   path: string;
   toolName: string;
@@ -218,15 +262,23 @@ export interface FileChange {
   patch: Hunk[];
   /** 新建文件预览被截断时核心给出的省略提示（如 "... (+122 lines)"），补全成功后不存在 */
   diffText?: string;
-  /** 文件已删除（目前仅 Git 视图能识别） */
+  /** 文件已删除（Git 视图 / 会话级列表能识别） */
   deleted?: boolean;
   /** true = patch 是服务端整体重算的轮级总 diff（轮前→轮内最新，替换而非拼接） */
   cumulative?: boolean;
-  /** 会话级总 diff（会话首次触及前→最新）；缺省且 cumulative 时与 patch 相同 */
+  /**
+   * 旧快照兼容：会话级总 diff 已改由 core 查询，「全部」视图不再读这些字段。
+   * 历史落盘的快照里可能还有，加载时不能报错，渲染按轮级 patch。
+   */
   sessionPatch?: Hunk[];
   sessionType?: 'diff' | 'new';
-  /** 会话级基线降级：「全部」视图对该文件回退为逐轮拼接 */
   sessionDropped?: boolean;
+  /** 会话级列表（core getFileChanges）：相对基线的状态；缺省 = 轮次视图（按 patch 渲染） */
+  state?: FileChangeState;
+  /** 会话级列表：能否做文本比较；非 'ok' 时只展示状态文案、不给增删数字 */
+  status?: FileChangeStatus;
+  /** 文本增删为零但原始字节变了（编码 / BOM / 换行形式变化） */
+  rawChanged?: boolean;
 }
 
 export interface ImageAttachmentMeta {

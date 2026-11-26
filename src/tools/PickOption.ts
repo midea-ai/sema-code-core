@@ -3,7 +3,7 @@ import { Tool } from './base/Tool'
 import { getEventBus } from '../events/EventSystem'
 import { addUserWait } from '../util/agentStats'
 import { PickOptionRequestData, PickOptionResponseData } from '../events/types'
-import { checkAbortSignal } from '../types/errors'
+import { checkAbortSignal, InterruptedException } from '../types/errors'
 import { TOOL_NAME_PICK_OPTION } from '../prompt/tool'
 
 // NOTE: These are factory functions (not shared instances) on purpose.
@@ -261,7 +261,8 @@ Rules:
       const onAbortRequested = () => {
         eventBus.off('pick:option:response', handleResponse)
         recordWait()
-        reject(new Error('User cancelled the question'))
+        // 用户在应答面板未提交就中断本轮：抛中断异常，由 RunTools 按中止收口（不发工具出错事件）
+        reject(new InterruptedException('User cancelled the question'))
       }
 
       if (abortController?.signal) {

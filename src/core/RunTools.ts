@@ -9,6 +9,8 @@ import {
 import { logError } from '../util/log'
 import { ToolExecutionCompleteData, ToolExecutionErrorData } from '../events/types'
 import { checkToolPermission } from '../manager/PermissionManager'
+import { getUsageStatsManager } from '../manager/UsageStatsManager'
+import { isInterruptedException } from '../types/errors'
 import { getEventBus } from '../events/EventSystem'
 import { firePreToolUse, firePostToolUse, firePostToolUseFailure } from '../services/hooks/hookTriggers'
 import { REMINDER_SYS_OPEN, REMINDER_SYS_CLOSE } from '../prompt/define'
@@ -92,18 +94,10 @@ export async function* runToolUse(
 
   // 检查工具是否存在
   if (!tool) {
-    // 发送工具出错事件 但不会阻塞agent继续执行
-    const toolErrorData: ToolExecutionErrorData = {
-      agentId: agentContext.agentId,
-      toolId: toolUse.id,
-      toolName: toolName,
-      title: toolName,
-      content: `Error: Tool "${toolName}" not found`,
-      input: toolUse.input as Record<string, any>,
-    }
-    getEventBus().emit('tool:execution:error', toolErrorData, agentContext.sessionId)
+    // 模型给的工具名不在当前工具表中，调用未实际发生：不发 tool:execution:error、
+    // 也不登记使用统计，否则会凭空多出一个 calls=1 / errors=1 的假工具，
+    // 和真实工具故障混在一起。只把错误回给模型，让它改用正确的工具
 
-    // 返回工具不存在的错误消息
     yield buildUserMsg([
       {
         type: 'tool_result',
@@ -114,6 +108,10 @@ export async function* runToolUse(
     ])
     return
   }
+
+  // 使用统计的调用计数在统一入口登记：模型发起一次调用即计一次，与工具是否实现
+  // genToolResultMessage（决定成功时发不发 complete 展示事件）无关，后续成败都归到这次调用
+  getUsageStatsManager().recordToolCall(toolName)
 
   const toolInput = toolUse.input as { [key: string]: any }
 
@@ -142,6 +140,11 @@ export async function* runToolUse(
       yield message
     }
   } catch (e) {
+    // 用户中断（权限检查、hook 等环节的中断信号）同样按中止收口，不算执行异常
+    if (isInterruptedException(e)) {
+      yield buildUserMsg([{ type: 'tool_result', content: CANCEL_MSG, is_error: true, tool_use_id: toolUse.id }])
+      return
+    }
     logError(e) // 记录错误
 
     // 即使在错误情况下，也要确保生成工具结果以清除状态
@@ -387,6 +390,12 @@ export async function* checkPermissionsAndCallTool(
       }
     }
   } catch (error) {
+    // 用户中断（如 ask_form / plan_to_agent 等待应答时被中断）按中止收口：
+    // 不发 tool:execution:error、不触发 PostToolUseFailure，回取消消息让本轮以中断结束
+    if (isInterruptedException(error)) {
+      yield buildUserMsg([{ type: 'tool_result', content: CANCEL_MSG, is_error: true, tool_use_id: toolUseID }])
+      return
+    }
     const content = error instanceof Error ? error.message : String(error)
     logError(error) // 记录错误
 

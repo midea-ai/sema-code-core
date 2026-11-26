@@ -7,7 +7,7 @@ import { safeGetFileInfo } from '../util/secureFile'
 import { ToolControlSignal } from '../types/message'
 import { getEventBus } from '../events/EventSystem'
 import { PlanExitRequestData, PlanExitResponseData } from '../events/types'
-import { checkAbortSignal } from '../types/errors'
+import { checkAbortSignal, InterruptedException } from '../types/errors'
 import { getStateManager } from '../manager/StateManager'
 import { buildUserMsg } from '../util/message'
 import { t } from '../util/i18n'
@@ -111,7 +111,8 @@ export const PlanToAgent = {
         // 监听中断
         const onAbortRequested = () => {
           eventBus.off('plan:exit:response', handleResponse)
-          reject(new Error('User cancelled the plan exit'))
+          // 用户在审批卡上未选择就中断本轮：抛中断异常，由 RunTools 按中止收口（不发工具出错事件）
+          reject(new InterruptedException('User cancelled the plan exit'))
         }
 
         if (abortController?.signal) {

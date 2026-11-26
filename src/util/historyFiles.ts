@@ -27,12 +27,26 @@ export function belongsToHistory(file: string, stem: string): boolean {
     || (name.startsWith(stem + '.txn-') && name.endsWith('.tmp'));
 }
 
+/**
+ * 每组历史只 stat 一个文件：每次提交都会重写 meta，它就是这组的最新时间；
+ * 没有 meta 的旧格式退回 .json。存在未完成的重写事务时把事务标记也算进来——
+ * 崩溃在安装新 meta 之前时，标记比旧 meta 更能代表"这个会话最近被用过"。
+ */
 export function historyGroups(dir: string): Array<{ stem: string; mtime: number }> {
   if (!fs.existsSync(dir)) return [];
-  const groups = new Map<string, number>();
-  for (const file of fs.readdirSync(dir)) {
+  const files = fs.readdirSync(dir);
+  const picked = new Map<string, { name: string | null; marker: string | null }>();
+  for (const file of files) {
     const stem = historyStemOf(file);
-    if (stem !== null) groups.set(stem, Math.max(groups.get(stem) ?? 0, fs.statSync(path.join(dir, file)).mtimeMs));
+    if (stem === null) continue;
+    const entry = picked.get(stem) ?? { name: null, marker: null };
+    const name = stripEnc(file);
+    if (name.endsWith('.rewrite.json')) entry.marker = file;
+    else if (entry.name === null || name.endsWith('.meta.json')) entry.name = file;
+    picked.set(stem, entry);
   }
-  return [...groups].map(([stem, mtime]) => ({ stem, mtime }));
+  return [...picked].map(([stem, { name, marker }]) => {
+    const paths = [name, marker].filter((file): file is string => file !== null);
+    return { stem, mtime: Math.max(...paths.map(file => fs.statSync(path.join(dir, file)).mtimeMs)) };
+  });
 }

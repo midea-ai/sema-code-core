@@ -12,8 +12,8 @@
 import { historySessionIds } from './historyFiles';
 
 
-import { createHash } from 'crypto';
-import { existsSync, readFileSync, readdirSync, unlinkSync } from 'fs';
+import { createHash, randomUUID } from 'crypto';
+import { constants as fsConstants, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, closeSync, renameSync, rmSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { getProjectHistoryDir, getProjectSnapshotsDir, getSnapshotsDir } from './savePath';
 import { logWarn, logDebug } from './log';
@@ -72,6 +72,40 @@ export function writeBlob(buf: Buffer, projectPath?: string): string {
   return hash;
 }
 
+/**
+ * 把项目文件登记成 blob：明文时先把文件拷成临时副本，再对这份不再变化的副本算 hash 并发布，
+ * 全程不把内容读进 JS 内存。加密时只能整份读进来再加密（不做分块）。
+ *
+ * 先拷再算：源文件可能被别的进程同时改（构建、编辑器），
+ * 若先对源文件算 hash 再拷贝，落盘的字节可能与文件名对不上，之后会恢复出错误内容。
+ */
+export function writeBlobFromFile(sourcePath: string, projectPath?: string): string {
+  if (isEncryptionEnabled()) return writeBlob(readFileSync(sourcePath), projectPath);
+  const dir = blobsDirOf(projectPath);
+  mkdirSync(dir, { recursive: true });
+  const temp = join(dir, `tmp-${process.pid}-${randomUUID()}`);
+  try {
+    // 支持写时复制的文件系统（APFS/ReFS）上这一步几乎不花代价，不支持的自动退回真实拷贝
+    copyFileSync(sourcePath, temp, fsConstants.COPYFILE_FICLONE);
+    const hash = hashFile(temp);
+    const path = join(dir, hash);
+    if (existsSync(path)) return hash;
+    renameSync(temp, path);
+    return hash;
+  } finally { rmSync(temp, { force: true }); }
+}
+
+function hashFile(file: string): string {
+  const hash = createHash('sha256');
+  const fd = openSync(file, 'r');
+  const buf = Buffer.allocUnsafe(1 << 20);
+  try {
+    let n: number;
+    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) hash.update(buf.subarray(0, n));
+  } finally { closeSync(fd); }
+  return hash.digest('hex');
+}
+
 export function readBlob(hash: string, projectPath?: string): Buffer {
   const path = join(blobsDirOf(projectPath), hash);
   const buf = readUsableBlob(path);
@@ -98,7 +132,8 @@ export function loadEditLog(sessionId: string, projectPath?: string): EditRecord
 }
 
 export function saveEditLog(sessionId: string, records: EditRecord[], projectPath?: string): void {
-  writeSecureFile(editLogPathOf(sessionId, projectPath), JSON.stringify({ records }, null, 2));
+  // 每次编辑都重写整份，缩进只为好看，去掉能少一半字节与序列化开销
+  writeSecureFile(editLogPathOf(sessionId, projectPath), JSON.stringify({ records }));
 }
 
 // ==================== 退场：跟随历史清理 + blob 标记清除 ====================

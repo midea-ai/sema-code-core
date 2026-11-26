@@ -11,7 +11,7 @@
  * blob/editlog 的文件 IO 与退场清理在 util/snapshotStore.ts（纯 IO，避免循环依赖）。
  */
 
-import { existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
 import { dirname } from 'path';
 import { getConfManager } from './ConfManager';
 import { getStateManager } from './StateManager';
@@ -22,7 +22,7 @@ import {
   loadEditLog,
   saveEditLog,
   readBlob,
-  writeBlob,
+  writeBlobFromFile,
 } from '../util/snapshotStore';
 import { UserMsg } from '../types/message';
 import { ForkPreview, ForkFileChange, ForkFileEffect } from '../types/fork';
@@ -99,7 +99,7 @@ class CheckpointManager {
       const existedBefore = existsSync(fullFilePath);
       let blobHash: string | null = null;
       if (existedBefore) {
-        blobHash = writeBlob(readFileSync(fullFilePath), this.projectPath());
+        blobHash = writeBlobFromFile(fullFilePath, this.projectPath());
       }
 
       log.push({

@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import type { Message } from '../types/message';
 import type { HistoryData } from './history';
 import { openLine, sealLine, secureName, resolveSecurePath, stripEnc, isEncName } from './cipher';
@@ -18,13 +18,12 @@ export interface HistoryMeta extends Omit<HistoryData, 'messages' | 'goal'> {
   goal: HistoryData['goal'] | null;
 }
 
-interface InstallFile { source: string; target: string; bytes: number; hash: string }
+interface InstallFile { source: string; target: string }
 interface Rewrite { version: 1; sessionId: string; files: InstallFile[]; cleanup: string[] }
 
 /** Fault injection at persistence boundaries; unused in production. */
 export const __historyTestHooks: { afterStep?: (step: string) => void; beforeLockReclaim?: (file: string) => void } = {};
 const step = (name: string) => __historyTestHooks.afterStep?.(name);
-const hash = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 const corrupt = (message: string): never => { throw new SemaError('HISTORY_CORRUPT', message); };
 
 export function syncDirectory(dir: string): void {
@@ -56,8 +55,27 @@ function decodeJson(file: string): any {
   }
 }
 
-function serializeMessages(messages: Message[]): Buffer {
-  return Buffer.from(messages.map(message => sealLine(JSON.stringify(message)) + '\n').join(''));
+function encodeMessage(message: Message): Buffer {
+  return Buffer.from(sealLine(JSON.stringify(message)) + '\n');
+}
+
+/**
+ * 逐条写入，返回写入字节数。
+ * 不先把历史拼成整份字符串：峰值内存只到单条消息，代价是多几次系统调用。
+ */
+function writeMessages(fd: number, messages: Message[], position: number): number {
+  let offset = position;
+  for (const message of messages) {
+    const line = encodeMessage(message);
+    let written = 0;
+    while (written < line.length) {
+      const n = fs.writeSync(fd, line, written, line.length - written, offset + written);
+      if (!n) throw new Error('History write made no progress');
+      written += n;
+    }
+    offset += line.length;
+  }
+  return offset - position;
 }
 
 function validateMessage(value: any): asserts value is Message {
@@ -73,34 +91,50 @@ function validateMeta(meta: any, sessionId: string): asserts meta is HistoryMeta
   if (meta.messageCount === 0 ? meta.lastMessageUuid !== null : typeof meta.lastMessageUuid !== 'string') corrupt('Invalid last message UUID');
 }
 
-function readPrefix(file: string, bytes: number): Buffer {
+function parseMessageLine(line: Buffer, encrypted: boolean): Message {
+  try {
+    const value = JSON.parse(encrypted ? openLine(line.toString('utf8')).toString('utf8') : line.toString('utf8'));
+    validateMessage(value);
+    return value;
+  } catch (error) {
+    if (error instanceof SemaError) throw error;
+    return corrupt('Invalid committed history line');
+  }
+}
+
+const READ_CHUNK_BYTES = 1 << 20;
+
+/**
+ * 按行流式读取已提交区间：峰值内存只到单行加一个读块，
+ * 不把整份历史先读成字符串再 split（那会同时留下 buffer、整串和行数组）。
+ * 跨块的行只在遇到换行时拼一次，不每块都把整条未完成的行重拼一遍——
+ * 否则一条几 MB 的消息（例如带多张 base64 图片）会让读取开销随消息大小平方增长。
+ */
+function readMessages(file: string, bytes: number, encrypted: boolean): Message[] {
   const fd = fs.openSync(file, 'r');
   try {
     if (fs.fstatSync(fd).size < bytes) corrupt('History is shorter than its committed boundary');
-    const result = Buffer.alloc(bytes);
-    let offset = 0;
-    while (offset < bytes) {
-      const n = fs.readSync(fd, result, offset, bytes - offset, offset);
+    const messages: Message[] = [];
+    const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+    let fragments: Buffer[] = [];
+    let consumed = 0;
+    while (consumed < bytes) {
+      const n = fs.readSync(fd, chunk, 0, Math.min(READ_CHUNK_BYTES, bytes - consumed), consumed);
       if (!n) corrupt('History ended before its committed boundary');
-      offset += n;
+      consumed += n;
+      const view = chunk.subarray(0, n);
+      let start = 0;
+      for (let end = view.indexOf(10, start); end !== -1; end = view.indexOf(10, start)) {
+        const tail = view.subarray(start, end);
+        messages.push(parseMessageLine(fragments.length === 0 ? tail : Buffer.concat([...fragments, tail]), encrypted));
+        fragments = [];
+        start = end + 1;
+      }
+      if (start < n) fragments.push(Buffer.from(view.subarray(start)));
     }
-    return result;
+    if (fragments.length > 0) corrupt('History boundary is not a complete line');
+    return messages;
   } finally { fs.closeSync(fd); }
-}
-
-function parseMessages(data: Buffer, encrypted: boolean): Message[] {
-  if (!data.length) return [];
-  if (data[data.length - 1] !== 10) corrupt('History boundary is not a complete line');
-  return data.toString('utf8').slice(0, -1).split('\n').map(line => {
-    try {
-      const value = JSON.parse(encrypted ? openLine(line).toString('utf8') : line);
-      validateMessage(value);
-      return value;
-    } catch (error) {
-      if (error instanceof SemaError) throw error;
-      return corrupt('Invalid committed history line');
-    }
-  });
 }
 
 function atomicJson(plain: string, data: unknown): void {
@@ -245,19 +279,14 @@ export class HistoryStore {
     txn.files.forEach((file, index) => {
       const source = this.local(file.source), target = this.local(file.target);
       if (stripEnc(target) !== expected[index] || !stripEnc(source).endsWith('.tmp')) corrupt('Unexpected rewrite target');
-      const matches = (name: string) => fs.existsSync(name) && fs.statSync(name).size === file.bytes && hash(fs.readFileSync(name)) === file.hash;
-      if (!matches(target)) {
-        if (!matches(source)) corrupt('Missing or corrupted rewrite material');
+      // 事务标记出现在临时文件写完之后，所以"临时文件还在"就等价于"这一步没安装"，
+      // 按存在性直接改名即可：不再把整份历史读回来做内容校验
+      if (fs.existsSync(source)) {
         fs.renameSync(source, target);
         syncDirectory(path.dirname(this.stem));
-      }
+      } else if (!fs.existsSync(target)) corrupt('Missing rewrite material');
       step(index === 0 ? 'rewrite:messages' : 'rewrite:meta');
     });
-    const installedMeta = decodeJson(this.local(txn.files[1].target));
-    validateMeta(installedMeta, this.sessionId);
-    const installedMessages = parseMessages(readPrefix(this.local(txn.files[0].target), installedMeta.committedBytes), isEncName(txn.files[0].target));
-    if (installedMeta.committedBytes !== txn.files[0].bytes || installedMessages.length !== installedMeta.messageCount
-      || (installedMessages[installedMessages.length - 1]?.uuid ?? null) !== installedMeta.lastMessageUuid) corrupt('Rewrite metadata does not match messages');
     const allowedCleanup = [this.stem + '.json', this.stem + '.json.enc', this.stem + '.jsonl', this.stem + '.meta.json'];
     for (const name of txn.cleanup) {
       const file = this.local(name);
@@ -288,7 +317,7 @@ export class HistoryStore {
       validateMeta(meta, this.sessionId);
       const file = this.stem + '.jsonl' + (resolved.encrypted ? '.enc' : '');
       if (!fs.existsSync(file)) corrupt('Missing committed messages file');
-      const messages = parseMessages(readPrefix(file, meta.committedBytes), resolved.encrypted);
+      const messages = readMessages(file, meta.committedBytes, resolved.encrypted);
       if (messages.length !== meta.messageCount || (messages[messages.length - 1]?.uuid ?? null) !== meta.lastMessageUuid) corrupt('History metadata does not match messages');
       this.meta = meta;
       this.encrypted = resolved.encrypted;
@@ -332,12 +361,12 @@ export class HistoryStore {
     const stateJson = JSON.stringify(state);
     const pending = append ? data.messages.slice(this.committed.length) : data.messages;
     if (append && !pending.length && stateJson === this.metadataJson) return;
-    const encoded = serializeMessages(pending);
+    const base = append ? this.meta!.committedBytes : 0;
     const meta: HistoryMeta = {
       ...state, version: 2, sessionId: this.sessionId,
       revision: (this.meta?.revision ?? 0) + 1,
       historyEpoch: (this.meta?.historyEpoch ?? 0) + (append ? 0 : 1),
-      committedBytes: (append ? this.meta!.committedBytes : 0) + encoded.length,
+      committedBytes: base,
       messageCount: data.messages.length,
       lastMessageUuid: data.messages[data.messages.length - 1]?.uuid ?? null,
       updatedAt: Date.now(),
@@ -345,17 +374,12 @@ export class HistoryStore {
     this.pendingMessages = data.messages;
     try {
       if (append) {
-        if (encoded.length) {
+        if (pending.length > 0) {
           const fd = fs.openSync(this.messagePath, 'r+');
           try {
-            if (fs.fstatSync(fd).size < this.meta!.committedBytes) corrupt('History is shorter than its committed boundary');
-            fs.ftruncateSync(fd, this.meta!.committedBytes);
-            let written = 0;
-            while (written < encoded.length) {
-              const n = fs.writeSync(fd, encoded, written, encoded.length - written, this.meta!.committedBytes + written);
-              if (!n) throw new Error('History write made no progress');
-              written += n;
-            }
+            if (fs.fstatSync(fd).size < base) corrupt('History is shorter than its committed boundary');
+            fs.ftruncateSync(fd, base);
+            meta.committedBytes = base + writeMessages(fd, pending, base);
             fs.fsyncSync(fd);
           } finally { fs.closeSync(fd); }
         }
@@ -363,7 +387,7 @@ export class HistoryStore {
         atomicJson(this.stem + '.meta.json', meta);
         step('append:meta');
       } else {
-        this.rewrite(encoded, meta);
+        this.rewrite(pending, meta);
       }
       this.meta = meta;
       this.encrypted = isEncName(this.messagePath);
@@ -376,17 +400,21 @@ export class HistoryStore {
     }
   }
 
-  private rewrite(messages: Buffer, meta: HistoryMeta): void {
+  private rewrite(messages: Message[], meta: HistoryMeta): void {
     const prefix = `${this.stem}.txn-${randomUUID()}`;
     const messageTemp = secureName(prefix + '.messages.tmp');
     const metaTemp = secureName(prefix + '.meta.tmp');
-    writeSynced(messageTemp, messages);
+    const fd = fs.openSync(messageTemp, 'w', 0o600);
+    try {
+      meta.committedBytes = writeMessages(fd, messages, 0);
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
     const metaBytes = encodeJson(meta);
     writeSynced(metaTemp, metaBytes);
-    const files = [[messageTemp, this.messagePath, messages], [metaTemp, secureName(this.stem + '.meta.json'), metaBytes]] as const;
+    const files = [[messageTemp, this.messagePath], [metaTemp, secureName(this.stem + '.meta.json')]] as const;
     const txn: Rewrite = {
       version: 1, sessionId: this.sessionId,
-      files: files.map(([source, target, bytes]) => ({ source: path.basename(source), target: path.basename(target), bytes: bytes.length, hash: hash(bytes) })),
+      files: files.map(([source, target]) => ({ source: path.basename(source), target: path.basename(target) })),
       cleanup: [this.stem + '.json', this.stem + '.json.enc', ...(isEncName(this.messagePath) ? [this.stem + '.jsonl', this.stem + '.meta.json'] : [])].map(f => path.basename(f)),
     };
     const marker = secureName(this.stem + '.rewrite.json');
@@ -411,23 +439,22 @@ export class HistoryStore {
     const previous = this.agents.get(agentId);
     const append = previous && previous.messages.length <= messages.length && previous.messages.every((m, i) => m === messages[i]);
     if (append && previous.messages.length === messages.length) return;
-    const encoded = serializeMessages(append ? messages.slice(previous.messages.length) : messages);
+    let written = 0;
     if (append) {
       const fd = fs.openSync(file, 'r+');
       try {
         fs.ftruncateSync(fd, previous.bytes);
-        let offset = 0;
-        while (offset < encoded.length) {
-          const n = fs.writeSync(fd, encoded, offset, encoded.length - offset, previous.bytes + offset);
-          if (!n) throw new Error('Agent history write made no progress');
-          offset += n;
-        }
+        written = writeMessages(fd, messages.slice(previous.messages.length), previous.bytes);
         fs.fsyncSync(fd);
       } finally { fs.closeSync(fd); }
     } else {
       const temp = file + '.' + randomUUID() + '.tmp';
-      try { writeSynced(temp, encoded); fs.renameSync(temp, file); syncDirectory(this.stem); }
-      finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
+      try {
+        const fd = fs.openSync(temp, 'w', 0o600);
+        try { written = writeMessages(fd, messages, 0); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+        fs.renameSync(temp, file);
+        syncDirectory(this.stem);
+      } finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
     }
     if (this.meta && !this.needsReload) {
       const touched = { ...this.meta, revision: this.meta.revision + 1, updatedAt: Date.now() };
@@ -435,7 +462,7 @@ export class HistoryStore {
       catch (error) { this.needsReload = true; throw error; }
       this.meta = touched;
     }
-    this.agents.set(agentId, { messages: messages.slice(), bytes: (append ? previous.bytes : 0) + encoded.length });
+    this.agents.set(agentId, { messages: messages.slice(), bytes: (append ? previous.bytes : 0) + written });
   }
 
   retireAgent(agentId: string): void { this.agents.delete(agentId); this.retiredAgents.add(agentId); }

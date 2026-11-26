@@ -10,6 +10,57 @@ import { SessionNotifyRegistry, NotifyCallback } from '../util/notifyRegistry'
 import { readInitialCwd } from '../util/cwd'
 import { getEffectiveEnv } from '../services/settings/settingsLoader'
 
+/**
+ * 从 offset 起读文件新增内容；文件比 offset 短（被截断或替换）时从头读。
+ * 只读增量：长任务每轮轮询不再把整个输出文件读进内存。
+ */
+function readAppended(file: string, offset: number): { text: string; offset: number } | null {
+  let fd: number
+  try { fd = fs.openSync(file, 'r') } catch { return null }
+  try {
+    const size = fs.fstatSync(fd).size
+    const from = size < offset ? 0 : offset
+    if (size === from) return { text: '', offset: from }
+    const buf = Buffer.allocUnsafe(size - from)
+    let read = 0
+    while (read < buf.length) {
+      const n = fs.readSync(fd, buf, read, buf.length - read, from + read)
+      if (n === 0) break
+      read += n
+    }
+    return { text: buf.subarray(0, read).toString('utf8'), offset: from + read }
+  } finally { fs.closeSync(fd) }
+}
+
+const OUTPUT_READ_BYTES = 256 * 1024
+
+function readAt(fd: number, start: number, bytes: number): string {
+  const buf = Buffer.allocUnsafe(bytes)
+  let read = 0
+  while (read < bytes) {
+    const n = fs.readSync(fd, buf, read, bytes - read, start + read)
+    if (n === 0) break
+    read += n
+  }
+  return buf.subarray(0, read).toString('utf8')
+}
+
+/**
+ * 已结束任务的输出只取首尾各 256KB：调用方本来就只保留首尾若干行，
+ * 把整份文件（可能上百 MB 的构建日志）读进内存换不来更多内容。
+ */
+function readHeadTail(file: string): string {
+  let fd: number
+  try { fd = fs.openSync(file, 'r') } catch { return '' }
+  try {
+    const size = fs.fstatSync(fd).size
+    if (size <= OUTPUT_READ_BYTES * 2) return fs.readFileSync(file, 'utf8')
+    const head = readAt(fd, 0, OUTPUT_READ_BYTES)
+    const tail = readAt(fd, size - OUTPUT_READ_BYTES, OUTPUT_READ_BYTES)
+    return `${head}\n... [middle omitted, ${size} bytes total] ...\n${tail}`
+  } finally { fs.closeSync(fd) }
+}
+
 export class TaskManager {
   private static MAX_FINISHED_TASKS = 50
   private static MAX_RUNNING_TASKS = 5
@@ -69,18 +120,14 @@ export class TaskManager {
   }
 
   /**
-   * 获取任务输出：运行中任务返回内存缓存，已结束任务从输出文件读取
+   * 获取任务输出：运行中任务返回内存缓存，已结束任务从输出文件读首尾
    * 任务结束后内存中的 output 会被清空（已落盘），由此释放内存
    */
   getTaskOutput(taskId: string): string {
     const record = this.tasks.get(taskId)
     if (!record) return ''
     if (record.output) return record.output
-    try {
-      return fs.readFileSync(record.filepath, 'utf8')
-    } catch {
-      return ''
-    }
+    return readHeadTail(record.filepath)
   }
 
   /**
@@ -223,48 +270,33 @@ export class TaskManager {
     logInfo(`[TaskManager] takeoverTask taskId=${taskId} pid=${takeoverPid} command=${command}`)
     getEventBus().emit('task:start', { taskId, pid: takeoverPid, command, filepath, status: record.status, type: 'RunShell' }, record.sessionId)
 
-    // 记录已读取的文件偏移量
-    let stdoutOffset = ctx.partialOutput.length
+    // 记录已从 shell 临时文件读到的字节偏移；filepath 里已有超时前的部分输出
+    let stdoutOffset = fs.statSync(filepath).size
     let stderrOffset = 0
+
+    // 把新增输出写进任务文件并通知观察者，返回新的读取偏移
+    const drain = (file: string, offset: number): number => {
+      const chunk = readAppended(file, offset)
+      if (!chunk || chunk.text.length === 0) return chunk ? chunk.offset : offset
+      record.output += chunk.text
+      if (record.output.length > MAX_OUTPUT_BYTES) {
+        record.output = record.output.slice(-MAX_OUTPUT_BYTES)
+      }
+      try {
+        fs.appendFileSync(filepath, chunk.text)
+      } catch {}
+      this._notifyWatchers(taskId, chunk.text)
+      return chunk.offset
+    }
 
     const pollTimer = setInterval(() => {
       try {
         // 检查 shell 进程是否已退出（异常退出）
         const shellExited = ctx.shellProcess.exitCode !== null
 
-        // 读取 stdout 增量
-        if (fs.existsSync(ctx.stdoutFile)) {
-          const content = fs.readFileSync(ctx.stdoutFile).toString('utf8')
-          if (content.length > stdoutOffset) {
-            const chunk = content.slice(stdoutOffset)
-            stdoutOffset = content.length
-            record.output += chunk
-            if (record.output.length > MAX_OUTPUT_BYTES) {
-              record.output = record.output.slice(-MAX_OUTPUT_BYTES)
-            }
-            try {
-              fs.appendFileSync(filepath, chunk)
-            } catch {}
-            this._notifyWatchers(taskId, chunk)
-          }
-        }
-
-        // 读取 stderr 增量
-        if (fs.existsSync(ctx.stderrFile)) {
-          const content = fs.readFileSync(ctx.stderrFile).toString('utf8')
-          if (content.length > stderrOffset) {
-            const chunk = content.slice(stderrOffset)
-            stderrOffset = content.length
-            record.output += chunk
-            if (record.output.length > MAX_OUTPUT_BYTES) {
-              record.output = record.output.slice(-MAX_OUTPUT_BYTES)
-            }
-            try {
-              fs.appendFileSync(filepath, chunk)
-            } catch {}
-            this._notifyWatchers(taskId, chunk)
-          }
-        }
+        // 读取 stdout / stderr 增量
+        stdoutOffset = drain(ctx.stdoutFile, stdoutOffset)
+        stderrOffset = drain(ctx.stderrFile, stderrOffset)
 
         // 检查 statusFile：命令正常完成
         if (fs.existsSync(ctx.statusFile) && fs.statSync(ctx.statusFile).size > 0) {
@@ -272,26 +304,8 @@ export class TaskManager {
           const exitCode = Number(exitCodeStr) || 0
 
           // 先读完最终输出（防止 shell exit handler 删文件后读到空）
-          if (fs.existsSync(ctx.stdoutFile)) {
-            const content = fs.readFileSync(ctx.stdoutFile).toString('utf8')
-            if (content.length > stdoutOffset) {
-              const chunk = content.slice(stdoutOffset)
-              record.output += chunk
-              try {
-                fs.appendFileSync(filepath, chunk)
-              } catch {}
-            }
-          }
-          if (fs.existsSync(ctx.stderrFile)) {
-            const content = fs.readFileSync(ctx.stderrFile).toString('utf8')
-            if (content.length > stderrOffset) {
-              const chunk = content.slice(stderrOffset)
-              record.output += chunk
-              try {
-                fs.appendFileSync(filepath, chunk)
-              } catch {}
-            }
-          }
+          stdoutOffset = drain(ctx.stdoutFile, stdoutOffset)
+          stderrOffset = drain(ctx.stderrFile, stderrOffset)
 
           clearInterval(pollTimer)
           record._pollTimer = undefined

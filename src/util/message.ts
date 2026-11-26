@@ -139,8 +139,8 @@ export function prepareMessagesForApi(
     }
   })
 
-  // 找出缺少 tool_result 的 tool_use_id
-  const missingToolResults = Array.from(toolUseIds).filter(id => !toolResultIds.has(id))
+  // 找出缺少 tool_result 的 tool_use_id（用 Set，避免逐条线性查找）
+  const missingToolResults = new Set(Array.from(toolUseIds).filter(id => !toolResultIds.has(id)))
 
   // 第二步：规范化消息，过滤掉包含缺失 tool_result 的 assistant 消息
   messages.forEach(message => {
@@ -153,7 +153,7 @@ export function prepareMessagesForApi(
 
         // 检查是否包含缺少 tool_result 的 tool_use
         const hasOrphanedToolUse = message.message.content.some(block =>
-          block.type === 'tool_use' && missingToolResults.includes(block.id)
+          block.type === 'tool_use' && missingToolResults.has(block.id)
         )
 
         // 如果包含孤立的 tool_use，跳过整个 assistant 消息

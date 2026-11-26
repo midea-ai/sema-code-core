@@ -276,7 +276,8 @@ cronManager.dispose()
 ### 采集点
 
 - `queryLLM` 每次拿到响应后调 `recordLlm({ model, inputTokens, outputTokens, cacheReadTokens?, sessionId })`：模型名、token 三分量（缓存命中输入 / 未命中输入 / 输出）、会话 id
-- 监听进程级 `tool:execution:complete` / `tool:execution:error`：按工具名累加调用与失败次数；工具为 `skill` 时另按 skill 名（事件 `title`）计次并记最近时间
+- 工具调用次数由 RunTools 在工具统一执行入口调 `recordToolCall(toolName)` 登记（模型发起一次即计一次，成功/报错/被拒/中断都算），不依赖工具是否实现 `genToolResultMessage`；工具名不在当前工具表中的调用在查表后提前返回，不计入
+- 监听进程级 `tool:execution:error`：按工具名累加失败次数；监听 `tool:execution:complete`：工具为 `skill` 时按 skill 名（事件 `title`）计次并记最近时间
 
 只记计数与名称，不存对话内容、路径、入参。热路径只做内存加法。
 
@@ -290,6 +291,7 @@ cronManager.dispose()
 ```javascript
 usageStatsManager.init(product)
 usageStatsManager.recordLlm(params)
+usageStatsManager.recordToolCall(toolName)     // RunTools 执行入口调用，登记一次工具调用
 usageStatsManager.getUsageStats({ product })   // 先落盘本进程增量，再读产品目录聚合（缺省全部产品）：累计 + 近 366 天逐日
 usageStatsManager.clearUsageStats(product)     // 删该产品目录（必填）；是本进程产品时同时清内存账本
 usageStatsManager.dispose()

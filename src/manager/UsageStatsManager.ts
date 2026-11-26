@@ -2,6 +2,9 @@
  * 使用统计管理器
  * 只记计数与 id（模型名 / 工具名 / skill 名 / sessionId），不存任何对话内容、路径、入参。
  * usageProduct 未配置时完全不工作：不建目录、不注册监听、不起定时器。
+ * 工具调用次数由 RunTools 在统一执行入口直接调 recordToolCall 登记，不依赖展示事件
+ * （genToolResultMessage 未实现的工具成功时不发 complete，靠事件会漏计）。
+ * 工具名不在当前工具表中的调用在查表后提前返回，不登记，避免统计里出现假工具。
  *
  * 落盘：内存只持"上次落盘后的增量"账本，账本从空变非空后 USAGE_STATS_FLUSH_INTERVAL 到点
  * 序列化成一行追加到 <semaRoot>/stats/<product>/YYYY-MM-DD.jsonl；dispose 时同步落盘。
@@ -179,8 +182,8 @@ export class UsageStatsManager {
       return
     }
     this.product = product
-    const onComplete = (data: ToolExecutionCompleteData) => this.recordTool(data.toolName, data.title, false)
-    const onError = (data: ToolExecutionErrorData) => this.recordTool(data.toolName, data.title, true)
+    const onComplete = (data: ToolExecutionCompleteData) => this.recordSkill(data.toolName, data.title)
+    const onError = (data: ToolExecutionErrorData) => this.recordToolError(data.toolName)
     const bus = getEventBus()
     bus.on('tool:execution:complete', onComplete, null)
     bus.on('tool:execution:error', onError, null)
@@ -218,16 +221,30 @@ export class UsageStatsManager {
     this.scheduleFlush()
   }
 
-  private recordTool(toolName: string, title: string, isError: boolean): void {
+  /**
+   * 工具调用登记：RunTools 在工具统一执行入口调用，模型发起一次调用即累加一次，
+   * 后续无论成功、报错、被拒还是中断都归属于这一次调用
+   */
+  recordToolCall(toolName: string): void {
     if (!this.product) return
     const t = this.ledger.tools[toolName] ?? (this.ledger.tools[toolName] = { calls: 0, errors: 0 })
     t.calls += 1
-    if (isError) t.errors += 1
-    if (toolName === TOOL_NAME_SKILL && title) {
-      const s = this.ledger.skills[title] ?? (this.ledger.skills[title] = { calls: 0, lastAt: 0 })
-      s.calls += 1
-      s.lastAt = Date.now()
-    }
+    this.scheduleFlush()
+  }
+
+  private recordToolError(toolName: string): void {
+    if (!this.product) return
+    const t = this.ledger.tools[toolName] ?? (this.ledger.tools[toolName] = { calls: 0, errors: 0 })
+    t.errors += 1
+    this.scheduleFlush()
+  }
+
+  /** skill 调用明细：工具完成时按 skill 名（事件 title）计次；skill 工具自身实现了 genToolResultMessage，complete 必发 */
+  private recordSkill(toolName: string, title: string): void {
+    if (!this.product || toolName !== TOOL_NAME_SKILL || !title) return
+    const s = this.ledger.skills[title] ?? (this.ledger.skills[title] = { calls: 0, lastAt: 0 })
+    s.calls += 1
+    s.lastAt = Date.now()
     this.scheduleFlush()
   }
 
@@ -257,10 +274,20 @@ export class UsageStatsManager {
     }
   }
 
+  /**
+   * 账本是否没有任何计数。skills 可以在 requests / tools 都为空时单独存在：
+   * 工具调用次数在入口登记、skill 明细在完成时登记，skill 等待权限超过一次落盘间隔时，
+   * 前者已被上一轮写走，完成后的账本里就只剩 skills
+   */
+  private isEmptyLedger(): boolean {
+    const { requests, tools, skills } = this.ledger
+    return requests === 0 && Object.keys(tools).length === 0 && Object.keys(skills).length === 0
+  }
+
   /** 取出并清空账本，返回待写的一行；账本为空返回 null */
   private takeLine(): { dir: string; file: string; line: string } | null {
     this.clearTimer()
-    if (this.ledger.requests === 0 && Object.keys(this.ledger.tools).length === 0) return null
+    if (this.isEmptyLedger()) return null
     const line: UsageLine = { t: Date.now(), ...ledgerToDay(this.ledger) }
     this.ledger = emptyLedger()
     const dir = this.productDir(this.product)

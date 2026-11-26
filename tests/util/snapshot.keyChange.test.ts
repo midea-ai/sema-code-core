@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { isolate, KEY, OTHER_KEY } from '../helpers/isolate'
+import { isolate, KEY, OTHER_KEY, writeFile } from '../helpers/isolate'
 
 // blob 按内容寻址、跨会话复用。换密钥或关掉加密后，新会话遇到相同内容不能复用自己读不出来的旧文件：
 // 否则写入看着成功，撤销时才发现解不开。
@@ -60,4 +61,20 @@ test('读不出来的 blob：报错而不是返回别的内容', () => {
   assert.throws(() => snap.readBlob(hash, project))
   setHostConfig({})
   assert.throws(() => snap.readBlob(hash, project))
+})
+
+test('按文件捕获：哈希对得上落盘内容，内容不变复用同一 blob，改过内容不覆盖旧 blob', () => {
+  setHostConfig({})
+  const source = join(project, 'src', 'capture.ts')
+  writeFile(source, 'export const value = 1\n')
+  const hash = snap.writeBlobFromFile(source, project)
+  assert.equal(hash, createHash('sha256').update(readFileSync(source)).digest('hex'))
+  assert.equal(snap.readBlob(hash, project).toString(), 'export const value = 1\n')
+
+  assert.equal(snap.writeBlobFromFile(source, project), hash, '重复捕获复用同一 blob')
+
+  writeFile(source, 'export const value = 2\n')
+  const next = snap.writeBlobFromFile(source, project)
+  assert.notEqual(next, hash)
+  assert.equal(snap.readBlob(hash, project).toString(), 'export const value = 1\n', '旧内容不被覆盖')
 })

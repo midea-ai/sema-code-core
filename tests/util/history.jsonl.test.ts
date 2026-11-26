@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, truncateSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { isolate, writeFile } from '../helpers/isolate'
@@ -10,7 +10,7 @@ const { project, root } = isolate('history-jsonl')
 const { HistoryStore, __historyTestHooks, tryLockHistory, releaseLock } = require('../../src/util/historyStore') as typeof import('../../src/util/historyStore')
 const { getProjectHistoryDir } = require('../../src/util/savePath') as typeof import('../../src/util/savePath')
 const { loadHistory, saveHistory, closeHistory, resolveHistoryFile, deleteSessionHistory, deleteProjectHistory } = require('../../src/util/history') as typeof import('../../src/util/history')
-const { historySessionIds } = require('../../src/util/historyFiles') as typeof import('../../src/util/historyFiles')
+const { historySessionIds, historyGroups } = require('../../src/util/historyFiles') as typeof import('../../src/util/historyFiles')
 const dir = getProjectHistoryDir(project)
 const message = (uuid: string, content = uuid): Message => ({ type: 'user', uuid: uuid as any, message: { role: 'user', content } })
 const exitedPid = (): number => spawnSync(process.execPath, ['-e', '']).pid as number
@@ -53,6 +53,32 @@ test('same UUID and count with changed content rewrites; empty history is a real
   assert.equal(meta(store.stem).lastMessageUuid, null)
   assert.deepEqual(store.load().messages, [])
   store.close()
+})
+
+test('a message larger than the read chunk survives a load', () => {
+  const store = new HistoryStore(join(dir, 'big-line'), 'big-line')
+  const big = message('big', 'z'.repeat(3 * 1024 * 1024))
+  store.save(data([message('before'), big, message('after')]), true)
+  const loaded = store.load()
+  assert.deepEqual(loaded.messages.map(m => m.uuid), ['before', 'big', 'after'])
+  assert.equal((loaded.messages[1].message.content as string).length, 3 * 1024 * 1024)
+  store.close()
+})
+
+test('pending rewrite marker makes the session rank as recent', () => {
+  const groupsDir = join(dir, 'groups')
+  mkdirSync(groupsDir, { recursive: true })
+  for (const name of ['2025-01-01_old.meta.json', '2025-01-01_old.rewrite.json', '2025-01-02_new.meta.json']) {
+    writeFile(join(groupsDir, name), '{}')
+  }
+  utimesSync(join(groupsDir, '2025-01-01_old.meta.json'), new Date('2025-01-01'), new Date('2025-01-01'))
+  utimesSync(join(groupsDir, '2025-01-02_new.meta.json'), new Date('2025-01-02'), new Date('2025-01-02'))
+  utimesSync(join(groupsDir, '2025-01-01_old.rewrite.json'), new Date('2025-03-01'), new Date('2025-03-01'))
+  const groups = historyGroups(groupsDir)
+  const old = groups.find(g => g.stem === '2025-01-01_old')!
+  const fresh = groups.find(g => g.stem === '2025-01-02_new')!
+  assert.equal(old.mtime, statSync(join(groupsDir, '2025-01-01_old.rewrite.json')).mtimeMs)
+  assert.ok(old.mtime > fresh.mtime)
 })
 
 test('resume initializes append cursor without duplicating old messages', () => {

@@ -107,6 +107,7 @@ type ForkResult =
 
 - 项目目录名规则（`getProjectDirName`）：路径分隔符替换为 `-`、开头补 `-`、去掉 Windows 盘符冒号，例如 `/Users/x/proj` → `-Users-x-proj`。
 - blob 用内容哈希命名，相同内容只存一份；写入前先判存在性，已存在则跳过。
+- 捕获大文件时不把内容读进内存：明文下流式算 sha256，再由内核整份拷贝到 `blobs/`（先写临时名再改名）；只有开启加密时才整份读入后整份加密。
 
 ## 核心流程
 
@@ -125,7 +126,7 @@ const checkpointSeq = getCheckpointManager().beginTurn(this.sessionId);
 `CheckpointManager.recordPreEdit()` 由写盘工具在写盘前调用：
 
 1. **段内去重**：该文件在当前 segment（`seq >= segStart`）已捕获过则直接返回，只留**段起始镜像**。
-2. 读取当前内容：文件存在 → `writeBlob(原始字节)` 得 `blobHash`、`existedBefore=true`；文件不存在 → `blobHash=null`、`existedBefore=false`。
+2. 读取当前内容：文件存在 → `writeBlobFromFile(路径)` 得 `blobHash`、`existedBefore=true`；文件不存在 → `blobHash=null`、`existedBefore=false`。
 3. 追加 `EditRecord` 并持久化 EditLog。
 4. **fail-closed**：任何步骤抛错都向上抛出，使本次工具调用失败、不写盘——保证"凡是落了盘的改动，必有可回滚的镜像"。
 

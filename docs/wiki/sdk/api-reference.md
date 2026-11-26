@@ -245,6 +245,21 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `await fork` | `fork` | `fork` | `Fork` | `messageUuid: string`(必填), `options: ForkOptions` | — |
 | `await branch` | `branch` | `branch` | `Branch` | `beforeMessageUuid: string` | 分支到新聊天:复制截断历史到新会话(源会话与工作区不动),返回 `BranchResult`(含新 sessionId);锚点缺省则全量复制 |
 
+### 会话基线 diff(文件变更面板 / 放弃修改)
+
+基线 = 本会话首次受控写入该文件之前的原始内容,由 core 在写盘前捕获并持久化;右侧 = 查询时磁盘上已保存的内容。已过滤与基线一致的文件。
+
+| sema-core | Python | Java | C# | 参数 | 差异点备注 |
+| --- | --- | --- | --- | --- | --- |
+| `await getFileChanges` | `await get_file_changes` | `getFileChanges` | `GetFileChanges` | — | 返回 `FileChangeItem[]`(按绝对路径去重);`status` 非 `ok` 时没有增删行 |
+| `await getFileDiff` | `await get_file_diff` | `getFileDiff` | `GetFileDiff` | `filePath: string`(必填) | 返回 `FileDiffResult`;`status=ok` 时带 `baselineText` / `currentText` / `hunks`,`line` 为 1-based 首个变更行 |
+| `await revertFileChanges` | `await revert_file_changes` | `revertFileChanges` | `RevertFileChanges` | `filePaths: string[]` | 放弃修改:缺省处理全部相关文件,**显式空数组表示什么都没选、不碰磁盘**;返回逐文件 `action`(`restored`/`deleted`/`failed`) |
+
+> `state`:`modified` / `added` / `deleted` / `unchanged`(与基线一致,一般不下发)/ `unknown`(基线或当前文件状态读不出来)。
+> `status`:`ok` / `binary` / `tooLarge`(超出 1MB 文本比较上限) / `baselineUnavailable`(无记录、读不出来或超过捕获上限 `maxCheckpointBytes`) / `currentUnreadable`。
+> `rawChanged`:文本零增删但字节变了(编码 / BOM / 换行形式变化)。
+> 元数据变化不算差异:只改编码 / 换行时 `additions`/`removals` 为 0,但带 `rawChanged`。
+
 ### 后台任务(仅本会话)
 
 | sema-core | Python | Java | C# | 参数 | 差异点备注 |
@@ -388,6 +403,8 @@ TodoItem, TodoTask, TodoTaskStatus                           // 待办:精简项
 GoalState, GoalStatus                                        // 长期目标(/goal):状态对象 / 状态枚举
 CreateSessionOptions, CreateSessionResult                    // 会话创建:选项 / 结果(失败项含 error 与可选 code)
 ForkOptions, ForkPreview, ForkResult, ForkFileChange, ForkFileEffect  // 会话 Fork/撤销:选项/预览/结果/文件改动/改动类型
+FileChangeItem, FileDiffResult, FileChangeState, FileChangeStatus      // 会话基线 diff:面板条目/单文件详情/状态枚举/可比较状态枚举
+Hunk, RevertFileResult, RevertFileAction                              // diff hunk(与 structuredPatch 同构) / 放弃修改逐文件结果/动作枚举
 InputImageAttachment                                         // 图片附件(processUserInput);input:processing 回吐时多带 path(原图落盘路径)
 MAIN_AGENT_ID                                                // 常量:主代理 agentId
 ```

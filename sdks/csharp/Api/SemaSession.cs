@@ -93,6 +93,20 @@ public sealed class SemaSession
             : Json.To<ForkResultErr>(el);
     }
 
+    // ── 会话基线 diff（文件变更面板 / 放弃修改）────────────────────────────
+
+    /// <summary>本会话受控写入过的文件，按绝对路径去重，已过滤与基线一致的文件。</summary>
+    public async Task<List<FileChangeItem>> GetFileChanges()
+        => Json.ToList<FileChangeItem>(await Req("getFileChanges", null).ConfigureAwait(false));
+
+    /// <summary>单文件 diff：会话基线 → 查询时磁盘内容的左右文本、hunks 与统计。</summary>
+    public async Task<FileDiffResult?> GetFileDiff(string filePath)
+        => Json.To<FileDiffResult>(await Req("getFileDiff", Json.Obj(("filePath", filePath))).ConfigureAwait(false));
+
+    /// <summary>放弃修改：恢复到会话基线；filePaths 为 null 处理全部相关文件，显式空列表不碰磁盘。</summary>
+    public async Task<List<RevertFileResult>> RevertFileChanges(List<string>? filePaths = null)
+        => Json.ToList<RevertFileResult>(await Req("revertFileChanges", Json.Obj(("filePaths", filePaths))).ConfigureAwait(false));
+
     // ── 分支到新聊天 ─────────────────────────────────────────────────────
 
     /// <summary>复制截断历史到新会话（源会话与工作区不动）；beforeMessageUuid 为截断锚点，null 则全量复制。</summary>

@@ -764,6 +764,55 @@ class BranchResultErr(TypedDict):
 BranchResult = Union[BranchResultOk, BranchResultErr]
 
 
+# ==================== 会话基线 diff（文件变更面板 / 放弃修改） ====================
+
+# ≙ core FileChangeState / FileChangeStatus
+FileChangeState = Literal["modified", "added", "deleted", "unchanged", "unknown"]
+FileChangeStatus = Literal["ok", "binary", "tooLarge", "baselineUnavailable", "currentUnreadable"]
+
+
+class Hunk(TypedDict):
+    """行级 diff 的一个 hunk（与 npm diff 的 structuredPatch 输出同构）。"""
+    oldStart: int
+    oldLines: int
+    newStart: int
+    newLines: int
+    lines: List[str]
+
+
+class FileChangeItem(TypedDict):
+    """文件变更面板条目：本会话受控写入过的文件，已过滤与基线一致的文件。"""
+    filePath: str
+    displayPath: str
+    state: FileChangeState
+    status: FileChangeStatus
+    baselineExists: bool
+    additions: NotRequired[int]
+    removals: NotRequired[int]
+    line: NotRequired[int]
+    rawChanged: NotRequired[bool]
+
+
+class FileDiffResult(FileChangeItem):
+    """单文件 diff：会话基线 → 查询时磁盘内容；status 为 ok 时带左右文本与 hunks。"""
+    currentExists: bool
+    baselineText: NotRequired[str]
+    currentText: NotRequired[str]
+    hunks: NotRequired[List[Hunk]]
+
+
+# ≙ core RevertFileResult
+RevertFileAction = Literal["restored", "deleted", "failed"]
+
+
+class RevertFileResult(TypedDict):
+    """「放弃修改」逐文件结果；失败时 error 说明原因。"""
+    filePath: str
+    displayPath: str
+    action: RevertFileAction
+    error: NotRequired[str]
+
+
 class TaskListItem(TypedDict):
     taskId: str
     filepath: str

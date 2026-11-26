@@ -128,6 +128,28 @@ public final class SemaSession {
                 : GSON.fromJson(el, ForkResultErr.class);
     }
 
+    // ── 会话基线 diff（文件变更面板 / 放弃修改）────────────────────────────
+
+    /** 本会话受控写入过的文件，按绝对路径去重，已过滤与基线一致的文件。 */
+    public List<FileChangeItem> getFileChanges() {
+        return callList("getFileChanges", null, FileChangeItem.class);
+    }
+
+    /** 单文件 diff：会话基线 → 查询时磁盘内容的左右文本、hunks 与统计。 */
+    public FileDiffResult getFileDiff(String filePath) {
+        return call("getFileDiff", Json.obj("filePath", filePath), FileDiffResult.class);
+    }
+
+    /** 放弃修改：恢复到会话基线；不传 filePaths 则处理全部相关文件。 */
+    public List<RevertFileResult> revertFileChanges() {
+        return revertFileChanges(null);
+    }
+
+    /** filePaths 显式给空列表表示"什么都没选"，不碰磁盘。 */
+    public List<RevertFileResult> revertFileChanges(List<String> filePaths) {
+        return callList("revertFileChanges", Json.obj("filePaths", filePaths), RevertFileResult.class);
+    }
+
     // ── 分支到新聊天 ─────────────────────────────────────────────────────
 
     /** 全量复制当前历史到新会话（源会话与工作区文件不动）。 */

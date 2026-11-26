@@ -28,10 +28,12 @@ if TYPE_CHECKING:
     from .types import (
         AdapterType, AgentConfig, AgentMode, ApiTestParams, ApiTestResult, BranchResult,
         CommandConfig, CreateSessionOptions, CronTask, DesignSkillInfo, DesignSystemInfo,
-        FetchModelsParams, FetchModelsResult, ForkOptions, ForkPreview, ForkResult, GoalState,
-        HookConfig, HooksInfo, ImageModelConfig, ImageModelProfile, InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
+        FetchModelsParams, FetchModelsResult, FileChangeItem, FileDiffResult, ForkOptions, ForkPreview,
+        ForkResult, GoalState, HookConfig, HooksInfo, ImageModelConfig, ImageModelProfile,
+        InputImageAttachment, MarketplacePluginsInfo, MCPServerConfig,
         MCPServerInfo, MemoryConfig, ModelConfig, ModelProfile, ModelUpdateData, PermissionLevel,
-        RuleConfig, SemaCoreConfig, SkillConfig, TaskConfig, TaskListItem, ToolInfo, UsageStatsData,
+        RevertFileResult, RuleConfig, SemaCoreConfig, SkillConfig, TaskConfig, TaskListItem, ToolInfo,
+        UsageStatsData,
     )
     from .event import PickOptionResponseData, PlanExitResponseData, ToolPermissionResponse
 
@@ -453,6 +455,20 @@ class SemaSession:
     async def branch(self, before_message_uuid: Optional[str] = None) -> "BranchResult":
         """分支到新聊天：复制截断历史到新会话（源会话与工作区不动）；锚点缺省则全量复制。"""
         return _parse(await self._call("branch", _obj(beforeMessageUuid=before_message_uuid)))
+
+    # ── 会话基线 diff（文件变更面板 / 放弃修改）───────────────────────────
+
+    async def get_file_changes(self) -> "List[FileChangeItem]":
+        """本会话受控写入过的文件，按绝对路径去重，已过滤与基线一致的文件。"""
+        return _parse(await self._call("getFileChanges", None))
+
+    async def get_file_diff(self, file_path: str) -> "FileDiffResult":
+        """单文件 diff：会话基线 → 查询时磁盘内容的左右文本、hunks 与统计。"""
+        return _parse(await self._call("getFileDiff", {"filePath": file_path}))
+
+    async def revert_file_changes(self, file_paths: Optional[List[str]] = None) -> "List[RevertFileResult]":
+        """放弃修改：恢复到会话基线；file_paths 缺省处理全部相关文件，显式空列表不碰磁盘。"""
+        return _parse(await self._call("revertFileChanges", _obj(filePaths=file_paths)))
 
     # ── 后台任务 ─────────────────────────────────────────────────────────
 

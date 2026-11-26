@@ -279,6 +279,62 @@ public record ForkPreview
     [JsonPropertyName("files")] public List<ForkFileChange>? Files { get; init; }
 }
 
+// ==================== 会话基线 diff（文件变更面板 / 放弃修改） ====================
+
+/// <summary>≙ core FileChangeState：unchanged 与基线一致，unknown 无法判断。</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum FileChangeState { modified, added, deleted, unchanged, unknown }
+
+/// <summary>≙ core FileChangeStatus：非 ok 表示不可文本比较，此时不返回增删行。</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum FileChangeStatus { ok, binary, tooLarge, baselineUnavailable, currentUnreadable }
+
+/// <summary>≙ core RevertFileResult.action。</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum RevertFileAction { restored, deleted, failed }
+
+/// <summary>行级 diff 的一个 hunk（与 npm diff 的 structuredPatch 输出同构）。</summary>
+public record Hunk
+{
+    [JsonPropertyName("oldStart")] public long OldStart { get; init; }
+    [JsonPropertyName("oldLines")] public long OldLines { get; init; }
+    [JsonPropertyName("newStart")] public long NewStart { get; init; }
+    [JsonPropertyName("newLines")] public long NewLines { get; init; }
+    [JsonPropertyName("lines")] public List<string>? Lines { get; init; }
+}
+
+/// <summary>≙ core FileChangeItem：本会话受控写入过的文件，已过滤与基线一致的文件。</summary>
+public record FileChangeItem
+{
+    [JsonPropertyName("filePath")] public string? FilePath { get; init; }
+    [JsonPropertyName("displayPath")] public string? DisplayPath { get; init; }
+    [JsonPropertyName("state")] public FileChangeState? State { get; init; }
+    [JsonPropertyName("status")] public FileChangeStatus? Status { get; init; }
+    [JsonPropertyName("baselineExists")] public bool BaselineExists { get; init; }
+    [JsonPropertyName("additions")] public long? Additions { get; init; }
+    [JsonPropertyName("removals")] public long? Removals { get; init; }
+    [JsonPropertyName("line")] public long? Line { get; init; }
+    [JsonPropertyName("rawChanged")] public bool? RawChanged { get; init; }
+}
+
+/// <summary>≙ core FileDiffResult：会话基线 → 查询时磁盘内容；status 为 ok 时带左右文本与 hunks。</summary>
+public record FileDiffResult : FileChangeItem
+{
+    [JsonPropertyName("currentExists")] public bool CurrentExists { get; init; }
+    [JsonPropertyName("baselineText")] public string? BaselineText { get; init; }
+    [JsonPropertyName("currentText")] public string? CurrentText { get; init; }
+    [JsonPropertyName("hunks")] public List<Hunk>? Hunks { get; init; }
+}
+
+/// <summary>≙ core RevertFileResult：「放弃修改」逐文件结果，失败时 Error 说明原因。</summary>
+public record RevertFileResult
+{
+    [JsonPropertyName("filePath")] public string? FilePath { get; init; }
+    [JsonPropertyName("displayPath")] public string? DisplayPath { get; init; }
+    [JsonPropertyName("action")] public RevertFileAction? Action { get; init; }
+    [JsonPropertyName("error")] public string? Error { get; init; }
+}
+
 public record ForkResultErr : ForkResult
 {
     [JsonPropertyName("error")] public string? Error { get; init; }

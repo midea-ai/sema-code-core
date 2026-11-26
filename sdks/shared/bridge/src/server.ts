@@ -207,6 +207,10 @@ function connect(call: grpc.ServerDuplexStream<any, any>): void {
         case 'fork':                    ack(id, await (requireSession(sessionId, action) as any).fork(payload.messageUuid, payload.options)); return;
         // 分支到新聊天：core 新建会话并复制截断历史（源会话与工作区不动）；ack 回原始 BranchResult（含新 sessionId）。
         case 'branch':                  ack(id, await (requireSession(sessionId, action) as any).branch(payload.beforeMessageUuid)); return;
+        // 会话基线 diff：清单 / 单文件详情 / 放弃修改。基线由 core 在写盘前捕获并持久化，宿主只负责展示。
+        case 'getFileChanges':          ack(id, await (requireSession(sessionId, action) as any).getFileChanges()); return;
+        case 'getFileDiff':             ack(id, await (requireSession(sessionId, action) as any).getFileDiff(payload.filePath)); return;
+        case 'revertFileChanges':       ack(id, await (requireSession(sessionId, action) as any).revertFileChanges(payload.filePaths)); return;
         // Stop 时一并停后台子 agent（D3）；ack 回停掉的任务数。
         case 'stopAllTasks':            ack(id, { count: (requireSession(sessionId, action) as any).stopAllTasks() }); return;
         // 子 agent 转后台（D4，会话级）；ack 回 boolean。

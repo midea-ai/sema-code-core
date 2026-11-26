@@ -8,6 +8,14 @@ export type {
   ForkResult,
   BranchResult,
 } from './types/fork';
+export type {
+  FileChangeItem,
+  FileChangeState,
+  FileChangeStatus,
+  FileDiffResult,
+  Hunk,
+  RevertFileResult,
+} from './types/fileChange';
 export type { InputImageAttachment } from './types/message';
 export type { Language } from './types/index';
 export type { UsageStatsData } from './manager/UsageStatsManager';

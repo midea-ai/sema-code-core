@@ -9,6 +9,7 @@ import { getCommandsManager } from './commandsManager';
 import { buildUserMsg } from '../../util/message';
 import { getTokens } from '../../util/tokens';
 import { getTaskManager } from '../../manager/TaskManager';
+import { getCheckpointManager } from '../../manager/CheckpointManager';
 import { getConfManager } from '../../manager/ConfManager';
 import { saveHistory } from '../../util/history';
 import { releaseClearedSessionAttachments } from '../../util/attachmentLedger';
@@ -136,6 +137,8 @@ async function handleClearCommand(sessionId: string): Promise<void> {
   mainAgentState.updateTodosIntelligently([]);
   mainAgentState.setReadFileTimestamps({});
   releaseClearedSessionAttachments(sessionId, workingDir);
+  // 历史清空后会话基线一并作废，否则文件变更面板会把清空前的改动重新列出来
+  getCheckpointManager().clearEditLog(sessionId);
   mainAgentState.updateState('idle');
   eventBus.emit('session:cleared', { sessionId }, sessionId);
   eventBus.emit('conversation:usage', { usage: getTokens([], sessionId) }, sessionId);

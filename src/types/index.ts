@@ -76,6 +76,9 @@ export interface SemaCoreConfig {
 
   // ---- 持久化保护 ----
   encryption?: import('./host').EncryptionConfig;  // 会话历史、hook 会话记录、快照加密；仅构造时生效，密钥只在内存
+  maxCheckpointBytes?: number;       // 单文件快照捕获上限（字节），缺省 10MB，0 为不限制；随构造配置生效（不走 updateCoreConfig）。
+                                     // 超过上限的文件不保存改前内容：不可回退、面板标基线不可用、放弃修改报失败，
+                                     // 但"被改过"的记录仍保留；捕获本身出错（读写失败）仍是 fail-closed
   disableLLMLog?: boolean;           // 不写模型调用日志（llm_logs 与 tracks 归档）；缺省为 true（调试时传 false 打开）；支持运行期更新
   disableEventLog?: boolean;         // 不写事件日志（event 目录）；缺省：没传 encryption 为 false，传了为 true；支持运行期更新
 }

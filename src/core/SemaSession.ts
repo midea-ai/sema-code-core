@@ -1,6 +1,7 @@
 import { SemaEngine } from './SemaEngine';
 import { CreateSessionOptions } from '../types/session';
 import { ForkOptions, ForkPreview, ForkResult, BranchResult } from '../types/fork';
+import type { FileChangeItem, FileDiffResult, RevertFileResult } from '../types/fileChange';
 import { SessionEventBus, createSessionEventBus } from '../events/EventSystem';
 import { generateSessionId } from '../util/session';
 import { getStateManager } from '../manager/StateManager';
@@ -88,6 +89,12 @@ export class SemaSession {
   getForkPreview = (messageUuid: string): ForkPreview => getCheckpointManager().preview(this.sessionId, messageUuid);
   fork = (messageUuid: string, options?: ForkOptions): Promise<ForkResult> => this.engine.rewind(messageUuid, options);
   branch = (beforeMessageUuid?: string): Promise<BranchResult> => this.engine.branchToNewChat(beforeMessageUuid);
+
+  // ==================== 文件变更（会话基线 diff）====================
+  getFileChanges = (): Promise<FileChangeItem[]> => getCheckpointManager().getFileChanges(this.sessionId);
+  getFileDiff = (filePath: string): Promise<FileDiffResult> => getCheckpointManager().getFileDiff(this.sessionId, filePath);
+  revertFileChanges = (filePaths?: string[]): Promise<RevertFileResult[]> =>
+    getCheckpointManager().revertFileChanges(this.sessionId, filePaths);
 
   // ==================== 后台任务（仅本会话）====================
   getTaskList = (): TaskListItem[] => getTaskManager().getTaskList(this.sessionId);

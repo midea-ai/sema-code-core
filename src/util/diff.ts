@@ -52,6 +52,32 @@ export function diffContents(filePath: string, current: string, target: string):
 }
 
 /**
+ * 整文件 diff 的统计：hunks、增删行数与首个变更行（新文件侧 1-based）。
+ * 首个变更行跳过 hunk 头部上下文，指向第一处 +/- 落在新文件侧的行；纯删除指向删除后的位置。
+ */
+export function diffStats(filePath: string, current: string, target: string): {
+  hunks: Hunk[]
+  additions: number
+  removals: number
+  line: number
+} {
+  const hunks = diffContents(filePath, current, target)
+  const { additions, removals } = countPatchLines(hunks)
+  return { hunks, additions, removals, line: firstChangedLine(hunks) }
+}
+
+function firstChangedLine(hunks: Hunk[]): number {
+  if (hunks.length === 0) return 1
+  const [first] = hunks
+  let line = first.newStart
+  for (const l of first.lines) {
+    if (l.startsWith('+') || l.startsWith('-')) break
+    line++
+  }
+  return Math.max(1, line)
+}
+
+/**
  * 统计 hunks 的新增/删除行数（行首 + / -）。
  */
 export function countPatchLines(patches?: Hunk[]): { additions: number; removals: number } {

@@ -27,6 +27,7 @@ export interface EditRecord {
   filePath: string;        // 绝对路径
   blobHash: string | null; // 旧内容 blob 的 sha256；existedBefore=false 时为 null
   existedBefore: boolean;  // 改动前文件是否存在
+  oversized?: true;        // 改动前文件超过捕获上限，内容未保存：不可回退、不可比较，但"被改过"仍保留
   ts: number;
 }
 
@@ -113,6 +114,16 @@ export function readBlob(hash: string, projectPath?: string): Buffer {
   // 读不出来：密文在但没密钥 / 密钥不对时给出带错误码的原因，否则是文件不存在
   if (existsSync(encName(path))) openLine(readFileSync(encName(path), 'utf8'));
   throw new Error(`blob not found: ${hash}`);
+}
+
+/** 读 blob；读不出来（不存在 / 密钥对不上 / 文件损坏）返回 null，供"基线是否可用"这类可降级判断 */
+export function tryReadBlob(hash: string, projectPath?: string): Buffer | null {
+  try {
+    return readBlob(hash, projectPath);
+  } catch (error) {
+    logDebug(`blob 不可用 ${hash}: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 }
 
 // ==================== EditLog 持久化 ====================

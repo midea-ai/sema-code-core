@@ -31,7 +31,7 @@
 
 | 层 | 位置 | 职责 |
 |----|------|------|
-| 对外 API | `SemaSession` | `getForkPreview` 预览、`fork` 执行回退 |
+| 对外 API | `SemaSession` | `getForkPreview` 预览、`fork` 执行回退；`getFileChanges` / `getFileDiff` / `revertFileChanges` 查询会话基线 diff |
 | 业务编排 | `SemaEngine` | `startQuery` 打锚点；`rewind` idle 守卫 → 校验 → 回滚文件 → 截断 editlog / 历史 |
 | 快照管理（单例） | `CheckpointManager` | `beginTurn` / `recordPreEdit` / `preview` / `computeRestorePlan` / `applyRestore` / `truncateEditLog` / `forgetSession` |
 | 存储层（纯 IO） | `util/snapshotStore` | blob 仓库、EditLog 持久化、退场 GC |
@@ -49,6 +49,7 @@ interface EditRecord {
   filePath: string;        // 绝对路径
   blobHash: string | null; // 旧内容 blob 的 sha256；新建文件（existedBefore=false）时为 null
   existedBefore: boolean;  // 改动前文件是否已存在
+  oversized?: true;        // 改动前文件超过捕获上限，内容未保存：不可回退、不可比较，但"被改过"仍保留
   ts: number;
 }
 ```
@@ -215,6 +216,27 @@ sequenceDiagram
     end
 ```
 
+## 会话基线 diff
+
+同一份 EditLog + blob 还对外提供「本会话改了什么」的查询，供文件变更面板与点击后的 diff 页面使用，不另建存储：
+
+- 会话基线 = 有效 EditLog 中该文件**最早一条**改前镜像。不是会话创建时的全量工作区快照，也不随后续编辑替换。
+- 右侧 = **查询时磁盘上**已保存的内容，不读 IDE 未保存缓冲区。
+- 聊天里的工具编辑块仍用工具结果自带的 `patch`，一次编辑一份，不会随后续改动变化；这里的累计 diff 是另一回事，两者数字允许不同。
+
+`getFileChanges()` 返回本会话受控写入过的文件（按绝对路径去重），已过滤掉确认与基线一致的文件。无法判断差异的保留条目并用 `status` 标记、不给增删行：
+
+- `binary` — 二进制文件（生成图片等），只表达新增 / 修改 / 删除
+- `tooLarge` — 超出 1MB 文本比较上限，基线与 blob 仍在
+- `baselineUnavailable` — 没有记录、基线内容读不出来（换密钥、blob 损坏）或文件超过捕获上限，不构造空文件 diff
+- `currentUnreadable` — 当前文件读不出来（权限、父目录不可访问等），不等于被删除；此时文件状态记 `unknown`，条目仍留在面板上
+
+`getFileDiff(filePath)` 给左右文本、hunks、增删行数与首个变更行（新文件侧 1-based，只用于滚动定位）。两侧文本都按**字节**判断编码（BOM、无 BOM UTF-16LE 特征）后解码、统一按 LF 比较，不查按路径缓存的编码，避免文件另存成另一种编码后解成乱码；增删为零但字节不同时带 `rawChanged`，表示只是编码 / BOM / 换行形式变了。二进制与大文件不进文本比较，由宿主用文件预览或明确提示兜底。
+
+`revertFileChanges(filePaths?)` 即「放弃修改」：按基线字节级写回、基线不存在的文件删除，逐文件返回 `restored` / `deleted` / `failed`，单个失败不影响其余文件；基线读不出来的文件记失败，不会因为文件存在就误判为新建并删除。
+
+回退截断 EditLog 后基线跟随剩余记录：被截断记录对应的文件若没有更早的基线，会从列表消失。只通过 shell / MCP / 外部程序改的文件没有记录，也不在列表里。
+
 ## 关键设计决策
 
 | 决策 | 理由 |
@@ -243,10 +265,11 @@ sequenceDiagram
 - **不处理外部修改冲突**：回滚是无条件字节级覆盖，不检测 fork 点之后文件是否被外部改动。
 - **旧历史无锚点只能 fork-only**：早于本机制上线的历史消息没有 `checkpointSeq`，无法还原文件。
 - **回滚粒度是整文件**：不支持只回滚文件内某几行。
-- **快照仅覆盖三类写盘工具**：`WriteFile` / `PatchFile` / `EditNotebook`；通过 `RunShell` 执行脚本产生的文件改动**不在快照范围内**。
+- **快照仅覆盖受控写盘**：`WriteFile` / `PatchFile` / `EditNotebook`，以及 `generate_image` 指定了落盘位置的图片；通过 `RunShell` 执行脚本产生的文件改动**不在快照范围内**。
 - **todos 不回退**。
 - **长期目标跟历史走**：回滚到设定目标之前则目标清除；回滚到目标进行中的某轮则置 `paused` 且轮数回退，结局（`completed` / `blocked`）和 summary 不保留。
 - **二进制文件**能回滚（字节级），但预览不计增删行。
+- **超过捕获上限的文件不回退**：core 配置 `maxCheckpointBytes`（缺省 10MB，0 不限制）以上的文件只记录"被改过"、不保存改前内容。该文件因此不可回退（回退计划里直接跳过）、文件变更面板标 `baselineUnavailable`、「放弃修改」报失败，但写盘本身照常进行（这与捕获出错时的 fail-closed 不同）。
 
 ## 对外 API
 
@@ -254,6 +277,10 @@ sequenceDiagram
 // SemaSession（src/core/SemaSession.ts）
 session.getForkPreview(messageUuid: string): ForkPreview
 session.fork(messageUuid: string, options?: ForkOptions): Promise<ForkResult>
+// 会话基线 diff（文件变更面板 / 动态 diff / 放弃修改）
+session.getFileChanges(): Promise<FileChangeItem[]>
+session.getFileDiff(filePath: string): Promise<FileDiffResult>
+session.revertFileChanges(filePaths?: string[]): Promise<RevertFileResult[]>
 ```
 
 典型调用流程（宿主 / UI）：
@@ -263,19 +290,20 @@ session.fork(messageUuid: string, options?: ForkOptions): Promise<ForkResult>
 3. `fork(uuid, { restoreFiles })`。
 4. 据 `ForkResult`：`ok=true` 用 `restoredFiles` 提示已还原文件，会话继续（`sessionId` 不变）；`ok=false` 提示 `error`。
 
-类型从包入口 `src/index.ts` 导出：`ForkPreview` / `ForkFileChange` / `ForkFileEffect` / `ForkOptions` / `ForkResult`。
+类型从包入口 `src/index.ts` 导出：`ForkPreview` / `ForkFileChange` / `ForkFileEffect` / `ForkOptions` / `ForkResult`，以及 `FileChangeItem` / `FileChangeState` / `FileChangeStatus` / `FileDiffResult` / `RevertFileResult`。
 
 ## 代码位置索引
 
 | 模块 | 文件 |
 |------|------|
-| 对外契约类型 | `src/types/fork.ts` |
+| 对外契约类型 | `src/types/fork.ts`、`src/types/fileChange.ts` |
 | 历史侧锚点字段 | `src/types/message.ts`（`UserMsg.checkpointSeq`） |
 | 快照管理（核心逻辑） | `src/manager/CheckpointManager.ts` |
 | 存储层（纯 IO） | `src/util/snapshotStore.ts` |
+| diff 统计 | `src/util/diff.ts`（`diffStats`） |
 | 打锚点 / 执行回退 | `src/core/SemaEngine.ts`（`startQuery` / `rewind`） |
-| 对外封装 | `src/core/SemaSession.ts`（`getForkPreview` / `fork` / `forgetSession`） |
-| 捕获接入点 | `src/tools/WriteFile.ts`、`src/tools/PatchFile.ts`、`src/tools/EditNotebook.ts` |
+| 对外封装 | `src/core/SemaSession.ts`（`getForkPreview` / `fork` / `getFileChanges` / `getFileDiff` / `revertFileChanges`） |
+| 捕获接入点 | `src/tools/WriteFile.ts`、`src/tools/PatchFile.ts`、`src/tools/EditNotebook.ts`、`src/tools/GenerateImage.ts`（指定落盘位置时） |
 | 子代理会话继承 | `src/tools/SubAgent.ts` |
 | 退场 GC 触发 | `src/util/history.ts`（`cleanupOldHistoryFiles`） |
 | 路径规则 | `src/util/savePath.ts` |

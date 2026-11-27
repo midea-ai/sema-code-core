@@ -4,7 +4,7 @@
 
 ## 一、导入与入口
 
-core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`sema-core/types`(配置/参数/返回)、`sema-core/event`(事件数据)。各语言 SDK 提供对应入口,**类型名跨语言完全一致**(均 PascalCase、与 core 同名,不像方法名要按语言转写),差异只在导入语法;字段名亦保持 wire 上的 camelCase(C# 属性 PascalCase + `[JsonPropertyName]` 锚定 wire 名)。
+core 从三个入口导出:`sema-core`(只有 `SemaCore` / `SemaSession` 两个类)、`sema-core/types`(全部对外类型与常量,含 `SemaError` / `ERROR_CODES` / `SUPPORTED_LANGUAGES`)、`sema-core/event`(事件数据)。根入口除这两个类之外不要再引入任何东西。各语言 SDK 提供对应入口,**类型名跨语言完全一致**(均 PascalCase、与 core 同名,不像方法名要按语言转写),差异只在导入语法;字段名亦保持 wire 上的 camelCase(C# 属性 PascalCase + `[JsonPropertyName]` 锚定 wire 名)。
 
 | 入口 | Node | Python | Java | C# |
 | --- | --- | --- | --- | --- |
@@ -105,6 +105,7 @@ core 从三个入口导出:`sema-core`(主 API:`SemaCore` / `SemaSession`)、`se
 | `await fetchAvailableModels` | `fetch_available_models` | `fetchAvailableModels` | `FetchAvailableModels` | `params: FetchModelsParams`(必填) | — |
 | `await testApiConnection` | `test_api_connection` | `testApiConnection` | `TestApiConnection` | `params: ApiTestParams`(必填) | — |
 | `getModelAdapter` | `get_model_adapter` | `getModelAdapter` | `GetModelAdapter` | `provider: string`(必填), `modelName: string`(必填), `baseURL: string`(必填) | — |
+| `SemaCore.getSemaRootDir` | `SemaCore.get_sema_root_dir` | `SemaCore.getSemaRootDir` | `SemaCore.GetSemaRootDir` | — | 静态同步方法(无需实例/不走桥),返回内核落盘根目录(`SEMA_ROOT` 环境变量,缺省 `~/.sema`,仅支持绝对路径或 `~/` 子路径,无效值警告并回落 `~/.sema`,跨 Windows/macOS/Linux) |
 
 ### 插件市场管理
 
@@ -370,12 +371,18 @@ core 无此事件,由 gRPC 桥合成,仅在 SDK 侧存在。
 
 ```
 SemaCore, SemaSession                                        // 主类:进程级 / 会话级
-SemaError, ERROR_CODES                                       // Node 专有:带稳定错误码的异常 / 错误码常量;SDK 侧对应 SemaBridgeException.code + types 的 SemaErrorCode
 ```
 
-### 类型 `sema-core/types`
+### 类型与常量 `sema-core/types`
 
 ```
+Language, SUPPORTED_LANGUAGES                                // UI 文案语言 / 可选语言常量(值)
+SemaError, ERROR_CODES                                       // Node 专有:带稳定错误码的异常(值) / 错误码常量;SDK 侧对应 SemaBridgeException.code + types 的 SemaErrorCode
+CreateSessionOptions, CreateSessionResult                    // 建会话入参 / 结果(ok + sessionId | error + code)
+InputImageAttachment                                         // 用户输入图片附件(base64,processUserInput 第三参)
+GoalState, GoalStatus, GoalInputMark                         // 长期目标:状态 / 状态取值 / 气泡标记
+ForkPreview, ForkFileChange, ForkFileEffect, ForkOptions, ForkResult, BranchResult  // Fork:预览 / 文件改动项 / 改动语义 / 选项 / 结果 / 分支结果
+FileChangeItem, FileChangeState, FileChangeStatus, FileDiffResult, Hunk, RevertFileResult  // 会话基线 diff:面板条目 / 状态 / 可比性 / 详情 / hunk / 放弃修改结果
 AgentMode, PermissionLevel, SystemPromptMode                 // Agent 模式 / 权限档位 / 系统提示词模式
 SemaCoreConfig, UpdatableCoreConfig, UpdatableCoreConfigKeys // Core 配置 / 可更新子集 / 可更新键名
 ModelsInput, MCPServerInput, HooksInput                      // host 域内容:模型与指针 / MCP 服务 / hook(事件名 → HookGroupInput[],Java/C# 为 Map/Dictionary)

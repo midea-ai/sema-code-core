@@ -302,6 +302,29 @@ export {
 
 export type { CreateSessionOptions, CreateSessionResult } from './session';
 
+// Fork / 撤销回退：预览、选项与执行结果
+export type {
+  ForkPreview,
+  ForkFileChange,
+  ForkFileEffect,
+  ForkOptions,
+  ForkResult,
+  BranchResult,
+} from './fork';
+
+// 会话基线文件变更：面板清单、单文件 diff 与放弃修改结果
+export type {
+  FileChangeItem,
+  FileChangeState,
+  FileChangeStatus,
+  FileDiffResult,
+  Hunk,
+  RevertFileResult,
+} from './fileChange';
+
+// 用户输入附件（processUserInput 的第三参）
+export type { InputImageAttachment } from './message';
+
 // 磁盘上的完整模型 profile，getModelProfile 返回值
 export type { ModelProfile, ThinkingHistoryPolicy } from './model';
 

@@ -14,8 +14,8 @@
  *   桌面版打包时拷到 dist/resources/chrome，否则取仓库 chrome/.sema（webui/server/dist 上溯三级）。
  */
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+import { getSemaRootDir } from '../semaRoot';
 import type { SessionManager } from '../sessions';
 import type { BrowserControlState } from '../../../shared/types';
 
@@ -33,10 +33,8 @@ function sourceDir(): string {
   return dir;
 }
 
-/** 用户级根目录：与 core 的 getSemaRootDir 同规则（SEMA_ROOT 环境变量，否则 ~/.sema） */
 function userSkillDir(): string {
-  const root = process.env.SEMA_ROOT ? path.resolve(process.env.SEMA_ROOT) : path.join(os.homedir(), '.sema');
-  return path.join(root, 'skills', SKILL_NAME);
+  return path.join(getSemaRootDir(), 'skills', SKILL_NAME);
 }
 
 export function browserControlState(enabled: boolean): BrowserControlState {

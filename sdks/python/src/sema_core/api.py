@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Callable, List, Optional, Union
 from . import events as SemaEvents
 from .constants import PROTOCOL_VERSION
 from .protocol import Registration, SemaBridgeClient, SemaBridgeException
+from .runtime import _sema_root_dir
 from .transport import BridgeConnection
 
 if TYPE_CHECKING:
@@ -153,6 +154,11 @@ class SemaCore:
     async def get_model_adapter(self, provider: str, model_name: str, base_url: str) -> "AdapterType":
         return await self._json("getModelAdapter",
                                 _obj(provider=provider, modelName=model_name, baseURL=base_url))
+
+    @staticmethod
+    def get_sema_root_dir() -> str:
+        """返回内核落盘根目录（SEMA_ROOT 环境变量，缺省 ~/.sema）。"""
+        return str(_sema_root_dir())
 
     # ── 会话 ─────────────────────────────────────────────────────────────
 

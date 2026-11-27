@@ -73,7 +73,7 @@ Sema Core 的核心架构采用进程级门面 + 会话级门面的两层 API：
 | 进程级事件 | `on` / `once` / `off` | 订阅 `cron:update`、`mcp:server:status` |
 | 模型 | `addModel` / `delModel` / `switchModel` / `applyTaskModel` / `getModelData` / `getModelProfile` | 模型 CRUD |
 | 配置 | `updateCoreConfByKey` / `updateCoreConfig` / `updateDisabledTools` | 运行时核心配置调整 |
-| 工具 | `fetchAvailableModels` / `testApiConnection` / `getModelAdapter` / `getToolInfos` | 独立工具函数与工具信息 |
+| 工具 | `fetchAvailableModels` / `testApiConnection` / `getModelAdapter` / `SemaCore.getSemaRootDir` / `getToolInfos` | 独立工具函数与工具信息 |
 | 插件市场 | `addMarketplaceFromGit` ~ `uninstallPlugin` | 插件市场完整管理 |
 | Agent | `getAgentsInfo` / `addAgentConf` / `removeAgentConf` | 子代理配置管理 |
 | Skill | `getSkillsInfo` / `removeSkillConf` | Skill 配置管理 |

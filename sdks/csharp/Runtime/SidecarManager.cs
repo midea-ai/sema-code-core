@@ -66,8 +66,7 @@ public sealed class SidecarManager : IAsyncDisposable
         _workingDir = workingDir ?? Directory.GetCurrentDirectory();
         _nodeProvider = nodeProvider ?? NodeProviders.System();
         _extraEnv = new Dictionary<string, string>(env ?? new Dictionary<string, string>());
-        _extractDir = extractDir ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".sema", "csharp-sdk-sidecar");
+        _extractDir = extractDir ?? Path.Combine(NodeProviders.SemaRootDir(), "csharp-sdk-sidecar");
         _logConsumer = logConsumer;
         _onExit = onExit;
     }

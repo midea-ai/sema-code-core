@@ -68,7 +68,7 @@ public static class NodeProviders
             candidates.Add("/usr/local/bin/node");
             candidates.Add("/usr/bin/node");
         }
-        var cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".sema", "node");
+        var cache = Path.Combine(SemaRootDir(), "node");
         if (Directory.Exists(cache))
         {
             try
@@ -112,15 +112,58 @@ public static class NodeProviders
         return null;
     }
 
-    /// <summary>下载 node 到 <c>~/.sema/node/&lt;ver&gt;/&lt;triple&gt;/</c>，返回其中的可执行文件路径。</summary>
+    /// <summary>
+    /// Sema 根目录（SEMA_ROOT 环境变量优先，缺省 ~/.sema），与 sema-core 规则对齐。
+    /// SEMA_ROOT 仅支持绝对路径或 ~/ 子路径（Windows 兼容 ~\）；无效值打印警告并回落 ~/.sema。
+    /// </summary>
+    internal static string SemaRootDir()
+    {
+        var home = Path.TrimEndingDirectorySeparator(
+            Path.GetFullPath(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
+        var fallback = Path.Combine(home, ".sema");
+        var raw = Environment.GetEnvironmentVariable("SEMA_ROOT")?.Trim();
+        if (string.IsNullOrEmpty(raw))
+            return fallback;
+
+        var normalized = raw;
+        if (OperatingSystem.IsWindows() && normalized.Length >= 2 && normalized[0] == '/'
+            && char.IsAsciiLetter(normalized[1]) && (normalized.Length == 2 || normalized[2] == '/'))
+        {
+            var rest = normalized.Length > 3 ? normalized[3..].Replace('/', '\\') : "";
+            normalized = $"{char.ToUpperInvariant(normalized[1])}:\\{rest}";
+        }
+
+        if (normalized.StartsWith("~/") || (OperatingSystem.IsWindows() && normalized.StartsWith("~\\")))
+        {
+            var sub = OperatingSystem.IsWindows()
+                ? normalized[2..].TrimStart('/', '\\')
+                : normalized[2..].TrimStart('/');
+            if (!string.IsNullOrEmpty(sub))
+            {
+                var resolved = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(home, sub)));
+                var cmp = OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal;
+                if (!string.Equals(resolved, home, cmp))
+                    return resolved;
+            }
+        }
+        else if (Path.IsPathFullyQualified(normalized))
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(normalized));
+        }
+
+        Console.Error.WriteLine($"[sema] SEMA_ROOT 仅支持绝对路径或 ~/ 子路径，已忽略无效值 \"{raw}\" 并回落到 {fallback}");
+        return fallback;
+    }
+
+    /// <summary>下载 node 到 <c>&lt;semaRoot&gt;/node/&lt;ver&gt;/&lt;triple&gt;/</c>，返回其中的可执行文件路径。</summary>
     private static string DownloadNode()
     {
         var triple = TripleFor()
             ?? throw new IOException($"不支持的平台: {Environment.OSVersion.Platform}/"
                 + global::System.Runtime.InteropServices.RuntimeInformation.OSArchitecture);
-        var cacheDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".sema", "node", NodeVersion, triple);
+        var cacheDir = Path.Combine(SemaRootDir(), "node", NodeVersion, triple);
 
         var base_ = (Environment.GetEnvironmentVariable("SEMA_NODE_BASE_URL") ?? DefaultBase).TrimEnd('/');
         var zip = OperatingSystem.IsWindows();

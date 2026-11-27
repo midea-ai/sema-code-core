@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipInputStream;
 
@@ -24,16 +26,65 @@ public final class Provisioner {
     public static final boolean IS_X64 =
             ARCH.contains("amd64") || ARCH.contains("x86_64") || ARCH.equals("x64");
 
+    private static final System.Logger LOG = System.getLogger(Provisioner.class.getName());
+
     private static volatile boolean loginPathResolved;
     private static volatile String loginPathCached;
 
     private Provisioner() {
     }
 
-    /** {@code ~/.sema} 私有缓存根。 */
+    /**
+     * Sema 根目录（SEMA_ROOT 环境变量优先，缺省 {@code ~/.sema}），与 sema-core 规则对齐。
+     * SEMA_ROOT 仅支持绝对路径或 {@code ~/} 子路径（Windows 兼容 {@code ~\}）；无效值打印警告并回落 {@code ~/.sema}。
+     */
     public static File semaHome() {
-        String home = System.getProperty("user.home");
-        return home == null ? null : new File(home, ".sema");
+        String homeProp = System.getProperty("user.home");
+        File fallback = homeProp == null ? null : Path.of(homeProp).toAbsolutePath().normalize().resolve(".sema").toFile();
+        String raw = System.getenv("SEMA_ROOT");
+        if (raw == null) return fallback;
+        raw = raw.trim();
+        if (raw.isEmpty()) return fallback;
+
+        String normalized = raw;
+        if (IS_WINDOWS && normalized.length() >= 2 && normalized.charAt(0) == '/'
+                && Character.isLetter(normalized.charAt(1))
+                && (normalized.length() == 2 || normalized.charAt(2) == '/')) {
+            String rest = normalized.length() > 3 ? normalized.substring(3).replace('/', '\\') : "";
+            normalized = Character.toUpperCase(normalized.charAt(1)) + ":\\" + rest;
+        }
+
+        try {
+            if (normalized.startsWith("~/") || (IS_WINDOWS && normalized.startsWith("~\\"))) {
+                String sub = normalized.substring(2);
+                int i = 0;
+                while (i < sub.length() && (sub.charAt(i) == '/' || (IS_WINDOWS && sub.charAt(i) == '\\'))) {
+                    i++;
+                }
+                sub = sub.substring(i);
+                if (!sub.isEmpty() && homeProp != null) {
+                    Path homePath = Path.of(homeProp).toAbsolutePath().normalize();
+                    Path resolved = homePath.resolve(sub).toAbsolutePath().normalize();
+                    boolean sameAsHome = IS_WINDOWS
+                            ? resolved.toString().equalsIgnoreCase(homePath.toString())
+                            : resolved.equals(homePath);
+                    if (!sameAsHome) {
+                        return resolved.toFile();
+                    }
+                }
+            } else {
+                File candidate = new File(normalized);
+                if (candidate.isAbsolute()) {
+                    return candidate.toPath().toAbsolutePath().normalize().toFile();
+                }
+            }
+        } catch (InvalidPathException ignored) {
+            // 落到下方警告并回落默认目录
+        }
+
+        LOG.log(System.Logger.Level.WARNING,
+                "[sema] SEMA_ROOT 仅支持绝对路径或 ~/ 子路径，已忽略无效值 \"" + raw + "\" 并回落到 " + fallback);
+        return fallback;
     }
 
     /**

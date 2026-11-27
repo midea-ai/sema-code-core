@@ -166,6 +166,10 @@ public sealed class SemaCore : IAsyncDisposable
         => Call<AdapterType?>("getModelAdapter",
             Json.Obj(("provider", provider), ("modelName", modelName), ("baseURL", baseURL)));
 
+    /// <summary>返回内核落盘根目录（SEMA_ROOT 环境变量，缺省 ~/.sema）。</summary>
+    public static string GetSemaRootDir()
+        => NodeProviders.SemaRootDir();
+
     // ── 会话 ─────────────────────────────────────────────────────────────
 
     public async Task<List<string>> ListSessions()

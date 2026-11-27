@@ -1,6 +1,7 @@
+import * as os from 'os';
 import * as path from 'path';
 import { getDayTimeString } from './time';
-import { expandHome, unixDriveToNative } from './platform';
+import { IS_WIN, expandHome, normalizeCmpPath, unixDriveToNative } from './platform';
 import {
   SEMA_ROOT,
   MODEL_CONF_FILE_PATH,
@@ -16,18 +17,49 @@ import {
 
 let _semaRootDir: string | undefined;
 
+function isAbsoluteSemaRoot(p: string): boolean {
+  if (!IS_WIN) return path.isAbsolute(p);
+  // Windows 要求带盘符根（C:\ 或 C:/）或 UNC 根（\\server\...），拒绝 \foo / C:foo 等非完整绝对路径
+  return /^[A-Za-z]:[/\\]/.test(p) || /^[/\\]{2}[^/\\]/.test(p);
+}
+
 /**
  * 获取 Sema 根目录路径
- * 默认为 ~/.sema，可通过环境变量 SEMA_ROOT 自定义
+ * 默认为 ~/.sema，可通过环境变量 SEMA_ROOT 自定义（仅支持绝对路径或 ~/ 子路径，Windows 兼容 ~\；无效值警告并回落 ~/.sema）
  * 跨平台兼容：Windows、macOS、Linux
  */
 export function getSemaRootDir(): string {
   if (!_semaRootDir) {
-    const customRoot = process.env.SEMA_ROOT;
-    _semaRootDir = customRoot
-      ? path.resolve(unixDriveToNative(customRoot))
-      : expandHome(SEMA_ROOT);
-    // console.log('[getSemaRootDir]', _semaRootDir);
+    const fallback = expandHome(SEMA_ROOT);
+    const customRoot = process.env.SEMA_ROOT?.trim();
+    if (!customRoot) {
+      _semaRootDir = fallback;
+    } else {
+      const normalized = unixDriveToNative(customRoot);
+      let resolved: string | undefined;
+
+      if (normalized.startsWith('~/') || (IS_WIN && normalized.startsWith('~\\'))) {
+        const sub = normalized.slice(2).replace(IS_WIN ? /^[/\\]+/ : /^\/+/, '');
+        if (sub) {
+          const home = path.resolve(os.homedir());
+          const candidate = path.resolve(path.join(home, sub));
+          if (normalizeCmpPath(candidate) !== normalizeCmpPath(home)) {
+            resolved = candidate;
+          }
+        }
+      } else if (isAbsoluteSemaRoot(normalized)) {
+        resolved = path.resolve(normalized);
+      }
+
+      if (resolved) {
+        _semaRootDir = resolved;
+      } else {
+        console.warn(
+          `[sema-core] SEMA_ROOT 仅支持绝对路径或 ~/ 子路径，已忽略无效值 "${customRoot}" 并回落到 ${fallback}`
+        );
+        _semaRootDir = fallback;
+      }
+    }
   }
   return _semaRootDir;
 }

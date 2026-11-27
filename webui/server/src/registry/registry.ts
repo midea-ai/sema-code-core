@@ -8,9 +8,10 @@ import os from 'os';
 import { randomUUID } from 'crypto';
 import { DEFAULT_PERMISSION_LEVEL, DEFAULT_SYSTEM_PROMPT, PREVENT_SLEEP_MODES, normalizeLevel } from '../../../shared/types';
 import { DEFAULT_LANG, defaultCustomRules, isBuiltinCustomRules, normalizeLang } from '../../../shared/lang';
+import { WEBUI_HOME } from '../semaRoot';
 import type { Registry, ProjectRecord, SessionRecord, WebUISettings, AgentMode, PermissionLevel } from '../../../shared/types';
 
-export const WEBUI_HOME = path.join(os.homedir(), '.sema', 'webui');
+export { WEBUI_HOME };
 export const TRANSCRIPT_DIR = path.join(WEBUI_HOME, 'transcripts');
 export const SEMA_DOCS_ROOT = path.join(os.homedir(), 'Documents', 'Sema');
 /** 进程级操作（模型配置等）专用的中性工作目录：放在 ~/.sema 下，避开 macOS 对 Documents 的访问授权限制 */

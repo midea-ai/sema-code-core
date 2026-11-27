@@ -199,7 +199,7 @@ package.json 提供了多个导出入口：
 | `~/.sema/event/` | 事件日志 |
 | `~/.sema/cache/shell-<envHash>.json` | Windows shell 探测结果缓存（跨进程复用） |
 
-> Sema 根目录可通过环境变量 `SEMA_ROOT` 自定义。
+> Sema 根目录可通过环境变量 `SEMA_ROOT` 自定义（仅支持绝对路径或 `~/` 子路径，Windows 兼容 `~\`；传入相对路径、单独 `~` / `~/` 等无效值时打印警告并回落到 `~/.sema`）。
 
 ## 构建与开发
 

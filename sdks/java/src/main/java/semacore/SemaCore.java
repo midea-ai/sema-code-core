@@ -6,10 +6,12 @@ import com.google.gson.reflect.TypeToken;
 import semacore.protocol.Registration;
 import semacore.protocol.SemaBridgeClient;
 import semacore.protocol.SemaBridgeException;
+import semacore.runtime.Provisioner;
 import semacore.runtime.SidecarManager;
 import semacore.transport.BridgeConnection;
 import semacore.type.*;
 
+import java.io.File;
 import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -215,6 +217,12 @@ public final class SemaCore implements AutoCloseable {
 
     public AdapterType getModelAdapter(String provider, String modelName, String baseURL) {
         return call("getModelAdapter", Json.obj("provider", provider, "modelName", modelName, "baseURL", baseURL), AdapterType.class);
+    }
+
+    /** 返回内核落盘根目录（SEMA_ROOT 环境变量，缺省 ~/.sema）。 */
+    public static String getSemaRootDir() {
+        File home = Provisioner.semaHome();
+        return home != null ? home.getAbsolutePath() : Path.of(".sema").toAbsolutePath().toString();
     }
 
     // ── 会话 ─────────────────────────────────────────────────────────────

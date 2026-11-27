@@ -6,12 +6,12 @@
  * - 写入异步且串行，避免采样本身抬高事件循环延迟；写失败静默，不能反过来影响服务
  */
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { monitorEventLoopDelay, type IntervalHistogram } from 'perf_hooks';
+import { WEBUI_HOME } from './semaRoot';
 
 const ENABLED = process.env.SEMA_WEBUI_PERF === '1';
-const PERF_LOG = path.join(os.homedir(), '.sema', 'webui', 'perf.log');
+const PERF_LOG = path.join(WEBUI_HOME, 'perf.log');
 /** 单文件上限：约等于每秒一行连续跑一天的体积 */
 const MAX_BYTES = 5 * 1024 * 1024;
 /** 每写多少行检查一次大小（写满 5MB 才轮转，不逐行 stat） */

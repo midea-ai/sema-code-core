@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { SessionManager } from '../sessions';
 import { logErr } from '../errlog';
 import { SEMA_DOCS_ROOT, WEBUI_HOME, removeEmptyDateParent } from '../registry/registry';
+import { getSemaRootDir } from '../semaRoot';
 import { searchFiles } from '../files/search';
 import { readFileInDir, listDir, resolvePath, statPaths, rawFileInDir } from '../files/read';
 import { savePastedText, removePastedText } from '../files/attachments';
@@ -241,8 +242,7 @@ export class Router {
     this.add('GET', '/api/projects/:id/input-history', (_r, _s, p) => {
       const proj = reg.getProject(p.id); if (!proj) throw new Error('项目不存在');
       try {
-        const semaRoot = process.env.SEMA_ROOT ? path.resolve(process.env.SEMA_ROOT) : path.dirname(WEBUI_HOME);
-        const conf = JSON.parse(fs.readFileSync(path.join(semaRoot, 'projects.conf'), 'utf8'));
+        const conf = JSON.parse(fs.readFileSync(path.join(getSemaRootDir(), 'projects.conf'), 'utf8'));
         const h = conf?.[proj.workingDir]?.history;
         return Array.isArray(h) ? h.filter((x: unknown): x is string => typeof x === 'string' && !!x) : [];
       } catch { return []; }

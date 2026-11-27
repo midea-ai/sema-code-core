@@ -13,6 +13,7 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { logErr } from '../errlog';
+import { getSemaRootDir } from '../semaRoot';
 import type { EcoItem, EcoInstalled, EcoInstalledSkill, EcoInstalledMcp } from '../../../shared/types';
 
 const execFileP = promisify(execFile);
@@ -22,13 +23,9 @@ const execFileP = promisify(execFile);
 const RESOURCES_DIR = [path.join(__dirname, 'resources'), path.join(__dirname, '..', '..', 'resources')].find(d => fs.existsSync(path.join(d, 'skills')))
   || path.join(__dirname, '..', '..', 'resources');
 
-/** 用户级根目录：与 core 的 getSemaRootDir 同规则（SEMA_ROOT 环境变量，否则 ~/.sema） */
-function semaRoot(): string {
-  return process.env.SEMA_ROOT ? path.resolve(process.env.SEMA_ROOT) : path.join(os.homedir(), '.sema');
-}
-const userSkillDir = (id: string) => path.join(semaRoot(), 'skills', id);
-const userMcpFile = () => path.join(semaRoot(), '.mcp.json');
-const userSettingsFile = () => path.join(semaRoot(), 'settings.json');
+const userSkillDir = (id: string) => path.join(getSemaRootDir(), 'skills', id);
+const userMcpFile = () => path.join(getSemaRootDir(), '.mcp.json');
+const userSettingsFile = () => path.join(getSemaRootDir(), 'settings.json');
 
 /** defaultInstall = 服务端启动时自动装到用户级、升级后首次启动按安装包覆盖（见 syncDefaultSkills），仅对 skill 生效 */
 interface Card { name?: string; description?: string; category?: string; order?: number; defaultInstall?: boolean }
@@ -384,7 +381,7 @@ export function listInstalled(): EcoInstalled {
   }
   const disabledSkills = readDisabledSet('disabledSkills');
   const skills: EcoInstalledSkill[] = [];
-  const skillsRoot = path.join(semaRoot(), 'skills');
+  const skillsRoot = path.join(getSemaRootDir(), 'skills');
   if (fs.existsSync(skillsRoot)) {
     for (const e of fs.readdirSync(skillsRoot, { withFileTypes: true })) {
       if (!e.isDirectory()) continue;
@@ -441,7 +438,7 @@ export function removeInstalled(kind: 'skill' | 'mcp', id: string): true {
 
 /** 用户级技能根目录：插件页文件窗口（伪作用域 ~skills）的根 */
 export function userSkillsRoot(): string {
-  return path.join(semaRoot(), 'skills');
+  return path.join(getSemaRootDir(), 'skills');
 }
 
 /** 用户级 settings 的 enabledMcpServerUseTools（core 语义：无记录 = 全部可用） */

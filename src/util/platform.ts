@@ -15,9 +15,9 @@ export const IS_LINUX = !IS_WIN && !IS_MAC
  */
 export function unixDriveToNative(p: string): string {
   if (!IS_WIN) return p
-  const match = /^\/([a-zA-Z])\/(.*)/.exec(p)
+  const match = /^\/([a-zA-Z])(?:\/(.*))?$/.exec(p)
   if (!match) return p
-  return `${match[1].toUpperCase()}:\\${match[2].replace(/\//g, '\\')}`
+  return `${match[1].toUpperCase()}:\\${(match[2] ?? '').replace(/\//g, '\\')}`
 }
 
 /**
@@ -45,7 +45,7 @@ export function nativeToShellPath(p: string, type: 'posix' | 'msys' | 'wsl'): st
  */
 export function expandHome(p: string): string {
   if (p === '~') return os.homedir()
-  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2))
+  if (p.startsWith('~/') || (IS_WIN && p.startsWith('~\\'))) return path.join(os.homedir(), p.slice(2))
   return path.resolve(p)
 }
 

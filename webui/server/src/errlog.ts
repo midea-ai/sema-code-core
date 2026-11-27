@@ -6,11 +6,11 @@
  * 同步写，进程崩溃前能落盘；写失败静默，日志不能反过来把服务弄挂。
  */
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+import { WEBUI_HOME } from './semaRoot';
 
 /** 与 registry.ts 的 WEBUI_HOME 同目录；这里不引 registry，桌面版主进程也要用 */
-export const ERROR_LOG = path.join(os.homedir(), '.sema', 'webui', 'error.log');
+export const ERROR_LOG = path.join(WEBUI_HOME, 'error.log');
 
 /** 清空并写启动头；每个宿主进程生命周期调一次 */
 export function initErrorLog(host: string, version?: string): void {

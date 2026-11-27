@@ -4,6 +4,7 @@ import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+import { SemaCore } from 'sema-core';
 
 /**
  * ripgrep 兜底供应（跨语言共享的唯一实现——桥运行时 node 已就绪，rg 供应放这里
@@ -187,7 +188,7 @@ export async function ensureRg(): Promise<void> {
     console.warn(`[sema-grpc] 不支持的平台，无法准备 ripgrep: ${process.platform}/${process.arch}`);
     return;
   }
-  const cacheDir = path.join(os.homedir(), '.sema', 'rg', RG_VERSION, asset.triple);
+  const cacheDir = path.join(SemaCore.getSemaRootDir(), 'rg', RG_VERSION, asset.triple);
   if (canExecute(path.join(cacheDir, RG_NAME))) {
     prependPath(cacheDir);
     return;

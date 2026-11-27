@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+import warnings
 from importlib import resources
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -34,8 +35,40 @@ _NODE_VERSION = "20.18.0"  # LTS；与 Java / C# SDK 写死同值，升级时三
 _NODE_DEFAULT_BASE = "https://nodejs.org/dist"
 _COMMON_NODE_PATHS = (
     "/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node",
-    os.path.expanduser(f"~/.sema/node/{_NODE_VERSION}"),
 )
+
+
+def _sema_root_dir() -> Path:
+    """返回 Sema 根目录（SEMA_ROOT 环境变量优先，缺省 ~/.sema），与 sema-core 规则对齐。
+
+    SEMA_ROOT 仅支持绝对路径或 ~/ 子路径（Windows 兼容 ~\\）；无效值打印警告并回落 ~/.sema。
+    """
+    home = Path(os.path.abspath(Path.home()))
+    fallback = home / ".sema"
+    raw = (os.environ.get("SEMA_ROOT") or "").strip()
+    if not raw:
+        return fallback
+    normalized = raw
+    if sys.platform == "win32":
+        m = re.match(r"^/([a-zA-Z])(?:/(.*))?$", normalized)
+        if m:
+            rest = (m.group(2) or "").replace("/", "\\")
+            normalized = f"{m.group(1).upper()}:\\{rest}"
+    if normalized.startswith("~/") or (sys.platform == "win32" and normalized.startswith("~\\")):
+        sub = normalized[2:].lstrip("/\\" if sys.platform == "win32" else "/")
+        if sub:
+            resolved = Path(os.path.abspath(home / sub))
+            if os.path.normcase(str(resolved)) != os.path.normcase(str(home)):
+                return resolved
+    elif Path(normalized).is_absolute():
+        return Path(os.path.abspath(normalized))
+    warnings.warn(
+        f'[sema] SEMA_ROOT 仅支持绝对路径或 ~/ 子路径，已忽略无效值 "{raw}" 并回落到 {fallback}',
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    return fallback
+
 
 NodeProvider = Callable[[], str]
 """返回可用 node 可执行文件路径；宿主可注入自带下载/缓存逻辑的实现。"""
@@ -50,17 +83,17 @@ def system_node_provider() -> str:
     found = shutil.which("node", path=_login_shell_path())
     if found:
         candidates.append(found)
-    for p in _COMMON_NODE_PATHS:
+    for p in (*_COMMON_NODE_PATHS, str(_sema_root_dir() / "node" / _NODE_VERSION)):
         path = Path(p)
         if path.is_file():
             candidates.append(str(path))
-        elif path.is_dir():  # ~/.sema/node 缓存布局：<ver>/<triple>/bin/node
+        elif path.is_dir():  # <semaRoot>/node 缓存布局：<ver>/<triple>/bin/node
             candidates.extend(str(f) for f in path.glob("*/bin/node"))
             candidates.extend(str(f) for f in path.glob("*/**/node.exe"))
     for node in candidates:
         if _node_major(node) >= 18:
             return node
-    # 都未命中才下载（一次性，落 ~/.sema/node 缓存后上面即可命中）
+    # 都未命中才下载（一次性，落 <semaRoot>/node 缓存后上面即可命中）
     try:
         return _download_node()
     except Exception as e:
@@ -84,9 +117,9 @@ def _node_asset() -> tuple[str, bool]:
 
 
 def _download_node() -> str:
-    """下载 node 到 ~/.sema/node/<ver>/<triple>/，返回其中的可执行文件路径。"""
+    """下载 node 到 <semaRoot>/node/<ver>/<triple>/，返回其中的可执行文件路径。"""
     triple, is_zip = _node_asset()
-    cache_dir = Path.home() / ".sema" / "node" / _NODE_VERSION / triple
+    cache_dir = _sema_root_dir() / "node" / _NODE_VERSION / triple
     base = (os.environ.get("SEMA_NODE_BASE_URL") or _NODE_DEFAULT_BASE).rstrip("/")
     file_name = f"node-v{_NODE_VERSION}-{triple}.{'zip' if is_zip else 'tar.gz'}"
     url = f"{base}/v{_NODE_VERSION}/{file_name}"
@@ -282,12 +315,12 @@ class SidecarManager:
 
     @staticmethod
     def _extract_bundled_sidecar() -> Optional[Path]:
-        """包内捆绑产物释放到 ~/.sema/python-sdk-sidecar（≙ Java extractBundledSidecar）。"""
+        """包内捆绑产物释放到 <semaRoot>/python-sdk-sidecar（≙ Java extractBundledSidecar）。"""
         pkg = resources.files("sema_core")
         server = pkg / "_sidecar" / "server.js"
         if not server.is_file():
             return None
-        target = Path.home() / ".sema" / "python-sdk-sidecar"
+        target = _sema_root_dir() / "python-sdk-sidecar"
         (target / "proto").mkdir(parents=True, exist_ok=True)
         (target / "server.js").write_bytes(server.read_bytes())
         proto = pkg / "_sidecar" / "proto" / "sema.proto"

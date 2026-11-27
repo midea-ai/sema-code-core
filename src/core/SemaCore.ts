@@ -37,6 +37,7 @@ import { ProcessEvent } from '../events/types';
 import { logInfo } from '../util/log';
 import { flushLinesSync } from '../util/lineWriter';
 import { getShellRuntimeInfoAsync, PersistentShell } from '../util/shell';
+import { getSemaRootDir as resolveSemaRootDir } from '../util/savePath';
 import { maskForLog } from '../conf/hostConfig';
 import { errorCodeOf } from '../util/errors';
 
@@ -151,6 +152,8 @@ export class SemaCore {
   fetchAvailableModels = (params: FetchModelsParams): Promise<FetchModelsResult> => fetchModels(params);
   testApiConnection = (params: ApiTestParams): Promise<ApiTestResult> => testApiConnection(params);
   getModelAdapter = (provider: string, modelName: string, baseURL: string) => inferAdapter({ provider, modelName, baseURL });
+  // 与内核落盘产物同根（SEMA_ROOT 环境变量，缺省 ~/.sema）：宿主自建技能缓存、rg 缓存、粘贴附件等目录时用它拼路径
+  static getSemaRootDir = (): string => resolveSemaRootDir();
   // 删除指定项目的全部历史与快照目录（外部主动清理，如 webui 会话级项目退场）；projectPath 缺省为 core 的 workingDir
   deleteProjectHistory = (projectPath?: string): void => deleteProjectHistory(projectPath);
   // 删除单个会话的历史文件（无日期与任意日期命名均清理）；projectPath 缺省为 core 的 workingDir

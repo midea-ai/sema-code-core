@@ -70,8 +70,10 @@ public final class SidecarManager implements AutoCloseable {
         this.nodeProvider = b.nodeProvider != null ? b.nodeProvider : NodeProviders.system();
         this.extraEnv = b.env;
         this.prependPath = b.prependPath;
+        File semaHome = Provisioner.semaHome();
         this.extractDir = b.extractDir != null ? b.extractDir
-                : Path.of(System.getProperty("user.home"), ".sema", "java-sdk-sidecar");
+                : (semaHome != null ? semaHome.toPath() : Path.of(System.getProperty("user.home"), ".sema"))
+                        .resolve("java-sdk-sidecar");
         this.logConsumer = b.logConsumer;
         this.onExit = b.onExit;
     }

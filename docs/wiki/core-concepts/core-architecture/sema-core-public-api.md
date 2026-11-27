@@ -117,6 +117,9 @@ testApiConnection(params: ApiTestParams): Promise<ApiTestResult>
 
 // 解析提供商 + 模型名 + baseURL 对应的适配器
 getModelAdapter(provider: string, modelName: string, baseURL: string)
+
+// 返回内核落盘根目录（SEMA_ROOT 环境变量，缺省 ~/.sema，仅支持绝对路径或 ~/ 子路径，无效值警告并回落 ~/.sema）
+SemaCore.getSemaRootDir(): string
 ```
 
 ## 配置管理
